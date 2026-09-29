@@ -1,0 +1,418 @@
+diff --git a/src/main/java/org/apache/commons/lang3/Conversion.java b/src/main/java/org/apache/commons/lang3/Conversion.java
+index 91131ad83..a7075925e 100644
+--- a/src/main/java/org/apache/commons/lang3/Conversion.java
++++ b/src/main/java/org/apache/commons/lang3/Conversion.java
+@@ -689,15 +689,7 @@ public class Conversion {
+             throw new IllegalArgumentException(
+                 "(nInts-1)*32+dstPos is greather or equal to than 64");
+         }
+-        long out = dstInit;
+-        int shift = 0;
+-        for (int i = 0; i < nInts; i++ ) {
+-            shift = i * 32 + dstPos;
+-            final long bits = ((0xffffffffL & src[i + srcPos]) << shift);
+-            final long mask = 0xffffffffL << shift;
+-            out = (out & ~mask) | bits;
+-        }
+-        return out;
++        return Packers.forSource(src).pack(src, srcPos, dstInit, dstPos, nInts);
+     }
+ 
+     /**
+@@ -726,15 +718,7 @@ public class Conversion {
+             throw new IllegalArgumentException(
+                 "(nShorts-1)*16+dstPos is greather or equal to than 64");
+         }
+-        long out = dstInit;
+-        int shift = 0;
+-        for (int i = 0; i < nShorts; i++ ) {
+-            shift = i * 16 + dstPos;
+-            final long bits = (0xffffL & src[i + srcPos]) << shift;
+-            final long mask = 0xffffL << shift;
+-            out = (out & ~mask) | bits;
+-        }
+-        return out;
++        return Packers.forSource(src).pack(src, srcPos, dstInit, dstPos, nShorts);
+     }
+ 
+     /**
+@@ -800,15 +784,7 @@ public class Conversion {
+             throw new IllegalArgumentException(
+                 "(nBytes-1)*8+dstPos is greather or equal to than 64");
+         }
+-        long out = dstInit;
+-        int shift = 0;
+-        for (int i = 0; i < nBytes; i++ ) {
+-            shift = i * 8 + dstPos;
+-            final long bits = (0xffL & src[i + srcPos]) << shift;
+-            final long mask = 0xffL << shift;
+-            out = (out & ~mask) | bits;
+-        }
+-        return out;
++        return Packers.forSource(src).pack(src, srcPos, dstInit, dstPos, nBytes);
+     }
+ 
+     /**
+@@ -907,15 +883,7 @@ public class Conversion {
+             throw new IllegalArgumentException(
+                 "(nHexs-1)*4+dstPos is greather or equal to than 64");
+         }
+-        long out = dstInit;
+-        int shift = 0;
+-        for (int i = 0; i < nHex; i++ ) {
+-            shift = i * 4 + dstPos;
+-            final long bits = (0xfL & hexDigitToInt(src.charAt(i + srcPos))) << shift;
+-            final long mask = 0xfL << shift;
+-            out = (out & ~mask) | bits;
+-        }
+-        return out;
++        return Packers.forSource(src).pack(src, srcPos, dstInit, dstPos, nHex);
+     }
+ 
+     /**
+@@ -1046,15 +1014,7 @@ public class Conversion {
+             throw new IllegalArgumentException(
+                 "nBools-1+dstPos is greather or equal to than 64");
+         }
+-        long out = dstInit;
+-        int shift = 0;
+-        for (int i = 0; i < nBools; i++ ) {
+-            shift = i * 1 + dstPos;
+-            final long bits = (src[i + srcPos] ? 1L : 0) << shift;
+-            final long mask = 0x1L << shift;
+-            out = (out & ~mask) | bits;
+-        }
+-        return out;
++        return Packers.forSource(src).pack(src, srcPos, dstInit, dstPos, nBools);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/Packer.java b/src/main/java/org/apache/commons/lang3/Packer.java
+new file mode 100644
+index 000000000..afca320b7
+--- /dev/null
++++ b/src/main/java/org/apache/commons/lang3/Packer.java
+@@ -0,0 +1,41 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.commons.lang3;
++
++/**
++ * <p>Packs a run of source elements into a {@code long} holder.</p>
++ *
++ * <p>Implementations are selected by {@link Packers#forSource(Object)} according to the
++ * element type of the source.</p>
++ *
++ * @since 3.2
++ */
++public interface Packer {
++
++    /**
++     * <p>Packs {@code count} elements of {@code source}, starting at {@code sourcePos}, into
++     * {@code holder} starting at bit {@code holderPos}.</p>
++     *
++     * @param source the source to read from
++     * @param sourcePos the index of the first element to read
++     * @param holder the initial value of the holder
++     * @param holderPos the position in the holder of the first element
++     * @param count the number of elements to pack
++     * @return the holder with the elements packed
++     */
++    long pack(Object source, int sourcePos, long holder, int holderPos, int count);
++}
+diff --git a/src/main/java/org/apache/commons/lang3/Packer1.java b/src/main/java/org/apache/commons/lang3/Packer1.java
+new file mode 100644
+index 000000000..ce6998285
+--- /dev/null
++++ b/src/main/java/org/apache/commons/lang3/Packer1.java
+@@ -0,0 +1,38 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.commons.lang3;
++
++/**
++ * <p>Packs {@code boolean} values, one bit each.</p>
++ *
++ * @since 3.2
++ */
++final class Packer1 implements Packer {
++
++    public long pack(final Object source, final int sourcePos, final long holder, final int holderPos, final int count) {
++        final boolean[] src = (boolean[]) source;
++        long out = holder;
++        int shift = 0;
++        for (int i = 0; i < count; i++) {
++            shift = i + holderPos;
++            final long bits = (0x1L & (src[i + sourcePos] ? 1 : 0)) << shift;
++            final long mask = 0x1L << shift;
++            out = (out & ~mask) | bits;
++        }
++        return out;
++    }
++}
+diff --git a/src/main/java/org/apache/commons/lang3/Packer16.java b/src/main/java/org/apache/commons/lang3/Packer16.java
+new file mode 100644
+index 000000000..002f3ce57
+--- /dev/null
++++ b/src/main/java/org/apache/commons/lang3/Packer16.java
+@@ -0,0 +1,38 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.commons.lang3;
++
++/**
++ * <p>Packs {@code short} values, 16 bits each.</p>
++ *
++ * @since 3.2
++ */
++final class Packer16 implements Packer {
++
++    public long pack(final Object source, final int sourcePos, final long holder, final int holderPos, final int count) {
++        final short[] src = (short[]) source;
++        long out = holder;
++        int shift = 0;
++        for (int i = 0; i < count; i++) {
++            shift = (i << 4) + holderPos;
++            final long bits = (0xffffL & src[i + sourcePos]) << shift;
++            final long mask = 0xffffL << shift;
++            out = (out & ~mask) | bits;
++        }
++        return out;
++    }
++}
+diff --git a/src/main/java/org/apache/commons/lang3/Packer32.java b/src/main/java/org/apache/commons/lang3/Packer32.java
+new file mode 100644
+index 000000000..4154d1d68
+--- /dev/null
++++ b/src/main/java/org/apache/commons/lang3/Packer32.java
+@@ -0,0 +1,38 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.commons.lang3;
++
++/**
++ * <p>Packs {@code int} values, 32 bits each.</p>
++ *
++ * @since 3.2
++ */
++final class Packer32 implements Packer {
++
++    public long pack(final Object source, final int sourcePos, final long holder, final int holderPos, final int count) {
++        final int[] src = (int[]) source;
++        long out = holder;
++        int shift = 0;
++        for (int i = 0; i < count; i++) {
++            shift = (i + holderPos) * 32;
++            final long bits = (0xffffffffL & src[i + sourcePos]) << shift;
++            final long mask = 0xffffffffL << shift;
++            out = (out & ~mask) | bits;
++        }
++        return out;
++    }
++}
+diff --git a/src/main/java/org/apache/commons/lang3/Packer4.java b/src/main/java/org/apache/commons/lang3/Packer4.java
+new file mode 100644
+index 000000000..bf1bd5ac1
+--- /dev/null
++++ b/src/main/java/org/apache/commons/lang3/Packer4.java
+@@ -0,0 +1,38 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.commons.lang3;
++
++/**
++ * <p>Packs hexadecimal digits, 4 bits each.</p>
++ *
++ * @since 3.2
++ */
++final class Packer4 implements Packer {
++
++    public long pack(final Object source, final int sourcePos, final long holder, final int holderPos, final int count) {
++        final String src = (String) source;
++        long out = holder;
++        int shift = 0;
++        for (int i = 0; i < count; i++) {
++            shift = i * 4 + holderPos;
++            final long bits = (0xfL & Conversion.hexDigitToInt(src.charAt(i + sourcePos))) << shift;
++            final long mask = 0xfL << shift;
++            out = (out & ~mask) | bits;
++        }
++        return out;
++    }
++}
+diff --git a/src/main/java/org/apache/commons/lang3/Packer8.java b/src/main/java/org/apache/commons/lang3/Packer8.java
+new file mode 100644
+index 000000000..f1fd9f986
+--- /dev/null
++++ b/src/main/java/org/apache/commons/lang3/Packer8.java
+@@ -0,0 +1,38 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.commons.lang3;
++
++/**
++ * <p>Packs {@code byte} values, 8 bits each.</p>
++ *
++ * @since 3.2
++ */
++final class Packer8 implements Packer {
++
++    public long pack(final Object source, final int sourcePos, final long holder, final int holderPos, final int count) {
++        final byte[] src = (byte[]) source;
++        long out = holder;
++        int shift = 0;
++        for (int i = 0; i < count; i++) {
++            shift = i * 8 + holderPos;
++            final long bits = (0xffL & src[i + sourcePos]) << shift;
++            final long mask = 0xffL << shift;
++            out = (out & ~mask) | bits;
++        }
++        return out;
++    }
++}
+diff --git a/src/main/java/org/apache/commons/lang3/Packers.java b/src/main/java/org/apache/commons/lang3/Packers.java
+new file mode 100644
+index 000000000..13555ff56
+--- /dev/null
++++ b/src/main/java/org/apache/commons/lang3/Packers.java
+@@ -0,0 +1,56 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.commons.lang3;
++
++import java.util.HashMap;
++import java.util.Map;
++
++/**
++ * <p>Registry of {@link Packer} implementations keyed by the source type they accept.</p>
++ *
++ * @since 3.2
++ */
++public final class Packers {
++
++    private static final Map<Class<?>, Packer> REGISTRY = new HashMap<Class<?>, Packer>();
++
++    static {
++        REGISTRY.put(short[].class, new Packer16());
++        REGISTRY.put(String.class, new Packer4());
++        REGISTRY.put(boolean[].class, new Packer1());
++        REGISTRY.put(byte[].class, new Packer8());
++        REGISTRY.put(int[].class, new Packer32());
++    }
++
++    private Packers() {
++    }
++
++    /**
++     * <p>Returns the packer registered for the runtime type of {@code source}.</p>
++     *
++     * @param source the source that will be packed
++     * @return the packer for its type
++     * @throws IllegalArgumentException if no packer is registered for the type
++     */
++    public static Packer forSource(final Object source) {
++        final Packer packer = REGISTRY.get(source.getClass());
++        if (packer == null) {
++            throw new IllegalArgumentException("no packer for " + source.getClass().getName());
++        }
++        return packer;
++    }
++}
