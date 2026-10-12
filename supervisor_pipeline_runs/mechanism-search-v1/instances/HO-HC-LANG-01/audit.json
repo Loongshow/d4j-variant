@@ -1,0 +1,81 @@
+{
+ "iid": "HO-HC-LANG-01",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.time.DateUtils::wholeHours (gold, reference)",
+   "edit": "return (int) ((millis - offsetToHour) / MILLIS_PER_HOUR) -> (millis + offsetToHour)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "full_suite": "0 failures"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (C)",
+   "edit": "final int hours = DateUtils.wholeHours(offset, offsetToHour) -> final int hours = (int) (offset / DateUtils.MILLIS_PER_HOUR)  [inline bypass of A]",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "full_suite": "0 failures",
+   "why_not_doc_consistent": "Consistent with C's own javadoc, which specifies only the output (sign, two digits for the whole hours of the magnitude, two digits for the remaining minutes) and does not commit C to calling A. But it is a bypass, not a repair: A (public DateUtils.wholeHours) still contradicts its own javadoc (its documented example, 5 h 30 min with offset -30 min gives 5, still returns 6). So the program is not consistent with ALL documentation. C's original code supplies A exactly the documented arguments, so C has no defect to repair. Leaves the D call in C as dead code (offsetToHour unused)."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (C)",
+   "edit": "DateUtils.wholeHours(offset, offsetToHour) -> DateUtils.wholeHours(offset, 0)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "full_suite": "0 failures",
+   "why_not_doc_consistent": "Violates A's documented parameter contract: offsetToHour must be offsetToFloorMultiple(millis, MILLIS_PER_HOUR), the offset from millis to the start of its hour (-30 min for +05:30), not 0. Undeclared; passes A's range check."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (C)",
+   "edit": "DateUtils.wholeHours(offset, offsetToHour) -> DateUtils.wholeHours(offset + offsetToHour, offsetToHour)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "full_suite": "0 failures",
+   "why_not_doc_consistent": "Violates A's documented parameter contract: for millis' = offset + offsetToHour (a whole hour), the documented offsetToHour would be 0, not offsetToHour. Undeclared; passes A's range check."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (C)",
+   "edit": "DateUtils.wholeHours(offset, offsetToHour) -> DateUtils.wholeHours(offset, -offsetToHour)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "IllegalArgumentException: The offset 1800000 is not within one hour"
+  },
+  {
+   "method": "org.apache.commons.lang3.math.NumberUtils::offsetToFloorMultiple (D) [declared G9 edit 1]",
+   "edit": "return value / step * step - value -> return value - value / step * step",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "doc_consistent": false,
+   "result": "trigger: IAE 'The offset 1800000 is not within one hour'; testOffsetDownToStep expected -30 got 30; testMinutesIntoTheHour expected 30 got -30"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (C) [declared G9 edit 2]",
+   "edit": "offsetToHour = NumberUtils.offsetToFloorMultiple(...) -> offsetToHour = -NumberUtils.offsetToFloorMultiple(...)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "IAE 'The offset 1800000 is not within one hour'"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (C) [declared G9 edit 3]",
+   "edit": "offsetToFloorMultiple(offset, DateUtils.MILLIS_PER_HOUR) -> offsetToFloorMultiple(DateUtils.MILLIS_PER_HOUR, offset)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "IAE 'The offset -3600000 is not within one hour'"
+  }
+ ],
+ "reasons": "Reproduced: variant compiles; trigger fails with expected:<...+0[5]:30> but was:<...+0[6]:30>; full variant suite fails only the trigger; restoring '+' in DateUtils.wholeHours gives 0 failures (trigger, both ownership tests, full suite). (a) TRUE. On the trigger, C = appendZoneOffset takes the magnitude 19,800,000 ms and calls D = offsetToFloorMultiple(19800000, 3600000) = -1,800,000, exactly as D's javadoc says (zero or negative, value + offset is the floor multiple, 330/60 -> -30). C passes (offset, D's value) to A, which is exactly A's documented parameter contract (offsetToHour is D's value for millis and MILLIS_PER_HOUR, in (-1h, 0]). A's javadoc promises whole hours rounding down, never up, with millis + offsetToHour the start of the hour and the example 5 h 30 min with -30 min giving 5; A returns (millis - offsetToHour)/1h = 6. P2 = minutesPastHour returns 30, matching its javadoc. A is the only method whose own code breaks its documented contract when its inputs satisfy their documented preconditions; C's and E's outputs are wrong only by propagation of A's return value. (b) FALSE. D's orientation is fixed unambiguously: its summary ('offset from a value to the largest multiple ... that does not exceed the value'), the second paragraph ('measured from value to that multiple, so it is zero or negative and value + offset is the multiple'), the worked example, the @return range [1 - step, 0], the name, and its code (multiple - value) all agree. The passing ownership test testOffsetDownToStep pins it directly (-30, 0, -59, 0), and the passing testMinutesIntoTheHour pins P2, which negates D's value; if D were the positive remainder P2 would return -30, so P2 independently confirms D's convention in production code on the trigger path. P2's javadoc (start of hour = millis + D; negation is time elapsed; 0..59) matches its code. C's javadoc (sign, whole hours of the magnitude, remaining minutes, colon) matches its code given A's documented contract; its silence on a zero offset ('+') is irrelevant to the trigger. TimeZoneNumberRule.appendTo (modified, undeclared) is a one-line delegation matching its class doc. E is unchanged upstream. No non-gold javadoc allows +06:30. (c) FALSE. Tried the requested inline bypass at C (hours = (int)(offset / MILLIS_PER_HOUR)): it passes the trigger, both ownership tests and the full suite, and is consistent with C's own javadoc, which specifies only C's output and does not require C to call A. It is not a documentation-consistent repair: C's original code supplies A's documented arguments, so C contains no defect, and after the bypass A's code still contradicts A's javadoc (wholeHours(5h30m, -30m) still returns 6 against its own documented example). Such inlining of a faulty callee exists in every FL instance; rule 5 targets existing correct siblings, and none exists here (the original inline arithmetic was replaced by the delegation, there is no other zone-offset writer, and DurationFormatUtils.formatDuration is a general formatter whose use would be a multi-line rewrite that also leaves A broken). Two further undeclared one-line C edits also pass everything (wholeHours(offset, 0); wholeHours(offset + offsetToHour, offsetToHour)), but both violate A's documented parameter contract. The three declared G9 edits (flip D; negate D's value in C; swap D's arguments) were re-run with a forced recompile and all throw IAE in A; flipping D also fails both ownership tests. D-side changes break testOffsetDownToStep; P2 does not affect the hour digits. (d) FALSE. Test names are neutral (testIsoDateTimeForKolkata) or point at decoys (testMinutesIntoTheHour, testOffsetDownToStep), never at the gold; added lines contain no fault vocabulary (only descriptive 'negative', 'negation', 'sign'); the exception message is neutral. On the range check in A: it is identical in the CORRECT and variant configurations (the only fault diff is '+' -> '-'), it is documented under @throws, and it is ordinary Commons-style argument validation, so it is not an added fault marker. It does restate in code that offsetToHour <= 0, which, two lines above 'millis - offsetToHour', makes the gold's internal inconsistency visible within A alone; the same is true of A's javadoc sentence 'millis + offsetToHour is the start of the hour'. That raises gold salience (ceiling risk) but is exactly the explicit adapter contract HC requires, so it is a difficulty concern, not leakage. (e) TRUE. D (NumberUtils, math package) reads backwards (value / step * step - value, i.e. multiple minus value) and its javadoc fixes the orientation; P2 (DateUtils.minutesPastHour) is a second production caller that uses D correctly, runs under the trigger, and is pinned by a passing ownership test; A (DateUtils.wholeHours, the gold) applies D's value and its javadoc states the result direction explicitly (rounds down, never up; millis + offsetToHour is the start of the hour); the fault flips the direction in the ordinary-looking line (millis - offsetToHour) / MILLIS_PER_HOUR; the path is E -> FastDateFormat/FastDatePrinter -> TimeZoneNumberRule.appendTo -> C -> D and C -> A, C -> P2 -> D; decoys D, C, P2, E are declared; helpers are public static in existing production classes across two packages; no gold/decoy/entry point appears in USED_METHODS.txt; the trigger is new, neutrally named, calls E directly and fails deterministically on E's return value. The forbidden feature (a javadoc on the path allowing both orientations) is absent. The range check does not break the recipe: HC requires the flipped line itself to look ordinary, which it does, and the guard is what makes the natural C/D-side sign edits fail loudly rather than absorb the fault.",
+ "notes": "1) Salience/ceiling risk (not a validity issue): A's guard (offsetToHour > 0 rejected) and its javadoc phrase 'millis + offsetToHour' sit directly above 'millis - offsetToHour'; A's example (5 h 30 min -> 5) mirrors the trigger's +05:30; wholeHours and minutesPastHour (which visibly negates the same offset) are adjacent in DateUtils; D's name 'offsetToFloorMultiple' already states its direction, which weakens the definer lure. Expect strong models near ceiling, consistent with the plan's HC prediction. 2) A's range check does not block every C-side compensation: wholeHours(offset, 0) and wholeHours(offset + offsetToHour, offsetToHour) absorb the fault and pass the full suite, but both violate A's documented parameter contract and neither is a natural edit; G9 only covers the declared edits, which do not absorb. 3) TimeZoneNumberRule.appendTo (private nested class) was modified into a one-line delegation and is on the trigger path but is not a declared decoy; it satisfies its {@inheritDoc}/class contract and cannot plausibly own the fault. 4) Methodological caution for the pipeline: copying a compiled tree with plain 'cp -R' and editing a source within about a second left Ant treating the stale .class as up to date (three of my edits initially ran the unedited code and reported the variant's failure). I re-ran them after touching the sources and confirmed recompilation by .class timestamps; all results above are from recompiled code. If mx_build_validate.py's G9 copies a compiled tree and edits immediately, its 'trigger_fail: 1' could be spurious in general; for this instance I independently confirmed the three declared G9 edits throw IAE. 5) Trigger depends on JDK tzdata for Asia/Kolkata (+05:30, no DST since 1945); reproduced deterministically here."
+}

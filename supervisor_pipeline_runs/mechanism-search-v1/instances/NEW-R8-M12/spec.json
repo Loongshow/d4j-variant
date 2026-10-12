@@ -1,0 +1,103 @@
+{
+ "iid": "NEW-R8-M12",
+ "project": "Lang",
+ "group": "NEW-R8",
+ "mechanism": "M12",
+ "recipe": "R8",
+ "tags": [
+  "M12"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.lang3.text.StrTokenizer",
+  "method": "readNextToken",
+  "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java",
+  "edits": [
+   {
+    "old": "                getDelimiterMatcher().isMatch(chars, start, start, len) > 0 ||\n",
+    "new": "                getDelimiterMatcher().isMatch(chars, start, start, len) > 0 &&\n"
+   }
+  ]
+ },
+ "fault_lines": [
+  "getDelimiterMatcher().isMatch(chars, start, start, len) > 0 &&"
+ ],
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.text.StrTokenizer",
+   "method": "readWithQuotes",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java"
+  },
+  {
+   "class": "org.apache.commons.lang3.text.StrTokenizer",
+   "method": "addToken",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java"
+  },
+  {
+   "class": "org.apache.commons.lang3.text.StrTokenizer",
+   "method": "tokenize",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.lang3.text.StrTokenizer::getTSVInstance",
+  "org.apache.commons.lang3.text.StrTokenizer::getTokenArray"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.text.StrTokenizerTest::test7",
+  "org.apache.commons.lang3.text.StrTokenizerTest::test1",
+  "org.apache.commons.lang3.text.StrMatcher::trimMatcher"
+ ],
+ "ownership_reason": "readNextToken owns the fault. Its leading loop is documented (comment directly above it) to skip ignored/trimmed characters 'unless it is the field delimiter or the quote character', i.e. it must stop as soon as the delimiter matcher OR the quote matcher matches; the variant only stops when a character is both a delimiter and a quote. In the TSV prototype the tab delimiter is also matched by the trimmer (StrMatcher.trimMatcher matches every char <= 32), so after the token 'one' readNextToken consumes the second tab as whitespace and never reaches its own empty-token branch ('handle empty token'), so the empty middle field disappears. The competitors are correct and unchanged: addToken drops an empty token only when ignoreEmptyTokens is true, and the TSV prototype sets it to false; readWithQuotes ends a token at the first delimiter and returns the position just after it, and together with tokenize it yields empty tokens for consecutive delimiters whenever the delimiter is not also trimmable/ignorable, as the existing passing tests StrTokenizerTest::test7 (consecutive space delimiters give \"\", \"\") and StrTokenizerTest::test1 (';' with trailing empties) show. Restoring '||' in readNextToken alone makes the trigger pass with the full suite green; none of the declared one-line competitor edits does.",
+ "ownership_tests": [
+  "org.apache.commons.lang3.text.StrTokenizerTest::test7",
+  "org.apache.commons.lang3.text.StrTokenizerTest::test1"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/lang3/text/StrTokenizerTest.java",
+  "test_class": "org.apache.commons.lang3.text.StrTokenizerTest",
+  "test_method": "testTSVMissingValue",
+  "imports": [],
+  "code": "    @Test\n    public void testTSVMissingValue() {\n        final String[] tokens = StrTokenizer.getTSVInstance(\" one \\t\\t three\\n\").getTokenArray();\n        assertEquals(ArrayUtils.toString(tokens), 3, tokens.length);\n        assertEquals(\"one\", tokens[0]);\n        assertEquals(\"\", tokens[1]);\n        assertEquals(\"three\", tokens[2]);\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "{one,three} expected:<3> but was:<2>",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java",
+   "old": "            if (isIgnoreEmptyTokens()) {",
+   "new": "            if (false && isIgnoreEmptyTokens()) {",
+   "why": "one-line decoy edit: addToken never drops empty tokens"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java",
+   "old": "                    return pos + delimLen;",
+   "new": "                    return pos;",
+   "why": "one-line decoy edit: readWithQuotes leaves the closing delimiter for the next readNextToken call"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java",
+   "old": "        TSV_TOKENIZER_PROTOTYPE.setTrimmerMatcher(StrMatcher.trimMatcher());",
+   "new": "        TSV_TOKENIZER_PROTOTYPE.setTrimmerMatcher(StrMatcher.spaceMatcher());",
+   "why": "one-line configuration edit: the TSV trimmer no longer matches the tab delimiter"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java",
+   "old": "        TSV_TOKENIZER_PROTOTYPE.setTrimmerMatcher(StrMatcher.trimMatcher());",
+   "new": "        TSV_TOKENIZER_PROTOTYPE.setTrimmerMatcher(StrMatcher.noneMatcher());",
+   "why": "one-line configuration edit: the TSV tokenizer stops trimming"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrTokenizer.java",
+   "old": "        if (pos >= count) {",
+   "new": "        if (pos < 0 || pos >= count) {",
+   "why": "one-line decoy edit: tokenize also adds an empty token when readNextToken reports end of input"
+  }
+ ],
+ "variant_id": "CTV-078CEB",
+ "kind": "new",
+ "gold_key": "org.apache.commons.lang3.text.StrTokenizer::readNextToken"
+}

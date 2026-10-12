@@ -1,0 +1,132 @@
+{
+ "iid": "HO-HC-JACKSONCORE-01",
+ "project": "JacksonCore",
+ "group": "HO-HC-JACKSONCORE-01",
+ "mechanism": "M3",
+ "tags": [
+  "M3",
+  "M1"
+ ],
+ "recipe": "HC",
+ "kind": "new",
+ "tier": "HELDOUT",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "com.fasterxml.jackson.core.JsonEncoding",
+  "method": "supplementaryCodePoint",
+  "file": "src/main/java/com/fasterxml/jackson/core/JsonEncoding.java",
+  "edits": [
+   {
+    "old": "return 0x10000 - highOffset * 0x400 + lowIndex;",
+    "new": "return 0x10000 + highOffset * 0x400 + lowIndex;"
+   }
+  ]
+ },
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+   "old": "import java.util.Arrays;\n",
+   "new": "import java.util.Arrays;\n\nimport com.fasterxml.jackson.core.JsonEncoding;\n",
+   "purpose": "import for the new surrogate-pair helper that delegates to JsonEncoding"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+   "old": "    public static byte[] copyHexBytes()\n    {\n        return (byte[]) HEX_BYTES.clone();\n    }\n}",
+   "new": "    public static byte[] copyHexBytes()\n    {\n        return (byte[]) HEX_BYTES.clone();\n    }\n\n    /**\n     * Returns the offset from the UTF-16 code unit {@code unit} to {@code blockStart},\n     * the first code unit of the surrogate block that {@code unit} belongs to: the\n     * amount that has to be added to {@code unit} to reach {@code blockStart}, that is\n     * {@code blockStart - unit}. For a unit inside the block the result is zero or\n     * negative: 0 for the first unit of the block, down to -0x3FF for the last one.\n     *\n     * @param unit UTF-16 code unit (a high or a low surrogate)\n     * @param blockStart First code unit of the block: 0xD800 for high surrogates,\n     *   0xDC00 for low surrogates\n     */\n    public static int surrogateOffset(int unit, int blockStart)\n    {\n        return blockStart - unit;\n    }\n\n    /**\n     * Returns the index of the low surrogate {@code low} within the low-surrogate\n     * block U+DC00 to U+DFFF: 0 for U+DC00, increasing by one per code unit up to\n     * 0x3FF for U+DFFF. This index forms the ten low-order bits of the supplementary\n     * code point of the surrogate pair. Since {@link #surrogateOffset} returns the\n     * offset from a unit to the start of its block, the index is that offset negated.\n     */\n    public static int lowSurrogateIndex(int low)\n    {\n        return -surrogateOffset(low, 0xDC00);\n    }\n\n    /**\n     * Returns the supplementary code point (U+10000 to U+10FFFF) encoded by the\n     * UTF-16 surrogate pair {@code high}, {@code low}. The pair is checked first:\n     * {@code high} has to lie in the high-surrogate block U+D800 to U+DBFF and\n     * {@code low} in the low-surrogate block U+DC00 to U+DFFF; otherwise an\n     * {@link IllegalArgumentException} is thrown. The code point is then assembled by\n     * {@link JsonEncoding#supplementaryCodePoint} from the offset of {@code high} to\n     * U+D800, as returned by {@link #surrogateOffset}, and the index of {@code low},\n     * as returned by {@link #lowSurrogateIndex}.\n     */\n    public static int combineSurrogates(int high, int low)\n    {\n        int highOffset = surrogateOffset(high, 0xD800);\n        int lowIndex = lowSurrogateIndex(low);\n        if (highOffset > 0 || highOffset < -0x3FF || lowIndex < 0 || lowIndex > 0x3FF) {\n            throw new IllegalArgumentException(\"Invalid surrogate pair: first char 0x\"\n                    +Integer.toHexString(high)+\", second 0x\"+Integer.toHexString(low));\n        }\n        return JsonEncoding.supplementaryCodePoint(highOffset, lowIndex);\n    }\n}",
+   "purpose": "add surrogateOffset (definer D), lowSurrogateIndex (second caller P2) and combineSurrogates (caller C); behaviour-preserving for every valid pair"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonEncoding.java",
+   "old": "    public boolean isBigEndian() { return _bigEndian; }\n}",
+   "new": "    public boolean isBigEndian() { return _bigEndian; }\n\n    /**\n     * Returns the supplementary code point (U+10000 to U+10FFFF) of a UTF-16\n     * surrogate pair, given its two parts as computed by\n     * {@link com.fasterxml.jackson.core.io.CharTypes}:\n     *<ul>\n     * <li>{@code highOffset}: the offset from the high surrogate to U+D800, the start\n     *   of the high-surrogate block; this is zero or negative (see\n     *   {@link com.fasterxml.jackson.core.io.CharTypes#surrogateOffset})</li>\n     * <li>{@code lowIndex}: the index of the low surrogate within the low-surrogate\n     *   block, 0 to 0x3FF</li>\n     *</ul>\n     * The result grows with the position of the high surrogate: the pair\n     * (U+D800, U+DC00) gives U+10000, and every code unit by which the high surrogate\n     * lies above U+D800 adds 0x400 to the result. {@code lowIndex} is added as given.\n     */\n    public static int supplementaryCodePoint(int highOffset, int lowIndex)\n    {\n        return 0x10000 - highOffset * 0x400 + lowIndex;\n    }\n}",
+   "purpose": "add supplementaryCodePoint (adapter A): assembles the code point from the high-surrogate offset and the low-surrogate index"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java",
+   "old": "        return 0x10000 + ((firstPart - SURR1_FIRST) << 10) + (secondPart - SURR2_FIRST);",
+   "new": "        return CharTypes.combineSurrogates(firstPart, secondPart);",
+   "purpose": "route the surrogate-pair arithmetic of encodeAsUTF8/quoteAsUTF8 through the helper chain (the second-part check above stays)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.core.io.CharTypes",
+   "method": "surrogateOffset",
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.io.CharTypes",
+   "method": "combineSurrogates",
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.io.CharTypes",
+   "method": "lowSurrogateIndex",
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.io.JsonStringEncoder",
+   "method": "encodeAsUTF8",
+   "file": "src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.io.JsonStringEncoder",
+   "method": "_convertSurrogate",
+   "file": "src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java"
+  }
+ ],
+ "entry_points": [
+  "com.fasterxml.jackson.core.io.JsonStringEncoder::encodeAsUTF8"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.core.io.CharTypes::surrogateOffset",
+  "com.fasterxml.jackson.core.io.CharTypes::lowSurrogateIndex",
+  "com.fasterxml.jackson.core.io.CharTypes::combineSurrogates",
+  "com.fasterxml.jackson.core.io.TestCharTypes::testSurrogateUnitPositions"
+ ],
+ "ownership_reason": "CharTypes.surrogateOffset (D) is documented and implemented as the offset from a UTF-16 code unit to the first unit of its surrogate block, blockStart - unit, so it is zero or negative inside the block (0 down to -0x3FF). The new ownership test TestCharTypes.testSurrogateUnitPositions, which passes on the variant, pins this orientation (surrogateOffset(0xD83D, 0xD800) == -0x3D) and the second production caller CharTypes.lowSurrogateIndex (P2), which negates D's value to get the 0..0x3FF index of a low surrogate (lowSurrogateIndex(0xDE00) == 0x200). CharTypes.combineSurrogates (C) supplies D's arguments exactly as its javadoc says (surrogateOffset(high, 0xD800)), range-checks the offset against [-0x3FF, 0] and the index against [0, 0x3FF], i.e. in D's orientation, and passes both to JsonEncoding.supplementaryCodePoint (A). A's javadoc defines highOffset as that zero-or-negative offset and states the direction of the result explicitly: U+10000 for the pair (U+D800, U+DC00), plus 0x400 for every code unit by which the high surrogate lies above U+D800, plus lowIndex. A's line 0x10000 + highOffset * 0x400 + lowIndex subtracts 0x400 per unit instead, so the pair U+D83D U+DE00 (U+1F600) becomes U+0E00, which JsonStringEncoder.encodeAsUTF8 writes in its 4-byte form as f0 80 b8 80 instead of f0 9f 98 80. Restoring 0x10000 - highOffset * 0x400 + lowIndex in A alone makes the trigger and the full suite pass. The natural edits elsewhere do not: flipping D to unit - blockStart, swapping the arguments C supplies to D, or dropping P2's negation each push a value outside C's documented range check, so the trigger throws IllegalArgumentException; the D and P2 edits also break the ownership test. JsonStringEncoder._convertSurrogate only checks the second unit (pristine) and delegates to C; encodeAsUTF8 (pristine) writes whatever code point it gets back as four UTF-8 bytes.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.core.io.TestCharTypes::testSurrogateUnitPositions"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/com/fasterxml/jackson/core/io/TestJsonStringEncoder.java",
+  "test_class": "com.fasterxml.jackson.core.io.TestJsonStringEncoder",
+  "test_method": "testUtf8ForAstralCharacter",
+  "imports": [],
+  "code": "    public void testUtf8ForAstralCharacter() throws Exception\n    {\n        JsonStringEncoder encoder = new JsonStringEncoder();\n        byte[] utf8 = encoder.encodeAsUTF8(\"\\uD83D\\uDE00\");\n        StringBuilder hex = new StringBuilder();\n        for (byte b : utf8) {\n            hex.append(Integer.toHexString(0x100 | (b & 0xFF)).substring(1));\n        }\n        assertEquals(\"f09f9880\", hex.toString());\n    }\n"
+ },
+ "extra_tests": [
+  {
+   "test_file": "src/test/java/com/fasterxml/jackson/core/io/TestCharTypes.java",
+   "imports": [],
+   "code": "    public void testSurrogateUnitPositions()\n    {\n        assertEquals(0, CharTypes.surrogateOffset(0xD800, 0xD800));\n        assertEquals(-0x3D, CharTypes.surrogateOffset(0xD83D, 0xD800));\n        assertEquals(-0x3FF, CharTypes.surrogateOffset(0xDFFF, 0xDC00));\n        assertEquals(0, CharTypes.lowSurrogateIndex(0xDC00));\n        assertEquals(0x200, CharTypes.lowSurrogateIndex(0xDE00));\n        assertEquals(0x3FF, CharTypes.lowSurrogateIndex(0xDFFF));\n    }\n"
+  }
+ ],
+ "expected_signature": "expected:<f0[9f9]880> but was:<f0[80b]880>",
+ "fault_lines": [
+  "        return 0x10000 + highOffset * 0x400 + lowIndex;"
+ ],
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+   "old": "        return blockStart - unit;",
+   "new": "        return unit - blockStart;",
+   "why": "one-line definer edit: surrogateOffset returns unit - blockStart (offset from the block start to the unit)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+   "old": "        int highOffset = surrogateOffset(high, 0xD800);",
+   "new": "        int highOffset = surrogateOffset(0xD800, high);",
+   "why": "one-line caller edit: combineSurrogates swaps the arguments it supplies to surrogateOffset"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+   "old": "        return -surrogateOffset(low, 0xDC00);",
+   "new": "        return surrogateOffset(low, 0xDC00);",
+   "why": "one-line second-caller edit: lowSurrogateIndex returns the offset without negating it"
+  }
+ ],
+ "variant_id": "CTV-7CE456",
+ "gold_key": "com.fasterxml.jackson.core.JsonEncoding::supplementaryCodePoint"
+}

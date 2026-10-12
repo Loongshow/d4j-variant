@@ -1,0 +1,154 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java
+index fd16aedf..79ae6f50 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java
+@@ -20,6 +20,8 @@ package org.apache.commons.compress.archivers.tar;
+ 
+ import java.io.IOException;
+ import java.io.InputStream;
++import org.apache.commons.compress.archivers.zip.AsiExtraField;
++import org.apache.commons.compress.archivers.zip.ExtraFieldUtils;
+ import java.io.OutputStream;
+ import java.util.Arrays;
+ 
+@@ -453,4 +455,23 @@ public class TarBuffer {
+             }
+         }
+     }
++
++    /**
++     * Accumulates the checksum of a byte range of a header record: the
++     * value of every byte of the range is folded into a running sum.
++     *
++     * @param buf the header bytes
++     * @param offset the first index of the range
++     * @param length the number of bytes in the range
++     * @return the accumulated checksum of the range
++     */
++    public static long tally(final byte[] buf, final int offset, final int length) {
++        long sum = 0;
++        final int end = offset + length;
++        for (int i = offset; i < end; i++) {
++            final int magnitude = AsiExtraField.magnitudeOf(buf[i]);
++            sum = ExtraFieldUtils.widen(sum, magnitude);
++        }
++        return sum;
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 05faa644..47f41f37 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -190,12 +190,6 @@ public class TarUtils {
+      * @return The computed checksum.
+      */
+     public static long computeCheckSum(byte[] buf) {
+-        long sum = 0;
+-
+-        for (int i = 0; i < buf.length; ++i) {
+-            sum += BYTE_MASK & buf[i];
+-        }
+-
+-        return sum;
++        return TarBuffer.tally(buf, 0, buf.length);
+     }
+ }
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/AsiExtraField.java b/src/main/java/org/apache/commons/compress/archivers/zip/AsiExtraField.java
+index c888503e..e86f7da1 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/AsiExtraField.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/AsiExtraField.java
+@@ -322,4 +322,17 @@ public class AsiExtraField implements ZipExtraField, UnixStat, Cloneable {
+             throw new RuntimeException(cnfe);
+         }
+     }
++
++    /**
++     * Returns the value of a single header byte as an int.
++     *
++     * @param raw the byte of the header
++     * @return the value of the byte
++     */
++    public static int magnitudeOf(final byte raw) {
++        final int low = raw & 0x7f;
++        final int top = raw - low;
++        final int value = low - top;
++        return value;
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ExtraFieldUtils.java b/src/main/java/org/apache/commons/compress/archivers/zip/ExtraFieldUtils.java
+index b066b1a1..3c7a1418 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ExtraFieldUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ExtraFieldUtils.java
+@@ -183,4 +183,18 @@ public class ExtraFieldUtils {
+         }
+         return result;
+     }
++
++    /**
++     * Folds the value of a header byte into the running checksum.
++     *
++     * @param sum the running sum of the header bytes seen so far
++     * @param magnitude the value of the byte
++     * @return the running sum including this byte
++     */
++    public static long widen(final long sum, final int magnitude) {
++        final long low = magnitude & 0x7f;
++        final long top = magnitude - low;
++        final long value = low - top;
++        return ZipLong.byteValue(sum, value);
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipLong.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipLong.java
+index dcede515..53654498 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipLong.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipLong.java
+@@ -17,6 +17,8 @@
+  */
+ package org.apache.commons.compress.archivers.zip;
+ 
++import org.apache.commons.compress.utils.IOUtils;
++
+ /**
+  * Utility class that represents a four byte integer with conversion
+  * rules for the big endian byte order of ZIP files.
+@@ -147,4 +149,18 @@ public final class ZipLong implements Cloneable {
+             throw new RuntimeException(cnfe);
+         }
+     }
++
++    /**
++     * Accounts a single header byte to a running checksum: the folded value
++     * of the byte is the amount added to the running sum.
++     *
++     * @param sum the running sum of the header bytes seen so far
++     * @param value the folded value of the byte
++     * @return the running sum including this byte
++     */
++    public static long byteValue(final long sum, final long value) {
++        final long amount = value;
++        final long total = IOUtils.sumPair(sum, amount);
++        return total;
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/compress/utils/IOUtils.java b/src/main/java/org/apache/commons/compress/utils/IOUtils.java
+index fe242110..74d82a41 100644
+--- a/src/main/java/org/apache/commons/compress/utils/IOUtils.java
++++ b/src/main/java/org/apache/commons/compress/utils/IOUtils.java
+@@ -58,4 +58,17 @@ public final class IOUtils {
+             output.write(buffer, 0, n);
+         }
+     }
++
++    /**
++     * Adds up a pair of values.
++     *
++     * @param first the first value of the pair
++     * @param second the second value of the pair
++     * @return the sum of the pair
++     */
++    public static long sumPair(final long first, final long second) {
++        long total = first;
++        total += second;
++        return total;
++    }
+ }

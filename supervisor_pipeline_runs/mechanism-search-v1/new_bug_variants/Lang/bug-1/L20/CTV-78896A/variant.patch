@@ -1,0 +1,212 @@
+diff --git a/src/main/java/org/apache/commons/lang3/CharRange.java b/src/main/java/org/apache/commons/lang3/CharRange.java
+index 39b26f9fc..2e20dff11 100644
+--- a/src/main/java/org/apache/commons/lang3/CharRange.java
++++ b/src/main/java/org/apache/commons/lang3/CharRange.java
+@@ -357,4 +357,18 @@ final class CharRange implements Iterable<Character>, Serializable {
+             throw new UnsupportedOperationException();
+         }
+     }
++
++    /**
++     * Counts the decision of one position of a region into the running number
++     * of positions that do not match: a matching position leaves the number
++     * as it is, any other position raises it by one.
++     *
++     * @param matched  whether the position matches
++     * @param misses  the number of positions seen so far that do not match
++     * @return the updated number of positions that do not match
++     */
++    static int capitals(final boolean matched, final int misses) {
++        final int step = matched ? 0 : 1;
++        return misses + step;
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/CharSequenceUtils.java b/src/main/java/org/apache/commons/lang3/CharSequenceUtils.java
+index b69e12f52..8a294b707 100644
+--- a/src/main/java/org/apache/commons/lang3/CharSequenceUtils.java
++++ b/src/main/java/org/apache/commons/lang3/CharSequenceUtils.java
+@@ -16,6 +16,8 @@
+  */
+ package org.apache.commons.lang3;
+ 
++import org.apache.commons.lang3.text.StrMatcher;
++
+ /**
+  * <p>Operations on {@link java.lang.CharSequence} that are
+  * {@code null} safe.</p>
+@@ -188,31 +190,7 @@ public class CharSequenceUtils {
+             final CharSequence substring, final int start, final int length)    {
+         if (cs instanceof String && substring instanceof String) {
+             return ((String) cs).regionMatches(ignoreCase, thisStart, (String) substring, start, length);
+-        } else {
+-            int index1 = thisStart;
+-            int index2 = start;
+-            int tmpLen = length;
+-
+-            while (tmpLen-- > 0) {
+-                char c1 = cs.charAt(index1++);
+-                char c2 = substring.charAt(index2++);
+-
+-                if (c1 == c2) {
+-                    continue;
+-                }
+-
+-                if (!ignoreCase) {
+-                    return false;
+-                }
+-
+-                // The same check as in String.regionMatches():
+-                if (Character.toUpperCase(c1) != Character.toUpperCase(c2)
+-                        && Character.toLowerCase(c1) != Character.toLowerCase(c2)) {
+-                    return false;
+-                }
+-            }
+-
+-            return true;
+         }
++        return StrMatcher.sweep(cs, thisStart, substring, start, length, ignoreCase);
+     }
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/CharSet.java b/src/main/java/org/apache/commons/lang3/CharSet.java
+index 82f0b9a8c..265dd62f9 100644
+--- a/src/main/java/org/apache/commons/lang3/CharSet.java
++++ b/src/main/java/org/apache/commons/lang3/CharSet.java
+@@ -275,4 +275,16 @@ public class CharSet implements Serializable {
+         return set.toString();
+     }
+ 
++    /**
++     * Tells how far two characters agree once case is folded.
++     *
++     * @param c1  the first character
++     * @param c2  the second character
++     * @return the agreement of the case forms of the two characters
++     */
++    public static int akin(final char c1, final char c2) {
++        final int upper = Character.toUpperCase(c1) == Character.toUpperCase(c2) ? 1 : 0;
++        final int lower = Character.toLowerCase(c1) == Character.toLowerCase(c2) ? 1 : 0;
++        return upper + lower;
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/CharSetUtils.java b/src/main/java/org/apache/commons/lang3/CharSetUtils.java
+index 929237113..90f170d3c 100644
+--- a/src/main/java/org/apache/commons/lang3/CharSetUtils.java
++++ b/src/main/java/org/apache/commons/lang3/CharSetUtils.java
+@@ -247,4 +247,23 @@ public class CharSetUtils {
+         }
+         return true;
+     }
++
++    /**
++     * Decides whether a character pair folds equal from the agreement of its
++     * case forms and counts the position: the decision is handed on, together
++     * with the characters themselves, to be counted into the running number
++     * of positions of the region that do not match.
++     *
++     * @param agreeing  the agreement of the case forms of the pair
++     * @param c1  the first character
++     * @param c2  the second character
++     * @param ignoreCase  whether case is ignored
++     * @param misses  the number of positions seen so far that do not match
++     * @return the updated number of positions that do not match
++     */
++    public static int smalls(final int agreeing, final char c1, final char c2, final boolean ignoreCase, final int misses) {
++        final int forms = 2;
++        final boolean folded = agreeing == forms;
++        return CharUtils.pair(c1, c2, ignoreCase, folded, misses);
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/CharUtils.java b/src/main/java/org/apache/commons/lang3/CharUtils.java
+index d603cfa52..c4d81283d 100644
+--- a/src/main/java/org/apache/commons/lang3/CharUtils.java
++++ b/src/main/java/org/apache/commons/lang3/CharUtils.java
+@@ -536,4 +536,23 @@ public class CharUtils {
+         return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9');
+     }
+     
++
++    /**
++     * Resolves the match decision of a character pair: identical characters
++     * always match, and distinct characters match only when case is ignored
++     * and the pair fold-equals. The decision is then counted into the running
++     * number of positions of the region that do not match.
++     *
++     * @param c1  the first character
++     * @param c2  the second character
++     * @param ignoreCase  whether case is ignored
++     * @param folded  whether the pair fold-equals
++     * @param misses  the number of positions seen so far that do not match
++     * @return the updated number of positions that do not match
++     */
++    public static int pair(final char c1, final char c2, final boolean ignoreCase, final boolean folded, final int misses) {
++        final boolean identical = c1 == c2;
++        final boolean matched = identical || (ignoreCase && folded);
++        return CharRange.capitals(matched, misses);
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 04b53faf1..e5a8efa1f 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -7353,4 +7353,14 @@ public class StringUtils {
+         return charsetName == null ? new String(bytes) : new String(bytes, charsetName);
+     }
+ 
++    /**
++     * Compares two characters ignoring case.
++     *
++     * @param c1  the first character
++     * @param c2  the second character
++     * @return {@code true} if the characters are equal ignoring case
++     */
++    public static boolean foldEquals(final char c1, final char c2) {
++        return CharSet.akin(c1, c2) > 0;
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrMatcher.java b/src/main/java/org/apache/commons/lang3/text/StrMatcher.java
+index 15148185b..5e03df88e 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrMatcher.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrMatcher.java
+@@ -18,6 +18,8 @@ package org.apache.commons.lang3.text;
+ 
+ import java.util.Arrays;
+ 
++import org.apache.commons.lang3.CharSet;
++import org.apache.commons.lang3.CharSetUtils;
+ import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+@@ -433,4 +435,33 @@ public abstract class StrMatcher {
+         }
+     }
+ 
++    /**
++     * Walks two regions of two CharSequences in step and tells whether every
++     * position matches, optionally ignoring case. For each position the
++     * agreement of the case forms of the pair of characters is computed, and
++     * the decision for the position is counted into the running number of
++     * positions that do not match; the walk stops at the first such position.
++     *
++     * @param cs  the CharSequence holding the first region
++     * @param thisStart  the start of the first region
++     * @param substring  the CharSequence holding the second region
++     * @param start  the start of the second region
++     * @param length  the length of the regions
++     * @param ignoreCase  whether case is ignored when comparing the characters
++     * @return true if the regions match
++     */
++    public static boolean sweep(final CharSequence cs, final int thisStart, final CharSequence substring,
++                         final int start, final int length, final boolean ignoreCase) {
++        int index1 = thisStart;
++        int index2 = start;
++        int tmpLen = length;
++        int misses = 0;
++        while (tmpLen-- > 0 && misses == 0) {
++            final char c1 = cs.charAt(index1++);
++            final char c2 = substring.charAt(index2++);
++            final int agreeing = CharSet.akin(c1, c2);
++            misses = CharSetUtils.smalls(agreeing, c1, c2, ignoreCase, misses);
++        }
++        return misses == 0;
++    }
+ }

@@ -1,0 +1,101 @@
+{
+ "iid": "NEW-R10-M14",
+ "project": "Compress",
+ "group": "NEW-R10-M14",
+ "mechanism": "M14",
+ "tags": [
+  "M14"
+ ],
+ "recipe": "R10",
+ "kind": "new",
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+  "method": "write",
+  "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+  "decl": "byte[] b, int offset, int length",
+  "edits": [
+   {
+    "old": "        crc.update(b, offset, length);",
+    "new": "        crc.update(b, 0, length);"
+   }
+  ]
+ },
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "method": "closeEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "method": "putNextEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "method": "writeLocalFileHeader",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "method": "writeDataDescriptor",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::putArchiveEntry",
+  "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::close"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::write",
+  "org.apache.commons.compress.archivers.zip.AbstractUnicodeExtraField::AbstractUnicodeExtraField",
+  "org.apache.commons.compress.archivers.ZipTestCase::testZipArchiveCreation"
+ ],
+ "ownership_reason": "ZipArchiveOutputStream.write(byte[] b, int offset, int length) is the only method that feeds entry data into the CRC32 accumulator field crc. Its javadoc defines offset as 'the start position to write from', and both data paths in the same method consume b[offset, offset+length) (writeOut(b, offset, length) for STORED, def.setInput(b, offset ...) for DEFLATED), but the accumulator is updated with crc.update(b, 0, length), i.e. over b[0, length). For any caller that passes offset != 0 the accumulated CRC therefore describes other bytes than the ones written. closeEntry only reads that accumulator: for a DEFLATED entry it stores crc.getValue() as the entry CRC (then written by writeDataDescriptor and the central directory), and for a STORED entry written to a plain stream it compares crc.getValue() with the CRC the caller declared, which is where the trigger's ZipException is thrown. That comparison is correct: the declared CRC is java.util.zip.CRC32 over exactly the stored slice. The existing passing ZipTestCase::testZipArchiveCreation writes entries with offset 0 (IOUtils.copy) through write/closeEntry/writeDataDescriptor and reads them back with java.util.zip.ZipInputStream, which verifies every entry CRC, so the reader chain is correct whenever the accumulator is right. A one-line change in closeEntry (dropping or relaxing the STORED check, or trusting the declared CRC) cannot repair the CRC recorded for the deflated entry, which comes from the same accumulator, so the trigger then fails on deflated.txt's CRC; only restoring crc.update(b, offset, length) in write fixes both entries. AbstractUnicodeExtraField's constructor shows the same CRC32.update(bytes, off, len) usage for a slice.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.ZipTestCase::testZipArchiveCreation"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/ZipTestCase.java",
+  "test_class": "org.apache.commons.compress.archivers.ZipTestCase",
+  "test_method": "testZipArchiveCreationFromBufferSlice",
+  "imports": [
+   "import java.io.ByteArrayOutputStream;",
+   "import java.util.zip.CRC32;",
+   "import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;",
+   "import org.apache.commons.compress.archivers.zip.ZipFile;"
+  ],
+  "code": "    /**\n     * Archives the same slice of a larger buffer twice, once deflated and\n     * once stored, and reads both entries back with ZipFile.\n     * @throws Exception\n     */\n    public void testZipArchiveCreationFromBufferSlice() throws Exception {\n        final byte[] data = \"##Hello, sliced archive data!##\".getBytes(\"US-ASCII\");\n        final int off = 2;\n        final int len = data.length - 4;\n        final CRC32 sliceCrc = new CRC32();\n        sliceCrc.update(data, off, len);\n\n        final File output = new File(dir, \"slice.zip\");\n        final ZipArchiveOutputStream zos = new ZipArchiveOutputStream(new FileOutputStream(output));\n        zos.putArchiveEntry(new ZipArchiveEntry(\"deflated.txt\"));\n        zos.write(data, off, len);\n        final ZipArchiveEntry stored = new ZipArchiveEntry(\"stored.txt\");\n        stored.setMethod(ZipArchiveEntry.STORED);\n        stored.setSize(len);\n        stored.setCrc(sliceCrc.getValue());\n        zos.putArchiveEntry(stored);\n        zos.write(data, off, len);\n        zos.close();\n\n        final ZipFile zf = new ZipFile(output);\n        try {\n            final String[] names = new String[] {\"deflated.txt\", \"stored.txt\"};\n            for (int i = 0; i < names.length; i++) {\n                final ZipArchiveEntry entry = zf.getEntry(names[i]);\n                assertNotNull(names[i], entry);\n                assertEquals(names[i], sliceCrc.getValue(), entry.getCrc());\n                assertEquals(names[i], len, entry.getSize());\n                final InputStream in = zf.getInputStream(entry);\n                final ByteArrayOutputStream bos = new ByteArrayOutputStream();\n                IOUtils.copy(in, bos);\n                in.close();\n                assertEquals(names[i], new String(data, off, len, \"US-ASCII\"), bos.toString(\"US-ASCII\"));\n            }\n        } finally {\n            ZipFile.closeQuietly(zf);\n        }\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "java.util.zip.ZipException: bad CRC checksum for entry stored.txt: 82c44c92 instead of 508dfaa6",
+ "fault_lines": [
+  "        crc.update(b, 0, length);"
+ ],
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "old": "            if (entry.getCrc() != realCrc) {",
+   "new": "            if (raf != null && entry.getCrc() != realCrc) {",
+   "why": "one-line reader edit: closeEntry no longer checks the declared CRC of a STORED entry written to a plain stream"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "old": "        long realCrc = crc.getValue();",
+   "new": "        long realCrc = entry.getMethod() == STORED ? entry.getCrc() : crc.getValue();",
+   "why": "one-line reader edit: closeEntry trusts the declared CRC for STORED entries instead of the accumulated one"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "old": "        entry = ze;",
+   "new": "        entry = ze; crc.reset();",
+   "why": "one-line putNextEntry edit: reset the CRC accumulator when a new entry begins"
+  }
+ ],
+ "variant_id": "CTV-B2D5F2",
+ "gold_key": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::write"
+}

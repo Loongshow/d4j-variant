@@ -1,0 +1,105 @@
+{
+ "iid": "NEW-R5-M7",
+ "project": "Compress",
+ "group": "NEW-R5-M7",
+ "mechanism": "M7",
+ "tags": [
+  "M7",
+  "M2"
+ ],
+ "recipe": "R5",
+ "kind": "new",
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.zip.ZipUtil",
+  "method": "dosToJavaTime",
+  "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+  "edits": [
+   {
+    "old": "cal.set(Calendar.SECOND, (int) (dosTime << 1) & 0x3e);",
+    "new": "cal.set(Calendar.SECOND, (int) dosTime & 0x1f);"
+   }
+  ]
+ },
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipUtil",
+   "method": "toDosTime",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+   "decl": "long t"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "method": "populateFromCentralDirectory",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "method": "writeCentralFileHeader",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipLong",
+   "method": "getValue",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipLong.java",
+   "decl": "byte[] bytes, int offset"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::putArchiveEntry",
+  "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::close",
+  "org.apache.commons.compress.archivers.zip.ZipFile::ZipFile",
+  "org.apache.commons.compress.archivers.zip.ZipFile::getEntry"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.zip.ZipUtil::toDosTime",
+  "org.apache.commons.compress.archivers.zip.ZipUtilTest::testZipLong"
+ ],
+ "ownership_reason": "ZipUtil.toDosTime packs the DOS time word as (year-1980)<<25 | month<<21 | day<<16 | hour<<11 | minute<<5 | getSeconds()>>1: the minute field starts at bit 5, so the seconds field has only 5 bits (0-31) and must hold seconds/2 (DOS two-second resolution; odd seconds are dropped by design). The existing, passing ZipUtilTest.testZipLong rebuilds the same word independently with cal.get(Calendar.SECOND) >> 1, which pins the encoder's halving. The inverse, ZipUtil.dosToJavaTime (used by ZipFile.populateFromCentralDirectory for every entry, and by ZipUtil.fromDosTime), must therefore multiply the 5-bit field by 2; it sets Calendar.SECOND from the raw field (dosTime & 0x1f) without the doubling, so an even second s is read back as s/2 (46 -> 23). The writer (ZipArchiveOutputStream.writeCentralFileHeader) and reader (ZipFile.populateFromCentralDirectory, ZipLong.getValue) only move the 4-byte word unchanged. Dropping the halving in toDosTime instead overflows seconds >= 32 into the minute field (the trigger then reads 10:21:14) and breaks testZipLong; restoring the doubling in dosToJavaTime alone makes the trigger and the full suite pass.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.zip.ZipUtilTest::testZipLong"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/ZipTestCase.java",
+  "test_class": "org.apache.commons.compress.archivers.ZipTestCase",
+  "test_method": "testEntryTimestampRoundTrip",
+  "imports": [
+   "import java.text.SimpleDateFormat;",
+   "import java.util.Calendar;",
+   "import java.util.Date;",
+   "import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;",
+   "import org.apache.commons.compress.archivers.zip.ZipFile;"
+  ],
+  "code": "    public void testEntryTimestampRoundTrip() throws Exception {\n        final File archive = new File(dir, \"stamped.zip\");\n        final Calendar cal = Calendar.getInstance();\n        cal.clear();\n        cal.set(2008, Calendar.JUNE, 15, 10, 20, 46);\n\n        final ZipArchiveOutputStream zos = new ZipArchiveOutputStream(archive);\n        final ZipArchiveEntry stamped = new ZipArchiveEntry(\"stamped.txt\");\n        stamped.setTime(cal.getTime().getTime());\n        zos.putArchiveEntry(stamped);\n        zos.write(\"stamped\".getBytes());\n        zos.closeArchiveEntry();\n        zos.close();\n\n        final ZipFile zf = new ZipFile(archive);\n        try {\n            final SimpleDateFormat fmt = new SimpleDateFormat(\"yyyy-MM-dd HH:mm:ss\");\n            final long readBack = zf.getEntry(\"stamped.txt\").getTime();\n            assertEquals(\"2008-06-15 10:20:46\", fmt.format(new Date(readBack)));\n        } finally {\n            zf.close();\n            archive.delete();\n        }\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "expected:<2008-06-15 10:20:[46]> but was:<2008-06-15 10:20:[23]>",
+ "fault_lines": [
+  "        cal.set(Calendar.SECOND, (int) dosTime & 0x1f);"
+ ],
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+   "old": "            |         (time.getSeconds() >> 1);",
+   "new": "            |         (time.getSeconds());",
+   "why": "one-line encoder edit: toDosTime stores the full second count instead of seconds/2"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "old": "            long time = ZipUtil.dosToJavaTime(ZipLong.getValue(cfh, off));",
+   "new": "            long time = ZipUtil.fromDosTime(new ZipLong(cfh, off)).getTime();",
+   "why": "one-line reader edit: populateFromCentralDirectory decodes the central-directory time word through ZipUtil.fromDosTime"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+   "old": "            |         (time.getSeconds() >> 1);",
+   "new": "            |         ((time.getSeconds() + 1) >> 1);",
+   "why": "one-line encoder edit: toDosTime rounds the halved seconds up instead of truncating"
+  }
+ ],
+ "variant_id": "CTV-31B7B9",
+ "gold_key": "org.apache.commons.compress.archivers.zip.ZipUtil::dosToJavaTime"
+}

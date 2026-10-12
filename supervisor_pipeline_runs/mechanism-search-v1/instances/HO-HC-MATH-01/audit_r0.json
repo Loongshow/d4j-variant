@@ -1,0 +1,94 @@
+{
+ "iid": "HO-HC-MATH-01",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math3.util.MathUtils::shortfall (D)",
+   "edit": "return reference - value; -> return value - reference; (1 line)",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "doc_consistent": false,
+   "result": "trigger 152.84; testLonglyByRow, testSwissFertilityByRow and testEquivalence fail. Contradicts its own javadoc (@return reference - value) and breaks P2 (increment)."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "Mean.pool(cov.meanX, -sx, oldN / n) (x only, 1 line; declared G9 edit)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "trigger 2.2857 (y coordinate still wrong)."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "sx = MathUtils.shortfall(meanX, cov.meanX) (x only, 1 line; declared G9 edit)",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "doc_consistent": false,
+   "result": "trigger -1.571; testEquivalence fails (cross term sx*sy flips sign)."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "negate both shortfalls passed to pool: Mean.pool(cov.meanX, -sx, oldN / n) and Mean.pool(cov.meanY, -sy, oldN / n) (2 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "Behavioural repair, but passes cov.meanX - meanX where pool's @param shortfall and C's own javadoc require shortfall(cov.meanX, meanX) = meanX - cov.meanX; Mean.pool's javadoc would still contradict its own code. Two lines vs a one-character gold fix."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "swap shortfall arguments for both coordinates: shortfall(meanX, cov.meanX), shortfall(meanY, cov.meanY) (2 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "Behavioural repair (cross term unchanged), but contradicts C's javadoc ('the amount by which each mean of cov falls short of the corresponding mean of this instance') and pool's parameter contract; pool's own doc/code contradiction remains."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "negate the shortfall results for both coordinates: sx = -MathUtils.shortfall(cov.meanX, meanX), sy likewise (2 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "Numerically the same as the argument swap; same documentation conflicts."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "anchor at this instance: Mean.pool(meanX, sx, cov.n / n), Mean.pool(meanY, sy, cov.n / n) (2 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "With mean = meanX, pool's contract requires shortfall(meanX, cov.meanX) = -sx; passing sx is the wrong orientation. Pool's doc/code contradiction remains."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "negate the weight: Mean.pool(cov.meanX, sx, -oldN / n), y likewise (2 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "Violates pool's documented weight range (share between 0 and 1) and C's javadoc."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "bypass pool: meanX -= sx * cov.n / n; meanY -= sy * cov.n / n (2 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "Contradicts C's javadoc ('means are pooled with Mean.pool') and leaves Mean.pool violating its own javadoc. Not a reroute to an existing sibling (none exists)."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.descriptive.moment.Mean::pool (GOLD, reference)",
+   "edit": "return mean - shortfall * weight; -> return mean + shortfall * weight; (1 character)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "result": "Restores the documented behaviour. CORRECT configuration passes the full suite (0 failures, re-run by auditor)."
+  }
+ ],
+ "reasons": "Reproduced: the variant compiles, the trigger fails with expected:<1.0> but was:<3.25>, and the full variant suite fails only the trigger. The CORRECT configuration (context edits and test, no fault) passes the full suite with 0 failures (G1 re-run). (a) Mean.pool's javadoc fixes its result on its own terms: the second group's mean is mean + shortfall, the result moves toward it by the fraction weight, and equals the second group's mean when weight is 1. The code returns mean - shortfall * weight, so pool contradicts its own javadoc whatever its callers pass. On the trigger the append call is pool(7, shortfall(7, 4) = -3, 0.5): the javadoc requires 5.5 (below 7, since shortfall is negative), the code returns 8.5. Every non-gold method on the path satisfies its javadoc. MathUtils.shortfall returns reference - value, exactly as documented. StorelessBivariateCovariance.increment is bit-identical to pristine, and its javadoc matches it. StorelessBivariateCovariance.append passes pool exactly the documented arguments: cov's mean as the first group's mean, shortfall(cov.meanX, meanX) as the amount it falls short of this mean, and oldN / n as this instance's (the second group's) share. Its numerator merge is bit-identical to pristine. StorelessCovariance.append, increment and getCovariance are unchanged upstream code. (b) No decoy javadoc contradicts its code or is loose: each states the orientation (shortfall), the update direction (increment) or the exact arguments (append). (c) Flipping D breaks P2 and the ownership tests (testLonglyByRow, testSwissFertilityByRow, testEquivalence). Every one-line caller flip fixes only one coordinate and still fails the trigger. Two-line caller flips at append do repair the behaviour: negating both shortfalls, swapping both shortfall argument orders, negating both shortfall results, anchoring at this mean with sx, negating the weight, or bypassing pool. Each of them passes pool arguments that contradict pool's @param contract and append's own javadoc, or drops the documented use of pool. Each also leaves pool's intrinsic doc/code contradiction in place. None is documentation-consistent or equally small. (d) In the variant, StorelessBivariateCovariance.java.bak is byte-identical to the variant .java (cmp). The correct gold line 'mean + shortfall * weight' occurs in no file of the tree (any extension) and in no git history (git log -S shortfall --all is empty). The pristine append formula also appears nowhere, and there are no Mean/MathUtils .bak copies and no untracked files. Names (shortfall, pool), the test name and the test comment are neutral. (e) HC is realised: D reads backwards and documents its orientation; P2 (increment) uses D correctly and is pinned by passing tests; A's javadoc states the direction and the fault flips it in an ordinary line; the path is E -> C -> D and C -> A across 3 packages; no orientation is under-specified; and no correct sibling exists to reroute to.",
+ "notes": "Context edit in append (assigned check 2). Pooling as cov.meanX + (meanX - cov.meanX) * oldN / n is mathematically identical to the pristine meanX += deltaX * cov.n / n, the weighted mean of the two groups. It is not bit-identical: it differs in rounding, and in non-finite edge cases (an infinite mean gives NaN in pristine, +/-Inf here). Upstream append promises only 'close to', and the full suite passes, so I judge it behaviour-preserving for G1. Anchoring at the appended instance's mean with this instance's share as the weight is a legitimate, symmetric form of the weighted mean, and append's javadoc states it explicitly. It is slightly less conventional than anchoring at this mean. Its only effect is test sensitivity: testEquivalence's first append has weight 0, so it cannot see the sign, and nothing reads the means after its second append. It creates no ambiguity and no alternative repair site, so I accept it as natural enough. A side effect worth knowing: with the fault, appending an empty instance (weight 1) negates the means. The gold's and the definer's javadocs fix the direction unambiguously. shortfall gives '@return reference - value' and the sign cases. pool says 'the second group's mean is mean + shortfall', 'above mean when shortfall is positive' and 'equal to the second group's mean when weight is 1'. Caller sign flip (assigned check 3): documentation-inconsistent, as the alternative-repair entries record. Freshness: none of Mean::pool, MathUtils::shortfall, StorelessBivariateCovariance::append/increment or StorelessCovariance::append/increment/getCovariance is in construction/USED_METHODS.txt. MathUtils::balance, from another instance, is a different method. Ceiling risk, not a validity issue: pool's javadoc makes the gold quick to confirm by reading."
+}

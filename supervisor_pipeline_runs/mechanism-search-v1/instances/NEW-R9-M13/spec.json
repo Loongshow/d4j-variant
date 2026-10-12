@@ -1,0 +1,144 @@
+{
+ "iid": "NEW-R9-M13",
+ "project": "Compress",
+ "group": "NEW-R9",
+ "mechanism": "M13",
+ "tags": [
+  "M13"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+  "method": "getLongOctalBytes",
+  "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+  "edits": [
+   {
+    "old": "getOctalBytes(value, temp, 0, length + 1);",
+    "new": "getOctalBytes(value, temp, 0, length);"
+   }
+  ]
+ },
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "method": "writeEntryHeader",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "method": "parseTarHeader",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "method": "setModTime",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "decl": "long time"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "method": "getModTime",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+   "method": "getOctalBytes",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+   "method": "parseOctal",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.compress.archivers.tar.TarArchiveEntry::TarArchiveEntry"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.TarTestCase::testTarUnarchiveEntryAttributes",
+  "org.apache.commons.compress.archivers.TarTestCase::testTarHeaderChecksumAndTypeFlag",
+  "org.apache.commons.compress.archivers.tar.TarUtils::getOctalBytes",
+  "org.apache.commons.compress.archivers.tar.TarUtils::getCheckSumOctalBytes"
+ ],
+ "ownership_reason": "The trigger round-trips a TarArchiveEntry through writeEntryHeader and the TarArchiveEntry(byte[]) constructor (parseTarHeader); every field survives except the modification time, which comes back as 188562176 s instead of 1262304000 s. 1262304000 is 11317235400 in octal (11 digits) and 188562176 is 1317235400: exactly the value with its leading octal digit dropped, i.e. the 12-byte MODTIMELEN field only received 10 digits. The reader side is pinned correct: TarTestCase.testTarUnarchiveEntryAttributes (passes on the variant) reads GNU tar's bla.tar, whose 12-byte modTime field holds the 11 digits 10716545626, and parseTarHeader/parseOctal/getModTime return 1195035542000 ms; no reader edit can restore a digit that is not in the header bytes. The writer's layout is pinned correct: writeEntryHeader passes the TarConstants lengths at the offsets that parseTarHeader mirrors (all other trigger fields round-trip), and getOctalBytes is pinned by TarTestCase.testTarHeaderChecksumAndTypeFlag (passes on the variant): getOctalBytes fills exactly `length` bytes as digits, a space and a trailing NUL, and getCheckSumOctalBytes relies on that layout when it rewrites the last two checksum bytes, so getOctalBytes cannot be widened without corrupting the checksum or the following type flag. getLongOctalBytes is the helper that gives the 12-byte size and modTime fields length-1 digit positions: it allocates temp = new byte[length + 1] so that getOctalBytes' trailing NUL falls outside the `length` bytes copied into the header; the variant formats only `length` bytes into that temp, so the copied field is 10 digits, a space and a NUL and the extra temp byte is never used. The same helper also writes the size field (second caller), which loses its leading digit for any size of 8^10 bytes or more, so the defect is in the shared helper rather than in the modTime-specific code of TarArchiveEntry. The minimal repair restores getOctalBytes(value, temp, 0, length + 1) in TarUtils.getLongOctalBytes.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.TarTestCase::testTarUnarchiveEntryAttributes",
+  "org.apache.commons.compress.archivers.TarTestCase::testTarHeaderChecksumAndTypeFlag"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/tar/TarArchiveEntryTest.java",
+  "test_class": "org.apache.commons.compress.archivers.tar.TarArchiveEntryTest",
+  "test_method": "testHeaderBytesRoundTrip",
+  "imports": [],
+  "code": "    public void testHeaderBytesRoundTrip() {\n        final TarArchiveEntry entry = new TarArchiveEntry(\"docs/notes.txt\");\n        entry.setMode(0100640);\n        entry.setIds(1000, 100);\n        entry.setNames(\"builder\", \"staff\");\n        entry.setSize(4096);\n        entry.setModTime(1262304000000L);\n\n        final byte[] header = new byte[512];\n        entry.writeEntryHeader(header);\n\n        final TarArchiveEntry copy = new TarArchiveEntry(header);\n        assertEquals(\"docs/notes.txt\", copy.getName());\n        assertEquals(0100640, copy.getMode());\n        assertEquals(1000, copy.getUserId());\n        assertEquals(100, copy.getGroupId());\n        assertEquals(\"builder\", copy.getUserName());\n        assertEquals(\"staff\", copy.getGroupName());\n        assertEquals(4096, copy.getSize());\n        assertEquals(1262304000000L, copy.getModTime().getTime());\n    }\n"
+ },
+ "extra_tests": [
+  {
+   "test_file": "src/test/java/org/apache/commons/compress/archivers/TarTestCase.java",
+   "imports": [],
+   "code": "    public void testTarUnarchiveEntryAttributes() throws Exception {\n        final InputStream is = new FileInputStream(getFile(\"bla.tar\"));\n        final ArchiveInputStream in = new ArchiveStreamFactory().createArchiveInputStream(\"tar\", is);\n        final TarArchiveEntry entry = (TarArchiveEntry) in.getNextEntry();\n        assertEquals(\"test1.xml\", entry.getName());\n        assertEquals(0644, entry.getMode());\n        assertEquals(610, entry.getSize());\n        assertEquals(1195035542000L, entry.getModTime().getTime());\n        in.close();\n    }\n"
+  },
+  {
+   "test_file": "src/test/java/org/apache/commons/compress/archivers/TarTestCase.java",
+   "imports": [
+    "import org.apache.commons.compress.archivers.tar.TarConstants;",
+    "import org.apache.commons.compress.archivers.tar.TarUtils;"
+   ],
+   "code": "    public void testTarHeaderChecksumAndTypeFlag() {\n        final TarArchiveEntry entry = new TarArchiveEntry(\"lib\", TarConstants.LF_DIR);\n        entry.setModTime(0);\n        final byte[] header = new byte[512];\n        entry.writeEntryHeader(header);\n\n        final int checksumOffset = TarConstants.NAMELEN + TarConstants.MODELEN + TarConstants.UIDLEN\n            + TarConstants.GIDLEN + TarConstants.SIZELEN + TarConstants.MODTIMELEN;\n        long sum = 0;\n        for (int i = 0; i < header.length; i++) {\n            final boolean inChecksum = i >= checksumOffset && i < checksumOffset + TarConstants.CHKSUMLEN;\n            sum += inChecksum ? ' ' : (header[i] & 0xff);\n        }\n        assertEquals(sum, TarUtils.parseOctal(header, checksumOffset, TarConstants.CHKSUMLEN));\n        assertEquals(TarConstants.LF_DIR, header[checksumOffset + TarConstants.CHKSUMLEN]);\n        assertTrue(new TarArchiveEntry(header).isDirectory());\n    }\n"
+  }
+ ],
+ "expected_signature": "expected:<1262304000000> but was:<188562176000>",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "old": "        offset = TarUtils.getLongOctalBytes(modTime, outbuf, offset, MODTIMELEN);",
+   "new": "        offset = TarUtils.getOctalBytes(modTime, outbuf, offset, MODTIMELEN);",
+   "why": "one-line decoy edit: writeEntryHeader formats modTime with the int-field helper"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "old": "        modTime = TarUtils.parseOctal(header, offset, MODTIMELEN);",
+   "new": "        modTime = TarUtils.parseOctal(header, offset, MODTIMELEN - 1);",
+   "why": "one-line decoy edit: parseTarHeader reads only the digit positions of the modTime field"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "old": "        modTime = time / MILLIS_PER_SECOND;",
+   "new": "        modTime = (time + MILLIS_PER_SECOND / 2) / MILLIS_PER_SECOND;",
+   "why": "one-line decoy edit: setModTime(long) rounds milliseconds to the nearest second"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "old": "        return new Date(modTime * MILLIS_PER_SECOND);",
+   "new": "        return new Date(modTime * (long) MILLIS_PER_SECOND);",
+   "why": "one-line decoy edit: getModTime multiplies in long arithmetic"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "old": "        int    idx = length - 1;",
+   "new": "        int    idx = length;",
+   "why": "one-line decoy edit: getOctalBytes starts one position later, giving every field one more digit position"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "old": "        buf[offset + idx] = 0;\n        --idx;\n",
+   "new": "        buf[offset + idx] = 0;\n",
+   "why": "one-line decoy edit: getOctalBytes lets the space overwrite the NUL position (digits + space, no NUL)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "old": "        buf[offset + idx] = (byte) ' ';\n        --idx;\n",
+   "new": "        buf[offset + idx] = (byte) ' ';\n",
+   "why": "one-line decoy edit: getOctalBytes lets the digits overwrite the space position (digits + NUL)"
+  }
+ ],
+ "kind": "new",
+ "fault_lines": [
+  "getOctalBytes(value, temp, 0, length);"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.tar.TarUtils::getLongOctalBytes",
+ "variant_id": "CTV-291D76"
+}

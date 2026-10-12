@@ -1,0 +1,201 @@
+[
+ {
+  "finding_quote": "The second model call did not return within the 300 s budget (`TimeExceeded`).",
+  "decision": "CONFIRMED",
+  "reason": "I checked CTV-9CE7EA/run-003. mini-swe-agent.traj.json has info.model_stats.api_calls = 1 and exit TimeExceeded. There is one assistant turn at 12:16:17.71Z, 5.5 s after execution_timer_started_at 12:16:12.221Z (commands.log), with 3 tool calls (grep, defects4j test, find). All 3 returned code 0, but all 3 results are stamped 12:21:17.07Z, which is 304.85 s after the start. The ledger has api_calls 1 and final_gap_s -4.9. In the instance's other runs (001, 004, 005, 006) every batch with a defects4j test returned in 0.52 to 0.57 s. In mini-swe-agent default.py, query() raises TimeExceeded before n_calls += 1 and model.query, so no second call was made. driver_mxF0.log puts the launch at 12:16:09Z. Run-002's stall ran 11:49:28 to 12:05:34. The 574 s probe ended at 12:15:08, and three fast probes (5.6, 4.0, 5.8 s) passed just before launch. The record therefore shows no provider latency in this run. This one edit also carries the fixes for the overlapping findings: the stall-rule finding, the inference-lens finding on the same bullet, and consistency finding #1.",
+  "edits": [
+   {
+    "old": "  - The agent's first model call issued three commands, which completed. The second model call did not return within the\n    300 s budget (`TimeExceeded`).\n  - Stall rule 2 did not apply, because less than 60 s of budget remained after the last tool result.\n  - It occurred at 12:16Z, in the same window as a provider stall (run-002 at 12:05Z) and a 574-second health probe (12:15Z).",
+    "new": "  - The run made one model call (api_calls = 1). It returned 5.5 s after the timer started, with three commands (grep,\n    `defects4j test`, find). All three exited 0, but their results were recorded only at 304.9 s, 4.9 s after the 300 s\n    budget had expired, so the agent stopped (`TimeExceeded`) before any second model call. In this instance's other runs,\n    batches containing a `defects4j test` call returned in about 0.5 s. The cause of the delay in the tool step is not\n    recorded.\n  - Neither stall rule applied: rule 1 needs at most 2 commands (the run issued 3), and rule 2 needs more than 60 s of\n    budget left after the last tool result (the final gap was -4.9 s).\n  - It launched at 12:16:09Z, after run-002's provider stall (11:49Z to 12:05Z) and a 574-second health probe (ended\n    12:15:08Z), but three fast probes (4.0 to 5.8 s) passed just before launch and its one model call returned in 5.5 s, so\n    the record shows no provider latency in this run."
+   }
+  ]
+ },
+ {
+  "finding_quote": "Stall rule 2 did not apply, because less than 60 s of budget remained after the last tool result.",
+  "decision": "CONFIRMED",
+  "reason": "In scripts/ct_status.py classify(), rule 1 is stall = api_calls<=2 and commands<=2. The run had 3 commands, so rule 1 fails. Rule 2 needs the last event to be a tool result with final_gap > 60. Here final_gap is -4.9, so no budget was left at all. The report leaves out rule 1 and understates the gap. The fix is part of the combined edit under the first finding ('Neither stall rule applied: ...').",
+  "edits": []
+ },
+ {
+  "finding_quote": "the agent ran `find /private/tmp /usr /opt -name 'junit-4*.jar'` while looking for a JUnit jar",
+  "decision": "CONFIRMED",
+  "reason": "The trajectory of CTV-065313/run-002 shows that tool call 10 was `find /private/tmp /usr /opt -type f \\( -name 'junit-4*.jar' -o -name 'junit.jar' \\) 2>/dev/null | head -20`. Its only output line was /private/tmp/ct3ws-diagF1/.../CTV-BEE8CB/lib/junit.jar, which the 'junit.jar' pattern matched. The command as the report quotes it could not have produced that path.",
+  "edits": [
+   {
+    "old": "  `find /private/tmp /usr /opt -name 'junit-4*.jar'` while looking for a JUnit jar.",
+    "new": "  `find /private/tmp /usr /opt -type f \\( -name 'junit-4*.jar' -o -name 'junit.jar' \\) 2>/dev/null | head -20` (call 10)\n  while looking for a JUnit jar."
+   }
+  ]
+ },
+ {
+  "finding_quote": "The hash after these fixes is recorded with each held-out validation.",
+  "decision": "CONFIRMED",
+  "reason": "(numbers lens) instances/HO-*/validation.json have only the keys baseline_failures, finished_at, gates, iid, overall, schema_version, signature and started_at, and none of them holds a hash. The packaged new_bug_variants/*/validation.json give validator_version as the path 'mechanism-search-v1/mx_build_validate.py' only. A grep for the current mx_build_validate.py sha256 (a9c93054...) outside the verification inputs finds nothing. FREEZE.json does not mention mx_build_validate. The only builder hash on record is the recipe-freeze hash 0921e2ac... in RECIPES_FROZEN.json. This edit also covers the inference-lens duplicate and consistency finding #14.",
+  "edits": [
+   {
+    "old": "The hash after\n  these fixes is recorded with each held-out validation.",
+    "new": "The builder\n  hash after these fixes is not recorded: the packaged held-out validation records name the validator only by path\n  (`validator_version`), and FREEZE.json does not hash the builder."
+   }
+  ]
+ },
+ {
+  "finding_quote": "A retro check of all 11 new variants passed except HO-HC-MATH-01.",
+  "decision": "CONFIRMED",
+  "reason": "Of the 9 HO validation.json files, only HO-HC-MATH-01's has a G14 gate. The other 8 stop at G13, and the P4 records list D1 to D5 only. No retro-check log exists, since a grep for G14 and 'retro' finds only HO-HC-MATH-01 files, plans/HO_cont.json, scripts and reports. The count of 11 can be traced (9 HO plus 2 P4), so that part of the finding is wrong, but the check's outcome is not archived. There is indirect support: across new_bug_variants and instances, only HO-HC-MATH-01/build_r0 patches touch *.bak, *.orig or *.rej files, and every other HO and P4 variant staged without setup failure (ledger statuses). This edit also covers the overlapping finding on the retro check and diff, and consistency finding #13.",
+  "edits": [
+   {
+    "old": "  - A retro check of all 11 new variants passed except HO-HC-MATH-01.",
+    "new": "  - A retro check of all 11 new variants (9 held-out, 2 P4) is reported to have passed except HO-HC-MATH-01, but its output\n    was not archived: G14 is recorded only in HO-HC-MATH-01's r1 validation. Indirect support: no other new variant's\n    patches touch a `*.bak`, `*.orig` or `*.rej` file, and every other held-out and P4 variant staged without setup failure."
+   }
+  ]
+ },
+ {
+  "finding_quote": "The builder checkouts are byte-identical to the server checkouts (`diff -rq`, 0 lines, all five projects).",
+  "decision": "CONFIRMED",
+  "reason": "I recomputed `diff -rq construction/fresh/<P> models/mxF0/workspaces/defects4j/<P>-1/fixed`. It prints 23 lines for Chart and 20 each for Compress, JacksonCore, Lang and Math, and every line is in .git or .svn metadata. With -x .git -x .svn the count is 0 for all five projects. The working trees match, so validity is unaffected, but the statement as written is inaccurate.",
+  "edits": [
+   {
+    "old": "The builder checkouts are byte-identical to the server\n    checkouts (`diff -rq`, 0 lines, all five projects).",
+    "new": "Excluding VCS metadata, the builder checkouts are identical to the\n    server checkouts (`diff -rq -x .git -x .svn`, 0 lines, all five projects); a plain `diff -rq` lists only `.git` and\n    `.svn` differences."
+   }
+  ]
+ },
+ {
+  "finding_quote": "Every other held-out run is scanner-clean.",
+  "decision": "CONFIRMED",
+  "reason": "The block_mxF0.jsonl held-out rows show CTV-E04F64/run-001 (HO-HA-JACKSONCORE-01) and CTV-B68398/run-002 (HO-HC-LANG-01) with flagged_calls = 1, contaminated = false and verdict valid. I re-ran scan_v3.py read-only. Both flagged calls wrote and compiled a scratch Java file under /tmp (/tmp/Tmp.java and /tmp/ProbeCTV.java), with no harness content shown. Apart from the r0 setup-failure STOP_INTEGRITY, no HO row has a STOP verdict. The others are valid or provider_stall infrastructure. 'Scanner-clean' overstates this.",
+  "edits": [
+   {
+    "old": "leakage. Every other held-out run is scanner-clean.",
+    "new": "leakage. No other held-out run has a STOP_CONTAMINATION, STOP_INTEGRITY or STOP_SCAN_FAILED record. Two\n  (HO-HA-JACKSONCORE-01 run-001, HO-HC-LANG-01 run-002) each had one flagged call that wrote a scratch Java file under\n  `/tmp`, which the scanner did not judge contaminating."
+   }
+  ]
+ },
+ {
+  "finding_quote": "`nr1m1` and `r2m2` to `r13m9` (about 1 GB)",
+  "decision": "CONFIRMED",
+  "reason": "No file outside AMENDMENTS.md records a size, and the directories no longer exist under /private/tmp. The NEW-R* builder_report.json files name /private/tmp/r2m2 to /private/tmp/r13m9, so the names are traceable but the size is not. The point is minor, but an untraceable number should not be stated as fact.",
+  "edits": [
+   {
+    "old": "`nr1m1` and `r2m2` to `r13m9` (about 1 GB),",
+    "new": "`nr1m1` and `r2m2` to `r13m9` (total size not recorded),"
+   }
+  ]
+ },
+ {
+  "finding_quote": "A different, independent auditor audits the revision.",
+  "decision": "CONFIRMED",
+  "reason": "(numbers lens) instances/HO-HB-LANG-01/audit_r0.json (REJECTED) and audit.json (revision_audited r1, CONFIRMED) both give the auditor only as 'independent agent'. The only distinguishing detail is the scratch directory (mxb-NqxgnB vs mxb-zWyvZX). The records therefore cannot show that a different auditor was used. The present tense also misdescribes a completed audit. This edit covers the inference-lens duplicate as well.",
+  "edits": [
+   {
+    "old": "- **Re-audit.** A different, independent auditor audits the revision. The original verdict is kept as",
+    "new": "- **Re-audit.** The revision was re-audited and CONFIRMED (`instances/HO-HB-LANG-01/audit.json`, revision r1). Both audit\n  records name the auditor only as \"independent agent\", so they do not show that the r1 auditor differed from the r0\n  auditor. The original verdict is kept as"
+   }
+  ]
+ },
+ {
+  "finding_quote": "The agent's first model call issued three commands, which completed. The second model call did not return within the 300 s budget (`TimeExceeded`).",
+  "decision": "CONFIRMED",
+  "reason": "This duplicates the first finding, seen through the inference lens, and the same data apply (api_calls 1, model reply at +5.5 s, tool results at +304.85 s, final gap -4.9 s, fast probes before launch). The combined edit under the first finding replaces these bullets and removes the implied provider cause. I did not adopt the finding's added claim that the miss 'reflects a harness or tool-execution delay', beyond stating that the delay was in the tool step and its cause is not recorded.",
+  "edits": []
+ },
+ {
+  "finding_quote": "Consistency with the plan.** This keeps the plan's rule that an instance is never modified after its first behavioural run.",
+  "decision": "CONFIRMED",
+  "reason": "HELDOUT_CONFIRMATION_PLAN.md lines 144-145 read: 'A REJECTED instance is replaced by a fresh build from the same recipe **before any run**; it is never modified after a run.' HO-HB-LANG-01's builder_report.json says validator attempt 1 was rejected on leakage. The revision changed only the javadoc example ('no code changed', contract unchanged), followed by a second validator attempt, and the instance was packaged under the same CTV-49DDB6. That is an in-place revision, not a fresh build. The never-modify-after-run rule was kept, but the audit-rejection rule was not followed, and AMENDMENTS should record this as a deviation.",
+  "edits": [
+   {
+    "old": "- **Consistency with the plan.** This keeps the plan's rule that an instance is never modified after its first behavioural\n  run.",
+    "new": "- **Deviation from the plan.** HELDOUT_CONFIRMATION_PLAN.md says a REJECTED instance \"is replaced by a fresh build from the\n  same recipe **before any run**\". HO-HB-LANG-01 was instead revised in place (javadoc example only; same contract, fault\n  and id), then re-validated and re-audited. The revision came before any run, so the plan's rule that an instance is never\n  modified after its first behavioural run is kept."
+   }
+  ]
+ },
+ {
+  "finding_quote": "The hash after these fixes is recorded with each held-out validation.",
+  "decision": "CONFIRMED",
+  "reason": "(inference lens) This duplicates the numbers-lens finding on the same sentence. The packaged validations hold validator_version as a path only, and FREEZE.json has no builder hash. The edit is given under the first 'hash after these fixes' decision.",
+  "edits": []
+ },
+ {
+  "finding_quote": "This is a disclosed residual risk to cost, not to data validity.",
+  "decision": "CONFIRMED",
+  "reason": "In scripts/scan_v3.py, any call's output triggers contamination on NARROW (gold_rank, gold_methods, structured_submission, variant_manifest, cue-trust-v3, mechanism-search, VARIANT_KEY, the repo path), on foreign CTV ids or on cross-level cue tokens. After a flagged call it also triggers on MARK or pristine-only lines. There is no pattern for gold method names, and a display carrying none of these markers would pass. The dash-encoded claude-501 path does not contain the repo path or 'mechanism-search'. Agents do search /tmp outside their workspace (CTV-065313/run-002, and CTV-E72EE8/run-003 runs `find /tmp`), and mx_tmp_audit.py skips claude-*. 'Not to data validity' therefore overclaims. X7's 'so the data stay valid' and X2's 'out-of-workspace source' have the same problem. A grep of all 148 recorded trajectories finds no access to claude-501, which I added as the supported mitigating fact.",
+  "edits": [
+   {
+    "old": "  workspace. The frozen scanner stops any run that displays out-of-workspace harness content or another variant id\n  (X2 showed that it does), and such a run is excluded.\n- **Conclusion.** This is a disclosed residual risk to cost, not to data validity.",
+    "new": "  workspace. The frozen scanner stops any run whose output shows another variant id, a harness marker, the experiment name\n  or the repository path, or, after an out-of-workspace call, a pristine-only source line (X2 showed the variant-id check\n  working), and such a run is excluded. It does not match gold method names as such, so a gold name shown without any of\n  these markers would not be stopped.\n- **Conclusion.** This is a disclosed residual risk. Most exposures would be stopped and cost a run, but the scanner does not\n  catch every possible display, so some risk to data validity remains. No recorded trajectory shows access to\n  `/private/tmp/claude-501`."
+   },
+   {
+    "old": "The scanner would stop such a\n  run, so the data stay valid, but every stop costs a run.",
+    "new": "The scanner would stop such a\n  run if its output showed a pristine-only line, a harness marker or another variant id, and every stop costs a run. Source\n  shown without any of these would not be caught, so a residual validity risk remains."
+   },
+   {
+    "old": "  - Validity is protected by the scanner, which stops any run that displays another variant ID or out-of-workspace source.",
+    "new": "  - Validity is protected by the scanner, which stops any run that displays another variant ID or, after an\n    out-of-workspace call, harness content or a pristine-only source line."
+   }
+  ]
+ },
+ {
+  "finding_quote": "G1 already proves those edits behaviour-preserving, so the semantics are unchanged.",
+  "decision": "CONFIRMED",
+  "reason": "G1 in mx_build_validate.py checks that the CORRECT config passes the trigger and the ownership tests and adds no full-suite failure. That is test evidence, not proof. instances/HO-HC-MATH-01/builder_report.json says a context edit is 'mathematically identical ... but not bit-identical; G1 passes', and audit_r0.json notes that it differs in rounding and in non-finite edge cases. HO-HA-MATH-01/builder_report.json says behaviour preservation holds 'only up to rounding in general'.",
+  "edits": [
+   {
+    "old": "The check now skips context-edited files first. G1 already proves those\n  edits behaviour-preserving, so the semantics are unchanged.",
+    "new": "The check now skips context-edited files first. Those edits are covered\n  instead by G1, which checks that the CORRECT configuration (context edits, no fault) passes the trigger, the ownership tests\n  and the full suite. That is test-level evidence of behaviour preservation, not proof: the HO-HC-MATH-01 and HO-HA-MATH-01\n  builders note context edits that are equivalent only up to rounding."
+   }
+  ]
+ },
+ {
+  "finding_quote": "A different, independent auditor audits the revision.",
+  "decision": "CONFIRMED",
+  "reason": "(inference lens) This duplicates the numbers-lens finding, and the edit is given there. On the finding's extra point: the 'original builder' claim rests only on the revision being recorded in the same builder_report.json, and the records carry no builder or auditor id. I made no further edit because the X6 revision bullet is not otherwise contradicted.",
+  "edits": []
+ },
+ {
+  "finding_quote": "A retro check of all 11 new variants passed except HO-HC-MATH-01. The builder checkouts are byte-identical to the server checkouts (`diff -rq`, 0 lines, all five projects).",
+  "decision": "CONFIRMED",
+  "reason": "This overlaps the two separate findings above. G14 is recorded only for HO-HC-MATH-01, and neither the retro check nor the diff comparison was archived. I re-ran the diff and it reproduces only when VCS metadata is excluded. The edits are given under those two decisions.",
+  "edits": []
+ },
+ {
+  "finding_quote": "Under the frozen rule the run is excluded: contamination can never be released.",
+  "decision": "PARTLY",
+  "reason": "Ledger: S2 slot 15 CTV-065313/run-002 was completed, behavioural, gold_rank 1, verdict STOP_CONTAMINATION. S2_cont slot 0 (run-003) is its replacement. PREREGISTRATION.md says behavioural outcomes are 'never re-run' and provides replacement for infrastructure failures, and ct_driver.py forbids releasing contamination stops. No frozen rule covers re-running an excluded behavioural run, though the screening tier asks for 3 valid runs per instance, so the deviation is arguable rather than clear-cut. X2 already discloses the replacement. The finding's claim that NEW-R7-M10 'scores 3/3 either way' is wrong: without the replacement it would be 2/2 (run-001 and run-004), and with the excluded run 4/4. All four runs ranked the gold first, so accuracy is 1.0 in every case. I added a modest note.",
+  "edits": [
+   {
+    "old": "Under the frozen rule the run is excluded: contamination can never be\n  released.",
+    "new": "Under the frozen rule the run is excluded: contamination can never be\n  released. No frozen rule covers replacing an excluded behavioural run: PREREGISTRATION.md says behavioural outcomes are\n  never re-run and provides replacement for infrastructure failures, while screening asks for 3 valid runs per instance. The\n  replacement below is therefore recorded as a deviation. It does not change the result: all four NEW-R7-M10 runs, the\n  excluded one included, ranked the gold first."
+   }
+  ]
+ },
+ {
+  "finding_quote": "The S1 result for RH-ADV-DEPTH-01 is reported with this caveat.",
+  "decision": "PARTLY",
+  "reason": "All 18 instances/RH-*/reproduction.json files contain only apply_ok, compile_ok, trigger output and failing-tests head, with no full-suite result. P4-DEPTH-01-r1's D3 recorded parent_full = [testIntArrayToLong, testLang1112]. P4-COMPRESS07-r1's D3 checked only the revision ('baseline', 'variant_full'), not the parent. So only one parent was full-suite checked, not two as the finding says, which leaves 17 re-hosted instances with no recorded full-suite check, not 16. VARIANT_KEY lists Conversion::intArrayToLong as an entry point for RH-ADV-MASK-01, LEX-01, REGISTRY-01 and RH-LB-LANG-03-ADAPTER. I added this as a neutral fact, without claiming that those instances fail.",
+  "edits": [
+   {
+    "old": "  are unchanged. The S1 result for RH-ADV-DEPTH-01 is reported with this caveat.",
+    "new": "  are unchanged. The S1 result for RH-ADV-DEPTH-01 is reported with this caveat. The re-host reproduction ran no full suite\n  for any of the 18 re-hosted instances, and only RH-ADV-DEPTH-01's parent was later full-suite checked (P4 gate D3), so\n  whether the other 17 fail extra tests in this harness is not recorded. Four of them (RH-ADV-MASK-01, RH-ADV-LEX-01,\n  RH-ADV-REGISTRY-01, RH-LB-LANG-03-ADAPTER) list the same `Conversion::intArrayToLong` entry point."
+   }
+  ]
+ },
+ {
+  "finding_quote": "consistency: The second model call did not return within the 300 s budget",
+  "decision": "CONFIRMED",
+  "reason": "This concerns AMENDMENTS.md X11. The trajectory and ledger record api_calls = 1, and the tool results arrive at +304.85 s. The fix is in the combined edit under the first finding.",
+  "edits": []
+ },
+ {
+  "finding_quote": "consistency: A retro check of all 11 new variants passed except HO-HC-MATH-01.",
+  "decision": "CONFIRMED",
+  "reason": "This concerns AMENDMENTS.md X10. No archived retro-check output exists, and G14 appears only in HO-HC-MATH-01's validation. The fix is the edit under the 'retro check' finding, which now says the result is reported but unarchived and gives the indirect support.",
+  "edits": []
+ },
+ {
+  "finding_quote": "consistency: The hash after these fixes is recorded with each held-out validation.",
+  "decision": "CONFIRMED",
+  "reason": "This concerns AMENDMENTS.md X5. No post-fix builder hash appears in any held-out validation or builder record, and only RECIPES_FROZEN.json's freeze-time hash exists. The fix is the edit under the first 'hash after these fixes' decision.",
+  "edits": []
+ }
+]
