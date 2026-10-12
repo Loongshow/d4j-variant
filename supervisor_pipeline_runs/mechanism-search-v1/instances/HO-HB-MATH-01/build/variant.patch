@@ -1,0 +1,152 @@
+diff --git a/src/main/java/org/apache/commons/math3/geometry/euclidean/oned/Interval.java b/src/main/java/org/apache/commons/math3/geometry/euclidean/oned/Interval.java
+index a017ae5ff..c6447e860 100644
+--- a/src/main/java/org/apache/commons/math3/geometry/euclidean/oned/Interval.java
++++ b/src/main/java/org/apache/commons/math3/geometry/euclidean/oned/Interval.java
+@@ -100,6 +100,20 @@ public class Interval {
+         return 0.5 * (lower + upper);
+     }
+ 
++    /** Get the value located at a given fraction of the way from one bound to another.
++     * <p>The value is {@code from + fraction * (to - from)}: fraction 0 gives {@code from}
++     * and fraction 1 gives {@code to}. The fraction must already lie within [0, 1] for the
++     * value to lie between the two bounds; it is applied as given, without clamping, so a
++     * fraction outside [0, 1] gives a value outside them.</p>
++     * @param from value at fraction 0
++     * @param to value at fraction 1
++     * @param fraction fraction of the way from {@code from} to {@code to}
++     * @return value at the given fraction
++     */
++    public static double positionAt(final double from, final double to, final double fraction) {
++        return from + fraction * (to - from);
++    }
++
+     /** Get the midpoint of the interval.
+      * @return midpoint of the interval
+      * @deprecated as of 3.1, replaced by {@link #getBarycenter()}
+diff --git a/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Line.java b/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Line.java
+index 7ff678c96..f63986bf0 100644
+--- a/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Line.java
++++ b/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Line.java
+@@ -276,6 +276,21 @@ public class Line implements Hyperplane<Euclidean2D>, Embedding<Euclidean2D, Euc
+         return FastMath.abs(getOffset(p));
+     }
+ 
++    /** Compute the distance between a point and the chord joining two points.
++     * <p>The fraction returned by {@link Vector2D#chordFraction(Vector2D, Vector2D, Vector2D)
++     * Vector2D.chordFraction(a, b, p)} is handed to {@link Vector2D#chordPoint(Vector2D,
++     * Vector2D, double) Vector2D.chordPoint(a, b, fraction)}, and the Euclidean distance
++     * between the point built there and {@code p} is returned.</p>
++     * @param a first end of the chord
++     * @param b second end of the chord
++     * @param p point to check
++     * @return distance between {@code p} and the point of the chord at the computed fraction
++     */
++    public static double chordDistance(final Vector2D a, final Vector2D b, final Vector2D p) {
++        final double fraction = Vector2D.chordFraction(a, b, p);
++        return Vector2D.chordPoint(a, b, fraction).distance(p);
++    }
++
+     /** Check the instance is parallel to another line.
+      * @param line other line to check
+      * @return true if the instance is parallel to the other line
+diff --git a/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Segment.java b/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Segment.java
+index e784001da..e4008fcc8 100644
+--- a/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Segment.java
++++ b/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Segment.java
+@@ -16,8 +16,6 @@
+  */
+ package org.apache.commons.math3.geometry.euclidean.twod;
+ 
+-import org.apache.commons.math3.util.FastMath;
+-
+ /** Simple container for a two-points segment.
+  * @version $Id$
+  * @since 3.0
+@@ -81,32 +79,6 @@ public class Segment {
+      * @since 3.1
+      */
+     public double distance(final Vector2D p) {
+-        final double deltaX = end.getX() - start.getX();
+-        final double deltaY = end.getY() - start.getY();
+-
+-        final double r = ((p.getX() - start.getX()) * deltaX + (p.getY() - start.getY()) * deltaY) /
+-                         (deltaX * deltaX + deltaY * deltaY);
+-
+-        // r == 0 => P = startPt
+-        // r == 1 => P = endPt
+-        // r < 0 => P is on the backward extension of the segment
+-        // r > 1 => P is on the forward extension of the segment
+-        // 0 < r < 1 => P is on the segment
+-
+-        // if point isn't on the line segment, just return the shortest distance to the end points
+-        if (r < 0 || r > 1) {
+-            final double dist1 = getStart().distance(p);
+-            final double dist2 = getEnd().distance(p);
+-
+-            return FastMath.min(dist1, dist2);
+-        }
+-        else {
+-            // find point on line and see if it is in the line segment
+-            final double px = start.getX() + r * deltaX;
+-            final double py = start.getY() + r * deltaY;
+-
+-            final Vector2D interPt = new Vector2D(px, py);
+-            return interPt.distance(p);
+-        }
++        return Line.chordDistance(start, end, p);
+     }
+ }
+diff --git a/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Vector2D.java b/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Vector2D.java
+index b605dacb0..cac640b59 100644
+--- a/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Vector2D.java
++++ b/src/main/java/org/apache/commons/math3/geometry/euclidean/twod/Vector2D.java
+@@ -23,6 +23,7 @@ import org.apache.commons.math3.exception.MathArithmeticException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.geometry.Space;
+ import org.apache.commons.math3.geometry.Vector;
++import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
+ 
+@@ -298,6 +299,41 @@ public class Vector2D implements Vector<Euclidean2D> {
+         return p1.distance(p2);
+     }
+ 
++    /** Compute the fraction locating the point of a chord closest to a given point.
++     * <p>The chord joins {@code a} (fraction 0) to {@code b} (fraction 1). The orthogonal
++     * projection of {@code p} on the line through {@code a} and {@code b} has the fraction
++     * r = ((p - a) &middot; (b - a)) / |b - a|<sup>2</sup>. The value returned is r reduced
++     * to the range [0, 1]: r itself when 0 &le; r &le; 1, 0 when r &lt; 0 and 1 when
++     * r &gt; 1. For distinct {@code a} and {@code b} the returned fraction therefore always
++     * lies within [0, 1] (it is NaN when they coincide).</p>
++     * @param a first end of the chord
++     * @param b second end of the chord
++     * @param p point to locate
++     * @return fraction, within [0, 1], of the point of the chord closest to {@code p}
++     */
++    public static double chordFraction(final Vector2D a, final Vector2D b, final Vector2D p) {
++        final double deltaX = b.x - a.x;
++        final double deltaY = b.y - a.y;
++        final double along  = ((p.x - a.x) * deltaX + (p.y - a.y) * deltaY) /
++                              (deltaX * deltaX + deltaY * deltaY);
++        return along;
++    }
++
++    /** Build the point located at a given fraction along the chord from {@code a} to {@code b}.
++     * <p>The abscissa of the point is {@link Interval#positionAt(double, double, double)
++     * Interval.positionAt(a.getX(), b.getX(), fraction)} and its ordinate is
++     * {@code Interval.positionAt(a.getY(), b.getY(), fraction)}; the fraction is passed on
++     * unchanged.</p>
++     * @param a first end of the chord (fraction 0)
++     * @param b second end of the chord (fraction 1)
++     * @param fraction fraction along the chord
++     * @return point at the given fraction along the chord
++     */
++    public static Vector2D chordPoint(final Vector2D a, final Vector2D b, final double fraction) {
++        return new Vector2D(Interval.positionAt(a.x, b.x, fraction),
++                            Interval.positionAt(a.y, b.y, fraction));
++    }
++
+     /** Compute the distance between two vectors according to the L<sub>&infin;</sub> norm.
+      * <p>Calling this method is equivalent to calling:
+      * <code>p1.subtract(p2).getNormInf()</code> except that no intermediate

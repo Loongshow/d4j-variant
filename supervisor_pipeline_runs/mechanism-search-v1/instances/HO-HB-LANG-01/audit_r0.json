@@ -1,0 +1,69 @@
+{
+ "iid": "HO-HB-LANG-01",
+ "auditor": "independent agent",
+ "verdict": "REJECTED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": true,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.time.DateUtils::offsetMinuteField (GOLD, sanity check)",
+   "edit": "offsetMillis / (60 * 1000) -> Math.abs(offsetMillis) / (60 * 1000)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (H1), candidate (1)",
+   "edit": "DateUtils.offsetMinuteField(offsetMillis) -> DateUtils.offsetMinuteField(Math.abs(offsetMillis))",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "reasoning": "G's javadoc accepts either sign ('@param offsetMillis ... may be negative') and promises a sign-invariant result ('always in the range 0 to 59, whatever the sign'; '+05:30 and -05:30 both give 30'). Under G's contract G(|x|) == G(x), so this edit does nothing to documented behaviour. It changes the output only because G breaks its postcondition, and G still breaks it after the edit: offsetMinuteField(-12600000) still returns -30 for an input its contract allows. H1's javadoc does not forbid abs in so many words. But it defines the minute field as 'the value of DateUtils#offsetMinuteField(int) for the offset', where offsetMillis is the signed offset ('may be negative'). On the variant the edited H1 writes 30, not G(offset) = -30, so the edit makes H1 depart from its own literal contract. This is a caller-side workaround, not a repair consistent with all documentation."
+  },
+  {
+   "method": "org.apache.commons.lang3.CharUtils::appendTwoDigits (S), candidate (2a)",
+   "edit": "buffer.append((char) (value / 10 + '0')) -> buffer.append((char) (Math.abs(value / 10) + '0'))  [one line]",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "reasoning": "This absorbs the fault because the trigger's minute field (30) ends in 0. It contradicts S's stated behaviour: 'it is placed as given, one digit character per decimal place, with no range check'. S's javadoc puts the 0..99 obligation on the caller ('must already be in the range 0 to 99'). G's postcondition is still broken after the edit."
+  },
+  {
+   "method": "org.apache.commons.lang3.CharUtils::appendTwoDigits (S), candidate (2b)",
+   "edit": "Math.abs(value) on both the tens and the units line",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "reasoning": "Same as 2a: the value is no longer 'placed as given', and G is still broken."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (H1)",
+   "edit": "DateUtils.offsetMinuteField(offsetMillis) -> Math.abs(DateUtils.offsetMinuteField(offsetMillis))",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "reasoning": "H1 documents the minute field as G's value; wrapping it in abs writes a value other than G(offset) on the variant. Under G's 0..59 postcondition the wrap would be redundant. G is still broken."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.DateFormatUtils::appendHourMinute (H3)",
+   "edit": "CharUtils.appendTwoDigits(buffer, minutes) -> CharUtils.appendTwoDigits(buffer, Math.abs(minutes))",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "reasoning": "Contradicts H3's 'the values are passed on as given'. G is still broken."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset (H1), candidate (3): H1 as owner of the minute-field sign",
+   "edit": "mirror H1's own hour negation: DateUtils.offsetMinuteField(offsetMillis) -> DateUtils.offsetMinuteField(-offsetMillis) (declared G9 edit); the 'negate only when negative' form equals candidate (1)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "doc_consistent": false,
+   "reasoning": "The plain negation breaks the east zone (got '+05:-0 -03:30'). The conditional form is candidate (1). The documentation divides the work explicitly. H1 owns the sign character and the hour field ('the number of whole hours in the magnitude of the offset'), and its truncate-then-negate code computes exactly that. H1 hands the minute field wholesale to G ('the value of DateUtils#offsetMinuteField(int) for the offset'). G's javadoc owns the sign handling ('taken from the magnitude of the offset ... whatever the sign'; '-05:30 gives 30'). H1 negating the hours locally creates an asymmetry that may lure a reader, but no javadoc makes H1 responsible for the sign of the minute field. H1 is not a defensible owner."
+  }
+ ],
+ "reasons": "REJECTED on (d), leakage. Everything else holds.\n\n(d) The trigger's literal values reappear only in the gold's javadoc. The trigger formats GMT+05:30 and GMT-03:30 and asserts '+05:30 -03:30'. The gold DateUtils.offsetMinuteField has the javadoc examples 'both {@code +05:30} and {@code -05:30} give 30, and {@code -03:00} gives 0'. In the variant, `grep -rn \"05:30\" src/main/java` returns exactly one line, DateUtils.java:680, which is the gold's javadoc. '-03:00' (DateUtils.java:681) is likewise the only signed '-03:' offset in production code, echoing the trigger's west zone. An agent that searches production code for the trigger's zone or expected string lands directly, and only, on the gold. There it finds a javadoc that discusses the trigger's exact case (a negative half-hour offset, 'whatever the sign') next to a one-line body with no abs. This is comment/vocabulary leakage that points at the gold and bypasses the sink-blame path the HB recipe is meant to test, so it would bias Acc@1 upward. Cheap fix before any run: use javadoc examples that share no literal with the trigger (e.g. '+09:30 and -09:30 both give 30, and -07:00 gives 0'), or pick trigger zones absent from all production comments, then re-check that no trigger literal greps uniquely to the gold.\n\n(a) true. On the trigger input (-12600000 ms), offsetMinuteField returns -210 % 60 = -30, which breaks its explicit postcondition ('from 0 to 59', 'whatever the sign', '-05:30 gives 30'). Every other method meets its own javadoc. CharUtils.appendTwoDigits places the value 'as given' with 'no range check', so -3 becomes '-' (45). Its 0..99 precondition is the caller's obligation. DateFormatUtils.appendHourMinute passes the values 'on as given'. FastDatePrinter.appendZoneOffset writes '-', writes |offset|/3600000 hours (truncate, then negate) and passes the signed offset to G, whose contract allows that ('may be negative'). The context-edited TimeZoneNumberRule.appendTo only forwards ZONE_OFFSET + DST_OFFSET. E and the frames in between are unchanged upstream code. H1's and H3's 'form +HH:MM' / 'each as two digits' statements are explicitly tied to G and S through delegation clauses, so they do not create a second owner.\n\n(b) false. No non-gold javadoc contradicts its own code. No decoy promises the minute normalisation: H1's magnitude clause is about the hour field. The only precondition is in S's javadoc.\n\n(c) false. Four non-gold one-line edits absorb the fault behaviourally (H1 abs of the argument, H1 abs of the result, H3 abs, sink abs; all pass the trigger and the 3 ownership tests). Each contradicts the edited method's own javadoc ('placed as given', 'passed on as given', 'the value of offsetMinuteField for the offset'). All of them leave G breaking its own postcondition for an input its contract allows, so none is consistent with all documentation. See alternative_repairs_tried.\n\n(e) true. HB features are present: a sink with a visibly bare digit placement and an explicit 'must already be in the range 0 to 99; it is placed as given' precondition, a gold with an explicit 0..59 sign-invariant postcondition, and a quiet missing-abs line. Four classes span two packages (lang3, lang3.time), and the trigger goes through the public entry point. Two caveats, both acceptable: G is a leaf called by H1 (data flow G -> H1 -> H3 -> S, not a call chain H1 -> G -> H3 -> S), and E reaches H1 through about 6 unchanged or forwarding frames.",
+ "notes": "Reproduced in /private/tmp/mxb-NqxgnB (now deleted). Variant compiles. The trigger fails with expected:<+05:30 -03:[3]0> but was:<+05:30 -03:[-]0>. The gold repair (restoring Math.abs) passes the trigger and the 3 ownership tests. The full suite was not re-run; I relied on the validator's G1/G5. variant.patch and correct.patch differ only in the gold line. The context edit is behaviour-preserving for either sign: (|o|/60000) % 60 == |o|/60000 - 60*(|o|/3600000). Minor, not decisive: the ownership test name testHourMinuteFieldLayout contains 'MinuteField', a substring of the gold name offsetMinuteField. It mainly describes the decoy appendHourMinute, and 'minute field' is domain vocabulary spread across the H1, H3 and G javadocs, but a rebuild could pick a neutral name such as testTwoFieldClockLayout. The trigger name 'EitherSideOfUtc' echoes G's 'whatever the sign' conceptually but shares no literal with it. The builder's own concerns (1a-1c, 2) are confirmed: the abs workarounds at H1/H3/S absorb the fault behaviourally, but each contradicts the documentation."
+}

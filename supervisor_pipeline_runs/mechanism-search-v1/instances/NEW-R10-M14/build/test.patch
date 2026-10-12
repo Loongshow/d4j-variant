@@ -1,0 +1,63 @@
+diff --git a/src/test/java/org/apache/commons/compress/archivers/ZipTestCase.java b/src/test/java/org/apache/commons/compress/archivers/ZipTestCase.java
+index 6510b7d6..15be53af 100644
+--- a/src/test/java/org/apache/commons/compress/archivers/ZipTestCase.java
++++ b/src/test/java/org/apache/commons/compress/archivers/ZipTestCase.java
+@@ -29,6 +29,10 @@ import java.util.List;
+ import org.apache.commons.compress.AbstractTestCase;
+ import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
+ import org.apache.commons.compress.utils.IOUtils;
++import java.io.ByteArrayOutputStream;
++import java.util.zip.CRC32;
++import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ public final class ZipTestCase extends AbstractTestCase {
+     /**
+@@ -100,4 +104,47 @@ public final class ZipTestCase extends AbstractTestCase {
+         out.close();
+         in.close();
+     }
++
++    /**
++     * Archives the same slice of a larger buffer twice, once deflated and
++     * once stored, and reads both entries back with ZipFile.
++     * @throws Exception
++     */
++    public void testZipArchiveCreationFromBufferSlice() throws Exception {
++        final byte[] data = "##Hello, sliced archive data!##".getBytes("US-ASCII");
++        final int off = 2;
++        final int len = data.length - 4;
++        final CRC32 sliceCrc = new CRC32();
++        sliceCrc.update(data, off, len);
++
++        final File output = new File(dir, "slice.zip");
++        final ZipArchiveOutputStream zos = new ZipArchiveOutputStream(new FileOutputStream(output));
++        zos.putArchiveEntry(new ZipArchiveEntry("deflated.txt"));
++        zos.write(data, off, len);
++        final ZipArchiveEntry stored = new ZipArchiveEntry("stored.txt");
++        stored.setMethod(ZipArchiveEntry.STORED);
++        stored.setSize(len);
++        stored.setCrc(sliceCrc.getValue());
++        zos.putArchiveEntry(stored);
++        zos.write(data, off, len);
++        zos.close();
++
++        final ZipFile zf = new ZipFile(output);
++        try {
++            final String[] names = new String[] {"deflated.txt", "stored.txt"};
++            for (int i = 0; i < names.length; i++) {
++                final ZipArchiveEntry entry = zf.getEntry(names[i]);
++                assertNotNull(names[i], entry);
++                assertEquals(names[i], sliceCrc.getValue(), entry.getCrc());
++                assertEquals(names[i], len, entry.getSize());
++                final InputStream in = zf.getInputStream(entry);
++                final ByteArrayOutputStream bos = new ByteArrayOutputStream();
++                IOUtils.copy(in, bos);
++                in.close();
++                assertEquals(names[i], new String(data, off, len, "US-ASCII"), bos.toString("US-ASCII"));
++            }
++        } finally {
++            ZipFile.closeQuietly(zf);
++        }
++    }
+ }

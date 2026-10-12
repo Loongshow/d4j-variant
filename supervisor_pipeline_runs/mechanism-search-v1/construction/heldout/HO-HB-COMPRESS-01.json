@@ -1,0 +1,160 @@
+{
+ "iid": "HO-HB-COMPRESS-01",
+ "project": "Compress",
+ "group": "HO-HB-COMPRESS-01",
+ "mechanism": "M19",
+ "tags": [
+  "M19",
+  "M6",
+  "M2"
+ ],
+ "recipe": "HB",
+ "kind": "new",
+ "tier": "HELDOUT",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+  "method": "octetAt",
+  "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+  "edits": [
+   {
+    "old": "        int octet = buf[index] & BYTE_MASK;",
+    "new": "        int octet = buf[index];"
+   }
+  ]
+ },
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java",
+   "old": "    private static final int BYTE_MASK = 0xFF;\n",
+   "new": "",
+   "purpose": "drop the constant that only the old inline read() body used (behaviour-preserving)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java",
+   "old": "    /**\n     * Reads a byte from the current tar archive entry.\n     *\n     * This method simply calls read( byte[], int, int ).\n     *\n     * @return The byte read, or -1 at EOF.\n     * @throws IOException on error\n     */\n    public int read() throws IOException {\n        int num = read(oneBuf, 0, 1);\n        return num == -1 ? -1 : oneBuf[0] & BYTE_MASK;\n    }\n",
+   "new": "    /**\n     * Reads a byte from the current tar archive entry.\n     *\n     * This method reads through read( byte[], int, int ) by returning\n     * TarBuffer.readOne for this stream and its one-byte buffer.\n     *\n     * @return The byte read, or -1 at EOF, as TarBuffer.readOne gives it.\n     * @throws IOException on error\n     */\n    public int read() throws IOException {\n        return TarBuffer.readOne(this, oneBuf);\n    }\n",
+   "purpose": "E: the single-byte read() delegates to TarBuffer.readOne(this, oneBuf) (same bulk read, same result)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java",
+   "old": "import java.util.Arrays;\n",
+   "new": "import java.util.Arrays;\n\nimport org.apache.commons.compress.archivers.ArchiveInputStream;\n",
+   "purpose": "import for H1"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java",
+   "old": "    public int getRecordSize() {\n        return this.recordSize;\n    }\n",
+   "new": "    public int getRecordSize() {\n        return this.recordSize;\n    }\n\n    /**\n     * Read a single byte from a stream through a one-byte bulk read.\n     * Calls in.read(single, 0, 1), then returns ArchiveInputStream.toReadValue\n     * for the count that call returned and the octet that TarUtils.octetAt\n     * gives for single[0].\n     *\n     * @param in The stream to read from.\n     * @param single A buffer of at least one byte; its first byte is overwritten.\n     * @return The value ArchiveInputStream.toReadValue gives.\n     * @throws IOException on error\n     */\n    public static int readOne(InputStream in, byte[] single) throws IOException {\n        int count = in.read(single, 0, 1);\n        return ArchiveInputStream.toReadValue(count, TarUtils.octetAt(single, 0));\n    }\n",
+   "purpose": "H1 TarBuffer.readOne: one-byte bulk read, octet via G, result via H3"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "old": "            sum += BYTE_MASK & buf[i];\n        }\n\n        return sum;\n    }\n",
+   "new": "            sum += BYTE_MASK & buf[i];\n        }\n\n        return sum;\n    }\n\n    /**\n     * Get one byte of a buffer as an unsigned octet value.\n     *\n     * @param buf The buffer holding the byte.\n     * @param index The index of the byte in the buffer.\n     * @return The byte as an int from 0 to 255: bytes 0x80 to 0xFF give\n     * 128 to 255, never a negative value.\n     */\n    public static int octetAt(byte[] buf, int index) {\n        int octet = buf[index] & BYTE_MASK;\n        return octet;\n    }\n",
+   "purpose": "G TarUtils.octetAt: byte as unsigned octet 0..255 (correct form)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/ArchiveInputStream.java",
+   "old": "import java.io.IOException;\nimport java.io.InputStream;\n\npublic abstract class ArchiveInputStream extends InputStream {\n\n    /**\n     * Returns the next Archive Entry in this Stream.\n     * @return the next entry\n     * @throws IOException if the next entry could not be read\n     */\n    public abstract ArchiveEntry getNextEntry() throws IOException;\n",
+   "new": "import java.io.IOException;\nimport java.io.InputStream;\n\nimport org.apache.commons.compress.utils.IOUtils;\n\npublic abstract class ArchiveInputStream extends InputStream {\n\n    /**\n     * Returns the next Archive Entry in this Stream.\n     * @return the next entry\n     * @throws IOException if the next entry could not be read\n     */\n    public abstract ArchiveEntry getNextEntry() throws IOException;\n\n    /**\n     * Converts the outcome of a one-byte bulk read into the value that\n     * read() returns. A count of -1 means that the bulk read reached the\n     * end of the stream; any other count means that the byte was read.\n     * The octet is passed on unchanged.\n     *\n     * @param count the number the bulk read returned\n     * @param octet the byte the bulk read stored, as an int\n     * @return the value IOUtils.readValue gives for (count == -1) and octet\n     */\n    public static int toReadValue(int count, int octet) {\n        return IOUtils.readValue(count == -1, octet);\n    }\n",
+   "purpose": "H3 ArchiveInputStream.toReadValue: count -1 -> end flag, octet passed on unchanged to S"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java",
+   "old": "        while (-1 != (n = input.read(buffer))) {\n            output.write(buffer, 0, n);\n        }\n    }\n",
+   "new": "        while (-1 != (n = input.read(buffer))) {\n            output.write(buffer, 0, n);\n        }\n    }\n\n    /**\n     * Gives the value that InputStream.read() returns for one byte:\n     * -1 at the end of the stream, otherwise the byte itself.\n     * <p>\n     * The octet must already be an unsigned byte value from 0 to 255, so\n     * that it cannot be taken for the end marker -1; it is returned as given.\n     *\n     * @param atEnd\n     *            whether the end of the stream was reached\n     * @param octet\n     *            the byte, as a value from 0 to 255\n     * @return -1 if atEnd is true, otherwise octet\n     */\n    public static int readValue(final boolean atEnd, final int octet) {\n        return atEnd ? -1 : octet;\n    }\n",
+   "purpose": "S IOUtils.readValue: -1 at end, else the octet as given (precondition: octet already 0..255)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveInputStream",
+   "method": "read",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java",
+   "decl": "read()"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarBuffer",
+   "method": "readOne",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.ArchiveInputStream",
+   "method": "toReadValue",
+   "file": "src/main/java/org/apache/commons/compress/archivers/ArchiveInputStream.java"
+  },
+  {
+   "class": "org.apache.commons.compress.utils.IOUtils",
+   "method": "readValue",
+   "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.compress.archivers.tar.TarArchiveInputStream::read",
+  "org.apache.commons.compress.archivers.tar.TarArchiveInputStream::getNextTarEntry"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::octetAt",
+  "org.apache.commons.compress.utils.IOUtils::readValue",
+  "org.apache.commons.compress.archivers.ArchiveInputStream::toReadValue",
+  "org.apache.commons.compress.archivers.TarTestCase::testEndMarkerMapping"
+ ],
+ "ownership_reason": "TarArchiveInputStream.read() (E) returns TarBuffer.readOne(this, oneBuf) (H1). H1 performs the one-byte bulk read in.read(single, 0, 1) and returns ArchiveInputStream.toReadValue(count, TarUtils.octetAt(single, 0)). TarUtils.octetAt (G) documents its result as 'an int from 0 to 255: bytes 0x80 to 0xFF give 128 to 255, never a negative value', but in the variant it widens the byte without the mask (int octet = buf[index];), so the entry byte 0xE9 becomes -23. ArchiveInputStream.toReadValue (H3) documents that the octet is passed on unchanged and does so; IOUtils.readValue (S) documents the precondition 'the octet must already be an unsigned byte value from 0 to 255 ... it is returned as given' and returns atEnd ? -1 : octet, exactly as documented. Only G's own javadoc is contradicted by its code on the trigger input. Masking at S or H3 would contradict their own javadocs (returned as given / passed on unchanged) and leave G returning negative values; masking at E would turn the end-of-entry -1 into 255, which the ownership test testEndMarkerMapping (passing on the variant) pins. Restoring '& BYTE_MASK' in TarUtils.octetAt alone makes the trigger and the full suite pass.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.TarTestCase::testEndMarkerMapping"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/TarTestCase.java",
+  "test_class": "org.apache.commons.compress.archivers.TarTestCase",
+  "test_method": "testEntryByteValues",
+  "code": "    private static byte[] entryArchive(String name, byte[] data) throws IOException {\n        final byte[] archive = new byte[10240];\n        final byte[] nameBytes = name.getBytes(\"US-ASCII\");\n        System.arraycopy(nameBytes, 0, archive, 0, nameBytes.length);\n        final byte[] size = (Integer.toOctalString(data.length) + \" \").getBytes(\"US-ASCII\");\n        System.arraycopy(size, 0, archive, 124, size.length);\n        System.arraycopy(data, 0, archive, 512, data.length);\n        return archive;\n    }\n\n    public void testEntryByteValues() throws Exception {\n        final byte[] data = {0x41, (byte) 0xE9, 0x7A};\n        final TarArchiveInputStream in =\n            new TarArchiveInputStream(new ByteArrayInputStream(entryArchive(\"bytes.bin\", data)));\n        try {\n            assertNotNull(in.getNextTarEntry());\n            assertEquals(0x41, in.read());\n            assertEquals(0xE9, in.read());\n            assertEquals(0x7A, in.read());\n        } finally {\n            in.close();\n        }\n    }\n",
+  "imports": [
+   "import java.io.ByteArrayInputStream;",
+   "import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;"
+  ]
+ },
+ "extra_tests": [
+  {
+   "test_file": "src/test/java/org/apache/commons/compress/archivers/TarTestCase.java",
+   "code": "    public void testEndMarkerMapping() throws Exception {\n        assertEquals(-1, IOUtils.readValue(true, 0x41));\n        assertEquals(0x41, IOUtils.readValue(false, 0x41));\n        assertEquals(0xE9, IOUtils.readValue(false, 0xE9));\n        assertEquals(-1, ArchiveInputStream.toReadValue(-1, 0x41));\n        assertEquals(0xE9, ArchiveInputStream.toReadValue(1, 0xE9));\n        final TarArchiveInputStream in =\n            new TarArchiveInputStream(new ByteArrayInputStream(entryArchive(\"text.txt\", new byte[] {0x41, 0x7A})));\n        try {\n            assertNotNull(in.getNextTarEntry());\n            assertEquals(0x41, in.read());\n            assertEquals(0x7A, in.read());\n            assertEquals(-1, in.read());\n        } finally {\n            in.close();\n        }\n    }\n",
+   "imports": [
+    "import java.io.ByteArrayInputStream;",
+    "import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;"
+   ]
+  }
+ ],
+ "expected_signature": "expected:<233> but was:<-23>",
+ "fault_lines": [
+  "        int octet = buf[index];"
+ ],
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java",
+   "old": "        return atEnd ? -1 : octet;",
+   "new": "        return atEnd ? -1 : Math.abs(octet);",
+   "why": "one-line sink edit: IOUtils.readValue reports the magnitude of the value it is given"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/ArchiveInputStream.java",
+   "old": "        return IOUtils.readValue(count == -1, octet);",
+   "new": "        return IOUtils.readValue(count < 1, octet);",
+   "why": "one-line adapter edit: ArchiveInputStream.toReadValue treats any count below one as the end of the stream"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java",
+   "old": "        int count = in.read(single, 0, 1);",
+   "new": "        int count = in.read(single);",
+   "why": "one-line H1 edit: TarBuffer.readOne reads through read(byte[]) instead of read(byte[], int, int)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java",
+   "old": "        return TarBuffer.readOne(this, oneBuf);",
+   "new": "        return TarBuffer.readOne(this, new byte[1]);",
+   "why": "one-line entry-point edit: read() uses a fresh one-byte buffer instead of the shared oneBuf"
+  }
+ ],
+ "variant_id": "CTV-1DA29F",
+ "gold_key": "org.apache.commons.compress.archivers.tar.TarUtils::octetAt"
+}

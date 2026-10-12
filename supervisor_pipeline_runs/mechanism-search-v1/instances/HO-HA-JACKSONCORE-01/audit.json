@@ -1,0 +1,49 @@
+{
+ "iid": "HO-HA-JACKSONCORE-01",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.core.Base64Variants::encodeToText",
+   "edit": "ByteArrayBuilder.packGroup(input, inputPtr, count) & 0xFFFFFF (mask before appendBase64Group)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::appendBase64Group",
+   "edit": "variant.encodeBase64Partial(sb, bits & 0xFFFFFF, byteCount) (mask in the partial branch)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::appendBase64Group",
+   "edit": "bits &= 0xFFFFFF; at method entry (both branches)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true
+  },
+  {
+   "method": "com.fasterxml.jackson.core.Base64Variants::encodeToText",
+   "edit": "rebuild the group from three single-byte calls: (packGroup(input,p,1) & 0xFF0000) | (count>1 ? (packGroup(input,p+1,1) >> 8) & 0xFF00 : 0) | (count>2 ? (packGroup(input,p+2,1) >> 16) & 0xFF : 0)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.util.ByteArrayBuilder::packGroup (gold, control)",
+   "edit": "restore bits |= data[offset + i] & 0xFF;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true
+  }
+ ],
+ "reasons": "Reproduced in scratch: the variant compiles; the trigger fails with expected:<Y2Fm[w]6k=> but was:<Y2Fm[/]6k=>; it is the only failure in the full suite; both ownership tests pass. Restoring '& 0xFF' in packGroup makes the full suite pass (0 failures). (a) packGroup's javadoc says each byte is taken as an unsigned octet, that bits 24-31 are always zero and that the result is between 0 and 0xFFFFFF. For the trigger's final group (0xC3, 0xA9) it returns 0xFFFFA900: the sign extension of 0xA9 overwrites byte 1 and the high bits, so its contract is violated. appendBase64Group states the precondition explicitly (bits between 0 and 0xFFFFFF, first byte in bits 16-23; @param repeats the range). It does exactly what its javadoc says (forward to encodeBase64Chunk/encodeBase64Partial, nothing else appended), so it receives an out-of-contract argument but violates nothing itself. encodeToText's javadoc says the group value is obtained from packGroup (start index and byte count) and handed with the count to appendBase64Group, plus quotes and the linefeed counter. Its code matches this exactly. E is a single delegation and its javadoc is unchanged upstream. encodeBase64Chunk/encodeBase64Partial are unchanged upstream. (b) No decoy javadoc contradicts its code or is loose: H3's range is explicit, H1's composition is explicit, and neither promises the unsigned-packing step (H3 states it as a precondition, H1 assigns it to packGroup). (c) The masks at H1 or H3 cannot work, because byte 1 has already been destroyed by the OR, and all three fail the trigger. The only non-gold edit that passes (rebuilding the group in H1 from three single-byte packGroup calls) contradicts H1's javadoc and is far larger than the one-token gold repair. No public correct sibling exists that E or H1 could be rerouted to. (d) The added lines contain no fault vocabulary or markers. 'unsigned octet' and '0 to 0xFFFFFF' are the required contract and precondition statements. The test names and the comment (UTF-8 bytes of caf + e-acute) describe the input neutrally. (e) The instance realises HA. E (Base64Variant.encode, an existing public self-contained encoding) becomes one delegation to H1 Base64Variants.encodeToText. H1 composes H2 ByteArrayBuilder.packGroup and H3 CharTypes.appendBase64Group. The chain covers 4 classes in 3 packages (core, core.util, core.io), all helpers are public static in existing production classes, and the gold is H2. The fault omits the unsigned step that the javadoc promises, in a plain compound assignment. E, H1 and H3 are declared as decoys. None of the chain methods appear in USED_METHODS.txt.",
+ "notes": "Non-blocking observations. (1) E's upstream javadoc and H1's summary sentence ('Builds the base64 text') describe end-to-end base64 output, which is wrong on the trigger. Both hold only compositionally, given packGroup's postcondition. This is inherent to HA, and H1's detailed paragraph assigns group packing to packGroup, so no doc-consistent repair exists there. (2) The missing '& 0xFF' on a byte OR is a well-known Java sign-extension idiom, so the gold is locally odd and the instance may sit at ceiling. That is a difficulty concern, not a validity one. (3) H3's javadoc and the ownership test testCharactersPerGroup (values with bit 23 set) point the reader toward packGroup as the producer of the out-of-range value. This is the documented precondition the recipe calls for, not naming leakage. (4) UTF8JsonGenerator/WriterBasedJsonGenerator._writeBinary hold correct inline packing, but they are protected instance methods that write to generator buffers. Rerouting E through a generator would take a multi-line rewrite with IOException handling and quote stripping, so it is not an equally small alternative. (5) A high byte in the first position alone encodes correctly, because only bits 18-23 are consumed. This is consistent with the gold. Scratch directory /private/tmp/mxb-66p6Ki was deleted after the audit."
+}

@@ -1,0 +1,95 @@
+{
+ "iid": "NEW-R6-M8",
+ "project": "Lang",
+ "group": "NEW-R6-M8",
+ "mechanism": "M8",
+ "tags": [
+  "M8"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.lang3.text.StrSubstitutor",
+  "method": "substitute",
+  "decl": "List<String> priorVariables",
+  "file": "src/main/java/org/apache/commons/lang3/text/StrSubstitutor.java",
+  "edits": [
+   {
+    "old": "                                pos += endMatchLen;\n                                final int endPos = pos;",
+    "new": "                                pos++;\n                                final int endPos = pos;"
+   }
+  ]
+ },
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.text.StrMatcher.StringMatcher",
+   "method": "isMatch",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrMatcher.java",
+   "decl": "final char[] buffer, int pos, final int bufferStart, final int bufferEnd"
+  },
+  {
+   "class": "org.apache.commons.lang3.text.StrBuilder",
+   "method": "replace",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "decl": "final int startIndex, int endIndex, final String replaceStr"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.lang3.text.StrSubstitutor::replace"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.text.StrBuilder::replaceImpl",
+  "org.apache.commons.lang3.text.StrTokenizer::readWithQuotes",
+  "org.apache.commons.lang3.text.StrSubstitutor::resolveVariable",
+  "org.apache.commons.lang3.text.StrMatcherTest::testStringMatcher_String",
+  "org.apache.commons.lang3.text.StrMatcherTest::testMatcherIndices",
+  "org.apache.commons.lang3.text.StrBuilderTest::testReplace_StrMatcher_String_int_int_int_VaryMatcher",
+  "org.apache.commons.lang3.text.StrTokenizerTest::testBasicIgnoreTrimmed4",
+  "org.apache.commons.lang3.text.StrBuilderTest::testReplace_int_int_String"
+ ],
+ "ownership_reason": "The callee StrMatcher.StringMatcher.isMatch returns the number of characters it matched (2 for the suffix \"}}\"): its @return says so, its body returns chars.length, and StrMatcherTest.testStringMatcher_String/testMatcherIndices assert 2 for a two-character matcher. The other callers of the same callee use that value as a length and are covered by passing tests with multi-character string matchers: StrBuilder.replaceImpl(StrMatcher,...) removes removeLen characters (StrBuilderTest.testReplace_StrMatcher_String_int_int_int_VaryMatcher with stringMatcher(\"cb\")) and StrTokenizer.readWithQuotes skips ignoredLen characters (StrTokenizerTest.testBasicIgnoreTrimmed4 with stringMatcher(\"IGNORE\")). StrBuilder.replace(int,int,String) removes exactly [startIndex, endIndex) (StrBuilderTest.testReplace_int_int_String), and StrSubstitutor.resolveVariable documents endPos as the end of the variable including the suffix. StrSubstitutor.substitute is the only method that turns the suffix match into endPos: after a suffix match it advances pos by one character (pos++) instead of by endMatchLen, unlike its own prefix handling (pos += startMatchLen), so for a two-character suffix endPos stops inside the suffix and one suffix character survives the replacement. With the default one-character suffix '}' both forms coincide, which is why only a multi-character suffix exposes it. Restoring pos += endMatchLen fixes the trigger and keeps every test passing; any one-line change to isMatch or StrBuilder.replace that hides the stray character breaks the passing tests above.",
+ "ownership_tests": [
+  "org.apache.commons.lang3.text.StrMatcherTest::testStringMatcher_String",
+  "org.apache.commons.lang3.text.StrMatcherTest::testMatcherIndices",
+  "org.apache.commons.lang3.text.StrBuilderTest::testReplace_StrMatcher_String_int_int_int_VaryMatcher",
+  "org.apache.commons.lang3.text.StrBuilderTest::testReplace_int_int_String",
+  "org.apache.commons.lang3.text.StrTokenizerTest::testBasicIgnoreTrimmed4"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/lang3/text/StrSubstitutorTest.java",
+  "test_class": "org.apache.commons.lang3.text.StrSubstitutorTest",
+  "test_method": "testDoubleBraceMarkers",
+  "imports": [],
+  "code": "    @Test\n    public void testDoubleBraceMarkers() {\n        final Map<String, String> map = new HashMap<String, String>();\n        map.put(\"name\", \"Bob\");\n        final StrSubstitutor sub = new StrSubstitutor(map, \"{{\", \"}}\");\n        assertEquals(\"Hi Bob.\", sub.replace(\"Hi {{name}}.\"));\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "expected:<Hi Bob[].> but was:<Hi Bob[}].>",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "old": "    public StrBuilder replace(final int startIndex, int endIndex, final String replaceStr) {\n        endIndex = validateRange(startIndex, endIndex);",
+   "new": "    public StrBuilder replace(final int startIndex, int endIndex, final String replaceStr) {\n        endIndex = validateRange(startIndex, endIndex + 1);",
+   "why": "one-line decoy edit: StrBuilder.replace(int,int,String) also removes the character at endIndex (makes the trigger pass)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "old": "        replaceImpl(startIndex, endIndex, endIndex - startIndex, replaceStr, insertLen);",
+   "new": "        replaceImpl(startIndex, endIndex + 1, endIndex + 1 - startIndex, replaceStr, insertLen);",
+   "why": "one-line decoy edit: StrBuilder.replace(int,int,String) widens the removed range by one character"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrMatcher.java",
+   "old": "            if (pos + len > bufferEnd) {",
+   "new": "            if (pos + len >= bufferEnd) {",
+   "why": "one-line decoy edit: boundary of StringMatcher.isMatch against bufferEnd"
+  }
+ ],
+ "variant_id": "CTV-50035B",
+ "kind": "new",
+ "fault_lines": [
+  "pos++;\n                                final int endPos = pos;"
+ ],
+ "gold_key": "org.apache.commons.lang3.text.StrSubstitutor::substitute"
+}

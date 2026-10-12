@@ -1,0 +1,118 @@
+{
+  "schema_version": "d4j-fl-submission/v1",
+  "ok": true,
+  "tool": "submit_fault_localization",
+  "prediction_count": 10,
+  "predictions": [
+    {
+      "rank": 1,
+      "class": "com.fasterxml.jackson.core.util.ByteArrayBuilder",
+      "method": "packGroup"
+    },
+    {
+      "rank": 2,
+      "class": "com.fasterxml.jackson.core.Base64Variants",
+      "method": "encodeToText"
+    },
+    {
+      "rank": 3,
+      "class": "com.fasterxml.jackson.core.io.CharTypes",
+      "method": "appendBase64Group"
+    },
+    {
+      "rank": 4,
+      "class": "com.fasterxml.jackson.core.Base64Variant",
+      "method": "encodeBase64Partial"
+    },
+    {
+      "rank": 5,
+      "class": "com.fasterxml.jackson.core.Base64Variant",
+      "method": "encode"
+    },
+    {
+      "rank": 6,
+      "class": "com.fasterxml.jackson.core.Base64Variant",
+      "method": "encodeBase64Chunk"
+    },
+    {
+      "rank": 7,
+      "class": "com.fasterxml.jackson.core.util.ByteArrayBuilder",
+      "method": "appendThreeBytes"
+    },
+    {
+      "rank": 8,
+      "class": "com.fasterxml.jackson.core.Base64Variant",
+      "method": "getMaxLineLength"
+    },
+    {
+      "rank": 9,
+      "class": "com.fasterxml.jackson.core.Base64Variant",
+      "method": "usesPadding"
+    },
+    {
+      "rank": 10,
+      "class": "com.fasterxml.jackson.core.Base64Variant",
+      "method": "encodeBase64BitsAsChar"
+    }
+  ],
+  "evidence_chain": [
+    {
+      "evidence": "Running the failing input produced Y2Fm/6k= instead of Y2Fmw6k=; ByteArrayBuilder.packGroup(input, 3, 2) produced 0xffffa900 despite its documented 0x000000..0xffffff range.",
+      "inference_summary": "packGroup ORs signed Java byte values without unsigned normalization, so 0xC3/0xA9 sign-extend and corrupt the packed 24-bit group.",
+      "candidate_methods": [
+        "com.fasterxml.jackson.core.util.ByteArrayBuilder.packGroup"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java",
+          "line_start": 147,
+          "line_end": 157
+        }
+      ]
+    },
+    {
+      "evidence": "Base64Variant.encode(byte[], boolean) delegates directly to Base64Variants.encodeToText, which calls packGroup for every 1-3-byte group and passes the result through CharTypes.appendBase64Group.",
+      "inference_summary": "These are the direct production call-path methods for the observed failure; encodeToText is the nearest caller that could enforce the documented unsigned packed representation.",
+      "candidate_methods": [
+        "com.fasterxml.jackson.core.Base64Variants.encodeToText",
+        "com.fasterxml.jackson.core.io.CharTypes.appendBase64Group",
+        "com.fasterxml.jackson.core.Base64Variant.encode"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/com/fasterxml/jackson/core/Base64Variant.java",
+          "line_start": 370,
+          "line_end": 373
+        },
+        {
+          "file": "src/main/java/com/fasterxml/jackson/core/Base64Variants.java",
+          "line_start": 139,
+          "line_end": 163
+        },
+        {
+          "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+          "line_start": 245,
+          "line_end": 252
+        }
+      ]
+    },
+    {
+      "evidence": "The malformed second group has byteCount 2, so appendBase64Group dispatches it to Base64Variant.encodeBase64Partial; the first ASCII three-byte group goes through encodeBase64Chunk and is correct.",
+      "inference_summary": "Partial encoding is directly involved but downstream of the demonstrably invalid packed value, making it less likely than packGroup and encodeToText.",
+      "candidate_methods": [
+        "com.fasterxml.jackson.core.Base64Variant.encodeBase64Partial",
+        "com.fasterxml.jackson.core.Base64Variant.encodeBase64Chunk"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/com/fasterxml/jackson/core/Base64Variant.java",
+          "line_start": 252,
+          "line_end": 296
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "submitted_at": "2026-10-11T12:27:03Z"
+}

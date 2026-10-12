@@ -1,0 +1,77 @@
+{
+ "iid": "HO-HC-JACKSONCORE-01",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::combineSurrogates",
+   "edit": "return JsonEncoding.supplementaryCodePoint(highOffset, lowIndex); -> return Character.toCodePoint((char) high, (char) low);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::combineSurrogates",
+   "edit": "return JsonEncoding.supplementaryCodePoint(highOffset, lowIndex); -> return 0x10000 - highOffset * 0x400 + lowIndex; (inline formula)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::combineSurrogates",
+   "edit": "supplementaryCodePoint(highOffset, lowIndex) -> supplementaryCodePoint(-highOffset, lowIndex)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::combineSurrogates",
+   "edit": "two lines: surrogateOffset(high, 0xD800) -> surrogateOffset(0xD800, high) and range check -> highOffset < 0 || highOffset > 0x3FF",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.JsonStringEncoder::_convertSurrogate",
+   "edit": "return CharTypes.combineSurrogates(firstPart, secondPart); -> return Character.toCodePoint((char) firstPart, (char) secondPart);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.JsonStringEncoder::_convertSurrogate",
+   "edit": "return CharTypes.combineSurrogates(firstPart, secondPart); -> return 0x10000 + ((firstPart - SURR1_FIRST) << 10) + (secondPart - SURR2_FIRST); (reverts the context edit)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::surrogateOffset",
+   "edit": "return blockStart - unit; -> return unit - blockStart; (declared G9 edit)",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::combineSurrogates",
+   "edit": "surrogateOffset(high, 0xD800) -> surrogateOffset(0xD800, high) (declared G9 edit)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "com.fasterxml.jackson.core.io.CharTypes::lowSurrogateIndex",
+   "edit": "return -surrogateOffset(low, 0xDC00); -> return surrogateOffset(low, 0xDC00); (declared G9 edit)",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "doc_consistent": false
+  }
+ ],
+ "reasons": "Reproduced in /private/tmp/mxb-a0Kz3Y: the variant compiles, and the trigger TestJsonStringEncoder::testUtf8ForAstralCharacter fails with expected:<f0[9f9]880> but was:<f0[80b]880>. The full suite fails only the trigger, and the ownership test TestCharTypes::testSurrogateUnitPositions passes. Restoring '-' in JsonEncoding.supplementaryCodePoint makes the trigger, the ownership test and the full suite pass (0 failures), so the CORRECT configuration is clean. (a) TRUE. Gold A = JsonEncoding.supplementaryCodePoint. Its javadoc defines highOffset as the zero-or-negative offset from the high surrogate to U+D800, and says the result is U+10000 for (U+D800, U+DC00) and that 'every code unit by which the high surrogate lies above U+D800 adds 0x400'. Its code 0x10000 + highOffset*0x400 + lowIndex subtracts 0x400 per unit, and returns 0xE00 for (D83D, DE00), which is also outside A's own documented range U+10000..U+10FFFF. Every other method on the path does exactly what its own javadoc says. D surrogateOffset returns blockStart - unit, and its javadoc states the formula verbatim plus 'zero or negative'. P2 lowSurrogateIndex returns -D(low, 0xDC00) = 0..0x3FF, as documented. C combineSurrogates passes D(high, 0xD800) and P2(low), range-checks them in D's orientation (the bounds check out as exactly D800..DBFF / DC00..DFFF), and its javadoc names A as the method that assembles the result. C's 'returns the supplementary code point' therefore holds only if A honours its contract, so C's wrong return is inherited from A, not caused by C. _convertSurrogate has no javadoc: it keeps its pristine low-unit check and delegates to C. E encodeAsUTF8 is pristine upstream code that writes whatever code point it receives. (b) FALSE. No non-gold javadoc contradicts its code. The orientation is pinned redundantly at every hop: D's formula and sign, P2's documented negation, C's range check, and A's parameter text and growth statement. No javadoc admits both readings. (c) FALSE. I applied 9 edits at non-gold methods. The three declared G9 edits (flip D, swap C's arguments, drop P2's negation) leave the trigger failing; the D and P2 edits also break the ownership test. Six bypasses pass the trigger and the ownership test, but none is consistent with all the documentation: (i) Rerouting C to Character.toCodePoint or to an inline formula contradicts C's own javadoc, which names JsonEncoding#supplementaryCodePoint as the assembler. (ii) C passing -highOffset contradicts C's javadoc ('the offset of high to U+D800, as returned by surrogateOffset') and A's documented precondition ('zero or negative'). (iii) Swapping C's arguments to D and flipping the range check is a 2-line edit that misuses D's blockStart parameter and still breaks A's precondition. (iv) Rerouting _convertSurrogate to Character.toCodePoint or back to the pristine inline formula breaks no javadoc of _convertSurrogate itself, which has none. But afterwards A's code still contradicts A's javadoc, and the public C.combineSurrogates(0xD83D, 0xDE00) still returns 0xE00 against its documented postcondition. These are workarounds that leave the documented defect reachable through two public API methods. They do not repair it. In every case A's code keeps contradicting A's javadoc, so no edit outside A can make the program consistent with all documentation. (d) FALSE. Test names do not name or paraphrase the gold: 'Astral' describes the input domain shared by every method on the path, and 'SurrogateUnitPositions' points at decoys D and P2. No added comment marks the fault. The fault line has the same shape as the pristine project formula (0x10000 + (hi - D800)<<10 + ...), so it reads as ordinary. G2a and G2b pass. (e) TRUE. HC is realised. D is new and reads backwards (blockStart - unit), and its javadoc fixes the orientation. P2 is a second production caller that uses D correctly, and the ownership test pins both P2 and D. Gold A flips direction in an ordinary-looking 'base + offset*f' line where its javadoc requires 'base - offset*f'. The path E -> _convertSurrogate -> C -> {D, P2 -> D, A} is an equivalent arrangement and crosses core.io and core. All helpers are public static in existing production classes. None of the gold, decoy or entry methods appears in USED_METHODS.txt, and the helper and test names do not exist in the pristine checkout. Decoys are fully declared, G13 is submittable, and no orientation is under-specified.",
+ "notes": "SPECIFIC QUESTION (Character.toCodePoint / restored inline formula vs rule 5 and item (c)): I judge that it counts as NEITHER an 'equally small, documentation-consistent repair at a non-gold method' NOR a 'correct sibling/alternative implementation' that undermines the gold. 1) Documentation. C's javadoc fixes how C computes its result ('The code point is then assembled by JsonEncoding#supplementaryCodePoint from the offset of high ... and the index of low'). So rewriting C to call Character.toCodePoint, or to inline a formula, contradicts C's own documentation: it is a rewrite of C's contract, not a repair consistent with it. _convertSurrogate has no javadoc, so a reroute there breaks no text of its own. But it delegates to C, a public method whose documented postcondition is exactly the value _convertSurrogate needs. A caller that relies on a callee's documented contract is not at fault when the callee breaks it. After any such reroute, A (public static) still contradicts its javadoc, and C (public static) still returns non-supplementary values. The edit hides the fault on one path and leaves the defect in place. Item (c) asks for a repair consistent with ALL documentation, and no edit outside A can satisfy that while A's code contradicts A's javadoc. 2) Rule 5. Rule 5 is aimed at an alternative inside the program's design: a correct project sibling or duplicate, or a configuration flag selecting implementations, whose existence makes 'the caller should call the other one' a defensible repair (the COMPRESS-07 problem). Here there is no such in-project alternative. The project never calls Character.toCodePoint (0 hits in src/main). Its own correct copies, UTF8Writer.convertSurrogate and UTF8JsonGenerator._decodeSurrogate, are protected instance methods that depend on writer/generator state (_surrogate, _reportError, IOException). They cannot be called from the static _convertSurrogate or C. A JDK routine, or re-inlining the arithmetic, is available for essentially any small computation. Restoring the inline formula at _convertSurrogate simply reverts the context edit, which every context-edit-built instance allows by construction. Counting either as a rule-5 alternative would make every HA/HB/HC instance unconfirmable, and would not show that any non-gold method is a defensible fault location. I am confident in this reading and not merely defaulting to it, so it does not trigger the 'if uncertain, REJECT' clause. OTHER OBSERVATIONS (not disqualifying): (1) A is the only helper in a different package, and JsonEncoding is a mildly unusual host for code-point arithmetic. CharTypes now imports core.JsonEncoding. This is a structural feature required by the two-package rule, not naming or vocabulary leakage. (2) The instance is likely easy. A's faulty output 0xE00 falls outside A's own documented range, C's range check and P2's negation make D's orientation obvious, and A's javadoc states the direction. This matches the plan's HC prediction (Acc@1 >= 0.8) and does not affect validity. (3) The declared G9 edits fail by the IllegalArgumentException in C's range check, not by a wrong value. That is acceptable under G9 (nothing is absorbed). (4) quoteAsUTF8 and the SerializedString UTF-8 accessors share the same single fault. (5) The undeclared one-token absorbing edit at C (-highOffset) exists, as the builder disclosed. It is ruled out by C's and A's javadocs, not by the tests. Scratch copy /private/tmp/mxb-a0Kz3Y was deleted after the audit. The fresh checkout was not modified."
+}
