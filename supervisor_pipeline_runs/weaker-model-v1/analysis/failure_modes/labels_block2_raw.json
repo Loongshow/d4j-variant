@@ -1,0 +1,496 @@
+{
+ "labels": {
+  "CTV-7C06F2/run-001": {
+   "argument": {
+    "run": "CTV-7C06F2/run-001",
+    "lens": "argument",
+    "primary": "ENTRY_POINT_BIAS",
+    "secondary": "CONVENTION_PRIOR",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (javadoc and delegating body, StatUtils.java 760-870 window)",
+     "org.apache.commons.math3.stat.Frequency::getMode (Frequency.java 430-560 window; cited in premise 3)",
+     "org.apache.commons.math3.util.FastMath::tabulate (gold, full body lines 1130-1144)",
+     "org.apache.commons.math3.util.MathArrays::mostFrequent (MathArrays.java 1460-1575 window)",
+     "org.apache.commons.math3.util.MathArrays::normalizeArray NOT displayed (no requested window covers it)"
+    ],
+    "rationale": "All three premises check against the patch: the test data holds four NaNs and the result was NaN; the delegation chain is correctly enumerated; FastMath.tabulate adds every value without an isNaN guard (the original getMode had one). Premise 3 thus places the first wrong state (NaN entering the Frequency table) at the gold, yet the agent ranked the facade the test calls first, justified only by StatUtils.mode's javadoc stating the NaN-ignoring convention and an unverified 'correct helper should be invoked' hypothesis its own greps failed to support. StatUtils.mode is a one-line delegator whose contract is violated only via tabulate; tabulate's own doc ('each value') is neutral, so blaming the contract holder is partly defensible but misplaces the fix."
+   },
+   "process": {
+    "run": "CTV-7C06F2/run-001",
+    "lens": "process",
+    "primary": "ENTRY_POINT_BIAS",
+    "secondary": "CONVENTION_PRIOR",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "call 1: defects4j test -t StatUtilsTest::testMode (only test run in the trajectory; no re-run or probe afterwards)",
+     "call 2: failing_tests stack trace 'expected:<0.0> but was:<NaN>' at StatUtilsTest.java:526",
+     "call 3: StatUtils.java 760-870 (StatUtils::mode and its javadoc, incl. the NaN-ignored contract and the added algorithm sentence) and MathArrays.java 1460-1575 (MathArrays::mostFrequent)",
+     "call 4: grep showing the delegation chain mode -> leadingValues -> dominantEntries -> mostFrequent -> countEntries",
+     "call 5: BlockFieldMatrix::leadingValues, Dfp::countEntries, DSCompiler::dominantEntries bodies",
+     "call 7: FastMath.java 1110-1165 -- gold FastMath::tabulate displayed in full (lines 1137-1144), fault lines 1140-1141 (addValue with no isNaN filter) visible; first and only display of the gold, at tool call 7 of 20",
+     "calls 8-10, 16: Frequency.java 1-560 plus tail (Frequency::getMode, addValue, incrementValue, NaturalComparator)",
+     "call 19: StatUtilsTest.java 500-555 (testMode with the nanInfested input)",
+     "not displayed: MathArrays::normalizeArray; no production second caller of tabulate/mostFrequent exists in src/test (grep at call 15 returned none)"
+    ],
+    "rationale": "Agent ran the trigger test once, traced the delegation chain by grep, and displayed the gold FastMath::tabulate in full at call 7 of 20 with the unfiltered addValue loop visible. It then read Frequency (incl. getMode) and the test, and ran no further tests or probes. Its own evidence chain names tabulate as the hop that inserts NaNs into the frequency table, yet it ranked the test-called facade StatUtils::mode first, citing mode's javadoc ('NaNs are ignored') as that candidate's evidence. No search, discovery or retrieval gap: the ranking put the entry point / convention-defining hop above the hop the agent itself identified as violating the convention."
+   }
+  },
+  "CTV-7C06F2/run-002": {
+   "argument": {
+    "run": "CTV-7C06F2/run-002",
+    "lens": "argument",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "failing_tests stack trace (StatUtilsTest.java:526, expected 0.0 was NaN)",
+     "StatUtilsTest.testMode lines 512-548",
+     "StatUtils.mode(double[]) and mode(double[],int,int) with javadoc incl. 'NaN values are ignored' clause (lines 808-859)",
+     "BlockFieldMatrix.leadingValues body",
+     "DSCompiler.dominantEntries body",
+     "MathArrays.mostFrequent body (lines 1480-1548)",
+     "Dfp.countEntries -> FastMath.tabulate (grep lines; sed 2550-2595 requested)",
+     "FastMath.tabulate body (sed 1120-1155 requested; agent quotes its freq.addValue loop)",
+     "Frequency.getMode javadoc region (lines 490-535)",
+     "Frequency.addValue / incrementValue (lines 120-275)",
+     "FrequencyTest.testMode incl. addValue(Double.NaN) attempt",
+     "NOT displayed: MathArrays.normalizeArray"
+    ],
+    "rationale": "All three premises check against the patch: the test expects NaN-free modes per StatUtils.mode's javadoc; the delegation chain mode->leadingValues->dominantEntries->mostFrequent->countEntries->tabulate contains no NaN filter; tabulate's loop adds every value via freq.addValue. So the agent located the NaN admission at the gold, then ranked StatUtils.mode first on an ownership argument: the NaN-ignoring rule is 'mode-specific', so the fix belongs with the hop that documents the convention rather than the loop that dropped the isNaN guard. It conflated tabulate (single-caller, used only by this mode pipeline) with generic Frequency semantics. StatUtils.mode is a two-line delegate with no logic to be wrong; mostFrequent (rank 2) likewise. Facade placement compounds the convention-ownership prior."
+   },
+   "process": {
+    "run": "CTV-7C06F2/run-002",
+    "lens": "process",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode",
+     "org.apache.commons.math3.stat.Frequency::getMode"
+    ],
+    "rationale": "Agent ran only the trigger test once, then traced StatUtils.mode -> leadingValues -> dominantEntries -> mostFrequent -> countEntries -> tabulate in order; tabulate's full body with the unfiltered freq.addValue line was displayed at call 8 of 19 and quoted in the chain. It read StatUtilsTest:512-548, FrequencyTest.testMode (NaN case), Frequency.addValue/incrementValue/getMode, and grepped for other callers of tabulate/mostFrequent (none). Its final action re-read StatUtils.mode's javadoc ('NaNs are ignored') and it ranked that convention-defining entry point first, explicitly preferring 'StatUtils/mode-specific filtering' over the low-level hop where the filter is missing. No probe or extra test run; MathArrays.normalizeArray never displayed."
+   }
+  },
+  "CTV-7C06F2/run-003": {
+   "argument": {
+    "run": "CTV-7C06F2/run-003",
+    "lens": "argument",
+    "primary": "ATTRIBUTION_FAILURE",
+    "secondary": "LEXICAL_SHORTCUT",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "StatUtils::mode javadoc ('NaN values are ignored') and body delegating to BlockFieldMatrix.leadingValues (StatUtils.java 799-862)",
+     "FastMath::tabulate body (gold), FastMath.java 1132-1145: loop adds every value to Frequency with no isNaN guard",
+     "MathArrays::mostFrequent body (rank 1), MathArrays.java 1530-1545: countEntries -> getMode -> index-preserving copy to double[]",
+     "Dfp::countEntries, BlockFieldMatrix::leadingValues, DSCompiler::dominantEntries (pure one-line delegations)",
+     "Frequency::addValue and Frequency::incrementValue (Frequency.java 115-162) and Frequency::getMode region (513-532)",
+     "FrequencyTest::testModeDoubleNan (shows Frequency counts NaN as an ordinary value)",
+     "StatUtilsTest::testMode (512-540) and failing_tests stack trace pointing at line 526",
+     "MathArrays::normalizeArray: NOT displayed"
+    ],
+    "rationale": "All three premises check out against the patch: the NaN-laden test input, the delegation chain mode->leadingValues->dominantEntries->mostFrequent->countEntries->tabulate, and tabulate adding every value with no isNaN guard (the removed filter). The chain's own third step places the first wrong state (NaN in the Frequency table) at tabulate, and nothing in the chain indicts mostFrequent: its reverse-index copy is faithful and its javadoc ('most frequently occurring values') is literally satisfied by [NaN] on the trigger input. Rank 1 rests only on a role premise ('most direct method responsible for forming the returned mode array'), echoing the name match that surfaced mostFrequent in the agent's first grep. Partly defensible only because the sub-method docs are silent on NaN."
+   },
+   "process": {
+    "run": "CTV-7C06F2/run-003",
+    "lens": "process",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "EVIDENCE_INTEGRATION_FAILURE",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "StatUtils::mode (calls 4 and 12: body, 'NaN values are ignored' javadoc, inserted sort-in-place sentence)",
+     "Frequency::getMode (grep hits call 8; Frequency 500-540 requested call 10, 513-532 call 12; FrequencyTest.testModeDoubleNan displayed call 11 showing NaN counted as a mode key)",
+     "FastMath::tabulate (gold; in range of call 8 sed 1110-1165, line-numbered in full at call 12 nl 1132-1145)",
+     "MathArrays::mostFrequent (call 4 range 1480-1565, call 12 nl 1530-1545)",
+     "BlockFieldMatrix::leadingValues, DSCompiler::dominantEntries, Dfp::countEntries (calls 6, 8, 12, 13)",
+     "Frequency::addValue / incrementValue (call 13), 'new Frequency' only at FastMath:1138 (call 14)",
+     "NOT displayed: MathArrays::normalizeArray; tests run: trigger testMode only (call 1), no probe"
+    ],
+    "rationale": "Agent ran only the trigger (call 1), then traced the whole chain by grep/sed: mode->leadingValues->dominantEntries->mostFrequent->countEntries->tabulate. Gold body first displayed at call 8 (FastMath 1110-1165), re-read line-numbered in full at call 12; StatUtils 'NaN values are ignored' doc, FrequencyTest.testModeDoubleNan (NaN is a counted mode key) and 'new Frequency' only at FastMath:1138 were all displayed. Chain item 3 states tabulate adds every value without Double.isNaN, yet rank 1 went to mostFrequent as 'the most direct method responsible for forming the returned mode array': contract ownership over the violating hop. Displayed Frequency evidence (NaN outcounts 0/2, so a post-count filter in mostFrequent cannot satisfy the test) was not integrated. normalizeArray never fetched; no probe run."
+   }
+  },
+  "CTV-7C06F2/run-004": {
+   "argument": {
+    "run": "CTV-7C06F2/run-004",
+    "lens": "argument",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (both overloads with javadoc, StatUtils.java 780-880)",
+     "org.apache.commons.math3.util.FastMath::tabulate (full body, FastMath.java 1130-1144)",
+     "org.apache.commons.math3.util.MathArrays::mostFrequent (full body)",
+     "org.apache.commons.math3.dfp.Dfp::countEntries (full body)",
+     "org.apache.commons.math3.analysis.differentiation.DSCompiler::dominantEntries (full body)",
+     "org.apache.commons.math3.linear.BlockFieldMatrix::leadingValues (full body)",
+     "org.apache.commons.math3.stat.Frequency lines 1-560 (addValue/incrementValue; getMode body not confirmed within displayed range)",
+     "StatUtilsTest::testMode (lines 511-545) and FrequencyTest::testMode region (lines 340-435)",
+     "NOT displayed: org.apache.commons.math3.util.MathArrays::normalizeArray"
+    ],
+    "rationale": "Premise 1 (test expects NaNs ignored; StatUtils.mode's javadoc promises it) is true, but it is used to attribute the fault to the method that states the convention. Premise 2 (mode -> leadingValues -> dominantEntries -> mostFrequent -> countEntries -> tabulate) matches the patch. Premise 3 correctly identifies FastMath.tabulate as adding every value, NaN included, to the Frequency, i.e. the omitted filter, and concedes Frequency honours its own contract. The chain therefore locates the divergence at the gold yet ranks the one-line delegating facade first because its documentation owns the NaN-ignore rule. mode's body computes nothing and the (sample,begin,length) overload shares the same path, so a fix there would be incomplete; only partly defensible because no intermediate helper's javadoc mentions NaN."
+   },
+   "process": {
+    "run": "CTV-7C06F2/run-004",
+    "lens": "process",
+    "primary": "ENTRY_POINT_BIAS",
+    "secondary": "CONVENTION_PRIOR",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (call 4, lines 780-880 incl. javadoc; revisited calls 11 and 14)",
+     "org.apache.commons.math3.stat.Frequency::getMode (Frequency.java 430-560 at call 9; FrequencyTest.testMode at call 13)",
+     "org.apache.commons.math3.util.FastMath::tabulate [gold] (call 10 of 15, lines 1100-1165, body shown in full)",
+     "NOT displayed: org.apache.commons.math3.util.MathArrays::normalizeArray (never searched; MathArrays window 1495-1715 only)"
+    ],
+    "rationale": "15 calls; only the trigger test was run (call 2) plus failing_tests. The first code read was the entry point StatUtils.mode with its javadoc (call 4). Calls 5-10 walked the delegation chain hop by hop; the gold FastMath.tabulate was first displayed at call 10, in full (unguarded addValue loop). Calls 11-14 then returned to StatUtils (imports, callers, unused List import) instead of probing tabulate's callers or MathArrays siblings; normalizeArray was never fetched. The chain correctly names tabulate as where NaNs enter the Frequency, yet rank 1 is the test-called one-line facade whose javadoc states the NaN-ignore contract. The process anchored on the entry point before and after seeing the gold."
+   }
+  },
+  "CTV-7C06F2/run-005": {
+   "argument": {
+    "run": "CTV-7C06F2/run-005",
+    "lens": "argument",
+    "primary": "ENTRY_POINT_BIAS",
+    "secondary": "CONVENTION_PRIOR",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "no",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (javadoc through line 808 incl. 'NaN values are ignored'; call site line 822/859 via grep; body region after 808 truncated in view)",
+     "org.apache.commons.math3.stat.Frequency::getMode (NOT displayed: Frequency.java excerpts cut at lines 31, ~340, ~466; getMode grep output truncated before Frequency)",
+     "org.apache.commons.math3.util.MathArrays::normalizeArray (NOT displayed)",
+     "gold FastMath::tabulate: javadoc + signature only (line 1137), loop body never shown in view",
+     "decoys: leadingValues and countEntries bodies shown; dominantEntries signature only; mostFrequent only line 1538 via grep"
+    ],
+    "rationale": "Premises 1-3 hold: test and jshell reproduce [NaN]; mode's javadoc (line 808) promises NaN exclusion; the traced chain matches the patch exactly and names FastMath.tabulate. The final step is unsupported: the agent hedges between 'the public mode method's NaN filtering' and 'the helper that tabulates', then ranks the facade first although its displayed body is a null check plus delegation (line 822) and tabulate's loop was never displayed, so no premise shows which hop drops the isNaN guard. Rank-1 violates its documentation only observationally, inheriting the fault; the omitted guard lives in tabulate, whose doc makes no NaN promise, so filtering at mode is arguable but is not where the logic was lost."
+   },
+   "process": {
+    "run": "CTV-7C06F2/run-005",
+    "lens": "process",
+    "primary": "DISCOVERY_WITHOUT_INSPECTION",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "no",
+    "evidence_displayed": [
+     "call 1: defects4j test StatUtilsTest::testMode -> 'Failing tests: 1' (no assertion message shown)",
+     "call 4: StatUtils::mode javadoc lines 799-808, cut mid-sentence at 'NaN values are ignored when computing the mode - i.e., Na'; the requested MathArrays 1480-1565 (mostFrequent body) is not shown in the view",
+     "call 5: StatUtils::mode delegating lines 822 and 859 (grep) and BlockFieldMatrix::leadingValues full body (decoy)",
+     "call 6: DSCompiler::dominantEntries javadoc + signature only (cut at 'public static double[] do')",
+     "call 7: Dfp::countEntries full body '-> FastMath.tabulate' (decoy) and MathArrays.java:1536 'Frequency freq = Dfp.countEntries(values, begin, length);'",
+     "call 8: FastMath::tabulate (gold) javadoc 1130-1136 and signature line 1137 only; displayed excerpt ends at 'public static Frequency tabulate(double[] values, final int' - loop body and fault line not displayed",
+     "call 10: jshell probes of StatUtils.mode only: nanInfested -> [NaN], {NaN,NaN} -> [NaN], infInfested -> [-Infinity, 0.0, 2.0, Infinity]",
+     "calls 11-13: Frequency.java lines 1-31, 300-340, 430-466 (license/imports, getPct, getCumFreq/getCumPct); Frequency::getMode body not displayed",
+     "call 14: StatUtilsTest::testMode lines 511-527 incl. the nanInfested expectation",
+     "call 16: StatUtils.java:19 unused 'import java.util.List' (residue of the removed private helper)",
+     "call 19: grep getMode hit in MathArrays (truncated); MathArrays::mostFrequent body never displayed",
+     "not displayed anywhere: MathArrays::normalizeArray, Frequency::getMode body, FastMath::tabulate loop body (fault line)"
+    ],
+    "rationale": "Agent ran testMode (call 1), traced mode->leadingValues->dominantEntries->countEntries->tabulate by grep (calls 5-8), displaying full bodies of the trivial forwarders but only tabulate's javadoc and signature: call 8's displayed excerpt ends at 'public static Frequency tabulate(double[] values, final int'. The fault line 'final double value = values[i]; freq.addValue(Double.valueOf(value));' appears in no displayed tool output, so 'gold never displayed' is inexact (header shown, body not; call 8 asked for -A120, so the body may have been fetched but is cut from the view). jshell probes (call 10) exercised only StatUtils.mode. Frequency.getMode and mostFrequent bodies never shown. Having located tabulate without inspecting its loop, it ranked the entry point first on mode's NaN javadoc, hedging 'or the helper that tabulates'."
+   }
+  },
+  "CTV-CCA96B/run-001": {
+   "argument": {
+    "run": "CTV-CCA96B/run-001",
+    "lens": "argument",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (javadoc with NaN-ignored clause and delegating body, lines 810-862)",
+     "org.apache.commons.math3.stat.Frequency::getMode (max-count selection, lines 480-540 / 513-533)",
+     "org.apache.commons.math3.util.FastMath::tabulate (gold body, lines 1120-1165 / 1132-1145)",
+     "org.apache.commons.math3.util.MathArrays::mostFrequent (lines 1490-1565 / 1530-1545)",
+     "org.apache.commons.math3.linear.BlockFieldMatrix::leadingValues (pass-through, lines 1266-1275)",
+     "org.apache.commons.math3.analysis.differentiation.DSCompiler::dominantEntries (pass-through, lines 986-995)",
+     "org.apache.commons.math3.dfp.Dfp::countEntries (pass-through, lines 2567-2575)",
+     "failing_tests stack trace (StatUtilsTest.java:526, expected 0.0 was NaN)"
+    ],
+    "rationale": "Premises 1-4 all check out against the patch and displayed code: the test fails at line 526; StatUtils.mode's javadoc promises NaN-ignoring and delegates to leadingValues; the five-hop chain ends at FastMath.tabulate; tabulate adds every value including NaN (the patch removed the isNaN guard there). The agent's narrative thus located the divergence at the gold. The flawed step is premise 2's inference: it ranked the hop whose javadoc defines the NaN convention (also the test's call target, a pure delegation) above the hop its chain showed counting NaNs. StatUtils.mode's body is a null check plus delegation; no line in it can be wrong. Partly defensible because helper javadocs are silent on NaN, so an API-layer filter is a possible fix."
+   },
+   "process": {
+    "run": "CTV-CCA96B/run-001",
+    "lens": "process",
+    "primary": "ENTRY_POINT_BIAS",
+    "secondary": "CONVENTION_PRIOR",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (full, calls 4 and 15, incl. NaN-ignored javadoc)",
+     "org.apache.commons.math3.stat.Frequency::getMode (calls 9 and 15)",
+     "org.apache.commons.math3.stat.Frequency::addValue (calls 7 and 16)",
+     "org.apache.commons.math3.util.FastMath::tabulate (gold, full body, first at call 8 of 19, re-read with line numbers at call 15)",
+     "org.apache.commons.math3.util.MathArrays::mostFrequent (calls 4 and 15)",
+     "BlockFieldMatrix::leadingValues, DSCompiler::dominantEntries, Dfp::countEntries (pass-through hops, calls 6, 8, 16)",
+     "StatUtilsTest.testMode lines 500-555 and failing_tests stack trace",
+     "NOT displayed: org.apache.commons.math3.util.MathArrays::normalizeArray"
+    ],
+    "rationale": "Agent ran the trigger test once, traced StatUtils.mode -> leadingValues -> dominantEntries -> mostFrequent -> countEntries -> tabulate by grep, and displayed FastMath.tabulate in full at call 8 of 19 (again with line numbers at call 15), plus Frequency.getMode/addValue and the test. Its chain correctly states tabulate adds every value including NaN, so NaN wins the count: divergence located at the gold. It nonetheless ranked the test-called public API StatUtils.mode first because its contract is violated and it controls delegation, the NaN-ignoring doc living only there, with the gold third behind mostFrequent. No search or reading gap; normalizeArray never displayed but not decisive. Ranking preference for the entry point, not process, failed."
+   }
+  },
+  "CTV-CCA96B/run-002": {
+   "argument": {
+    "run": "CTV-CCA96B/run-002",
+    "lens": "argument",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode",
+     "org.apache.commons.math3.stat.Frequency::getMode"
+    ],
+    "rationale": "All four premises hold against the patch: the delegation chain is as stated, tabulate adds every value (the removed NaN guard), Frequency.getMode is generic. The agent's chain names FastMath.tabulate as where NaNs enter the table, yet ranks StatUtils.mode first solely because its javadoc defines the NaN-ignored contract; mode is a one-line delegation that cannot produce the NaN, and intermediate docs are silent on NaN, so the convention-defining hop was blamed over the violating hop. Rank 1 is also the test's direct callee/facade. Partly defensible: the contract is documented only at mode, but the shared tabulation loop dropped the guard and fixing it covers both overloads. View excerpts are cut before tabulate's body and mode's javadoc."
+   },
+   "process": {
+    "run": "CTV-CCA96B/run-002",
+    "lens": "process",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "StatUtils::mode (entry point / evidence): requested call 4 (StatUtils.java 780-880; view output truncated before the excerpt); delegation line 822 shown by grep in call 5; chain cites lines 808-822 for the 'NaN values are ignored' contract",
+     "Frequency::getMode (evidence): Frequency.java 1-560 requested in calls 9-10 (view truncated at ~line 283); FrequencyTest.testMode displayed in call 12 (lines 352-370)",
+     "MathArrays::normalizeArray (evidence): never displayed or mentioned",
+     "Decoys: BlockFieldMatrix::leadingValues body displayed call 5 (lines 1265-1273); DSCompiler::dominantEntries, MathArrays::mostFrequent, Dfp::countEntries requested calls 6-8 with wide context (view truncated before their bodies; grep hit lines 991/1535/2571 shown)",
+     "Gold FastMath::tabulate: signature `FastMath.java:1137: public static Frequency tabulate(double[] values, final int begin, final int length) {` displayed call 9; body requested with -C 70 but view cuts at line 1093; the fault line `freq.addValue(Double.valueOf(value));` is not visible anywhere in the view",
+     "Tests run: StatUtilsTest::testMode via defects4j (call 2); failing_tests stack trace 'expected:<0.0> but was:<NaN>' at StatUtilsTest.java:526 displayed call 3; test body lines 511-527 displayed call 4"
+    ],
+    "rationale": "Process was complete: ran the trigger (call 2), read stack and test (calls 3-4), traced every hop mode->leadingValues->dominantEntries->mostFrequent->countEntries->tabulate (calls 5-9), read Frequency and FrequencyTest (calls 10-12). The gold's fault line `freq.addValue(Double.valueOf(value));` appears in no displayed output in the view: call 9 shows only the grep hit `FastMath.java:1137: public static Frequency tabulate(...)` plus context 1067-1093 before the view's character cut; the requested -C 70 necessarily covered 1137-1143, and the chain paraphrases that body ('adds every double, including NaN'). 'Gold never displayed' is therefore a view-truncation artefact. Having placed NaN entry at tabulate, the agent still ranked the one-line facade the test calls first because its javadoc owns the 'NaN values are ignored' contract."
+   }
+  },
+  "CTV-CCA96B/run-003": {
+   "argument": {
+    "run": "CTV-CCA96B/run-003",
+    "lens": "argument",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "StatUtils::mode (delegation lines 822/859 via grep; sed 760-880 covered the method and its javadoc, truncated in view)",
+     "FastMath::tabulate (full body: loop adds every value to Frequency with no NaN guard)",
+     "MathArrays::mostFrequent (full body)",
+     "Dfp::countEntries (full body)",
+     "BlockFieldMatrix::leadingValues (javadoc plus delegation line via grep)",
+     "DSCompiler::dominantEntries (delegation line via grep)",
+     "Frequency::getMode (signature and javadoc header; body within sed range, truncated in view)",
+     "MathArrays::normalizeArray (NaN-skipping loop shown incidentally around the mostFrequent grep)",
+     "FrequencyTest::testMode and start of testModeDoubleNan",
+     "failing_tests stack trace: expected:<0.0> but was:<NaN> at StatUtilsTest.java:526"
+    ],
+    "rationale": "All three premises check out against the patch and displayed code: the delegation chain is exact, and P3 correctly states that FastMath.tabulate adds every value including NaN (the patch shows the NaN guard present in the removed getMode helper is absent from tabulate). The chain therefore locates the divergence at the gold. The ranking then inverts it: the agent reasons that Frequency legitimately counts NaN, so blame belongs with the hop that documents the NaN-ignore contract (StatUtils.mode) and the 'array-mode helper' (mostFrequent), placing the unguarded loop third. Rank-1 is a one-line delegate with no NaN logic; it owns the contract but not the violation. normalizeArray's NaN-skipping loop was displayed but unused."
+   },
+   "process": {
+    "run": "CTV-CCA96B/run-003",
+    "lens": "process",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (call 4 sed StatUtils 760-880; call 6 grep showed delegation lines 822/859)",
+     "org.apache.commons.math3.util.MathArrays::normalizeArray (call 10 sed MathArrays 1300-1385 showed its !Double.isNaN guards)",
+     "org.apache.commons.math3.stat.Frequency::getMode (call 6 sed Frequency 480-560 covers line 513; view truncates at its javadoc)",
+     "org.apache.commons.math3.util.FastMath::tabulate (gold; call 15 sed FastMath 1110-1165, full body incl. unguarded freq.addValue(Double.valueOf(value)) line)",
+     "org.apache.commons.math3.util.MathArrays::mostFrequent (call 11, full body)",
+     "org.apache.commons.math3.dfp.Dfp::countEntries (call 13, full body)",
+     "FrequencyTest::testMode and start of testModeDoubleNan (call 17)",
+     "tests run: only the trigger StatUtilsTest::testMode (call 1)"
+    ],
+    "rationale": "Process complete: ran only the trigger test, then walked the six-hop delegation chain from StatUtils.mode to FastMath.tabulate. Gold tabulate displayed in full at call 15 of 23, fault line included; the chain states it adds NaN unconditionally. MathArrays.normalizeArray's NaN-skipping loop, Frequency.getMode and FrequencyTest were also displayed. Yet the ranking is mode > mostFrequent > tabulate > pass-through delegators: contract-stating hops above the identified violator, not call order. The last four calls hunted StatUtils/MathArrays for a verifyValues/filter step, i.e. the agent expected the NaN filter at the hop documenting the NaN-ignore contract. Rank 1 is also the test's direct callee and a one-line facade (secondary). No search, discovery or retrieval gap."
+   }
+  },
+  "CTV-CCA96B/run-004": {
+   "argument": {
+    "run": "CTV-CCA96B/run-004",
+    "lens": "argument",
+    "primary": "CONVENTION_PRIOR",
+    "secondary": "ENTRY_POINT_BIAS",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode",
+     "org.apache.commons.math3.stat.Frequency::getMode",
+     "org.apache.commons.math3.util.FastMath::tabulate",
+     "org.apache.commons.math3.util.MathArrays::mostFrequent",
+     "org.apache.commons.math3.dfp.Dfp::countEntries",
+     "org.apache.commons.math3.analysis.differentiation.DSCompiler::dominantEntries",
+     "org.apache.commons.math3.linear.BlockFieldMatrix::leadingValues",
+     "org.apache.commons.math3.stat.FrequencyTest::testModeDoubleNan"
+    ],
+    "rationale": "All three premises check out against the patch and displayed code: the test fails on the NaN sample, the five-hop delegation chain is as stated, and tabulate (lines 1137-1144) adds every value including NaN while Frequency.getMode filters nothing by design. The chain therefore locates the divergence at the gold. Rank 1 rests solely on premise 1's inference that the result contradicts StatUtils.mode's documentation; the agent blames the hop that states the NaN-ignored convention rather than tabulate, which drops the guard. StatUtils.mode's body is a null check plus delegation with no faulty statement. Partly defensible only because no helper javadoc mentions NaN, so the contract is stated at the facade alone."
+   },
+   "process": {
+    "run": "CTV-CCA96B/run-004",
+    "lens": "process",
+    "primary": "ENTRY_POINT_BIAS",
+    "secondary": "CONVENTION_PRIOR",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "yes",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (call 4: StatUtils.java 760-880; call 11: grep mode; calls 12-13: imports)",
+     "org.apache.commons.math3.stat.Frequency::getMode (requested call 5: Frequency.java 220-570; view truncates the excerpt, but the chain describes its behaviour)",
+     "org.apache.commons.math3.util.FastMath::tabulate [gold] (call 9: FastMath.java 1110-1155, full method incl. fault lines 1140-1141; first and only display)",
+     "FrequencyTest testMode/testModeDoubleNan/testModeFloatNan (requested call 9: lines 340-430; used to rank Frequency low)",
+     "NOT displayed: org.apache.commons.math3.util.MathArrays::normalizeArray"
+    ],
+    "rationale": "Ran only the trigger test (call 1). Walked the delegation chain from the entry point: StatUtils.mode (call 4), Frequency, MathArrays.mostFrequent (5), leadingValues (6), countEntries (7), dominantEntries (8), then FastMath.tabulate in full (call 9; the unfiltered addValue loop first displayed here) plus FrequencyTest NaN tests. Calls 11-13 returned to StatUtils (test body, imports, stale java.util.List import), hunting for edit footprints at the entry point. The chain's third premise places the NaN counting at tabulate, yet the ranking puts the one-line facade the test calls first and tabulate third; premise 1 binds the violation to StatUtils.mode because its javadoc states the NaN rule. normalizeArray never fetched."
+   }
+  },
+  "CTV-CCA96B/run-005": {
+   "argument": {
+    "run": "CTV-CCA96B/run-005",
+    "lens": "argument",
+    "primary": "ENTRY_POINT_BIAS",
+    "secondary": "CONVENTION_PRIOR",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "no",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (javadoc 800-816 incl. NaN clause, body 818-822: null check + delegation)",
+     "org.apache.commons.math3.stat.Frequency::getMode (ranges 480-545 and 513-532 requested; output truncated in view)",
+     "org.apache.commons.math3.util.FastMath::tabulate (gold; ranges 1115-1165 and 1130-1148 requested)",
+     "org.apache.commons.math3.util.MathArrays::mostFrequent (1490-1565, 1528-1545)",
+     "org.apache.commons.math3.linear.BlockFieldMatrix::leadingValues, DSCompiler::dominantEntries, Dfp::countEntries (delegators)",
+     "org.apache.commons.math3.stat.Frequency::addValue/incrementValue (123-145)",
+     "StatUtilsTest::testMode body and a direct probe: mode({0,0,0,NaN,...}) -> [NaN], mode({NaN,NaN}) -> [NaN]",
+     "NOT displayed: org.apache.commons.math3.util.MathArrays::normalizeArray"
+    ],
+    "rationale": "All three premises hold against the patch and displayed code (test and javadoc, probe output [NaN], correct call chain). The flaw is the step to rank 1: the only argument for StatUtils::mode is that the test calls it and its documented NaN contract is violated; its displayed body (818-822) merely null-checks and delegates, so no premise locates a wrong value there. The agent's own inference 2 ('NaN values are being included in the frequency calculation') points to the sole addValue loop, FastMath::tabulate, whose unguarded loop it displayed yet named only as a chain hop and ranked third, below mostFrequent. Partly defensible: mode is the only method whose documentation promises NaN exclusion, so a pre-filter fix there is arguable."
+   },
+   "process": {
+    "run": "CTV-CCA96B/run-005",
+    "lens": "process",
+    "primary": "ENTRY_POINT_BIAS",
+    "secondary": "EVIDENCE_INTEGRATION_FAILURE",
+    "defensible": "partly",
+    "gold_named_in_chain": "yes",
+    "divergence_located_at_gold": "no",
+    "evidence_displayed": [
+     "org.apache.commons.math3.stat.StatUtils::mode (calls 5, 18: javadoc 'NaN values are ignored' + delegating body)",
+     "org.apache.commons.math3.stat.Frequency::getMode (calls 8, 18)",
+     "org.apache.commons.math3.util.FastMath::tabulate [gold] (first full display call 9, sed 1115-1165; again call 18 with line numbers 1130-1148)",
+     "NOT displayed: org.apache.commons.math3.util.MathArrays::normalizeArray"
+    ],
+    "rationale": "Agent ran the trigger test (call 1) and a custom probe (call 11) showing mode(nanInfested)=[NaN] and mode({NaN,NaN})=[NaN]. It traced the delegation chain hop by hop; FastMath.tabulate's unguarded addValue loop was first displayed in full at call 9 and again with line numbers at call 18. Frequency.getMode and StatUtils.mode's NaN-ignored javadoc were displayed; MathArrays.normalizeArray never was. Despite seeing every hop's body (three one-line delegates, a list-to-array converter, and the single value-iterating loop at tabulate), it ranked the test's call target first and ordered the rest of the chain top-down, with evidence item 3 declaring the whole chain 'most likely'. Gold named in chain, but the NaN admission was never pinned to tabulate."
+   }
+  }
+ },
+ "splits": [
+  {
+   "run": "CTV-7C06F2/run-003",
+   "process": [
+    "CONVENTION_PRIOR",
+    "EVIDENCE_INTEGRATION_FAILURE",
+    "partly",
+    "yes"
+   ],
+   "argument": [
+    "ATTRIBUTION_FAILURE",
+    "LEXICAL_SHORTCUT",
+    "partly",
+    "yes"
+   ]
+  },
+  {
+   "run": "CTV-7C06F2/run-004",
+   "process": [
+    "ENTRY_POINT_BIAS",
+    "CONVENTION_PRIOR",
+    "partly",
+    "yes"
+   ],
+   "argument": [
+    "CONVENTION_PRIOR",
+    "ENTRY_POINT_BIAS",
+    "partly",
+    "yes"
+   ]
+  },
+  {
+   "run": "CTV-7C06F2/run-005",
+   "process": [
+    "DISCOVERY_WITHOUT_INSPECTION",
+    "ENTRY_POINT_BIAS",
+    "partly",
+    "no"
+   ],
+   "argument": [
+    "ENTRY_POINT_BIAS",
+    "CONVENTION_PRIOR",
+    "partly",
+    "no"
+   ]
+  },
+  {
+   "run": "CTV-CCA96B/run-001",
+   "process": [
+    "ENTRY_POINT_BIAS",
+    "CONVENTION_PRIOR",
+    "partly",
+    "yes"
+   ],
+   "argument": [
+    "CONVENTION_PRIOR",
+    "ENTRY_POINT_BIAS",
+    "partly",
+    "yes"
+   ]
+  },
+  {
+   "run": "CTV-CCA96B/run-004",
+   "process": [
+    "ENTRY_POINT_BIAS",
+    "CONVENTION_PRIOR",
+    "partly",
+    "yes"
+   ],
+   "argument": [
+    "CONVENTION_PRIOR",
+    "ENTRY_POINT_BIAS",
+    "partly",
+    "yes"
+   ]
+  },
+  {
+   "run": "CTV-CCA96B/run-005",
+   "process": [
+    "ENTRY_POINT_BIAS",
+    "EVIDENCE_INTEGRATION_FAILURE",
+    "partly",
+    "no"
+   ],
+   "argument": [
+    "ENTRY_POINT_BIAS",
+    "CONVENTION_PRIOR",
+    "partly",
+    "no"
+   ]
+  }
+ ]
+}

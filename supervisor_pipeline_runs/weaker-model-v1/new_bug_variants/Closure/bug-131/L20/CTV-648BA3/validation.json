@@ -1,0 +1,262 @@
+{
+ "schema_version": "d4j-validation/v1",
+ "variant_id": "CTV-648BA3",
+ "status": "accepted",
+ "validator_version": "ownership-displacement/v1",
+ "validator_toolchain": {
+  "validator": "ownership-displacement/v1 (recipe section 14)",
+  "jdk": "OpenJDK 11 (Homebrew openjdk@11)",
+  "ant": "Apache Ant (major/bin/ant)",
+  "test_runner": "defects4j test",
+  "host": "darwin arm64",
+  "bytecode_verification": "javap -c -p on build/classes after every compile; touched .class files deleted before every compile"
+ },
+ "validated_at": "2026-09-18T00:00:00Z",
+ "gate": {
+  "baseline_compile": {
+   "status": "pass",
+   "evidence": "pristine copy of workspaces/defects4j/Closure-131/fixed: defects4j compile -> COMPILE_OK"
+  },
+  "baseline_trigger": {
+   "status": "pass",
+   "evidence": "pristine copy, defects4j test -t <trigger> -> Failing tests: 0"
+  },
+  "refactor_is_behaviour_preserving": {
+   "status": "pass",
+   "evidence": "the same restructuring with the one convention corrected (the table writer skips identifier-ignorable code points) compiles and passes the FULL defects4j test suite with Failing tests: 0. The shipped fault is therefore the only behavioural change the package introduces."
+  },
+  "buggy_state_reproduced": {
+   "status": "pass",
+   "evidence": "the variant's failing_tests file has md5 8593178d472a27297e3f68fefa3465f7, which is the md5 recorded for a build carrying the real framework/projects/Closure/patches/131.src.patch"
+  },
+  "variant_compile": {
+   "status": "pass",
+   "evidence": "ScriptRuntime.class, NodeUtil.class and CodeGenerator.class deleted under build/classes and build/test, defects4j compile -> COMPILE_OK; javap -c -p on build/classes/com/google/javascript/rhino/ScriptRuntime.class shows one invokestatic Character.isUnicodeIdentifierPart and zero invokestatic Character.isIdentifierIgnorable; NodeUtil.class calls ScriptRuntime.isNamePartChar"
+  },
+  "variant_trigger_runs": [
+   {
+    "run": 1,
+    "status": "expected_fail",
+    "signature": "Failing tests: 1\n  - com.google.javascript.jscomp.ConvertToDottedPropertiesTest::testQuotedProps",
+    "evidence": "validation.log determinism run 1; failing_tests md5 8593178d472a27297e3f68fefa3465f7"
+   },
+   {
+    "run": 2,
+    "status": "expected_fail",
+    "signature": "Failing tests: 1\n  - com.google.javascript.jscomp.ConvertToDottedPropertiesTest::testQuotedProps",
+    "evidence": "validation.log determinism run 2; failing_tests md5 8593178d472a27297e3f68fefa3465f7"
+   },
+   {
+    "run": 3,
+    "status": "expected_fail",
+    "signature": "Failing tests: 1\n  - com.google.javascript.jscomp.ConvertToDottedPropertiesTest::testQuotedProps",
+    "evidence": "validation.log determinism run 3; failing_tests md5 8593178d472a27297e3f68fefa3465f7"
+   }
+  ],
+  "deterministic": {
+   "status": "pass",
+   "evidence": "3/3 byte-identical failing_tests (md5 8593178d472a27297e3f68fefa3465f7) on the work copy and 3/3 identical again on a fresh copy rebuilt from variant.patch"
+  },
+  "original_regressions": {
+   "status": "pass",
+   "evidence": "full defects4j test on the variant: Failing tests: 2 -- exactly framework/projects/Closure/trigger_tests/131 (testQuotedProps and testDoNotConvert); collateral 0"
+  },
+  "production_fault": {
+   "status": "pass",
+   "evidence": "diff -rq of the variant src tree against the pristine checkout lists exactly ScriptRuntime.java, NodeUtil.java and CodeGenerator.java; diff -rq of the test trees lists nothing; test.patch empty"
+  },
+  "gold_method_known": {
+   "status": "pass",
+   "gold": "com.google.javascript.rhino.ScriptRuntime::markIdentifierChars",
+   "evidence": "private static void markIdentifierChars() present in the variant source and in the compiled bytecode; it is one of the three writers of ScriptRuntime.NAME_CHARS"
+  },
+  "fault_isolated_in_gold": {
+   "status": "pass",
+   "evidence": "restoring the identifier-ignorable skip in markIdentifierChars alone, leaving every other line of the variant in place, returns the trigger to Failing tests: 0 and the full suite to 0; this gold-restored workspace is the base for every decoy counterfactual"
+  },
+  "symptom_identity": {
+   "status": "pass",
+   "symptom_class": "T1",
+   "evidence": "for BOTH trigger tests the variant's assertion message is byte-identical to framework/projects/Closure/trigger_tests/131 and the application-level frames are identical; the whole failing_tests file matches the real bug's md5 8593178d472a27297e3f68fefa3465f7"
+  },
+  "lexical_decoupling": {
+   "status": "pass",
+   "evidence": "lexgate.json: DECOUPLED over 113 payload tokens -- keyword_reach [], scannable_reach [], one_hop_callers_named_in_payload [], gold_method_in_payload false, gold_class_in_payload false; --max-hits left at the default 40 and --name-share at the default 2"
+  },
+  "causal_displacement": {
+   "status": "pass",
+   "evidence": "causal distance 6: testQuotedProps -> ConvertToDottedProperties#visit -> NodeUtil#isValidPropertyName -> NodeUtil#isValidSimpleName -> NodeUtil#isSimpleNameChars -> ScriptRuntime#isNamePartChar -> ScriptRuntime.NAME_CHARS written by markIdentifierChars. The first four of those are byte-identical to the pristine checkout or manifestly correct; the gold is in a different package and is named nowhere in the payload"
+  },
+  "ownership_displacement": {
+   "status": "pass",
+   "evidence": "S = ScriptRuntime.NAME_CHARS, written by three executed methods (markIdentifierChars, markCurrencyChars, markConnectorChars) and read at NodeUtil#isSimpleNameChars through two accessors; grep -rn NAME_CHARS src returns seven lines across three writers and two readers, a menu rather than a pointer"
+  },
+  "causal_dependency_audit": {
+   "status": "pass",
+   "evidence": "no layer is removable. Deleting markCurrencyChars breaks a['$'] (testConvert); deleting markConnectorChars breaks a['_'] and a['_p_'] (testConvert); deleting isSimpleNameChars removes the Basic Latin bound and the scan itself; the accessors are the only way out of a private table. The correct-convention form of the same structure passes the full suite, which proves the structure carries behaviour rather than decoration."
+  },
+  "no_local_anomaly": {
+   "status": "pass",
+   "evidence": "markIdentifierChars read cold does exactly what its one-line doc says -- it marks the characters the Unicode identifier syntax admits -- and neither of its two sibling writers mentions ignorable code points, so there is no asymmetry inside the file to read against. The only correct statement of the JavaScript convention lives in another file and another package (TokenStream#isJSIdentifier), which is left byte-identical."
+  },
+  "counterfactual_decoys": {
+   "status": "pass",
+   "evidence": "H=9, V=4. D1-D4 each reproduce the symptom with a byte-identical failing_tests file under their own single mutation on a workspace with the gold restored; D5, D7, D8 and D9 fail to reproduce at all; D6 fails the trigger at a different assertion statement and is deliberately NOT counted toward V. Mutation artifacts are private and are not shipped."
+  },
+  "fresh_copy_reproducibility": {
+   "status": "pass",
+   "evidence": "variant.patch applied with git apply to a fresh pristine Closure-131f copy: --check clean, resulting src tree byte-identical to the work copy, compile OK, 3/3 identical failing_tests with md5 8593178d472a27297e3f68fefa3465f7"
+  },
+  "test_preservation": {
+   "status": "pass",
+   "evidence": "test.patch is empty and the test tree is byte-identical to the pristine checkout: same trigger, same assertion, same expected value, same failure class"
+  },
+  "method_catalog": {
+   "status": "pass_by_signature_check",
+   "caveat": "harness catalog builder not exported; adapter rebuilds catalog at run time"
+  },
+  "patch_residue": {
+   "status": "pass",
+   "evidence": "package ships only variant.patch and an empty test.patch"
+  },
+  "vcs_isolation": {
+   "status": "deferred_to_adapter",
+   "evidence": "adapter strips VCS on workspace preparation"
+  },
+  "private_metadata_isolation": {
+   "status": "pass",
+   "evidence": "gates.mjs private_metadata_hits=[]; isolation guard PASS"
+  },
+  "source_integrity": {
+   "status": "deferred_to_run"
+  },
+  "leakage_scan": {
+   "status": "pass",
+   "evidence": "the rendered payload names neither com.google.javascript.rhino.ScriptRuntime nor markIdentifierChars nor NAME_CHARS nor any class on the path between the test and the gold. RECORDED COVARIATE: a reader who already suspects character classification can reach the gold with grep -rn IdentifierPart src, which returns three lines (ScriptRuntime:317, ScriptRuntime:350, TokenStream:201). That grep is not derivable from the payload -- lexgate's token sweep returns an empty keyword_reach -- and, unlike in the paired CC-001 variant, the hit list contains no asymmetry that identifies the offender: all three sites use a java.lang.Character identifier predicate and look idiomatic."
+  }
+ },
+ "blast_radius": {
+  "failing_tests_in_variant_full_suite": 2,
+  "d4j_trigger_set": [
+   "com.google.javascript.jscomp.ConvertToDottedPropertiesTest::testQuotedProps",
+   "com.google.javascript.jscomp.ConvertToDottedPropertiesTest::testDoNotConvert"
+  ],
+  "collateral": 0
+ },
+ "decoys": [
+  {
+   "id": "GOLD",
+   "method": "com.google.javascript.rhino.ScriptRuntime#markIdentifierChars",
+   "role": "shipped fault",
+   "mutation": "the writer fills the shared name-character table straight from the Unicode identifier syntax; Character.isUnicodeIdentifierPart is true for every identifier-ignorable code point, so those code points are marked as name parts",
+   "counterfactual": "not applicable (the shipped fault); restoring the identifier-ignorable skip in this one writer alone returns the trigger to 0 failures and the full suite to green (validation.log, decoy baseline)",
+   "result": "shipped_fault",
+   "symptom_class": "T1"
+  },
+  {
+   "id": "D1",
+   "method": "com.google.javascript.rhino.ScriptRuntime#markCurrencyChars",
+   "mutation": "the second writer of the table marks \"the characters java.lang.Character admits in an identifier that are not letters or digits\" instead of the currency-symbol category, which sweeps the ignorable code points in with $ and _",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests byte-identical to the real Defects4J 131 build, md5 8593178d472a27297e3f68fefa3465f7, AssertionFailedError at CompilerTestCase.java:924, ConvertToDottedPropertiesTest.java:72",
+   "result": "reproduces_symptom",
+   "symptom_class": "T1"
+  },
+  {
+   "id": "D2",
+   "method": "com.google.javascript.rhino.ScriptRuntime#markConnectorChars",
+   "mutation": "the third writer marks \"everything java.lang.Character admits in an identifier that the Unicode syntax will not let start one\" instead of the connector-punctuation category",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests md5 8593178d472a27297e3f68fefa3465f7, same assertion statement and values",
+   "result": "reproduces_symptom",
+   "symptom_class": "T1"
+  },
+  {
+   "id": "D3",
+   "method": "com.google.javascript.rhino.ScriptRuntime#isNamePartChar",
+   "mutation": "the reader falls back to Character.isJavaIdentifierPart when the table bit is clear, as though the table only covered part of the range",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests md5 8593178d472a27297e3f68fefa3465f7",
+   "result": "reproduces_symptom",
+   "symptom_class": "T1"
+  },
+  {
+   "id": "D4",
+   "method": "com.google.javascript.jscomp.NodeUtil#isSimpleNameChars",
+   "mutation": "off-by-one: the loop over the characters after the first starts at index 2, so the second character of every name goes unchecked",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests md5 8593178d472a27297e3f68fefa3465f7 -- both failing literals carry their ignorable character at index 1",
+   "result": "reproduces_symptom",
+   "symptom_class": "T1"
+  },
+  {
+   "id": "D5",
+   "method": "com.google.javascript.jscomp.NodeUtil#isValidPropertyName",
+   "mutation": "the property-name rule drops the reserved-word conjunct and tests the characters alone",
+   "counterfactual": "does not reproduce (tested): Failing tests 0. Relaxing the keyword conjunct admits a['default'] but cannot admit a key whose characters the table already refuses.",
+   "result": "does_not_reproduce",
+   "symptom_class": null
+  },
+  {
+   "id": "D6",
+   "method": "com.google.javascript.jscomp.ConvertToDottedProperties#visit",
+   "mutation": "the STRING_KEY branch tests raw JS-identifier syntax (TokenStream.isJSIdentifier) instead of the stricter property-name rule",
+   "counterfactual": "fails the trigger but at a different assertion statement (tested): AssertionFailedError at CompilerTestCase.java:924 raised from ConvertToDottedPropertiesTest.java:71, the preceding non-ASCII literal, with Expected ({\"\\u1d17A\":0}). Same exception type and same failure shape, different assertion statement, so NOT counted toward V under the strict reading of 12.2.",
+   "result": "reproduces_symptom_at_other_assertion",
+   "symptom_class": "T2/T3 boundary; excluded from V"
+  },
+  {
+   "id": "D7",
+   "method": "com.google.javascript.jscomp.NodeUtil#isLatin",
+   "mutation": "off-by-one length bound, so the last character of the name is never tested for the Basic Latin restriction",
+   "counterfactual": "does not reproduce (tested): Failing tests 0. The Basic Latin bound that governs a property name is applied in isSimpleNameChars; isLatin now serves only the string-escaping path in CodeGenerator, which cannot change the quoted marker on a node.",
+   "result": "does_not_reproduce",
+   "symptom_class": null
+  },
+  {
+   "id": "D8",
+   "method": "com.google.javascript.rhino.ScriptRuntime#isNameStartChar",
+   "mutation": "the reader tests the part bit instead of the start bit, so any name character may begin a name",
+   "counterfactual": "does not reproduce (tested): Failing tests 0. Widening the first-position rule cannot admit a key rejected at an interior position, and no literal in either trigger test has a bad first character.",
+   "result": "does_not_reproduce",
+   "symptom_class": null
+  },
+  {
+   "id": "D9",
+   "method": "com.google.javascript.rhino.TokenStream#isJSIdentifier",
+   "mutation": "the identifier-ignorable disjunct is dropped from the interior-character loop -- the fault shipped verbatim by the paired CLOSURE-131-CC-001 variant",
+   "counterfactual": "does not reproduce (tested): Failing tests 0. In this variant the property-name rule no longer consults isJSIdentifier, so the method that is the gold of the familiar counterpart is causally inert for this symptom while remaining the most conspicuous suspect in the repository.",
+   "result": "does_not_reproduce",
+   "symptom_class": null
+  }
+ ],
+ "decoy_counts": {
+  "hypothesis_count": 9,
+  "tested": 9,
+  "reproduce_symptom": 4,
+  "reproduce_at_other_assertion": 1,
+  "do_not_reproduce": 4
+ },
+ "symptom_match": {
+  "original": "junit.framework.AssertionFailedError: Expected: ({\"a\\u0004b\":0}) / Result: ({a<U+0004>b:0}) / Node tree inequality on the STRING_KEY quoted flag, CompilerTestCase.java:924, ConvertToDottedPropertiesTest.java:72",
+  "variant": "junit.framework.AssertionFailedError: Expected: ({\"a\\u0004b\":0}) / Result: ({a<U+0004>b:0}) / Node tree inequality on the STRING_KEY quoted flag, CompilerTestCase.java:924, ConvertToDottedPropertiesTest.java:72",
+  "identical": true,
+  "symptom_class": "T1",
+  "evidence": "failing_tests md5 8593178d472a27297e3f68fefa3465f7 for both the real 131.src.patch build and this variant; both trigger tests compared line by line"
+ },
+ "lexgate": {
+  "verdict": "DECOUPLED",
+  "gold": "src/com/google/javascript/rhino/ScriptRuntime.java#markIdentifierChars",
+  "gold_span": [
+   345,
+   354
+  ],
+  "payload_tokens": 113,
+  "keyword_reach": [],
+  "scannable_reach": [],
+  "one_hop_callers_named_in_payload": [],
+  "name_exposure": {
+   "gold_method_in_payload": false,
+   "declarations_of_that_name": 1,
+   "name_is_identifying": false,
+   "gold_class_in_payload": false
+  },
+  "max_hits": 40
+ }
+}

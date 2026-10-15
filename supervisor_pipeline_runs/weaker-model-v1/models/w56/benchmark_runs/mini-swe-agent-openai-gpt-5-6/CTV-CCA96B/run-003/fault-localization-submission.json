@@ -1,0 +1,151 @@
+{
+  "schema_version": "d4j-fl-submission/v1",
+  "ok": true,
+  "tool": "submit_fault_localization",
+  "prediction_count": 10,
+  "predictions": [
+    {
+      "rank": 1,
+      "class": "org.apache.commons.math3.util.FastMath",
+      "method": "tabulate"
+    },
+    {
+      "rank": 2,
+      "class": "org.apache.commons.math3.stat.StatUtils",
+      "method": "mode"
+    },
+    {
+      "rank": 3,
+      "class": "org.apache.commons.math3.util.MathArrays",
+      "method": "mostFrequent"
+    },
+    {
+      "rank": 4,
+      "class": "org.apache.commons.math3.dfp.Dfp",
+      "method": "countEntries"
+    },
+    {
+      "rank": 5,
+      "class": "org.apache.commons.math3.analysis.differentiation.DSCompiler",
+      "method": "dominantEntries"
+    },
+    {
+      "rank": 6,
+      "class": "org.apache.commons.math3.linear.BlockFieldMatrix",
+      "method": "leadingValues"
+    },
+    {
+      "rank": 7,
+      "class": "org.apache.commons.math3.stat.Frequency",
+      "method": "getMode"
+    },
+    {
+      "rank": 8,
+      "class": "org.apache.commons.math3.stat.Frequency",
+      "method": "addValue"
+    },
+    {
+      "rank": 9,
+      "class": "org.apache.commons.math3.stat.Frequency",
+      "method": "incrementValue"
+    },
+    {
+      "rank": 10,
+      "class": "org.apache.commons.math3.stat.ranking.NaturalRanking",
+      "method": "removeNaNs"
+    }
+  ],
+  "evidence_chain": [
+    {
+      "evidence": "Direct JUnit execution fails at StatUtilsTest.java:526: expected 0.0 but modeNan[0] was NaN.",
+      "inference_summary": "The mode implementation is incorrectly allowing NaN into frequency counting despite StatUtils.mode documenting that NaNs are ignored.",
+      "candidate_methods": [
+        "org.apache.commons.math3.util.FastMath.tabulate",
+        "org.apache.commons.math3.stat.StatUtils.mode"
+      ],
+      "references": [
+        {
+          "file": "src/test/java/org/apache/commons/math3/stat/StatUtilsTest.java",
+          "line_start": 524,
+          "line_end": 528
+        },
+        {
+          "file": "src/main/java/org/apache/commons/math3/stat/StatUtils.java",
+          "line_start": 798,
+          "line_end": 823
+        }
+      ]
+    },
+    {
+      "evidence": "FastMath.tabulate iterates through the selected slice and unconditionally calls freq.addValue for every double, including NaN.",
+      "inference_summary": "This is the first method in the observed mode call chain where the missing NaN exclusion can be directly localized.",
+      "candidate_methods": [
+        "org.apache.commons.math3.util.FastMath.tabulate"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/math3/util/FastMath.java",
+          "line_start": 1130,
+          "line_end": 1144
+        }
+      ]
+    },
+    {
+      "evidence": "The production call chain is StatUtils.mode -> BlockFieldMatrix.leadingValues -> DSCompiler.dominantEntries -> MathArrays.mostFrequent -> Dfp.countEntries -> FastMath.tabulate, followed by Frequency.getMode.",
+      "inference_summary": "These forwarding and aggregation methods are secondary localization candidates because they collectively implement the failing mode behavior.",
+      "candidate_methods": [
+        "org.apache.commons.math3.linear.BlockFieldMatrix.leadingValues",
+        "org.apache.commons.math3.analysis.differentiation.DSCompiler.dominantEntries",
+        "org.apache.commons.math3.util.MathArrays.mostFrequent",
+        "org.apache.commons.math3.dfp.Dfp.countEntries",
+        "org.apache.commons.math3.stat.Frequency.getMode"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+          "line_start": 1265,
+          "line_end": 1273
+        },
+        {
+          "file": "src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java",
+          "line_start": 985,
+          "line_end": 993
+        },
+        {
+          "file": "src/main/java/org/apache/commons/math3/util/MathArrays.java",
+          "line_start": 1528,
+          "line_end": 1544
+        },
+        {
+          "file": "src/main/java/org/apache/commons/math3/dfp/Dfp.java",
+          "line_start": 2565,
+          "line_end": 2573
+        },
+        {
+          "file": "src/main/java/org/apache/commons/math3/stat/Frequency.java",
+          "line_start": 506,
+          "line_end": 532
+        }
+      ]
+    },
+    {
+      "evidence": "Frequency tests explicitly expect a generic Frequency instance to retain NaN and report it as a mode.",
+      "inference_summary": "Frequency.addValue, incrementValue, and getMode rank below mode-specific methods; globally suppressing NaN there would conflict with Frequency's tested behavior.",
+      "candidate_methods": [
+        "org.apache.commons.math3.stat.Frequency.getMode",
+        "org.apache.commons.math3.stat.Frequency.addValue",
+        "org.apache.commons.math3.stat.Frequency.incrementValue"
+      ],
+      "references": [
+        {
+          "file": "src/test/java/org/apache/commons/math3/stat/FrequencyTest.java",
+          "line_start": 382,
+          "line_end": 403
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "submitted_at": "2026-10-15T04:48:37Z"
+}

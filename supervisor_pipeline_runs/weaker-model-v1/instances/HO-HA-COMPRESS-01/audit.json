@@ -1,0 +1,70 @@
+{
+ "iid": "HO-HA-COMPRESS-01",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.compress.utils.IOUtils::terminateChecksum (GOLD, reference)",
+   "edit": "restore `field[start + width - 2] = 0;` before the space assignment",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::putChecksumField",
+   "edit": "add `buf[offset + length - 2] = 0;` after the terminateChecksum call",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarUtils::getCheckSumOctalBytes",
+   "edit": "add `buf[offset + length - 2] = 0;` before the delegating return",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.compress.utils.IOUtils::putOctalDigits",
+   "edit": "add `buf[offset + width] = 0;` (write a NUL just past its field)",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarUtils::getCheckSumOctalBytes",
+   "edit": "declared G9 edit: `return getOctalBytes(value, buf, offset, length);`",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::putChecksumField",
+   "edit": "declared G9 edit: putOctalDigits(..., length - 1)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.compress.utils.IOUtils::putOctalDigits",
+   "edit": "declared G9 edit: pad with '0' instead of ' '",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::putChecksumField",
+   "edit": "terminateChecksum(buf, offset + length - 2, 2) instead of (buf, offset, length)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true
+  }
+ ],
+ "reasons": "I reproduced the variant in scratch: it compiles, the trigger fails with the declared signature (byte 6 of the field is 32, expected 0), the ownership test passes, and the full suite has exactly one failure, the trigger. Restoring the NUL assignment in IOUtils.terminateChecksum alone makes the trigger and the ownership test pass. (a) terminateChecksum's javadoc unconditionally promises a NUL at start+width-2 and a space at start+width-1, but its code writes only the space. The trigger space-fills the field first, as TarArchiveEntry.writeEntryHeader does, so the omission shows. No other method on the path violates its own contract. getCheckSumOctalBytes (E) is one delegating statement and its javadoc defers to putChecksumField's layout. putChecksumField (H1) calls putOctalDigits on the first length-2 bytes and terminateChecksum with the full field, returns offset+length, and writes no field byte itself, exactly as documented. putOctalDigits (H2) matches its javadoc for this input and for zero, negative and overflow values, and touches only its width bytes, which the sentinel ownership test pins. (b) No decoy javadoc contradicts its code or promises the NUL. H1 assigns the terminator to terminateChecksum and disclaims writing; E names no terminator. (c) Only added NUL writes at H1 or E absorb the fault. The H1 version contradicts H1's 'writes no byte of the field itself'. Both leave terminateChecksum contradicting its own javadoc, so neither is consistent with all documentation. A NUL write in H2 breaks H2's 'no byte outside the field' contract and fails the ownership test. No one-line change to an existing line of E, H1 or H2 absorbs the fault: I re-ran the three declared G9 edits and an H1 argument change, and all still fail the trigger. There is no correct sibling. TarUtils.getOctalBytes ends a field with space then NUL, which gives [..,32,0] (verified), and the cpio octal writer is unrelated. (d) The only fault-adjacent word in the added lines is 'NUL' in the gold's required contract statement. Test names and the trigger comment are neutral. (e) HA is realised. E is an existing public field encoder, called directly by the trigger, whose body is one delegation to H1 in another class. H1 composes H2 and H3 in a further class (IOUtils). The chain spans 3 classes in 2 packages, all helpers are public static in existing classes, and the gold is H3. The fault is a quiet omission whose remaining plain assignment reads complete. Decoys are E, H1 and H2, and both forbidden features are absent.",
+ "notes": "Minor points, none decisive. (1) Masking: on a zero-filled buffer the variant writes the right bytes by accident. The trigger's space-fill mirrors production writeEntryHeader, and H3's postcondition is unconditional, so ownership does not move. (2) Rule 7 says the trigger fails on 'E's return value'. Here the return value (offset+length) passes, and the failing assertion is on the bytes E writes into the caller's buffer. For a field-encoding E, which the recipe lists as an example, that buffer is E's output, so I treat the rule as met. (3) H3's parameter names (field, start, width) differ from H2 and H1 (buf, offset, width/length), and a tar-specific terminateChecksum sits in the generic IOUtils. This is stylistic oddness that is also present in the CORRECT version, not a fault marker. (4) The 3-class chain fits 'H2 and H3 each in a further class ... 3 or 4 classes' with H2 and H3 sharing IOUtils. (5) I did not check freshness against USED_METHODS.txt because that file is outside the auditor's permitted inputs; the builder states no listed method is used. (6) The context edits preserve pristine behaviour byte for byte. The same digit loop runs on bytes 0..5, then NUL and space go at 6 and 7. I checked this by reading the code and against G1. Scratch: /private/tmp/mxb-9P8li8 (deleted after audit)."
+}

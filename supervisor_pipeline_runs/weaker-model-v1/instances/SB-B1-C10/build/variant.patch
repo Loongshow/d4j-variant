@@ -1,0 +1,215 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index a0a499a98..be0e46362 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -1531,6 +1531,31 @@ public class ArrayUtils {
+         }
+     }
+ 
++    /**
++     * <p>Checks whether the character at an index of a CharSequence is one of
++     * a set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param index  the index of the character to check
++     * @param searchChars  the chars to search for, not null or empty
++     * @param pair  whether the character at the index is the first unit of a
++     *  surrogate pair
++     * @return {@code true} if the character is one of the search chars
++     */
++    public static boolean isAnyOf(final CharSequence cs, final int index, final char[] searchChars, final boolean pair) {
++        final char ch = cs.charAt(index);
++        final int searchLast = searchChars.length - 1;
++        for (int j = 0; j <= searchLast; j++) {
++            if (searchChars[j] == ch) {
++                if (!pair || j == searchLast) {
++                    return true;
++                }
++            }
++        }
++        return false;
++    }
++
++
+     /**
+      * <p>Reverses the order of the given array.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/Conversion.java b/src/main/java/org/apache/commons/lang3/Conversion.java
+index 91131ad83..eac74b6fc 100644
+--- a/src/main/java/org/apache/commons/lang3/Conversion.java
++++ b/src/main/java/org/apache/commons/lang3/Conversion.java
+@@ -19,6 +19,7 @@
+ package org.apache.commons.lang3;
+ 
+ import java.util.UUID;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ 
+ /**
+@@ -1596,6 +1597,21 @@ public class Conversion {
+         return dst;
+     }
+ 
++    /**
++     * <p>Checks whether the character at an index of a CharSequence is one of
++     * a set of characters, taking surrogate pairs into account.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param index  the index of the character to check
++     * @param searchChars  the chars to search for, not null or empty
++     * @return {@code true} if the character is one of the search chars
++     */
++    public static boolean classifyAt(final CharSequence cs, final int index, final char[] searchChars) {
++        final boolean pair = index < cs.length() - 1 && Character.isHighSurrogate(cs.charAt(index));
++        return DateUtils.lookupAt(cs, index, searchChars, pair);
++    }
++
++
+     /**
+      * <p>
+      * Converts a short into an array of boolean using the default (little endian, Lsb0) byte
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 04b53faf1..476bf52dd 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -1602,32 +1602,13 @@ public class StringUtils {
+      * @return the index of any of the chars, -1 if no match or null input
+      * @since 2.0
+      * @since 3.0 Changed signature from indexOfAnyBut(String, char[]) to indexOfAnyBut(CharSequence, char...)
++       The sequence is scanned from its end towards its start, and the index returned is the position at which the trailing run of characters inside the set stops, confirmed by a second forward pass over the prefix.
+      */
+     public static int indexOfAnyBut(final CharSequence cs, final char... searchChars) {
+         if (isEmpty(cs) || ArrayUtils.isEmpty(searchChars)) {
+             return INDEX_NOT_FOUND;
+         }
+-        final int csLen = cs.length();
+-        final int csLast = csLen - 1;
+-        final int searchLen = searchChars.length;
+-        final int searchLast = searchLen - 1;
+-        outer:
+-        for (int i = 0; i < csLen; i++) {
+-            final char ch = cs.charAt(i);
+-            for (int j = 0; j < searchLen; j++) {
+-                if (searchChars[j] == ch) {
+-                    if (i < csLast && j < searchLast && Character.isHighSurrogate(ch)) {
+-                        if (searchChars[j + 1] == cs.charAt(i + 1)) {
+-                            continue outer;
+-                        }
+-                    } else {
+-                        continue outer;
+-                    }
+-                }
+-            }
+-            return i;
+-        }
+-        return INDEX_NOT_FOUND;
++        return org.apache.commons.lang3.builder.ToStringStyle.firstIndexOutside(cs, searchChars);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index f41a3eaaa..2663b75f0 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,7 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -1102,6 +1103,25 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Finds the first index in a CharSequence of a character that is not
++     * in the given set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param searchChars  the chars to search for, not null or empty
++     * @return the index of the first character outside the set, -1 if none
++     */
++    public static int firstIndexOutside(final CharSequence cs, final char[] searchChars) {
++        final int csLen = cs.length();
++        for (int i = 0; i < csLen; i++) {
++            if (!StrBuilder.memberAt(cs, i, searchChars)) {
++                return i;
++            }
++        }
++        return -1;
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the detail of a
+      * <code>short</code> array.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index b662ffd30..ec1b4cb31 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -26,6 +26,7 @@ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
+ import org.apache.commons.lang3.builder.Builder;
++import org.apache.commons.lang3.Conversion;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1273,6 +1274,20 @@ public class StrBuilder implements CharSequence, Appendable, Serializable, Build
+         return this;
+     }
+ 
++    /**
++     * <p>Checks whether the character at an index of a CharSequence is one of
++     * a set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param index  the index of the character to check
++     * @param searchChars  the chars to search for, not null or empty
++     * @return {@code true} if the character is one of the search chars
++     */
++    public static boolean memberAt(final CharSequence cs, final int index, final char[] searchChars) {
++        return Conversion.classifyAt(cs, index, searchChars);
++    }
++
++
+     /**
+      * Append one of both separators to the builder
+      * If the builder is currently empty it will append the defaultIfEmpty-separator
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index b16af53d4..5663f2cee 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.Locale;
+ import java.util.NoSuchElementException;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -833,6 +834,22 @@ public class DateUtils {
+         return truncated;
+     }
+ 
++    /**
++     * <p>Checks whether the character at an index of a CharSequence is one of
++     * a set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param index  the index of the character to check
++     * @param searchChars  the chars to search for, not null or empty
++     * @param pair  whether the character at the index is the first unit of a
++     *  surrogate pair
++     * @return {@code true} if the character is one of the search chars
++     */
++    public static boolean lookupAt(final CharSequence cs, final int index, final char[] searchChars, final boolean pair) {
++        return ArrayUtils.isAnyOf(cs, index, searchChars, pair);
++    }
++
++
+     /**
+      * <p>Truncates a date, leaving the field specified as the most
+      * significant field.</p>

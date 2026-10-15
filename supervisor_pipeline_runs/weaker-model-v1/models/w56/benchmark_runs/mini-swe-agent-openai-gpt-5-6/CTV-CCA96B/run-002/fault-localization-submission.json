@@ -1,0 +1,131 @@
+{
+  "schema_version": "d4j-fl-submission/v1",
+  "ok": true,
+  "tool": "submit_fault_localization",
+  "prediction_count": 10,
+  "predictions": [
+    {
+      "rank": 1,
+      "class": "org.apache.commons.math3.util.FastMath",
+      "method": "tabulate"
+    },
+    {
+      "rank": 2,
+      "class": "org.apache.commons.math3.util.MathArrays",
+      "method": "mostFrequent"
+    },
+    {
+      "rank": 3,
+      "class": "org.apache.commons.math3.stat.StatUtils",
+      "method": "mode"
+    },
+    {
+      "rank": 4,
+      "class": "org.apache.commons.math3.dfp.Dfp",
+      "method": "countEntries"
+    },
+    {
+      "rank": 5,
+      "class": "org.apache.commons.math3.analysis.differentiation.DSCompiler",
+      "method": "dominantEntries"
+    },
+    {
+      "rank": 6,
+      "class": "org.apache.commons.math3.linear.BlockFieldMatrix",
+      "method": "leadingValues"
+    },
+    {
+      "rank": 7,
+      "class": "org.apache.commons.math3.stat.Frequency",
+      "method": "getMode"
+    },
+    {
+      "rank": 8,
+      "class": "org.apache.commons.math3.stat.Frequency",
+      "method": "addValue"
+    },
+    {
+      "rank": 9,
+      "class": "org.apache.commons.math3.stat.Frequency",
+      "method": "incrementValue"
+    },
+    {
+      "rank": 10,
+      "class": "org.apache.commons.math3.stat.Frequency",
+      "method": "getCount"
+    }
+  ],
+  "evidence_chain": [
+    {
+      "evidence": "Direct JUnit execution reports expected 0.0 but was NaN at StatUtilsTest.java:526, the first assertion for the NaN-infested sample.",
+      "inference_summary": "NaN is being counted as a mode despite the StatUtils.mode contract requiring NaNs to be ignored.",
+      "candidate_methods": [
+        "org.apache.commons.math3.util.FastMath.tabulate",
+        "org.apache.commons.math3.stat.StatUtils.mode"
+      ],
+      "references": [
+        {
+          "file": "src/test/java/org/apache/commons/math3/stat/StatUtilsTest.java",
+          "line_start": 523,
+          "line_end": 528
+        }
+      ]
+    },
+    {
+      "evidence": "FastMath.tabulate iterates over every slice value and unconditionally adds Double.valueOf(value) to Frequency; it has no NaN exclusion.",
+      "inference_summary": "This is the concrete point in the executed mode pipeline where NaNs enter the frequency table and is the strongest fault candidate.",
+      "candidate_methods": [
+        "org.apache.commons.math3.util.FastMath.tabulate"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/math3/util/FastMath.java",
+          "line_start": 1137,
+          "line_end": 1144
+        }
+      ]
+    },
+    {
+      "evidence": "The observed call/delegation pipeline is StatUtils.mode -> BlockFieldMatrix.leadingValues -> DSCompiler.dominantEntries -> MathArrays.mostFrequent -> Dfp.countEntries -> FastMath.tabulate -> Frequency.addValue/getMode.",
+      "inference_summary": "The ranked wrapper and frequency methods are production methods directly controlling the failing result, with semantic aggregation methods ranked above generic Frequency operations.",
+      "candidate_methods": [
+        "org.apache.commons.math3.util.MathArrays.mostFrequent",
+        "org.apache.commons.math3.dfp.Dfp.countEntries",
+        "org.apache.commons.math3.analysis.differentiation.DSCompiler.dominantEntries",
+        "org.apache.commons.math3.linear.BlockFieldMatrix.leadingValues",
+        "org.apache.commons.math3.stat.Frequency.getMode"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/math3/stat/StatUtils.java",
+          "line_start": 818,
+          "line_end": 823
+        },
+        {
+          "file": "src/main/java/org/apache/commons/math3/util/MathArrays.java",
+          "line_start": 1535,
+          "line_end": 1544
+        }
+      ]
+    },
+    {
+      "evidence": "FrequencyTest explicitly expects NaN to participate in Frequency.getMode when Frequency is used directly.",
+      "inference_summary": "Frequency's generic NaN behavior is intentional, so its methods rank below the mode-specific tabulation and wrapper methods.",
+      "candidate_methods": [
+        "org.apache.commons.math3.stat.Frequency.getMode",
+        "org.apache.commons.math3.stat.Frequency.addValue",
+        "org.apache.commons.math3.stat.Frequency.incrementValue"
+      ],
+      "references": [
+        {
+          "file": "src/test/java/org/apache/commons/math3/stat/FrequencyTest.java",
+          "line_start": 385,
+          "line_end": 404
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "submitted_at": "2026-10-15T04:44:16Z"
+}

@@ -1,0 +1,131 @@
+{
+ "iid": "HO-HA-JACKSONCORE-01",
+ "project": "JacksonCore",
+ "group": "HO-HA-JACKSONCORE-01",
+ "mechanism": "M10",
+ "tags": [
+  "M10",
+  "M3",
+  "M2"
+ ],
+ "recipe": "HA",
+ "kind": "new",
+ "tier": "HELDOUT",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "com.fasterxml.jackson.core.util.ByteArrayBuilder",
+  "method": "packGroup",
+  "file": "src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java",
+  "edits": [
+   {
+    "old": "                bits |= data[offset + i] & 0xFF;",
+    "new": "                bits |= data[offset + i];"
+   }
+  ]
+ },
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/Base64Variant.java",
+   "old": "    public String encode(byte[] input, boolean addQuotes)\n    {\n        int inputEnd = input.length;\n        StringBuilder sb;\n        {\n            // let's approximate... 33% overhead, ~= 3/8 (0.375)\n            int outputLen = inputEnd + (inputEnd >> 2) + (inputEnd >> 3);\n            sb = new StringBuilder(outputLen);\n        }\n        if (addQuotes) {\n            sb.append('\"');\n        }\n\n        int chunksBeforeLF = getMaxLineLength() >> 2;\n\n        // Ok, first we loop through all full triplets of data:\n        int inputPtr = 0;\n        int safeInputEnd = inputEnd-3; // to get only full triplets\n\n        while (inputPtr <= safeInputEnd) {\n            // First, mash 3 bytes into lsb of 32-bit int\n            int b24 = ((int) input[inputPtr++]) << 8;\n            b24 |= ((int) input[inputPtr++]) & 0xFF;\n            b24 = (b24 << 8) | (((int) input[inputPtr++]) & 0xFF);\n            encodeBase64Chunk(sb, b24);\n            if (--chunksBeforeLF <= 0) {\n                // note: must quote in JSON value, so not really useful...\n                sb.append('\\\\');\n                sb.append('n');\n                chunksBeforeLF = getMaxLineLength() >> 2;\n            }\n        }\n\n        // And then we may have 1 or 2 leftover bytes to encode\n        int inputLeft = inputEnd - inputPtr; // 0, 1 or 2\n        if (inputLeft > 0) { // yes, but do we have room for output?\n            int b24 = ((int) input[inputPtr++]) << 16;\n            if (inputLeft == 2) {\n                b24 |= (((int) input[inputPtr++]) & 0xFF) << 8;\n            }\n            encodeBase64Partial(sb, b24, inputLeft);\n        }\n\n        if (addQuotes) {\n            sb.append('\"');\n        }\n        return sb.toString();\n    }\n",
+   "new": "    public String encode(byte[] input, boolean addQuotes)\n    {\n        return Base64Variants.encodeToText(this, input, addQuotes);\n    }\n",
+   "purpose": "entry point Base64Variant.encode(byte[], boolean): body becomes one delegation to Base64Variants.encodeToText (same output)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/Base64Variants.java",
+   "old": "package com.fasterxml.jackson.core;\n",
+   "new": "package com.fasterxml.jackson.core;\n\nimport com.fasterxml.jackson.core.io.CharTypes;\nimport com.fasterxml.jackson.core.util.ByteArrayBuilder;\n",
+   "purpose": "imports for the new Base64Variants helper"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/Base64Variants.java",
+   "old": "        throw new IllegalArgumentException(\"No Base64Variant with name \"+name);\n    }\n",
+   "new": "        throw new IllegalArgumentException(\"No Base64Variant with name \"+name);\n    }\n\n    /**\n     * Builds the base64 text for given bytes, using settings of given variant.\n     *<p>\n     * Input is consumed from the start in groups of three bytes; when fewer than\n     * three bytes remain, the last group holds the remaining one or two bytes.\n     * For each group, the group value is obtained from\n     * {@link ByteArrayBuilder#packGroup} (with the group's start index and byte\n     * count) and passed, together with the byte count, to\n     * {@link CharTypes#appendBase64Group}, which appends the characters.\n     *<p>\n     * Line splitting: a counter starts at {@code variant.getMaxLineLength() >> 2};\n     * it is decremented after each complete (three-byte) group, and whenever it\n     * reaches zero or less, an escaped linefeed (a backslash followed by 'n', as\n     * needed within a JSON String value) is appended and the counter starts over.\n     * The final one- or two-byte group never adds a linefeed.\n     *<p>\n     * If {@code addQuotes} is true, the text is enclosed in double quotes.\n     *\n     * @param variant Variant whose alphabet, padding and line length are used\n     * @param input Bytes to convert\n     * @param addQuotes Whether to surround the text in double quotes\n     *\n     * @return Text built as described above\n     */\n    public static String encodeToText(Base64Variant variant, byte[] input, boolean addQuotes)\n    {\n        final int inputEnd = input.length;\n        // let's approximate... 33% overhead, ~= 3/8 (0.375)\n        StringBuilder sb = new StringBuilder(inputEnd + (inputEnd >> 2) + (inputEnd >> 3));\n        if (addQuotes) {\n            sb.append('\"');\n        }\n        int chunksBeforeLF = variant.getMaxLineLength() >> 2;\n        int inputPtr = 0;\n        while (inputPtr < inputEnd) {\n            int count = Math.min(3, inputEnd - inputPtr);\n            CharTypes.appendBase64Group(variant, sb, ByteArrayBuilder.packGroup(input, inputPtr, count), count);\n            inputPtr += count;\n            if (count == 3 && --chunksBeforeLF <= 0) {\n                sb.append('\\\\');\n                sb.append('n');\n                chunksBeforeLF = variant.getMaxLineLength() >> 2;\n            }\n        }\n        if (addQuotes) {\n            sb.append('\"');\n        }\n        return sb.toString();\n    }\n",
+   "purpose": "H1 Base64Variants.encodeToText: the former encode loop (quotes, three-byte groups, escaped linefeed every maxLineLength>>2 complete groups), composed of packGroup and appendBase64Group"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java",
+   "old": "            append(b24);\n        }\n    }\n",
+   "new": "            append(b24);\n        }\n    }\n\n    /**\n     * Packs one group of one to three bytes, read from given array, into the\n     * low 24 bits of an int, in big-endian order: the layout that\n     * {@link #appendThreeBytes} writes out, and the one base64 encoding consumes.\n     *<p>\n     * Bytes are read from index {@code offset} on. Each byte is taken as an\n     * unsigned octet (0 to 255): the first byte occupies bits 16 to 23, the\n     * second bits 8 to 15 and the third bits 0 to 7. Positions of bytes beyond\n     * {@code count} are zero, and bits 24 to 31 are always zero, so the result is\n     * always between 0 and 0xFFFFFF, inclusive.\n     *\n     * @param data Array to read bytes from\n     * @param offset Index of the first byte of the group\n     * @param count Number of bytes in the group: 1, 2 or 3\n     *\n     * @return Group value, between 0 and 0xFFFFFF\n     */\n    public static int packGroup(byte[] data, int offset, int count)\n    {\n        int bits = 0;\n        for (int i = 0; i < 3; ++i) {\n            bits <<= 8;\n            if (i < count) {\n                bits |= data[offset + i] & 0xFF;\n            }\n        }\n        return bits;\n    }\n",
+   "purpose": "H2 ByteArrayBuilder.packGroup: packs 1-3 bytes as unsigned octets into a big-endian 24-bit group value"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+   "old": "import java.util.Arrays;\n",
+   "new": "import java.util.Arrays;\n\nimport com.fasterxml.jackson.core.Base64Variant;\n",
+   "purpose": "import for the new CharTypes helper"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+   "old": "    public static char[] copyHexChars()\n",
+   "new": "    /**\n     * Appends the base64 characters of one group of input bytes, using alphabet\n     * and padding settings of given variant.\n     *<p>\n     * Group value {@code bits} must be laid out as {@link\n     * com.fasterxml.jackson.core.util.ByteArrayBuilder#packGroup} returns it: a\n     * value between 0 and 0xFFFFFF with the first byte in bits 16 to 23.\n     * If {@code byteCount} is 3, the four characters produced by\n     * {@link Base64Variant#encodeBase64Chunk(StringBuilder, int)} are appended;\n     * if it is 1 or 2, the characters produced by\n     * {@link Base64Variant#encodeBase64Partial(StringBuilder, int, int)} are\n     * appended (two or three characters, plus padding if the variant uses it).\n     * Nothing else (no linefeeds or quotes) is appended.\n     *\n     * @param variant Variant whose alphabet and padding are used\n     * @param sb Builder to append characters to\n     * @param bits Group value, between 0 and 0xFFFFFF\n     * @param byteCount Number of bytes in the group: 1, 2 or 3\n     */\n    public static void appendBase64Group(Base64Variant variant, StringBuilder sb, int bits, int byteCount)\n    {\n        if (byteCount == 3) {\n            variant.encodeBase64Chunk(sb, bits);\n        } else {\n            variant.encodeBase64Partial(sb, bits, byteCount);\n        }\n    }\n\n    public static char[] copyHexChars()\n",
+   "purpose": "H3 CharTypes.appendBase64Group: appends the variant's chunk (3 bytes) or partial (1-2 bytes) characters for one group value"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.core.Base64Variant",
+   "method": "encode",
+   "file": "src/main/java/com/fasterxml/jackson/core/Base64Variant.java",
+   "decl": "byte[] input, boolean addQuotes"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.Base64Variants",
+   "method": "encodeToText",
+   "file": "src/main/java/com/fasterxml/jackson/core/Base64Variants.java"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.io.CharTypes",
+   "method": "appendBase64Group",
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java"
+  }
+ ],
+ "entry_points": [
+  "com.fasterxml.jackson.core.Base64Variant::encode"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.core.io.CharTypes::appendBase64Group",
+  "com.fasterxml.jackson.core.base64.TestBase64Codec::testCharactersPerGroup"
+ ],
+ "ownership_reason": "ByteArrayBuilder.packGroup documents that it packs one to three bytes big-endian into the low 24 bits of an int, taking each byte as an unsigned octet (0 to 255), with bits 24 to 31 always zero, so that the result lies between 0 and 0xFFFFFF. Its loop ORs each byte into the accumulator as given (bits |= data[offset + i]), so a byte of 0x80 or more is sign-extended and sets every higher bit. For the trigger's final group (0xC3, 0xA9) it returns 0xFFFFA900 instead of 0x00C3A900, which violates both documented properties. CharTypes.appendBase64Group documents that its bits argument must be laid out as packGroup returns it (0 to 0xFFFFFF, first byte in bits 16 to 23); it only forwards the value to the unchanged upstream Base64Variant.encodeBase64Chunk / encodeBase64Partial. Given a valid group value, including values with bit 23 set, it appends the right characters, as the new passing test TestBase64Codec::testCharactersPerGroup pins. Base64Variants.encodeToText documents only that it obtains each group value from packGroup and hands it, with the byte count, to appendBase64Group, plus the quotes and the escaped-linefeed counter. The existing passing test TestBase64Generation::testStreamingWrites pins that behaviour, because it compares the output with the independent generator encoders for four variants. Base64Variant.encode is a single delegation to encodeToText. The sign extension of the second byte overwrites the first byte's position inside the low 24 bits, so no mask at the caller or in appendBase64Group can recover it; both declared compensating edits leave the trigger at Y2Fm/6k=. Restoring the & 0xFF in packGroup alone makes the trigger and the full suite pass.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.core.base64.TestBase64Codec::testCharactersPerGroup",
+  "com.fasterxml.jackson.core.base64.TestBase64Generation::testStreamingWrites"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/com/fasterxml/jackson/core/base64/TestBase64Codec.java",
+  "test_class": "com.fasterxml.jackson.core.base64.TestBase64Codec",
+  "test_method": "testMimeOutputForUtf8Bytes",
+  "code": "\n    public void testMimeOutputForUtf8Bytes()\n    {\n        // UTF-8 bytes of \"caf\" followed by e-acute (U+00E9)\n        byte[] input = new byte[] { 'c', 'a', 'f', (byte) 0xC3, (byte) 0xA9 };\n        assertEquals(\"Y2Fmw6k=\", Base64Variants.MIME.encode(input, false));\n    }\n",
+  "imports": []
+ },
+ "extra_tests": [
+  {
+   "test_file": "src/test/java/com/fasterxml/jackson/core/base64/TestBase64Codec.java",
+   "code": "\n    public void testCharactersPerGroup()\n    {\n        StringBuilder sb = new StringBuilder();\n        CharTypes.appendBase64Group(Base64Variants.MIME, sb, 0xE29C93, 3);\n        CharTypes.appendBase64Group(Base64Variants.MIME, sb, 0xF00000, 1);\n        assertEquals(\"4pyT8A==\", sb.toString());\n    }\n",
+   "imports": [
+    "import com.fasterxml.jackson.core.io.CharTypes;"
+   ]
+  }
+ ],
+ "expected_signature": "expected:<Y2Fm[w]6k=> but was:<Y2Fm[/]6k=>",
+ "fault_lines": [
+  "                bits |= data[offset + i];"
+ ],
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/Base64Variants.java",
+   "old": "            CharTypes.appendBase64Group(variant, sb, ByteArrayBuilder.packGroup(input, inputPtr, count), count);",
+   "new": "            CharTypes.appendBase64Group(variant, sb, ByteArrayBuilder.packGroup(input, inputPtr, count) & 0xFFFFFF, count);",
+   "why": "one-line H1 edit: encodeToText masks the packed group value to 24 bits before appending it"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/CharTypes.java",
+   "old": "            variant.encodeBase64Partial(sb, bits, byteCount);",
+   "new": "            variant.encodeBase64Partial(sb, bits & 0xFFFFFF, byteCount);",
+   "why": "one-line H3 edit: appendBase64Group masks the group value to 24 bits before the partial-group encoding"
+  }
+ ],
+ "variant_id": "CTV-E04F64",
+ "gold_key": "com.fasterxml.jackson.core.util.ByteArrayBuilder::packGroup"
+}

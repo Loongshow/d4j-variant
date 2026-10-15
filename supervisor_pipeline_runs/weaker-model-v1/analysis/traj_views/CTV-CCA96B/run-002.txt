@@ -1,0 +1,416 @@
+=== SUBMISSION (final ranking)
+   1. org.apache.commons.math3.stat.StatUtils::mode
+   2. org.apache.commons.math3.util.MathArrays::mostFrequent
+   3. org.apache.commons.math3.util.FastMath::tabulate
+   4. org.apache.commons.math3.dfp.Dfp::countEntries
+   5. org.apache.commons.math3.linear.BlockFieldMatrix::leadingValues
+   6. org.apache.commons.math3.analysis.differentiation.DSCompiler::dominantEntries
+   7. org.apache.commons.math3.stat.Frequency::getMode
+   8. org.apache.commons.math3.stat.Frequency::addValue
+   9. org.apache.commons.math3.stat.Frequency::incrementValue
+  10. org.apache.commons.math3.stat.Frequency::entrySetIterator
+=== EVIDENCE CHAIN
+ - evidence: Failing assertion is StatUtilsTest.testMode line 526: mode of an array containing four NaNs plus three 0s and three 2s returns NaN as first result; test expects NaNs ignored and modes [0, 2].
+   inference: The public StatUtils.mode contract explicitly says NaN values are ignored, so the top suspect is the mode implementation/delegation path.
+ - evidence: StatUtils.mode delegates to BlockFieldMatrix.leadingValues, then DSCompiler.dominantEntries, then MathArrays.mostFrequent; MathArrays builds modes from a Frequency table.
+   inference: Any method in this delegation chain could be where NaN filtering should occur, especially MathArrays.mostFrequent as the conversion point from frequencies to returned double modes.
+ - evidence: MathArrays.mostFrequent calls Dfp.countEntries, which calls FastMath.tabulate; FastMath.tabulate adds every double, including NaN, to Frequency.
+   inference: The observed NaN mode can arise because NaNs are counted rather than skipped for the StatUtils.mode use case.
+ - evidence: Frequency.getMode returns all entries with the maximum count, and Frequency tests separately expect NaN to be included in generic Frequency modes.
+   inference: Frequency.getMode is on the data path but less likely than StatUtils-specific code because generic Frequency semantics do not ignore NaN.
+=== VISIBLE TRAJECTORY
+[task prompt omitted]
+    call: {"command": "cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && pwd && ls"}
+    output: <returncode>0</returncode>
+<output>
+/private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B
+LICENSE.txt
+NOTICE.txt
+PROPOSAL.html
+RELEASE-NOTES.txt
+all_tests
+build.xml
+checkstyle.xml
+defects4j.build.properties
+doap_math.rdf
+doc
+failing_tests
+findbugs-exclude-filter.xml
+license-header.txt
+math-RC.sh
+math-pre-RC.sh
+pom.xml
+siteMods
+src
+target
+test-jar.xml
+</output>
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && defects4j test -t org.apache.commons.math3.stat.StatUtilsTest::testMode", "timeout": 120000}
+    output: <returncode>0</returncode>
+<output>
+Running ant (compile.tests)................................................ OK
+Running ant (run.dev.tests)................................................ OK
+Failing tests: 1
+  - org.apache.commons.math3.stat.StatUtilsTest::testMode
+</output>
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && cat failing_tests && grep -R \"mode\" -n src/main/java/org/apache/commons/math3/stat src/test/java/org/apache/commons/math3/stat/StatUtilsTest.java | head -100"}
+    output: <returncode>0</returncode>
+<output>
+--- org.apache.commons.math3.stat.StatUtilsTest::testMode
+junit.framework.AssertionFailedError: expected:<0.0> but was:<NaN>
+	at org.junit.Assert.fail(Assert.java:88)
+	at org.junit.Assert.failNotEquals(Assert.java:834)
+	at org.junit.Assert.assertEquals(Assert.java:553)
+	at org.junit.Assert.assertEquals(Assert.java:683)
+	at org.apache.commons.math3.stat.StatUtilsTest.testMode(StatUtilsTest.java:526)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
+	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRu
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && nl -ba src/test/java/org/apache/commons/math3/stat/StatUtilsTest.java | sed -n '500,540p' && nl -ba src/main/java/org/apache/commons/math3/stat/StatUtils.java | sed -n '780,880p'"}
+    output: <returncode>0</returncode>
+<output>
+   500	        for (int i = 0; i < length; i++) {
+   501	            stats.addValue(standardizedSample[i]);
+   502	        }
+   503	        // the calculations do have a limited precision    
+   504	        double distance = 1E-10;
+   505	        // check the mean an standard deviation
+   506	        Assert.assertEquals(0.0, stats.getMean(), distance);
+   507	        Assert.assertEquals(1.0, stats.getStandardDeviation(), distance);
+   508	
+   509	    }
+   510	    
+   511	    @Test
+   512	    public void testMode() {
+   513	        final double[] singleMode = {0, 1, 0, 2, 7, 11, 12};
+   514	        final double[] modeSingle = StatUtils.mode(singleMode);
+   515	        Assert.assertEquals(0, modeSingle[0], Double.MIN_VALUE);
+   516	        Assert.assertEquals(1, modeSingle.length);
+   517	
+   518	        final double[] twoMode = {0, 1, 2, 0, 2, 3, 7, 11};
+   519	        final double[] modeDouble = StatUtils.mode(twoMode);
+   520	        Assert.assertEquals(0, modeDouble[0], Double.MIN_VALUE);
+   521	        Assert.assertEquals(2, modeDouble[1], Double.MIN_VALUE);
+   522	        Assert.assertEquals(2, modeDouble.length);
+   523	
+   524	        final double[] nanInfested = {0, 0, 0, Double.NaN, Double.NaN, Double.NaN, Double.NaN, 2, 2, 2, 3, 5};
+   525	        final double[] modeNan = StatUtils.mode(nanInfested);
+   526	        Assert.assertEquals(0, modeNan[0], Double.MIN_VALUE);
+   527	        Assert.assertEquals(2, modeNan[1], Double.MIN_VAL
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && grep -R \"leadingValues\" -n src/main/java && nl -ba src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java | grep -n -C 20 \"leadingValues\""}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java:1271:    public static double[] leadingValues(double[] values, final int begin, final int length) {
+src/main/java/org/apache/commons/math3/stat/StatUtils.java:822:        return org.apache.commons.math3.linear.BlockFieldMatrix.leadingValues(sample, 0, sample.length);
+src/main/java/org/apache/commons/math3/stat/StatUtils.java:859:        return org.apache.commons.math3.linear.BlockFieldMatrix.leadingValues(sample, begin, length);
+1251-  1251	                ++blockIndex;
+1252-  1252	
+1253-  1253	            }
+1254-  1254	        }
+1255-  1255	
+1256-  1256	        return out;
+1257-  1257	    }
+1258-  1258	
+1259-  1259	    /** {@inheritDoc} */
+1260-  1260	    @Override
+1261-  1261	    public int getRowDimension() {
+1262-  1262	        return rows;
+1263-  1263	    }
+1264-  1264	
+1265-  1265	    /** Returns the most frequently occurring value(s) of a slice of an array.
+1266-  1266	     * @param values input data
+1267-  1267	     * @param begin index (0-based) of the first array element to include
+1268-  1268	     * @param length the number of elements to include
+1269-  1269	     * @return the most frequent value(s), sorted in ascending order
+1270-  1270	     */
+1271:  1271	    public static double[] leadingValues(double[] values, final int begin, final int length) {
+1272-  1272	        return DSCompiler.dominantEntries(values, begin, length);
+1273-  1273	    }
+1274-  1274	
+1275-
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && grep -R \"dominantEntries\" -n src/main/java && nl -ba src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java | grep -n -C 50 \"dominantEntries\""}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:991:    public static double[] dominantEntries(double[] values, final int begin, final int length) {
+src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java:1272:        return DSCompiler.dominantEntries(values, begin, length);
+941-   941	                xk *= operand[operandOffset];
+942-   942	            }
+943-   943	            function[0] = xk;
+944-   944	        } else {
+945-   945	            // strictly negative power
+946-   946	            final double inv = 1.0 / operand[operandOffset];
+947-   947	            double xk = FastMath.pow(inv, -n);
+948-   948	            for (int i = 0; i <= order; ++i) {
+949-   949	                function[i] = xk;
+950-   950	                xk *= inv;
+951-   951	            }
+952-   952	        }
+953-   953	
+954-   954	        double coefficient = n;
+955-   955	        for (int i = 1; i <= order; ++i) {
+956-   956	            function[i] *= coefficient;
+957-   957	            coefficient *= n - i;
+958-   958	        }
+959-   959	
+960-   960	        // apply function composition
+961-   961	        compose(operand, operandOffset, function, result, resultOffset);
+962-   962	
+963-   963	    }
+964-   964	
+965-   965	    /** Compute power of a derivative structure.
+966-   966	     * @param x array holding the base
+967-   967	     * @param xOffset offset of the base in its array
+968-   968	     * @param y array holdin
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && grep -R \"mostFrequent\" -n src/main/java src/test/java | head -50 && nl -ba src/main/java/org/apache/commons/math3/util/MathArrays.java | grep -n -C 80 \"mostFrequent\""}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:992:        return MathArrays.mostFrequent(values, begin, length);
+src/main/java/org/apache/commons/math3/util/MathArrays.java:1535:    public static double[] mostFrequent(double[] values, final int begin, final int length) {
+1455-  1455	    public static void shuffle(int[] list,
+1456-  1456	                               int start,
+1457-  1457	                               Position pos) {
+1458-  1458	        shuffle(list, start, pos, new Well19937c());
+1459-  1459	    }
+1460-  1460	
+1461-  1461	    /**
+1462-  1462	     * Shuffle the entries of the given array, using the
+1463-  1463	     * <a href="http://en.wikipedia.org/wiki/Fisher–Yates_shuffle#The_modern_algorithm">
+1464-  1464	     * Fisher–Yates</a> algorithm.
+1465-  1465	     * The {@code start} and {@code pos} parameters select which portion
+1466-  1466	     * of the array is randomized and which is left untouched.
+1467-  1467	     *
+1468-  1468	     * @param list Array whose entries will be shuffled (in-place).
+1469-  1469	     * @param start Index at which shuffling begins.
+1470-  1470	     * @param pos Shuffling is performed for index positions between
+1471-  1471	     * {@code start} and either the end (if {@link Position#TAIL})
+1472-  1472	     * or the beginning (if {@link Position#HEAD}) of the array.
+1473-  1473	     * @param rng Random number generator.
+1474-  1474	     */
+1475-  1475	    publi
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && grep -R \"countEntries\" -n src/main/java src/test/java | head -50 && nl -ba src/main/java/org/apache/commons/math3/dfp/Dfp.java | grep -n -C 70 \"countEntries\" && grep -R \"class Frequency\" -n src/main/java/org/apache/commons/math3/stat"}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/util/MathArrays.java:1536:        Frequency freq = Dfp.countEntries(values, begin, length);
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:2571:    public static Frequency countEntries(double[] values, final int begin, final int length) {
+2501-  2501	
+2502-  2502	    /** Convert the instance into a split double.
+2503-  2503	     * @return an array of two doubles which sum represent the instance
+2504-  2504	     * @see #toDouble()
+2505-  2505	     */
+2506-  2506	    public double[] toSplitDouble() {
+2507-  2507	        double split[] = new double[2];
+2508-  2508	        long mask = 0xffffffffc0000000L;
+2509-  2509	
+2510-  2510	        split[0] = Double.longBitsToDouble(Double.doubleToLongBits(toDouble()) & mask);
+2511-  2511	        split[1] = subtract(newInstance(split[0])).toDouble();
+2512-  2512	
+2513-  2513	        return split;
+2514-  2514	    }
+2515-  2515	
+2516-  2516	    /** {@inheritDoc}
+2517-  2517	     * @since 3.2
+2518-  2518	     */
+2519-  2519	    public double getReal() {
+2520-  2520	        return toDouble();
+2521-  2521	    }
+2522-  2522	
+2523-  2523	    /** {@inheritDoc}
+2524-  2524	     * @since 3.2
+2525-  2525	     */
+2526-  2526	    public Dfp add(final double a) {
+2527-  2527	        return add(newInstance(a));
+2528-  2528	    }
+2529-  2529	
+2530-  2530	    /** {@inheritDoc}
+2531-  2531	     * @since 3.2
+2532-  2532	     */
+2533-  2533	    public Dfp subtract(final double a) {
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && grep -R \"tabulate(values\" -n src/main/java && grep -R \"static Frequency tabulate\" -n src/main/java/org/apache/commons/math3/util/FastMath.java && nl -ba src/main/java/org/apache/commons/math3/util/FastMath.java | grep -n -C 70 \"tabulate\" && nl -ba src/main/java/org/apache/commons/math3/stat/Frequency.java | sed -n '1,240p'"}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:2572:        return FastMath.tabulate(values, begin, length);
+src/main/java/org/apache/commons/math3/util/FastMath.java:1137:    public static Frequency tabulate(double[] values, final int begin, final int length) {
+1067-  1067	        ya = temp;
+1068-  1068	
+1069-  1069	        temp = ya + baseB;
+1070-  1070	        //yb += (ya > baseB) ? -(temp - ya - baseB) : -(temp - baseB - ya);
+1071-  1071	        yb += -(temp - ya - baseB);
+1072-  1072	        ya = temp;
+1073-  1073	
+1074-  1074	        temp = ya + zb;
+1075-  1075	        //yb += (ya > zb) ? -(temp - ya - zb) : -(temp - zb - ya);
+1076-  1076	        yb += -(temp - ya - zb);
+1077-  1077	        ya = temp;
+1078-  1078	
+1079-  1079	        if (negative) {
+1080-  1080	            /* Compute expm1(-x) = -expm1(x) / (expm1(x) + 1) */
+1081-  1081	            double denom = 1.0 + ya;
+1082-  1082	            double denomr = 1.0 / denom;
+1083-  1083	            double denomb = -(denom - 1.0 - ya) + yb;
+1084-  1084	            double ratio = ya * denomr;
+1085-  1085	            temp = ratio * HEX_40000000;
+1086-  1086	            final double ra = ratio + temp - temp;
+1087-  1087	            double rb = ratio - ra;
+1088-  1088	
+1089-  1089	            temp = denom * HEX_40000000;
+1090-  1090	            za = denom + temp - temp;
+1091-  1091	            zb = denom - za;
+1092-  1092	
+1093-  1093	            rb += (ya - za * ra - za * rb - zb * r
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && nl -ba src/main/java/org/apache/commons/math3/stat/Frequency.java | sed -n '240,460p' && nl -ba src/main/java/org/apache/commons/math3/stat/Frequency.java | sed -n '460,560p'"}
+    output: <returncode>0</returncode>
+<output>
+   240	        return result;
+   241	    }
+   242	
+   243	    /**
+   244	     * Returns the number of values equal to v.
+   245	     * Returns 0 if the value is not comparable.
+   246	     *
+   247	     * @param v the value to lookup.
+   248	     * @return the frequency of v.
+   249	     */
+   250	    public long getCount(Comparable<?> v) {
+   251	        if (v instanceof Integer) {
+   252	            return getCount(((Integer) v).longValue());
+   253	        }
+   254	        long result = 0;
+   255	        try {
+   256	            Long count =  freqTable.get(v);
+   257	            if (count != null) {
+   258	                result = count.longValue();
+   259	            }
+   260	        } catch (ClassCastException ex) { // NOPMD
+   261	            // ignore and return 0 -- ClassCastException will be thrown if value is not comparable
+   262	        }
+   263	        return result;
+   264	    }
+   265	
+   266	    /**
+   267	     * Returns the number of values equal to v.
+   268	     *
+   269	     * @param v the value to lookup.
+   270	     * @return the frequency of v.
+   271	     */
+   272	    public long getCount(int v) {
+   273	        return getCount(Long.valueOf(v));
+   274	    }
+   275	
+   276	    /**
+   277	     * Returns the number of values equal to v.
+   278	     *
+   279	     * @param v the value to lookup.
+   280	     * @return the frequency of v.
+   281	     */
+   282	    public long getCount(long v) {
+   283	        return getCo
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && grep -R \"mostFrequent\\|leadingValues\\|dominantEntries\\|countEntries\\|tabulate\\|getMode()\" -n src/test/java src/main/java | head -200"}
+    output: <returncode>0</returncode>
+<output>
+src/test/java/org/apache/commons/math3/distribution/TDistributionTest.java:137:     * Have chosen tabulated results for degrees of freedom 2,10,30,100
+src/test/java/org/apache/commons/math3/stat/FrequencyTest.java:355:        mode = f.getMode();
+src/test/java/org/apache/commons/math3/stat/FrequencyTest.java:359:        mode = f.getMode();
+src/test/java/org/apache/commons/math3/stat/FrequencyTest.java:364:        mode = f.getMode();
+src/test/java/org/apache/commons/math3/stat/FrequencyTest.java:370:        mode = f.getMode();
+src/test/java/org/apache/commons/math3/stat/FrequencyTest.java:396:        mode = f.getMode();
+src/test/java/org/apache/commons/math3/stat/FrequencyTest.java:421:        mode = f.getMode();
+src/test/java/org/apache/commons/math3/random/ValueServerTest.java:235:        Assert.assertEquals("mode test",ValueServer.CONSTANT_MODE,vs.getMode());
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:991:    public static double[] dominantEntries(double[] values, final int begin, final int length) {
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:992:        return MathArrays.mostFrequent(values, begin, length);
+src/main/java/org/apache/commons/math3/util/MathArrays.java:1535:    public static double[] mostFrequent(double[] values, final int begin, final int length) {
+src/main/java/org/apache/commons/math3/util/MathArrays.java:1536:        Frequency freq = Dfp.countEntri
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && nl -ba src/test/java/org/apache/commons/math3/stat/FrequencyTest.java | sed -n '330,440p' && nl -ba src/test/java/org/apache/commons/math3/stat/StatUtilsTest.java | sed -n '540,570p'"}
+    output: <returncode>0</returncode>
+<output>
+   330	        
+   331	        Assert.assertEquals(1, f.getUniqueCount());
+   332	        Assert.assertEquals(1, f.getCount(ONE));
+   333	        Assert.assertEquals(0, f.getCount(TWO));
+   334	
+   335	        Frequency g = new Frequency();
+   336	        g.addValue(TWO_LONG);
+   337	
+   338	        Frequency h = new Frequency();
+   339	        h.addValue(THREE_LONG);
+   340	        
+   341	        List<Frequency> coll = new ArrayList<Frequency>();
+   342	        coll.add(g);
+   343	        coll.add(h);
+   344	        f.merge(coll);
+   345	        
+   346	        Assert.assertEquals(3, f.getUniqueCount());
+   347	        Assert.assertEquals(1, f.getCount(ONE));
+   348	        Assert.assertEquals(1, f.getCount(TWO));
+   349	        Assert.assertEquals(1, f.getCount(THREEE));        
+   350	    }
+   351	    
+   352	    @Test
+   353	    public void testMode() {
+   354	        List<Comparable<?>> mode;
+   355	        mode = f.getMode();
+   356	        Assert.assertEquals(0, mode.size());
+   357	
+   358	        f.addValue("3");
+   359	        mode = f.getMode();
+   360	        Assert.assertEquals(1, mode.size());
+   361	        Assert.assertEquals("3", mode.get(0));
+   362	
+   363	        f.addValue("2");
+   364	        mode = f.getMode();
+   365	        Assert.assertEquals(2, mode.size());
+   366	        Assert.assertEquals("2", mode.get(0));
+   367	        Assert.assertEquals("3",mode.get(1));
+   368	
+   369	        f.addValue("2");
+   370	   
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && sed -n '1,80p' src/main/java/org/apache/commons/math3/stat/StatUtils.java && grep -R \"StatUtils.mode\" -n src/main/java src/test/java | head -50"}
+    output: <returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.math3.stat;
+
+import java.util.List;
+
+import org.apache.commons.math3.exception.MathIllegalArgumentException;
+import org.apache.commons.math3.exception.NotPositiveException;
+import org.apache.commons.math3.exception.NullArgumentException;
+import org.apache.commons.math3.exception.NumberIsTooSmallException;
+import org.apache.commons.math3.exception.DimensionMismatchException;
+import org.apache.commons.math3.exception.NoDataException;
+import org.apache.commons.math3.exception.util.LocalizedFormats;
+import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
+import org.apache.commons.math3.stat.descriptive.UnivariateSt
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && grep -n \"verifyValues\" -n src/main/java/org/apache/commons/math3/util/MathArrays.java | head -20 && grep -n \"verifyValues\" src/main/java/org/apache/commons/math3/stat/descriptive/AbstractUnivariateStatistic.java | head -40"}
+    output: <returncode>0</returncode>
+<output>
+</output>
+    call: {"command":"cd /private/tmp/d4jws-w1b2/18a1de3e-0720-4112-add5-9da2e852dd42/CTV-CCA96B && grep -R \"boolean.*verifyValues\\|verifyValues\" -n src/main/java/org/apache/commons/math3 | head -50"}
+    output: <returncode>0</returncode>
+<output>
+</output>
+    call: {"predictions":[{"class":"org.apache.commons.math3.stat.StatUtils","method":"mode"},{"class":"org.apache.commons.math3.util.MathArrays","method":"mostFrequent"},{"class":"org.apache.commons.math3.util.FastMath","method":"tabulate"},{"class":"org.apache.commons.math3.dfp.Dfp","method":"countEntries"},{"class":"org.apache.commons.math3.linear.BlockFieldMatrix","method":"leadingValues"},{"class":"org.apache.commons.math3.analysis.differentiation.DSCompiler","method":"dominantEntries"},{"class":"org.apache.commons.math3.stat.Frequency","method":"getMode"},{"class":"org.apache.commons.math3.stat.Frequency","method":"addValue"},{"class":"org.apache.commons.math3.stat.Frequency","method":"incrementValue"},{"class":"org.apache.commons.math3.stat.Frequency","method":"entrySetIterator"}],"evidence_chain":[{"evidence":"Failing assertion is StatUtilsTest.testMode line 526: mode of an array containing four NaNs plus three 0s and three 2s returns NaN as first result; test expects NaNs ignored and modes [0, 2].","inference_summary":"The public StatUtils.mode contract explicitly says NaN values are ignored, so the top suspect is the mode implementation/delegation path.","candidate_methods":["org.apache.commons.math3.stat.StatUtils::mode"],"references":[{"file":"src/test/java/org/apache/commons/math3/stat/StatUtilsTest.java","line_start":524,"line_end":528},{"file":"src/main/java/org/apache/commons/math3/stat/StatUtils.java","line_start":808,"line_end":822}]},{"evidence":"StatUtils.mode deleg

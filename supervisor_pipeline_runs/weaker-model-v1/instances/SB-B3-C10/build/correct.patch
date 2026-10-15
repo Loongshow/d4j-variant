@@ -1,0 +1,247 @@
+diff --git a/source/org/jfree/chart/StandardChartTheme.java b/source/org/jfree/chart/StandardChartTheme.java
+index 55fcb4f..e28793c 100644
+--- a/source/org/jfree/chart/StandardChartTheme.java
++++ b/source/org/jfree/chart/StandardChartTheme.java
+@@ -103,6 +103,9 @@ import org.jfree.chart.util.PaintUtilities;
+ import org.jfree.chart.util.PublicCloneable;
+ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.chart.util.SerialUtilities;
++import org.jfree.data.category.CategoryDataset;
++import org.jfree.data.Range;
++import org.jfree.chart.renderer.xy.AbstractXYItemRenderer;
+ 
+ /**
+  * A default implementation of the {@link ChartTheme} interface.  This
+@@ -1802,6 +1805,32 @@ public class StandardChartTheme implements ChartTheme, Cloneable,
+         return true;
+     }
+ 
++    /**
++     * Returns the range of the values in a category dataset when the series
++     * in each category are stacked on the specified base.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param base  the base value for the bars.
++     *
++     * @return The range (<code>null</code> if the dataset has no columns).
++     */
++    public static Range extentOfCategories(CategoryDataset dataset, double base) {
++        Range result = null;
++        double minimum = Double.POSITIVE_INFINITY;
++        double maximum = Double.NEGATIVE_INFINITY;
++        int categoryCount = dataset.getColumnCount();
++        for (int item = 0; item < categoryCount; item++) {
++            double[] limits = AbstractXYItemRenderer.categoryLimits(dataset, item, base);
++            minimum = Math.min(minimum, limits[0]);
++            maximum = Math.max(maximum, limits[1]);
++        }
++        if (categoryCount > 0) {
++            result = new Range(minimum, maximum);
++        }
++        return result;
++    }
++
++
+     /**
+      * Returns a clone of this theme.
+      *
+diff --git a/source/org/jfree/chart/axis/ValueAxis.java b/source/org/jfree/chart/axis/ValueAxis.java
+index 5972cdd..7215cdf 100644
+--- a/source/org/jfree/chart/axis/ValueAxis.java
++++ b/source/org/jfree/chart/axis/ValueAxis.java
+@@ -139,6 +139,8 @@ import org.jfree.chart.util.RectangleEdge;
+ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.data.Range;
++import org.jfree.data.category.CategoryDataset;
++import org.jfree.chart.renderer.category.AbstractCategoryItemRenderer;
+ 
+ /**
+  * The base class for axes that display value data, where values are measured
+@@ -1159,6 +1161,21 @@ public abstract class ValueAxis extends Axis
+         notifyListeners(new AxisChangeEvent(this));
+     }
+ 
++    /**
++     * Collects the totals of the negative and the positive values in one
++     * column of a category dataset.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param column  the column index.
++     *
++     * @return A two element array containing the total of the negative
++     *         values and the total of the positive values.
++     */
++    public static double[] collectValues(CategoryDataset dataset, int column) {
++        return AbstractCategoryItemRenderer.signedSums(dataset, column);
++    }
++
++
+     /**
+      * Returns the lower bound of the axis range.
+      *
+diff --git a/source/org/jfree/chart/renderer/AbstractRenderer.java b/source/org/jfree/chart/renderer/AbstractRenderer.java
+index a6f2ba6..1cfafa8 100644
+--- a/source/org/jfree/chart/renderer/AbstractRenderer.java
++++ b/source/org/jfree/chart/renderer/AbstractRenderer.java
+@@ -134,6 +134,8 @@ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.chart.util.ShapeList;
+ import org.jfree.chart.util.ShapeUtilities;
+ import org.jfree.chart.util.StrokeList;
++import org.jfree.data.category.CategoryDataset;
++import org.jfree.chart.axis.ValueAxis;
+ 
+ /**
+  * Base class providing common services for renderers.  Most methods that update
+@@ -2957,6 +2959,26 @@ public abstract class AbstractRenderer implements Cloneable, Serializable {
+         }
+     }
+ 
++    /**
++     * Returns the bottom and the top of the stack of bars for one column of a
++     * category dataset, when the bars rise and fall from the specified base.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param column  the column index.
++     * @param base  the base value for the bars.
++     *
++     * @return A two element array containing the bottom and the top of the
++     *         stack.
++     */
++    public static double[] placeTotals(CategoryDataset dataset, int column,
++            double base) {
++        double[] sums = ValueAxis.collectValues(dataset, column);
++        double bottom = base + sums[0];
++        double top = base + sums[1];
++        return new double[] {bottom, top};
++    }
++
++
+     /**
+      * Tests this renderer for equality with another object.
+      *
+diff --git a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+index 4a54655..de8bf2a 100644
+--- a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
++++ b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+@@ -499,6 +499,36 @@ public abstract class AbstractCategoryItemRenderer extends AbstractRenderer
+         return this.baseToolTipGenerator;
+     }
+ 
++    /**
++     * Returns the totals of the values in one column of a category dataset,
++     * with the negative values and the positive values summed separately.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param column  the column index.
++     *
++     * @return A two element array containing the total of the negative
++     *         values and the total of the positive values.
++     */
++    public static double[] signedSums(CategoryDataset dataset, int column) {
++        double below = 0.0;
++        double above = 0.0;
++        int rowCount = dataset.getRowCount();
++        for (int row = 0; row < rowCount; row++) {
++            Number n = dataset.getValue(row, column);
++            if (n != null) {
++                double v = n.doubleValue();
++                if (v > 0.0) {
++                    above = above + v;
++                }
++                if (v < 0.0) {
++                    below = below + v;
++                }
++            }
++        }
++        return new double[] {below, above};
++    }
++
++
+     /**
+      * Sets the base tool tip generator and sends a {@link RendererChangeEvent}
+      * to all registered listeners.
+diff --git a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+index a558724..fcda054 100644
+--- a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
++++ b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+@@ -183,6 +183,7 @@ import org.jfree.data.general.DatasetUtilities;
+ import org.jfree.data.xy.SelectableXYDataset;
+ import org.jfree.data.xy.XYDataset;
+ import org.jfree.data.xy.XYDatasetSelectionState;
++import org.jfree.data.category.CategoryDataset;
+ 
+ /**
+  * A base class that can be used to create new {@link XYItemRenderer}
+@@ -562,6 +563,23 @@ public abstract class AbstractXYItemRenderer extends AbstractRenderer
+         }
+     }
+ 
++    /**
++     * Returns the bottom and the top of the stack of bars for one column of a
++     * category dataset.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param column  the column index.
++     * @param base  the base value for the bars.
++     *
++     * @return A two element array containing the bottom and the top of the
++     *         stack.
++     */
++    public static double[] categoryLimits(CategoryDataset dataset, int column,
++            double base) {
++        return AbstractRenderer.placeTotals(dataset, column, base);
++    }
++
++
+     // URL GENERATOR
+ 
+     /**
+diff --git a/source/org/jfree/data/general/DatasetUtilities.java b/source/org/jfree/data/general/DatasetUtilities.java
+index 548d684..e8c9558 100644
+--- a/source/org/jfree/data/general/DatasetUtilities.java
++++ b/source/org/jfree/data/general/DatasetUtilities.java
+@@ -1873,41 +1873,14 @@ public final class DatasetUtilities {
+      * @param base  the base value for the bars.
+      *
+      * @return The range (<code>null</code> if the dataset contains no values).
++       The bounds are gathered in a single pass over the series, each series carrying its own running total across the categories, and the extreme running totals of all the series are returned.
+      */
+     public static Range findStackedRangeBounds(CategoryDataset dataset,
+             double base) {
+         if (dataset == null) {
+             throw new IllegalArgumentException("Null 'dataset' argument.");
+         }
+-        Range result = null;
+-        double minimum = Double.POSITIVE_INFINITY;
+-        double maximum = Double.NEGATIVE_INFINITY;
+-        int categoryCount = dataset.getColumnCount();
+-        for (int item = 0; item < categoryCount; item++) {
+-            double positive = base;
+-            double negative = base;
+-            int seriesCount = dataset.getRowCount();
+-            for (int series = 0; series < seriesCount; series++) {
+-                Number number = dataset.getValue(series, item);
+-                if (number != null) {
+-                    double value = number.doubleValue();
+-                    if (value > 0.0) {
+-                        positive = positive + value;
+-                    }
+-                    if (value < 0.0) {
+-                        negative = negative + value;
+-                        // '+', remember value is negative
+-                    }
+-                }
+-            }
+-            minimum = Math.min(minimum, negative);
+-            maximum = Math.max(maximum, positive);
+-        }
+-        if (minimum <= maximum) {
+-            result = new Range(minimum, maximum);
+-        }
+-        return result;
+-
++        return org.jfree.chart.StandardChartTheme.extentOfCategories(dataset, base);
+     }
+ 
+     /**

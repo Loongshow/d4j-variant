@@ -1,0 +1,47 @@
+{
+ "iid": "HO-HC-MATH-01",
+ "revision": "r1",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math3.stat.descriptive.moment.Mean::pool (GOLD, reference)",
+   "edit": "return mean - shortfall * weight; -> return mean + shortfall * weight; (1 character)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "result": "StorelessCovarianceTest: OK (7 tests). Restores pool's documented behaviour."
+  },
+  {
+   "method": "org.apache.commons.math3.util.MathUtils::shortfall (D)",
+   "edit": "return reference - value; -> return value - reference; (1 line, declared G9 edit)",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "doc_consistent": false,
+   "result": "6 of 7 fail: trigger 152.84; testLonglyByRow, testEquivalence, testSwissFertilityByRow, testLonglySimpleCov and testLonglySimpleVar fail. Contradicts its own @return (reference - value) and breaks P2 (increment)."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "Mean.pool(cov.meanX, -sx, oldN / n) and Mean.pool(cov.meanY, -sy, oldN / n) (2 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "Behavioural repair only. It passes cov.meanX - meanX, but pool's @param shortfall and C's own javadoc require shortfall(cov.meanX, meanX) = meanX - cov.meanX. Pool's own doc/code contradiction remains. 2 lines vs a 1-character gold fix."
+  },
+  {
+   "method": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::append (C)",
+   "edit": "bypass pool: meanX -= sx * cov.n / n; meanY -= sy * cov.n / n (2 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "result": "Behavioural repair only. It contradicts C's javadoc ('The means are pooled with Mean#pool') and leaves Mean.pool violating its own javadoc. No correct sibling exists, so this is not a reroute."
+  }
+ ],
+ "reasons": "r1 check 1: build/variant.patch and build/correct.patch are byte-identical to the build_r0 versions with the StorelessBivariateCovariance.java.bak section (r0 lines 70-138) removed. test.patch is byte-identical to r0, and the spec differs from spec_r0 only by the three dropped .bak context edits. Check 2: I copied the pristine Math checkout, deleted all 10 *.bak files (no .orig/.rej existed) and applied variant.patch and test.patch with patch -p1 --forward --batch. Both applied with rc 0 and left no .orig/.rej. defects4j compile is OK, and defects4j test -t StorelessCovarianceTest::testCombinedSamplesAcceptFurtherData gives 1 failing test, 'expected:<1.0> but was:<3.25>' (matches the spec). A direct JUnit run of StorelessCovarianceTest on the variant: 7 run, only the trigger fails, so the ownership tests testLonglyByRow and testEquivalence pass. (a) Mean.pool's javadoc fixes its result on its own terms. The second group's mean is mean + shortfall, the result moves toward it by the fraction weight, it is above mean when shortfall is positive, and it equals the second group's mean when weight is 1. The code returns mean - shortfall * weight. On the trigger the call is pool(7, shortfall(7, 4) = -3, 0.5): the doc requires 5.5, the code returns 8.5. MathUtils.shortfall returns reference - value exactly as documented. StorelessBivariateCovariance.increment is bit-identical to pristine (sx = -deltaX exactly), and its added javadoc matches it. StorelessBivariateCovariance.append passes pool exactly its documented arguments, its numerator merge is bit-identical to pristine, and its added javadoc describes exactly what it does. StorelessCovariance.increment/append/getCovariance and StorelessBivariateCovariance.getResult are unchanged upstream code (empty git diff). The upstream 'close to performing all increments directly' promise of the two append methods fails on the trigger only by propagation from pool. Either one would meet that promise if pool behaved as documented. (b) No decoy javadoc contradicts its code or allows both orientations: shortfall gives @return reference - value and the sign cases, increment says each mean is lowered by its shortfall / n, and append names the exact arguments. (c) Flipping D fails the trigger and both ownership tests. The 2-line caller edits at append (negate both shortfalls, bypass pool) repair the behaviour, but each contradicts append's javadoc and pool's @param contract and leaves pool's intrinsic doc/code contradiction. None is documentation-consistent or equally small. (d) In the agent-visible tree, no file of any extension (outside .git and build output) contains 'mean + shortfall * weight' or any 'shortfall * weight' other than the fault line, nor the pristine append formula ('deltaX * cov.n', 'meanX += deltaX'). No .bak/.orig/.rej files remain, there are no untracked files, and git log -S finds neither 'shortfall' nor 'mean + shortfall'. Names (shortfall, pool, testCombinedSamplesAcceptFurtherData) and the test comment are neutral, and G2a/G2b pass. (e) HC is realised. D reads backwards (reference - value) and documents its orientation. P2 (increment) uses D correctly and is pinned by passing tests (testLonglyByRow, testSwissFertilityByRow). A's javadoc states the direction, and the fault flips it in the ordinary line 'return mean - shortfall * weight;'. The path is E (StorelessCovariance.append/increment/getCovariance) -> C (append) -> D, and C -> A, across 3 packages (stat.correlation, stat.descriptive.moment, util). No orientation is under-specified, no correct sibling exists, and the gold, decoys and entry points are absent from construction/USED_METHODS.txt. validation.json overall = READY with G0-G14 pass, including G14 (harness-staged apply).",
+ "notes": "Change from r0: none in the conclusions. Code, javadoc, trigger, ownership tests and the correct patch for all tracked .java sources are identical to r0. The only difference is the agent-visible .bak file: in r0 it was edited to mirror the variant, while in r1 the harness drops it. Leakage therefore stays false and is simpler to establish. Dependency to know: in r1 the tracked StorelessBivariateCovariance.java.bak is left pristine. It contains the original increment and append bodies (including 'meanX += deltaX * cov.n / n'), though not the gold line. So r1 is clean only when staged through the harness filter that drops *.bak, which G14 attests. Any staging path that keeps *.bak files would expose a reference implementation of the correct mean update. Separately, if a workspace exposes .git, 'git diff HEAD' shows the context edits against pristine. That applies equally to r0 and to every instance, it is a harness matter, and the gold line is not recoverable from it, since Mean.pool is new code. Execution: one targeted defects4j test -t run (the trigger) took about 5 minutes on this machine. The ownership and alternative-repair checks therefore used javac on the single edited class plus a direct JUnitCore run of StorelessCovarianceTest (well under 1 second). The tree was restored and re-verified (only the trigger fails) after each edit. Ceiling risk, not a validity issue: pool's javadoc makes the gold quick to confirm by reading."
+}

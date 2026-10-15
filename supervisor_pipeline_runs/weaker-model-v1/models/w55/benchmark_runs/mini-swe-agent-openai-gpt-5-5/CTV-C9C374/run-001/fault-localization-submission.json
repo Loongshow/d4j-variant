@@ -1,0 +1,152 @@
+{
+  "schema_version": "d4j-fl-submission/v1",
+  "ok": true,
+  "tool": "submit_fault_localization",
+  "prediction_count": 10,
+  "predictions": [
+    {
+      "rank": 1,
+      "class": "org.apache.commons.lang3.Conversion",
+      "method": "intArrayToLong"
+    },
+    {
+      "rank": 2,
+      "class": "org.apache.commons.lang3.math.NumberUtils",
+      "method": "overlay"
+    },
+    {
+      "rank": 3,
+      "class": "org.apache.commons.lang3.BitField",
+      "method": "widen"
+    },
+    {
+      "rank": 4,
+      "class": "org.apache.commons.lang3.ArrayUtils",
+      "method": "gather"
+    },
+    {
+      "rank": 5,
+      "class": "org.apache.commons.lang3.EnumUtils",
+      "method": "compose"
+    },
+    {
+      "rank": 6,
+      "class": "org.apache.commons.lang3.ObjectUtils",
+      "method": "combine"
+    },
+    {
+      "rank": 7,
+      "class": "org.apache.commons.lang3.Conversion",
+      "method": "shortArrayToLong"
+    },
+    {
+      "rank": 8,
+      "class": "org.apache.commons.lang3.Conversion",
+      "method": "byteArrayToLong"
+    },
+    {
+      "rank": 9,
+      "class": "org.apache.commons.lang3.Conversion",
+      "method": "longToIntArray"
+    },
+    {
+      "rank": 10,
+      "class": "org.apache.commons.lang3.Conversion",
+      "method": "hexToLong"
+    }
+  ],
+  "evidence_chain": [
+    {
+      "evidence": "Failing assertion is the second LANG-1112 check: expected 0x1234CDF1F0C1DEF0 but actual was 0xFFFFCDF1F0C1DEF0.",
+      "inference_summary": "High bits from dstInit were overwritten by sign-extended int-array data when Conversion.intArrayToLong is called with dstPos=16.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.Conversion::intArrayToLong"
+      ],
+      "references": [
+        {
+          "file": "src/test/java/org/apache/commons/lang3/ConversionTest.java",
+          "line_start": 1828,
+          "line_end": 1829
+        },
+        {
+          "file": "failing_tests",
+          "line_start": 2,
+          "line_end": 5
+        }
+      ]
+    },
+    {
+      "evidence": "Conversion.intArrayToLong delegates all composition work to ArrayUtils.gather rather than doing the masked loop used by neighboring conversion methods.",
+      "inference_summary": "The tested public method is the primary localization point and its delegation path contains the erroneous bit composition.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.Conversion::intArrayToLong",
+        "org.apache.commons.lang3.ArrayUtils::gather"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/lang3/Conversion.java",
+          "line_start": 684,
+          "line_end": 692
+        },
+        {
+          "file": "src/main/java/org/apache/commons/lang3/Conversion.java",
+          "line_start": 712,
+          "line_end": 731
+        },
+        {
+          "file": "src/main/java/org/apache/commons/lang3/Conversion.java",
+          "line_start": 786,
+          "line_end": 805
+        }
+      ]
+    },
+    {
+      "evidence": "The call chain is ArrayUtils.gather -> EnumUtils.compose -> BitField.widen -> ObjectUtils.combine -> NumberUtils.overlay. BitField.widen assigns int values directly to long words, sign-extending negative ints.",
+      "inference_summary": "Sign extension in the helper chain can cause the observed 0xFFFF upper bits.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.BitField::widen",
+        "org.apache.commons.lang3.EnumUtils::compose",
+        "org.apache.commons.lang3.ObjectUtils::combine"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+          "line_start": 959,
+          "line_end": 962
+        },
+        {
+          "file": "src/main/java/org/apache/commons/lang3/EnumUtils.java",
+          "line_start": 289,
+          "line_end": 292
+        },
+        {
+          "file": "src/main/java/org/apache/commons/lang3/BitField.java",
+          "line_start": 293,
+          "line_end": 298
+        },
+        {
+          "file": "src/main/java/org/apache/commons/lang3/ObjectUtils.java",
+          "line_start": 589,
+          "line_end": 592
+        }
+      ]
+    },
+    {
+      "evidence": "NumberUtils.overlay documentation says the value is masked to the field, but the implementation ORs (word << shift) without applying (word & field).",
+      "inference_summary": "Unmasked sign-extended words directly explain why bits outside the 32-bit field disturb the holder.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.math.NumberUtils::overlay"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/lang3/math/NumberUtils.java",
+          "line_start": 1300,
+          "line_end": 1312
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "submitted_at": "2026-10-14T05:27:29Z"
+}

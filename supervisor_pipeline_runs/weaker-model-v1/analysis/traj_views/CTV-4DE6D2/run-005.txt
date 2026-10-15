@@ -1,0 +1,400 @@
+=== SUBMISSION (final ranking)
+   1. org.apache.commons.lang3.StringUtils::indexOfAnyBut
+   2. org.apache.commons.lang3.ArrayUtils::isAnyOf
+   3. org.apache.commons.lang3.builder.ToStringStyle::firstIndexOutside
+   4. org.apache.commons.lang3.text.StrBuilder::memberAt
+   5. org.apache.commons.lang3.Conversion::classifyAt
+   6. org.apache.commons.lang3.time.DateUtils::lookupAt
+   7. org.apache.commons.lang3.StringUtils::indexOfAny
+   8. org.apache.commons.lang3.StringUtils::containsAny
+   9. org.apache.commons.lang3.CharSequenceUtils::indexOf
+  10. org.apache.commons.lang3.StringUtils::containsOnly
+=== EVIDENCE CHAIN
+ - evidence: The failing assertion is line 726: expected index 2 for indexOfAnyBut(CharU20000 + CharU20001, CharU20000.toCharArray()) but actual was 0.
+   inference: The failing public API is StringUtils.indexOfAnyBut(CharSequence,char...), specifically for surrogate-pair membership.
+ - evidence: StringUtils.indexOfAnyBut(CharSequence,char...) returns ToStringStyle.firstIndexOutside(cs, searchChars) after null/empty checks.
+   inference: The failing API delegates its core logic away from StringUtils, so the delegate and callees are direct suspects.
+ - evidence: ArrayUtils.isAnyOf sees a high surrogate and returns false unless the matching search char is at the last search index; it does not verify the following low surrogate matches.
+   inference: This explains returning index 0: the first code unit of CharU20000 is treated as outside the set even though the full surrogate pair is in searchChars.
+ - evidence: Nearby StringUtils.indexOfAny and containsAny implement explicit high-surrogate plus following-low-surrogate checks; the CharSequence overload of indexOfAnyBut also has surrogate-aware logic.
+   inference: Related StringUtils search methods are plausible localization candidates for the expected logic and overload consistency.
+=== VISIBLE TRAJECTORY
+[task prompt omitted]
+    call: {"command": "cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && defects4j test -t org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testIndexOfAnyBut_StringCharArrayWithSupplementaryChars"}
+    output: <returncode>0</returncode>
+<output>
+Running ant (compile.tests)................................................ OK
+Running ant (run.dev.tests)................................................ OK
+Failing tests: 1
+  - org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testIndexOfAnyBut_StringCharArrayWithSupplementaryChars
+</output>
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && grep -R \"indexOfAnyBut\" -n src/main/java src/test/java | head -50 && grep -R \"CharU20000\" -n src/test/java | head -20"}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/StringUtils.java:1590:     * StringUtils.indexOfAnyBut(null, *)                              = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1591:     * StringUtils.indexOfAnyBut("", *)                                = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1592:     * StringUtils.indexOfAnyBut(*, null)                              = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1593:     * StringUtils.indexOfAnyBut(*, [])                                = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1594:     * StringUtils.indexOfAnyBut("zzabyycdxx", new char[] {'z', 'a'} ) = 3
+src/main/java/org/apache/commons/lang3/StringUtils.java:1595:     * StringUtils.indexOfAnyBut("aba", new char[] {'z'} )             = 0
+src/main/java/org/apache/commons/lang3/StringUtils.java:1596:     * StringUtils.indexOfAnyBut("aba", new char[] {'a', 'b'} )        = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1604:     * @since 3.0 Changed signature from indexOfAnyBut(String, char[]) to indexOfAnyBut(CharSequence, char...)
+src/main/java/org/apache/commons/lang3/StringUtils.java:1607:    public static int indexOfAnyBut(final CharSequence cs, final char... searchChars) {
+src/main/java/org/apache/commons/lang3/StringUtils.java:1622:     * StringUtils.indexOfAnyBut(null, *)            = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1623:     *
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && nl -ba src/main/java/org/apache/commons/lang3/StringUtils.java | sed -n '1500,1665p' && nl -ba src/test/java/org/apache/commons/lang3/StringUtilsEqualsIndexOfTest.java | sed -n '700,760p'"}
+    output: <returncode>0</returncode>
+<output>
+  1500	     * StringUtils.containsAny("", *)                  = false
+  1501	     * StringUtils.containsAny(*, null)                = false
+  1502	     * StringUtils.containsAny(*, [])                  = false
+  1503	     * StringUtils.containsAny("zzabyycdxx",['z','a']) = true
+  1504	     * StringUtils.containsAny("zzabyycdxx",['b','y']) = true
+  1505	     * StringUtils.containsAny("aba", ['z'])           = false
+  1506	     * </pre>
+  1507	     *
+  1508	     * @param cs  the CharSequence to check, may be null
+  1509	     * @param searchChars  the chars to search for, may be null
+  1510	     * @return the {@code true} if any of the chars are found,
+  1511	     * {@code false} if no match or null input
+  1512	     * @since 2.4
+  1513	     * @since 3.0 Changed signature from containsAny(String, char[]) to containsAny(CharSequence, char...)
+  1514	     */
+  1515	    public static boolean containsAny(final CharSequence cs, final char... searchChars) {
+  1516	        if (isEmpty(cs) || ArrayUtils.isEmpty(searchChars)) {
+  1517	            return false;
+  1518	        }
+  1519	        final int csLength = cs.length();
+  1520	        final int searchLength = searchChars.length;
+  1521	        final int csLast = csLength - 1;
+  1522	        final int searchLast = searchLength - 1;
+  1523	        for (int i = 0; i < csLength; i++) {
+  1524	            final char ch = cs.charAt(i);
+  1525	            for (int j = 0; j < searchLength; j++) {
+  1526	 
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && grep -R \"firstIndexOutside\" -n src/main/java && nl -ba src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java | grep -C 30 \"firstIndexOutside\""}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/StringUtils.java:1611:        return org.apache.commons.lang3.builder.ToStringStyle.firstIndexOutside(cs, searchChars);
+src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java:1114:    public static int firstIndexOutside(final CharSequence cs, final char[] searchChars) {
+  1084	     * @param buffer  the <code>StringBuffer</code> to populate
+  1085	     * @param fieldName  the field name
+  1086	     * @param array  the array to add to the <code>toString</code>
+  1087	     * @param fullDetail  <code>true</code> for detail, <code>false</code>
+  1088	     *  for summary info, <code>null</code> for style decides
+  1089	     */
+  1090	    public void append(final StringBuffer buffer, final String fieldName, final short[] array, final Boolean fullDetail) {
+  1091	        appendFieldStart(buffer, fieldName);
+  1092	
+  1093	        if (array == null) {
+  1094	            appendNullText(buffer, fieldName);
+  1095	
+  1096	        } else if (isFullDetail(fullDetail)) {
+  1097	            appendDetail(buffer, fieldName, array);
+  1098	
+  1099	        } else {
+  1100	            appendSummary(buffer, fieldName, array);
+  1101	        }
+  1102	
+  1103	        appendFieldEnd(buffer, fieldName);
+  1104	    }
+  1105	
+  1106	    /**
+  1107	     * <p>Finds the first index in a CharSequence of a character that is not
+  1108	     * in the given set of characters.</p>
+  1109	     *
+  1110	     * @param cs  the Char
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && grep -R \"memberAt\" -n src/main/java && nl -ba src/main/java/org/apache/commons/lang3/text/StrBuilder.java | grep -C 25 \"memberAt\""}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/text/StrBuilder.java:1286:    public static boolean memberAt(final CharSequence cs, final int index, final char[] searchChars) {
+src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java:1117:            if (!StrBuilder.memberAt(cs, i, searchChars)) {
+  1261	     * }
+  1262	     * </pre>
+  1263	     * Note that for this simple example, you should use
+  1264	     * {@link #appendWithSeparators(Iterable, String)}.
+  1265	     * 
+  1266	     * @param separator  the separator to use
+  1267	     * @return this, to enable chaining
+  1268	     * @since 2.3
+  1269	     */
+  1270	    public StrBuilder appendSeparator(final char separator) {
+  1271	        if (size() > 0) {
+  1272	            append(separator);
+  1273	        }
+  1274	        return this;
+  1275	    }
+  1276	
+  1277	    /**
+  1278	     * <p>Checks whether the character at an index of a CharSequence is one of
+  1279	     * a set of characters.</p>
+  1280	     *
+  1281	     * @param cs  the CharSequence to check, not null
+  1282	     * @param index  the index of the character to check
+  1283	     * @param searchChars  the chars to search for, not null or empty
+  1284	     * @return {@code true} if the character is one of the search chars
+  1285	     */
+  1286	    public static boolean memberAt(final CharSequence cs, final int index, final char[] searchChars) {
+  1287	        return Conversion.classifyAt(cs, index, searchChars);
+  1288	    
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && grep -R \"classifyAt\" -n src/main/java && nl -ba src/main/java/org/apache/commons/lang3/Conversion.java | sed -n '1,140p'"}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/Conversion.java:1609:    public static boolean classifyAt(final CharSequence cs, final int index, final char[] searchChars) {
+src/main/java/org/apache/commons/lang3/text/StrBuilder.java:1287:        return Conversion.classifyAt(cs, index, searchChars);
+     1	/*******************************************************************************
+     2	 * Licensed to the Apache Software Foundation (ASF) under one
+     3	 * or more contributor license agreements.  See the NOTICE file
+     4	 * distributed with this work for additional information
+     5	 * regarding copyright ownership.  The ASF licenses this file
+     6	 * to you under the Apache License, Version 2.0 (the
+     7	 * "License"); you may not use this file except in compliance
+     8	 * with the License.  You may obtain a copy of the License at
+     9	 *
+    10	 * http://www.apache.org/licenses/LICENSE-2.0
+    11	 *
+    12	 * Unless required by applicable law or agreed to in writing,
+    13	 * software distributed under the License is distributed on an
+    14	 * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    15	 * KIND, either express or implied.  See the License for the
+    16	 * specific language governing permissions and limitations
+    17	 * under the License.
+    18	 *******************************************************************************/
+    19	package org.apache.commons.lang3;
+    20	
+    21	import java.util.UUID;
+    2
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && nl -ba src/main/java/org/apache/commons/lang3/Conversion.java | sed -n '1580,1645p'"}
+    output: <returncode>0</returncode>
+<output>
+  1580	     * @throws IllegalArgumentException if {@code nBools-1+srcPos >= 32}
+  1581	     * @throws ArrayIndexOutOfBoundsException if {@code dstPos + nBools > dst.length}
+  1582	     */
+  1583	    public static boolean[] intToBinary(final int src, final int srcPos, final boolean[] dst, final int dstPos,
+  1584	        final int nBools) {
+  1585	        if (0 == nBools) {
+  1586	            return dst;
+  1587	        }
+  1588	        if (nBools - 1 + srcPos >= 32) {
+  1589	            throw new IllegalArgumentException(
+  1590	                "nBools-1+srcPos is greather or equal to than 32");
+  1591	        }
+  1592	        int shift = 0;
+  1593	        for (int i = 0; i < nBools; i++ ) {
+  1594	            shift = i * 1 + srcPos;
+  1595	            dst[dstPos + i] = ((0x1 & (src >> shift)) != 0);
+  1596	        }
+  1597	        return dst;
+  1598	    }
+  1599	
+  1600	    /**
+  1601	     * <p>Checks whether the character at an index of a CharSequence is one of
+  1602	     * a set of characters, taking surrogate pairs into account.</p>
+  1603	     *
+  1604	     * @param cs  the CharSequence to check, not null
+  1605	     * @param index  the index of the character to check
+  1606	     * @param searchChars  the chars to search for, not null or empty
+  1607	     * @return {@code true} if the character is one of the search chars
+  1608	     */
+  1609	    public static boolean classifyAt(final CharSequence cs, final int index, final char[] sear
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && grep -R \"lookupAt\" -n src/main/java && nl -ba src/main/java/org/apache/commons/lang3/time/DateUtils.java | grep -C 25 \"lookupAt\""}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/Conversion.java:1611:        return DateUtils.lookupAt(cs, index, searchChars, pair);
+src/main/java/org/apache/commons/lang3/time/DateUtils.java:848:    public static boolean lookupAt(final CharSequence cs, final int index, final char[] searchChars, final boolean pair) {
+   823	     * @param field  the field from {@code Calendar} or <code>SEMI_MONTH</code>
+   824	     * @return the different truncated date, not null
+   825	     * @throws IllegalArgumentException if the date is <code>null</code>
+   826	     * @throws ArithmeticException if the year is over 280 million
+   827	     */
+   828	    public static Calendar truncate(final Calendar date, final int field) {
+   829	        if (date == null) {
+   830	            throw new IllegalArgumentException("The date must not be null");
+   831	        }
+   832	        final Calendar truncated = (Calendar) date.clone();
+   833	        modify(truncated, field, MODIFY_TRUNCATE);
+   834	        return truncated;
+   835	    }
+   836	
+   837	    /**
+   838	     * <p>Checks whether the character at an index of a CharSequence is one of
+   839	     * a set of characters.</p>
+   840	     *
+   841	     * @param cs  the CharSequence to check, not null
+   842	     * @param index  the index of the character to check
+   843	     * @param searchChars  the chars to search for, not null or empty
+   844	     * @param pair  whether the character at the index is the first unit of
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && grep -R \"isAnyOf\" -n src/main/java/org/apache/commons/lang3/ArrayUtils.java && nl -ba src/main/java/org/apache/commons/lang3/ArrayUtils.java | grep -C 30 \"isAnyOf\""}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/ArrayUtils.java:1545:    public static boolean isAnyOf(final CharSequence cs, final int index, final char[] searchChars, final boolean pair) {
+  1515	     *
+  1516	     * @param array  the array to reverse, may be {@code null}
+  1517	     */
+  1518	    public static void reverse(final byte[] array) {
+  1519	        if (array == null) {
+  1520	            return;
+  1521	        }
+  1522	        int i = 0;
+  1523	        int j = array.length - 1;
+  1524	        byte tmp;
+  1525	        while (j > i) {
+  1526	            tmp = array[j];
+  1527	            array[j] = array[i];
+  1528	            array[i] = tmp;
+  1529	            j--;
+  1530	            i++;
+  1531	        }
+  1532	    }
+  1533	
+  1534	    /**
+  1535	     * <p>Checks whether the character at an index of a CharSequence is one of
+  1536	     * a set of characters.</p>
+  1537	     *
+  1538	     * @param cs  the CharSequence to check, not null
+  1539	     * @param index  the index of the character to check
+  1540	     * @param searchChars  the chars to search for, not null or empty
+  1541	     * @param pair  whether the character at the index is the first unit of a
+  1542	     *  surrogate pair
+  1543	     * @return {@code true} if the character is one of the search chars
+  1544	     */
+  1545	    public static boolean isAnyOf(final CharSequence cs, final int index, final char[] searchChars, final boolean pair) {
+  1546	        final char ch =
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && cat failing_tests || true && find . -name '*StringUtilsEqualsIndexOfTest*' -o -name 'TEST*.xml' | head -20"}
+    output: <returncode>0</returncode>
+<output>
+--- org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testIndexOfAnyBut_StringCharArrayWithSupplementaryChars
+junit.framework.AssertionFailedError: expected:<2> but was:<0>
+	at org.junit.Assert.fail(Assert.java:88)
+	at org.junit.Assert.failNotEquals(Assert.java:834)
+	at org.junit.Assert.assertEquals(Assert.java:645)
+	at org.junit.Assert.assertEquals(Assert.java:631)
+	at org.apache.commons.lang3.StringUtilsEqualsIndexOfTest.testIndexOfAnyBut_StringCharArrayWithSupplementaryChars(StringUtilsEqualsIndexOfTest.java:726)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.ja
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && nl -ba src/main/java/org/apache/commons/lang3/StringUtils.java | sed -n '1350,1495p' && grep -R \"indexOfAny(final CharSequence cs, final char\" -n src/main/java/org/apache/commons/lang3/StringUtils.java"}
+    output: <returncode>0</returncode>
+<output>
+  1350	     * handling {@code null}. Case-insensitivity is defined as by
+  1351	     * {@link String#equalsIgnoreCase(String)}.
+  1352	     *
+  1353	     * <p>A {@code null} CharSequence will return {@code false}.</p>
+  1354	     *
+  1355	     * <pre>
+  1356	     * StringUtils.contains(null, *) = false
+  1357	     * StringUtils.contains(*, null) = false
+  1358	     * StringUtils.contains("", "") = true
+  1359	     * StringUtils.contains("abc", "") = true
+  1360	     * StringUtils.contains("abc", "a") = true
+  1361	     * StringUtils.contains("abc", "z") = false
+  1362	     * StringUtils.contains("abc", "A") = true
+  1363	     * StringUtils.contains("abc", "Z") = false
+  1364	     * </pre>
+  1365	     *
+  1366	     * @param str  the CharSequence to check, may be null
+  1367	     * @param searchStr  the CharSequence to find, may be null
+  1368	     * @return true if the CharSequence contains the search CharSequence irrespective of
+  1369	     * case or false if not or {@code null} string input
+  1370	     * @since 3.0 Changed signature from containsIgnoreCase(String, String) to containsIgnoreCase(CharSequence, CharSequence)
+  1371	     */
+  1372	    public static boolean containsIgnoreCase(final CharSequence str, final CharSequence searchStr) {
+  1373	        if (str == null || searchStr == null) {
+  1374	            return false;
+  1375	        }
+  1376	        final int len = searchStr.length();
+  1377	        final int max = str.length() -
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && sed -n '1,80p' src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java && grep -n \"import .*StrBuilder\\|import .*ArrayUtils\\|import .*DateUtils\" -n src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java src/main/java/org/apache/commons/lang3/text/StrBuilder.java src/main/java/org/apache/commons/lang3/Conversion.java"}
+    output: <returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.lang3.builder;
+
+import java.io.Serializable;
+import java.lang.reflect.Array;
+import java.util.Collection;
+import java.util.Map;
+import java.util.WeakHashMap;
+
+import org.apache.commons.lang3.ClassUtils;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.SystemUtils;
+import org.apache.commons.lang3.text.StrBuilder;
+
+/**
+ * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+ * The main public interface is always via <code>ToStringBuilder</code>.</p>
+ *
+ * <p>These classes are intended to be used as <code>Singletons</code>.
+ * There is no need to instantiate a new style each time. A 
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && grep -R \"isAnyOf\\|firstIndexOutside\\|memberAt\\|classifyAt\\|lookupAt\" -n src/test/java || true && grep -R \"indexOfAnyBut\" -n src/main/java/org/apache/commons/lang3/StringUtils.java"}
+    output: <returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/StringUtils.java:1590:     * StringUtils.indexOfAnyBut(null, *)                              = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1591:     * StringUtils.indexOfAnyBut("", *)                                = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1592:     * StringUtils.indexOfAnyBut(*, null)                              = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1593:     * StringUtils.indexOfAnyBut(*, [])                                = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1594:     * StringUtils.indexOfAnyBut("zzabyycdxx", new char[] {'z', 'a'} ) = 3
+src/main/java/org/apache/commons/lang3/StringUtils.java:1595:     * StringUtils.indexOfAnyBut("aba", new char[] {'z'} )             = 0
+src/main/java/org/apache/commons/lang3/StringUtils.java:1596:     * StringUtils.indexOfAnyBut("aba", new char[] {'a', 'b'} )        = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1604:     * @since 3.0 Changed signature from indexOfAnyBut(String, char[]) to indexOfAnyBut(CharSequence, char...)
+src/main/java/org/apache/commons/lang3/StringUtils.java:1607:    public static int indexOfAnyBut(final CharSequence cs, final char... searchChars) {
+src/main/java/org/apache/commons/lang3/StringUtils.java:1622:     * StringUtils.indexOfAnyBut(null, *)            = -1
+src/main/java/org/apache/commons/lang3/StringUtils.java:1623:     *
+    call: {"command":"cd /private/tmp/d4jws-w1b2/a9cd07e5-03ff-4eba-b92b-9d2d8ada406c/CTV-4DE6D2 && nl -ba src/main/java/org/apache/commons/lang3/StringUtils.java | sed -n '1665,1715p' && grep -R \"indexOfAnyBut(cs, valid\" -n src/main/java/org/apache/commons/lang3/StringUtils.java"}
+    output: <returncode>0</returncode>
+<output>
+  1665	     * A {@code null} valid character array will return {@code false}.
+  1666	     * An empty CharSequence (length()=0) always returns {@code true}.</p>
+  1667	     *
+  1668	     * <pre>
+  1669	     * StringUtils.containsOnly(null, *)       = false
+  1670	     * StringUtils.containsOnly(*, null)       = false
+  1671	     * StringUtils.containsOnly("", *)         = true
+  1672	     * StringUtils.containsOnly("ab", '')      = false
+  1673	     * StringUtils.containsOnly("abab", 'abc') = true
+  1674	     * StringUtils.containsOnly("ab1", 'abc')  = false
+  1675	     * StringUtils.containsOnly("abz", 'abc')  = false
+  1676	     * </pre>
+  1677	     *
+  1678	     * @param cs  the String to check, may be null
+  1679	     * @param valid  an array of valid chars, may be null
+  1680	     * @return true if it only contains valid chars and is non-null
+  1681	     * @since 3.0 Changed signature from containsOnly(String, char[]) to containsOnly(CharSequence, char...)
+  1682	     */
+  1683	    public static boolean containsOnly(final CharSequence cs, final char... valid) {
+  1684	        // All these pre-checks are to maintain API with an older version
+  1685	        if (valid == null || cs == null) {
+  1686	            return false;
+  1687	        }
+  1688	        if (cs.length() == 0) {
+  1689	            return true;
+  1690	        }
+  1691	        if (valid.length == 0) {
+  1692	            return false;
+  1693	        }
+  1694	        return i
+    call: {"predictions":[{"class":"org.apache.commons.lang3.StringUtils","method":"indexOfAnyBut"},{"class":"org.apache.commons.lang3.ArrayUtils","method":"isAnyOf"},{"class":"org.apache.commons.lang3.builder.ToStringStyle","method":"firstIndexOutside"},{"class":"org.apache.commons.lang3.text.StrBuilder","method":"memberAt"},{"class":"org.apache.commons.lang3.Conversion","method":"classifyAt"},{"class":"org.apache.commons.lang3.time.DateUtils","method":"lookupAt"},{"class":"org.apache.commons.lang3.StringUtils","method":"indexOfAny"},{"class":"org.apache.commons.lang3.StringUtils","method":"containsAny"},{"class":"org.apache.commons.lang3.CharSequenceUtils","method":"indexOf"},{"class":"org.apache.commons.lang3.StringUtils","method":"containsOnly"}],"evidence_chain":[{"evidence":"The failing assertion is line 726: expected index 2 for indexOfAnyBut(CharU20000 + CharU20001, CharU20000.toCharArray()) but actual was 0.","inference_summary":"The failing public API is StringUtils.indexOfAnyBut(CharSequence,char...), specifically for surrogate-pair membership.","candidate_methods":["org.apache.commons.lang3.StringUtils.indexOfAnyBut"],"references":[{"file":"src/test/java/org/apache/commons/lang3/StringUtilsEqualsIndexOfTest.java","line_start":724,"line_end":729},{"file":"failing_tests","line_start":1,"line_end":5}]},{"evidence":"StringUtils.indexOfAnyBut(CharSequence,char...) returns ToStringStyle.firstIndexOutside(cs, searchChars) after null/empty checks.","inference_summary":"The failing 

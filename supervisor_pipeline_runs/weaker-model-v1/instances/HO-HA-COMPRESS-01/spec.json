@@ -1,0 +1,126 @@
+{
+ "iid": "HO-HA-COMPRESS-01",
+ "project": "Compress",
+ "group": "HO-HA-COMPRESS-01",
+ "mechanism": "M10",
+ "tags": [
+  "M10",
+  "M3",
+  "M2"
+ ],
+ "recipe": "HA",
+ "kind": "new",
+ "tier": "HELDOUT",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.compress.utils.IOUtils",
+  "method": "terminateChecksum",
+  "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java",
+  "edits": [
+   {
+    "old": "        field[start + width - 2] = 0;\n        field[start + width - 1] = (byte) ' ';",
+    "new": "        field[start + width - 1] = (byte) ' ';"
+   }
+  ]
+ },
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "old": "    /**\n     * Parse the checksum octal integer from a header buffer.\n     *\n     * @param value The header value\n     * @param buf The buffer from which to parse.\n     * @param offset The offset into the buffer from which to parse.\n     * @param length The number of header bytes to parse.\n     * @return The integer value of the entry's checksum.\n     */\n    public static int getCheckSumOctalBytes(long value, byte[] buf, int offset, int length) {\n        getOctalBytes(value, buf, offset, length);\n\n        buf[offset + length - 1] = (byte) ' ';\n        buf[offset + length - 2] = 0;\n\n        return offset + length;\n    }",
+   "new": "    /**\n     * Write a checksum value into a header buffer as the header's\n     * checksum field, in the layout produced by\n     * {@link TarArchiveEntry#putChecksumField(long, byte[], int, int)}.\n     *\n     * @param value The checksum value.\n     * @param buf The header buffer to write into.\n     * @param offset The offset of the checksum field in the buffer.\n     * @param length The length of the checksum field.\n     * @return The offset just past the field, <code>offset + length</code>.\n     */\n    public static int getCheckSumOctalBytes(long value, byte[] buf, int offset, int length) {\n        return TarArchiveEntry.putChecksumField(value, buf, offset, length);\n    }",
+   "purpose": "entry point E: TarUtils.getCheckSumOctalBytes becomes one delegating statement into H1; its upstream javadoc (which described parsing and an integer checksum return value, contradicting the code) is rewritten to describe what the method does"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "old": "import org.apache.commons.compress.archivers.ArchiveEntry;",
+   "new": "import org.apache.commons.compress.archivers.ArchiveEntry;\nimport org.apache.commons.compress.utils.IOUtils;",
+   "purpose": "import IOUtils for H1"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "old": "    /**\n     * Parse an entry's header information from a header buffer.",
+   "new": "    /**\n     * Write a checksum value into the checksum field\n     * <code>buf[offset, offset + length)</code> of a header buffer.\n     * The first <code>length - 2</code> bytes of the field receive the\n     * octal digits of the value, written by\n     * {@link IOUtils#putOctalDigits(long, byte[], int, int)}; the last\n     * two bytes receive the checksum terminator, written by\n     * {@link IOUtils#terminateChecksum(byte[], int, int)}. This method\n     * writes no byte of the field itself.\n     *\n     * @param value The checksum value.\n     * @param buf The header buffer to write into.\n     * @param offset The offset of the checksum field in the buffer.\n     * @param length The length of the checksum field.\n     * @return The offset just past the field, <code>offset + length</code>.\n     */\n    public static int putChecksumField(long value, byte[] buf, int offset, int length) {\n        IOUtils.putOctalDigits(value, buf, offset, length - 2);\n        IOUtils.terminateChecksum(buf, offset, length);\n        return offset + length;\n    }\n\n    /**\n     * Parse an entry's header information from a header buffer.",
+   "purpose": "H1: TarArchiveEntry.putChecksumField composes H2 (digits, first length-2 bytes) and H3 (terminator, last two bytes); same bytes as the upstream getOctalBytes-then-overwrite sequence"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java",
+   "old": "            output.write(buffer, 0, n);\n        }\n    }\n}",
+   "new": "            output.write(buffer, 0, n);\n        }\n    }\n\n    /**\n     * Writes the octal digits of a value right-aligned into the field\n     * <code>buf[offset, offset + width)</code> and fills the leading\n     * bytes the digits do not use with spaces. Zero is written as the\n     * single digit <code>'0'</code>, a negative value as spaces only,\n     * and a value with more digits than the field holds as its\n     * low-order digits. Exactly the <code>width</code> bytes of the\n     * field are written; no byte outside the field is touched.\n     *\n     * @param value the value to write\n     * @param buf the buffer holding the field\n     * @param offset the offset of the field in the buffer\n     * @param width the length of the field, at least 1\n     */\n    public static void putOctalDigits(long value, byte[] buf, int offset, int width) {\n        int idx = width - 1;\n        if (value == 0) {\n            buf[offset + idx] = (byte) '0';\n            --idx;\n        } else {\n            for (long val = value; idx >= 0 && val > 0; --idx) {\n                buf[offset + idx] = (byte) ((byte) '0' + (byte) (val & 7));\n                val = val >> 3;\n            }\n        }\n        for (; idx >= 0; --idx) {\n            buf[offset + idx] = (byte) ' ';\n        }\n    }\n\n    /**\n     * Writes the terminator of a tar header checksum field into the\n     * last two bytes of the field <code>field[start, start + width)</code>:\n     * a NUL byte at index <code>start + width - 2</code>, followed by a\n     * space at index <code>start + width - 1</code>. The bytes before\n     * the terminator are left unchanged.\n     *\n     * @param field the buffer holding the field\n     * @param start the offset of the field in the buffer\n     * @param width the length of the field, at least 2\n     */\n    public static void terminateChecksum(byte[] field, int start, int width) {\n        field[start + width - 2] = 0;\n        field[start + width - 1] = (byte) ' ';\n    }\n}",
+   "purpose": "H2 IOUtils.putOctalDigits (right-aligned, space-padded octal digits, same loop as upstream getOctalBytes) and H3 IOUtils.terminateChecksum (NUL then space in the last two bytes)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+   "method": "getCheckSumOctalBytes",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "method": "putChecksumField",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java"
+  },
+  {
+   "class": "org.apache.commons.compress.utils.IOUtils",
+   "method": "putOctalDigits",
+   "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::getCheckSumOctalBytes"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.tar.TarArchiveEntry::putChecksumField",
+  "org.apache.commons.compress.archivers.tar.TarArchiveEntryTest::testOctalDigitsFillTheirWidth"
+ ],
+ "ownership_reason": "TarUtils.getCheckSumOctalBytes (E) is one statement that returns TarArchiveEntry.putChecksumField(value, buf, offset, length) (H1); E's javadoc only says the field has H1's layout. H1's javadoc splits the field in two and says H1 writes no field byte itself: IOUtils.putOctalDigits (H2) writes the octal digits into the first length - 2 bytes, and IOUtils.terminateChecksum (H3) writes the checksum terminator into the last two bytes. H1's code is exactly those two calls plus return offset + length. H2's javadoc promises right-aligned, space-padded digits in exactly buf[offset, offset + width) and nothing outside it; the new ownership test TarArchiveEntryTest.testOctalDigitsFillTheirWidth pins this with sentinel bytes on both sides and passes on the variant. H3's javadoc is the only one that defines the terminator: a NUL at start + width - 2 followed by a space at start + width - 1, which is the layout the pristine getCheckSumOctalBytes produced (getOctalBytes, then buf[offset + length - 1] = ' ' and buf[offset + length - 2] = 0). H3's code writes only the trailing space and never writes the NUL. The trigger space-fills the checksum field of a 512-byte header first, as TarArchiveEntry.writeEntryHeader does before it computes the checksum, so byte 6 of the field keeps its space and the field reads [32, 49, 50, 51, 52, 53, 32, 32] instead of [32, 49, 50, 51, 52, 53, 0, 32]. Byte 6 lies outside H2's field (bytes 0-5) and H1's javadoc assigns it to H3, so H3 is the only method on the path that violates its own contract. Restoring the NUL assignment in terminateChecksum alone makes the trigger and the full suite pass. The declared one-line edits at the other methods do not absorb the fault: E rerouted to TarUtils.getOctalBytes yields [32, 49, 50, 51, 52, 53, 32, 0]; H1 giving the digits length - 1 bytes yields [32, 32, 49, 50, 51, 52, 53, 32]; H2 padding with '0' yields [48, 49, 50, 51, 52, 53, 32, 32].",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.tar.TarArchiveEntryTest::testOctalDigitsFillTheirWidth"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/tar/TarArchiveEntryTest.java",
+  "test_class": "org.apache.commons.compress.archivers.tar.TarArchiveEntryTest",
+  "test_method": "testHeaderChecksumFieldLayout",
+  "imports": [
+   "import java.util.Arrays;"
+  ],
+  "code": "    public void testHeaderChecksumFieldLayout() {\n        // the checksum field follows name, mode, uid, gid, size and mtime\n        final int start = TarConstants.NAMELEN + TarConstants.MODELEN\n            + TarConstants.UIDLEN + TarConstants.GIDLEN\n            + TarConstants.SIZELEN + TarConstants.MODTIMELEN;\n        byte[] header = new byte[512];\n        Arrays.fill(header, start, start + TarConstants.CHKSUMLEN, (byte) ' ');\n        int next = TarUtils.getCheckSumOctalBytes(012345, header, start,\n                                                  TarConstants.CHKSUMLEN);\n        assertEquals(start + TarConstants.CHKSUMLEN, next);\n        byte[] field = new byte[TarConstants.CHKSUMLEN];\n        System.arraycopy(header, start, field, 0, field.length);\n        assertEquals(\"[32, 49, 50, 51, 52, 53, 0, 32]\", Arrays.toString(field));\n    }\n"
+ },
+ "extra_tests": [
+  {
+   "test_file": "src/test/java/org/apache/commons/compress/archivers/tar/TarArchiveEntryTest.java",
+   "imports": [
+    "import java.util.Arrays;",
+    "import org.apache.commons.compress.utils.IOUtils;"
+   ],
+   "code": "    public void testOctalDigitsFillTheirWidth() {\n        byte[] buf = new byte[] {9, 9, 9, 9, 9, 9, 9, 9};\n        IOUtils.putOctalDigits(012345, buf, 1, 6);\n        assertEquals(\"[9, 32, 49, 50, 51, 52, 53, 9]\", Arrays.toString(buf));\n        IOUtils.putOctalDigits(0, buf, 1, 6);\n        assertEquals(\"[9, 32, 32, 32, 32, 32, 48, 9]\", Arrays.toString(buf));\n    }\n"
+  }
+ ],
+ "expected_signature": "expected:<...49, 50, 51, 52, 53, [0], 32]> but was:<...49, 50, 51, 52, 53, [32], 32]>",
+ "fault_lines": [
+  "        field[start + width - 1] = (byte) ' ';"
+ ],
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "old": "        return TarArchiveEntry.putChecksumField(value, buf, offset, length);",
+   "new": "        return getOctalBytes(value, buf, offset, length);",
+   "why": "one-line entry-point edit: getCheckSumOctalBytes writes the field with the generic octal field writer TarUtils.getOctalBytes instead of delegating to putChecksumField"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "old": "        IOUtils.putOctalDigits(value, buf, offset, length - 2);",
+   "new": "        IOUtils.putOctalDigits(value, buf, offset, length - 1);",
+   "why": "one-line H1 edit: putChecksumField gives the digits every byte but the last one"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java",
+   "old": "            buf[offset + idx] = (byte) ' ';",
+   "new": "            buf[offset + idx] = (byte) '0';",
+   "why": "one-line H2 edit: putOctalDigits pads the unused leading bytes with zeros instead of spaces"
+  }
+ ],
+ "variant_id": "CTV-9CE7EA",
+ "gold_key": "org.apache.commons.compress.utils.IOUtils::terminateChecksum"
+}

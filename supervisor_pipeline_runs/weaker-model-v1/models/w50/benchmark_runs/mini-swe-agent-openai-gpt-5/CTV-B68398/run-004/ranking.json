@@ -1,0 +1,233 @@
+{
+  "schema_version": "d4j-top10-ranking/v1",
+  "run_id": "mini-swe-agent-openai-gpt-5__CTV-B68398__run-004",
+  "status": "completed",
+  "parse_status": "parsed",
+  "source": "structured_submit_fault_localization",
+  "structured_submission": {
+    "schema_version": "d4j-fl-submission/v1",
+    "ok": true,
+    "tool": "submit_fault_localization",
+    "prediction_count": 10,
+    "predictions": [
+      {
+        "rank": 1,
+        "class": "org.apache.commons.lang3.time.DateUtils",
+        "method": "wholeHours"
+      },
+      {
+        "rank": 2,
+        "class": "org.apache.commons.lang3.time.FastDatePrinter",
+        "method": "appendZoneOffset"
+      },
+      {
+        "rank": 3,
+        "class": "org.apache.commons.lang3.time.FastDatePrinter$TimeZoneNumberRule",
+        "method": "appendTo"
+      },
+      {
+        "rank": 4,
+        "class": "org.apache.commons.lang3.math.NumberUtils",
+        "method": "offsetToFloorMultiple"
+      },
+      {
+        "rank": 5,
+        "class": "org.apache.commons.lang3.time.DateFormatUtils",
+        "method": "format"
+      },
+      {
+        "rank": 6,
+        "class": "org.apache.commons.lang3.time.FastDateFormat",
+        "method": "getInstance"
+      },
+      {
+        "rank": 7,
+        "class": "org.apache.commons.lang3.time.FastDateFormat",
+        "method": "format"
+      },
+      {
+        "rank": 8,
+        "class": "org.apache.commons.lang3.time.FastDatePrinter",
+        "method": "format"
+      },
+      {
+        "rank": 9,
+        "class": "org.apache.commons.lang3.time.DateUtils",
+        "method": "minutesPastHour"
+      },
+      {
+        "rank": 10,
+        "class": "org.apache.commons.lang3.time.FastDatePrinter",
+        "method": "applyRules"
+      }
+    ],
+    "evidence_chain": [
+      {
+        "evidence": "Formatting pattern with ZZ should produce +05:30 for Asia/Kolkata, but code likely yields +06:30.",
+        "inference_summary": "Timezone offset hours are computed incorrectly. In appendZoneOffset, hours come from DateUtils.wholeHours(offset, offsetToHour). With offset=5h30m, offsetToHour=-30m, current implementation returns 6 instead of 5.",
+        "candidate_methods": [
+          "org.apache.commons.lang3.time.DateUtils::wholeHours",
+          "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset",
+          "org.apache.commons.lang3.time.FastDatePrinter$TimeZoneNumberRule::appendTo"
+        ],
+        "references": [
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+            "line_start": 1118,
+            "line_end": 1142
+          },
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+            "line_start": 1848,
+            "line_end": 1872
+          }
+        ]
+      },
+      {
+        "evidence": "wholeHours docs say 5 hours 30 minutes with offset of -30 minutes gives 5, but implementation uses (millis - offset)/HOUR.",
+        "inference_summary": "Bug in DateUtils.wholeHours sign handling causes off-by-one hour for half-hour timezones.",
+        "candidate_methods": [
+          "org.apache.commons.lang3.time.DateUtils::wholeHours"
+        ],
+        "references": [
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+            "line_start": 1840,
+            "line_end": 1864
+          }
+        ]
+      },
+      {
+        "evidence": "minutesPastHour uses -offsetToHour / MILLIS_PER_MINUTE, which yields 30 for Kolkata and is likely correct.",
+        "inference_summary": "If failure is only in hour part, minutesPastHour less likely but still involved.",
+        "candidate_methods": [
+          "org.apache.commons.lang3.time.DateUtils::minutesPastHour"
+        ],
+        "references": [
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+            "line_start": 1866,
+            "line_end": 1880
+          }
+        ]
+      },
+      {
+        "evidence": "TimeZoneNumberRule.appendTo gets ZONE_OFFSET + DST_OFFSET and delegates to appendZoneOffset.",
+        "inference_summary": "Entry point for timezone numeric formatting.",
+        "candidate_methods": [
+          "org.apache.commons.lang3.time.FastDatePrinter$TimeZoneNumberRule::appendTo",
+          "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset"
+        ],
+        "references": [
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+            "line_start": 1208,
+            "line_end": 1260
+          }
+        ]
+      },
+      {
+        "evidence": "offsetToFloorMultiple computes negative offset to previous multiple (e.g., -30 min for +5:30h).",
+        "inference_summary": "This utility seems correct but is part of the computation chain.",
+        "candidate_methods": [
+          "org.apache.commons.lang3.math.NumberUtils::offsetToFloorMultiple"
+        ],
+        "references": [
+          {
+            "file": "src/main/java/org/apache/commons/lang3/math/NumberUtils.java",
+            "line_start": 1306,
+            "line_end": 1320
+          }
+        ]
+      },
+      {
+        "evidence": "DateFormatUtils.format delegates to FastDateFormat.getInstance(pattern, tz, locale) and then FastDateFormat.format(Date).",
+        "inference_summary": "Top-level API used by the failing test; included as context.",
+        "candidate_methods": [
+          "org.apache.commons.lang3.time.DateFormatUtils::format",
+          "org.apache.commons.lang3.time.FastDateFormat::getInstance",
+          "org.apache.commons.lang3.time.FastDateFormat::format",
+          "org.apache.commons.lang3.time.FastDatePrinter::format"
+        ],
+        "references": [
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java",
+            "line_start": 260,
+            "line_end": 320
+          },
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+            "line_start": 68,
+            "line_end": 120
+          },
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+            "line_start": 316,
+            "line_end": 348
+          },
+          {
+            "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+            "line_start": 436,
+            "line_end": 472
+          }
+        ]
+      }
+    ],
+    "errors": [],
+    "warnings": [],
+    "submitted_at": "2026-10-13T14:51:28Z"
+  },
+  "predictions": [
+    {
+      "rank": 1,
+      "class": "org.apache.commons.lang3.time.DateUtils",
+      "method": "wholeHours"
+    },
+    {
+      "rank": 2,
+      "class": "org.apache.commons.lang3.time.FastDatePrinter",
+      "method": "appendZoneOffset"
+    },
+    {
+      "rank": 3,
+      "class": "org.apache.commons.lang3.time.FastDatePrinter$TimeZoneNumberRule",
+      "method": "appendTo"
+    },
+    {
+      "rank": 4,
+      "class": "org.apache.commons.lang3.math.NumberUtils",
+      "method": "offsetToFloorMultiple"
+    },
+    {
+      "rank": 5,
+      "class": "org.apache.commons.lang3.time.DateFormatUtils",
+      "method": "format"
+    },
+    {
+      "rank": 6,
+      "class": "org.apache.commons.lang3.time.FastDateFormat",
+      "method": "getInstance"
+    },
+    {
+      "rank": 7,
+      "class": "org.apache.commons.lang3.time.FastDateFormat",
+      "method": "format"
+    },
+    {
+      "rank": 8,
+      "class": "org.apache.commons.lang3.time.FastDatePrinter",
+      "method": "format"
+    },
+    {
+      "rank": 9,
+      "class": "org.apache.commons.lang3.time.DateUtils",
+      "method": "minutesPastHour"
+    },
+    {
+      "rank": 10,
+      "class": "org.apache.commons.lang3.time.FastDatePrinter",
+      "method": "applyRules"
+    }
+  ],
+  "validation_errors": []
+}

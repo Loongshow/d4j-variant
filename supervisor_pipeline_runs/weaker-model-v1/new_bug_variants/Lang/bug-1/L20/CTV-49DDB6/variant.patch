@@ -1,0 +1,164 @@
+diff --git a/src/main/java/org/apache/commons/lang3/CharUtils.java b/src/main/java/org/apache/commons/lang3/CharUtils.java
+index d603cfa52..9412b4206 100644
+--- a/src/main/java/org/apache/commons/lang3/CharUtils.java
++++ b/src/main/java/org/apache/commons/lang3/CharUtils.java
+@@ -535,5 +535,25 @@ public class CharUtils {
+     public static boolean isAsciiAlphanumeric(final char ch) {
+         return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9');
+     }
++
++    //--------------------------------------------------------------------------
++    /**
++     * <p>Appends a value to a buffer as exactly two decimal digits, tens first.</p>
++     *
++     * <p>The value must already be in the range 0 to 99; it is placed as given,
++     * one digit character per decimal place, with no range check.</p>
++     *
++     * <pre>
++     *   CharUtils.appendTwoDigits(buffer, 7)  appends "07"
++     *   CharUtils.appendTwoDigits(buffer, 42) appends "42"
++     * </pre>
++     *
++     * @param buffer  the buffer to append to, not null
++     * @param value  the value to append, from 0 to 99
++     */
++    public static void appendTwoDigits(final StringBuffer buffer, final int value) {
++        buffer.append((char) (value / 10 + '0'));
++        buffer.append((char) (value % 10 + '0'));
++    }
+     
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java b/src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java
+index be671a928..95310eddc 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java
+@@ -21,6 +21,8 @@ import java.util.Date;
+ import java.util.Locale;
+ import java.util.TimeZone;
+ 
++import org.apache.commons.lang3.CharUtils;
++
+ /**
+  * <p>Date and time formatting utilities and constants.</p>
+  *
+@@ -320,4 +322,24 @@ public class DateFormatUtils {
+         return df.format(calendar);
+     }
+ 
++    /**
++     * <p>Appends an hour field and a minute field, each as two digits, in the
++     * form {@code HHMM}, or {@code HH:MM} when {@code colon} is true.</p>
++     *
++     * <p>Each field is written by {@link CharUtils#appendTwoDigits(StringBuffer, int)};
++     * the values are passed on as given.</p>
++     *
++     * @param buffer  the buffer to append to, not null
++     * @param hours  the hour field
++     * @param minutes  the minute field
++     * @param colon  whether to put a {@code ':'} between the two fields
++     */
++    public static void appendHourMinute(final StringBuffer buffer, final int hours, final int minutes, final boolean colon) {
++        CharUtils.appendTwoDigits(buffer, hours);
++        if (colon) {
++            buffer.append(':');
++        }
++        CharUtils.appendTwoDigits(buffer, minutes);
++    }
++
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index b16af53d4..b2cdeddb5 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -668,6 +668,25 @@ public class DateUtils {
+         c.setTime(date);
+         return c;
+     }
++
++    //-----------------------------------------------------------------------
++    /**
++     * <p>Gets the minute field of a time zone offset, as written in the
++     * {@code +HHMM} form.</p>
++     *
++     * <p>The minute field is taken from the magnitude of the offset: it is the
++     * number of whole minutes left over once the whole hours have been removed.
++     * The result is always in the range 0 to 59, whatever the sign of the offset.
++     * For example, both {@code +09:45} and {@code -09:45} give 45, and
++     * {@code -07:00} gives 0.</p>
++     *
++     * @param offsetMillis  the offset from UTC in milliseconds, may be negative
++     * @return the minute field of the offset, from 0 to 59
++     */
++    public static int offsetMinuteField(final int offsetMillis) {
++        final int totalMinutes = offsetMillis / (60 * 1000);
++        return totalMinutes % 60;
++    }
+     
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java b/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java
+index 18c896493..94c6efd5f 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java
+@@ -1150,6 +1150,32 @@ public class FastDatePrinter implements DatePrinter, Serializable {
+         }
+     }
+ 
++    /**
++     * <p>Appends a time zone offset in the form {@code +HHMM}, or {@code +HH:MM}
++     * when {@code colon} is true.</p>
++     *
++     * <p>The sign is {@code '-'} for a negative offset and {@code '+'} otherwise.
++     * The hour field is the number of whole hours in the magnitude of the offset.
++     * The minute field is the value of {@link DateUtils#offsetMinuteField(int)}
++     * for the offset. Both fields are written by
++     * {@link DateFormatUtils#appendHourMinute(StringBuffer, int, int, boolean)}.</p>
++     *
++     * @param buffer  the buffer to append to, not null
++     * @param offsetMillis  the offset from UTC in milliseconds, may be negative
++     * @param colon  whether to put a {@code ':'} between the hour and minute fields
++     */
++    public static void appendZoneOffset(final StringBuffer buffer, final int offsetMillis, final boolean colon) {
++        int hours = offsetMillis / (60 * 60 * 1000);
++        if (offsetMillis < 0) {
++            buffer.append('-');
++            hours = -hours;
++        } else {
++            buffer.append('+');
++        }
++        DateFormatUtils.appendHourMinute(buffer, hours, DateUtils.offsetMinuteField(offsetMillis), colon);
++    }
++
++    // ----------------------------------------------------------------------
+     /**
+      * <p>Inner class to output a time zone as a number {@code +/-HHMM}
+      * or {@code +/-HH:MM}.</p>
+@@ -1182,26 +1208,8 @@ public class FastDatePrinter implements DatePrinter, Serializable {
+          */
+         @Override
+         public void appendTo(final StringBuffer buffer, final Calendar calendar) {
+-            int offset = calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET);
+-
+-            if (offset < 0) {
+-                buffer.append('-');
+-                offset = -offset;
+-            } else {
+-                buffer.append('+');
+-            }
+-
+-            final int hours = offset / (60 * 60 * 1000);
+-            buffer.append((char)(hours / 10 + '0'));
+-            buffer.append((char)(hours % 10 + '0'));
+-
+-            if (mColon) {
+-                buffer.append(':');
+-            }
+-
+-            final int minutes = offset / (60 * 1000) - 60 * hours;
+-            buffer.append((char)(minutes / 10 + '0'));
+-            buffer.append((char)(minutes % 10 + '0'));
++            final int offset = calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET);
++            appendZoneOffset(buffer, offset, mColon);
+         }
+     }
+ 

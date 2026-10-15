@@ -1,0 +1,120 @@
+{
+  "schema_version": "d4j-fl-submission/v1",
+  "ok": true,
+  "tool": "submit_fault_localization",
+  "prediction_count": 10,
+  "predictions": [
+    {
+      "rank": 1,
+      "class": "org.apache.commons.compress.utils.IOUtils",
+      "method": "terminateChecksum"
+    },
+    {
+      "rank": 2,
+      "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+      "method": "putChecksumField"
+    },
+    {
+      "rank": 3,
+      "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+      "method": "getCheckSumOctalBytes"
+    },
+    {
+      "rank": 4,
+      "class": "org.apache.commons.compress.utils.IOUtils",
+      "method": "putOctalDigits"
+    },
+    {
+      "rank": 5,
+      "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+      "method": "writeEntryHeader"
+    },
+    {
+      "rank": 6,
+      "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+      "method": "getOctalBytes"
+    },
+    {
+      "rank": 7,
+      "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+      "method": "getLongOctalBytes"
+    },
+    {
+      "rank": 8,
+      "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+      "method": "computeCheckSum"
+    },
+    {
+      "rank": 9,
+      "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+      "method": "parseTarHeader"
+    },
+    {
+      "rank": 10,
+      "class": "org.apache.commons.compress.archivers.tar.TarUtils",
+      "method": "parseOctal"
+    }
+  ],
+  "evidence_chain": [
+    {
+      "evidence": "Failing test calls TarUtils.getCheckSumOctalBytes(012345, header, start, CHKSUMLEN) and expects the 8-byte checksum field to be [space, '1','2','3','4','5', NUL, space].",
+      "inference_summary": "The failure is localized to checksum-field formatting rather than archive I/O.",
+      "candidate_methods": [
+        "org.apache.commons.compress.archivers.tar.TarUtils.getCheckSumOctalBytes"
+      ],
+      "references": [
+        {
+          "file": "src/test/java/org/apache/commons/compress/archivers/tar/TarArchiveEntryTest.java",
+          "line_start": 103,
+          "line_end": 114
+        }
+      ]
+    },
+    {
+      "evidence": "TarUtils.getCheckSumOctalBytes simply delegates to TarArchiveEntry.putChecksumField.",
+      "inference_summary": "The direct production call path continues into TarArchiveEntry.putChecksumField.",
+      "candidate_methods": [
+        "org.apache.commons.compress.archivers.tar.TarArchiveEntry.putChecksumField"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+          "line_start": 179,
+          "line_end": 180
+        }
+      ]
+    },
+    {
+      "evidence": "TarArchiveEntry.putChecksumField writes digits via IOUtils.putOctalDigits and then calls IOUtils.terminateChecksum for the last two checksum bytes.",
+      "inference_summary": "The expected digit bytes are consistent with putOctalDigits; the terminator byte layout is the suspicious part.",
+      "candidate_methods": [
+        "org.apache.commons.compress.utils.IOUtils.terminateChecksum",
+        "org.apache.commons.compress.utils.IOUtils.putOctalDigits"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+          "line_start": 586,
+          "line_end": 589
+        }
+      ]
+    },
+    {
+      "evidence": "IOUtils.terminateChecksum documentation says it writes NUL at start+width-2 and space at start+width-1, but the implementation only writes the trailing space.",
+      "inference_summary": "The byte expected as NUL remains as the prefilled space, directly explaining the checksum field layout assertion failure.",
+      "candidate_methods": [
+        "org.apache.commons.compress.utils.IOUtils.terminateChecksum"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java",
+          "line_start": 92,
+          "line_end": 105
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "submitted_at": "2026-10-12T11:51:37Z"
+}

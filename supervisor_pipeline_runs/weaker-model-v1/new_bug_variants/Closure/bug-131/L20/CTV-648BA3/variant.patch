@@ -1,0 +1,174 @@
+diff --git a/src/com/google/javascript/rhino/ScriptRuntime.java b/src/com/google/javascript/rhino/ScriptRuntime.java
+--- a/src/com/google/javascript/rhino/ScriptRuntime.java
++++ b/src/com/google/javascript/rhino/ScriptRuntime.java
+@@ -321,6 +321,73 @@
+     }
+ 
+     /**
++     * The characters a name may be written with.  {@link #START_CHAR} marks a
++     * character that may stand first in a name and {@link #PART_CHAR} one that
++     * may stand after the first; a character carrying neither bit may not
++     * appear in a name at all.  Classifying a character by table is a single
++     * array read, which is worth the space here because a compilation asks the
++     * question once per character of every name it reads.
++     */
++    private static final byte[] NAME_CHARS = new byte[Character.MAX_VALUE + 1];
++
++    static final byte START_CHAR = 1;
++    static final byte PART_CHAR = 2;
++
++    static {
++        markIdentifierChars();
++        markCurrencyChars();
++        markConnectorChars();
++    }
++
++    /**
++     * Marks the characters admitted by the Unicode identifier syntax.
++     */
++    private static void markIdentifierChars() {
++        for (int c = 0; c <= Character.MAX_VALUE; c++) {
++            char ch = (char) c;
++            if (Character.isUnicodeIdentifierStart(ch)) {
++                NAME_CHARS[c] = START_CHAR | PART_CHAR;
++            } else if (Character.isUnicodeIdentifierPart(ch)) {
++                NAME_CHARS[c] = PART_CHAR;
++            }
++        }
++    }
++
++    /**
++     * Marks the currency symbols, which the Unicode identifier syntax leaves
++     * out although "$" is written in names everywhere.
++     */
++    private static void markCurrencyChars() {
++        for (int c = 0; c <= Character.MAX_VALUE; c++) {
++            if (Character.getType((char) c) == Character.CURRENCY_SYMBOL) {
++                NAME_CHARS[c] = START_CHAR | PART_CHAR;
++            }
++        }
++    }
++
++    /**
++     * Marks the connecting punctuation as able to stand first; the Unicode
++     * identifier syntax admits "_" only after the first character.
++     */
++    private static void markConnectorChars() {
++        for (int c = 0; c <= Character.MAX_VALUE; c++) {
++            if (Character.getType((char) c) == Character.CONNECTOR_PUNCTUATION) {
++                NAME_CHARS[c] = START_CHAR | PART_CHAR;
++            }
++        }
++    }
++
++    /** Whether {@code c} may stand first in a name. */
++    public static boolean isNameStartChar(char c) {
++        return (NAME_CHARS[c] & START_CHAR) != 0;
++    }
++
++    /** Whether {@code c} may stand after the first character of a name. */
++    public static boolean isNamePartChar(char c) {
++        return (NAME_CHARS[c] & PART_CHAR) != 0;
++    }
++
++    /**
+      * If str is a decimal presentation of Uint32 value, return it as long.
+      * Otherwise, return -1L;
+      */
+diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java
+--- a/src/com/google/javascript/jscomp/NodeUtil.java
++++ b/src/com/google/javascript/jscomp/NodeUtil.java
+@@ -25,6 +25,7 @@
+ import com.google.javascript.rhino.InputId;
+ import com.google.javascript.rhino.JSDocInfo;
+ import com.google.javascript.rhino.Node;
++import com.google.javascript.rhino.ScriptRuntime;
+ import com.google.javascript.rhino.Token;
+ import com.google.javascript.rhino.TokenStream;
+ import com.google.javascript.rhino.jstype.FunctionType;
+@@ -2441,18 +2442,40 @@
+    * Determines whether the given name is a valid variable name.
+    */
+   static boolean isValidSimpleName(String name) {
+-    return TokenStream.isJSIdentifier(name) &&
+-        !TokenStream.isKeyword(name) &&
+-        // no Unicode escaped characters - some browsers are less tolerant
+-        // of Unicode characters that might be valid according to the
+-        // language spec.
+-        // Note that by this point, Unicode escapes have been converted
+-        // to UTF-16 characters, so we're only searching for character
+-        // values, not escapes.
+-        isLatin(name);
++    return isSimpleNameChars(name) && !TokenStream.isKeyword(name);
+   }
+ 
+   /**
++   * Determines whether every character of the given name may be written in a
++   * name, and the first of them may stand first.
++   *
++   * Only Basic Latin is accepted: some browsers are less tolerant of Unicode
++   * characters that might be valid according to the language spec. Note that
++   * by this point, Unicode escapes have been converted to UTF-16 characters,
++   * so we're only searching for character values, not escapes.
++   */
++  static boolean isSimpleNameChars(String name) {
++    int length = name.length();
++    if (length == 0) {
++      return false;
++    }
++
++    char first = name.charAt(0);
++    if (first > LARGEST_BASIC_LATIN || !ScriptRuntime.isNameStartChar(first)) {
++      return false;
++    }
++
++    for (int i = 1; i < length; i++) {
++      char c = name.charAt(i);
++      if (c > LARGEST_BASIC_LATIN || !ScriptRuntime.isNamePartChar(c)) {
++        return false;
++      }
++    }
++
++    return true;
++  }
++
++  /**
+    * Determines whether the given name is a valid qualified name.
+    */
+   // TODO(nicksantos): This should be moved into a "Language" API,
+diff --git a/src/com/google/javascript/jscomp/CodeGenerator.java b/src/com/google/javascript/jscomp/CodeGenerator.java
+--- a/src/com/google/javascript/jscomp/CodeGenerator.java
++++ b/src/com/google/javascript/jscomp/CodeGenerator.java
+@@ -21,7 +21,6 @@
+ import com.google.common.collect.Maps;
+ import com.google.javascript.rhino.Node;
+ import com.google.javascript.rhino.Token;
+-import com.google.javascript.rhino.TokenStream;
+ 
+ import java.io.IOException;
+ import java.nio.charset.Charset;
+@@ -350,10 +349,9 @@
+ 
+         // Add the property name.
+         if (!n.isQuotedString() &&
+-            TokenStream.isJSIdentifier(name) &&
+             // do not encode literally any non-literal characters that were
+             // Unicode escaped.
+-            NodeUtil.isLatin(name)) {
++            NodeUtil.isSimpleNameChars(name)) {
+           add(name);
+         } else {
+           // Determine if the string is a simple number.
+@@ -683,11 +681,9 @@
+             // Object literal property names don't have to be quoted if they
+             // are not JavaScript keywords
+             if (!c.isQuotedString() &&
+-                !TokenStream.isKeyword(key) &&
+-                TokenStream.isJSIdentifier(key) &&
+                 // do not encode literally any non-literal characters that
+                 // were Unicode escaped.
+-                NodeUtil.isLatin(key)) {
++                NodeUtil.isValidSimpleName(key)) {
+               add(key);
+             } else {
+               // Determine if the string is a simple number.

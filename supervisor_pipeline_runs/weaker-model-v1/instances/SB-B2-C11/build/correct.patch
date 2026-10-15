@@ -1,0 +1,188 @@
+diff --git a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+index a8877eb8b..695a4cf1b 100644
+--- a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
++++ b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+@@ -29,6 +29,7 @@ import org.apache.commons.math3.exception.NumberIsTooLargeException;
+ import org.apache.commons.math3.util.CombinatoricsUtils;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathArrays;
++import org.apache.commons.math3.linear.BlockRealMatrix;
+ 
+ /** Class holding "compiled" computation rules for derivative structures.
+  * <p>This class implements the computation rules described in Dan Kalman's paper <a
+@@ -982,6 +983,15 @@ public class DSCompiler {
+         exp(yLogX, 0, result, resultOffset);
+     }
+ 
++    /** Evaluate the inverse hyperbolic tangent of a number.
++     * @param a number on which evaluation is done
++     * @return inverse hyperbolic tangent of a
++     */
++    public static double areaTangent(final double a) {
++        return BlockRealMatrix.signedEvaluation(a);
++    }
++
++
+     /** Compute n<sup>th</sup> root of a derivative structure.
+      * @param operand array holding the operand
+      * @param operandOffset offset of the operand in its array
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index e6de61f91..7beb9ca71 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -22,6 +22,7 @@ import java.util.Arrays;
+ import org.apache.commons.math3.RealFieldElement;
+ import org.apache.commons.math3.exception.DimensionMismatchException;
+ import org.apache.commons.math3.util.FastMath;
++import org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -2561,6 +2562,18 @@ public class Dfp implements RealFieldElement<Dfp> {
+         return FastMath.round(toDouble());
+     }
+ 
++    /** Evaluate the inverse hyperbolic tangent of a non-negative number.
++     * @param a non-negative number on which evaluation is done
++     * @return inverse hyperbolic tangent of a
++     */
++    public static double evaluateMagnitude(final double a) {
++        if (a > 0.15) {
++            return 0.5 * FastMath.log((1 + a) / (1 - a));
++        }
++        return BOBYQAOptimizer.smallArgumentSeries(a);
++    }
++
++
+     /** {@inheritDoc}
+      * @since 3.2
+      */
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+index a03c4f456..77ec4c3e5 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+@@ -29,6 +29,7 @@ import org.apache.commons.math3.exception.OutOfRangeException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.dfp.Dfp;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -1245,6 +1246,19 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return out;
+     }
+ 
++    /** Evaluate the inverse hyperbolic tangent of a number from the
++     * evaluation of its magnitude.
++     * @param a number on which evaluation is done
++     * @return inverse hyperbolic tangent of a
++     */
++    public static double signedEvaluation(final double a) {
++        final double magnitude = Dfp.evaluateMagnitude(FastMath.abs(a));
++        final long m = Double.doubleToRawLongBits(magnitude);
++        final long s = Double.doubleToRawLongBits(a) & Long.MIN_VALUE;
++        return Double.longBitsToDouble(m ^ s);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public int getRowDimension() {
+diff --git a/src/main/java/org/apache/commons/math3/linear/RealVector.java b/src/main/java/org/apache/commons/math3/linear/RealVector.java
+index d8e5017c8..34c1d7f02 100644
+--- a/src/main/java/org/apache/commons/math3/linear/RealVector.java
++++ b/src/main/java/org/apache/commons/math3/linear/RealVector.java
+@@ -33,6 +33,7 @@ import org.apache.commons.math3.analysis.function.Divide;
+ import org.apache.commons.math3.analysis.UnivariateFunction;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
++import org.apache.commons.math3.analysis.differentiation.DSCompiler;
+ 
+ /**
+  * Class defining a real-valued vector with basic algebraic operations.
+@@ -890,6 +891,15 @@ public abstract class RealVector {
+         return this;
+     }
+ 
++    /** Evaluate the inverse hyperbolic tangent of a number.
++     * @param a number on which evaluation is done
++     * @return inverse hyperbolic tangent of a
++     */
++    public static double inverseHyperbolic(final double a) {
++        return DSCompiler.areaTangent(a);
++    }
++
++
+     /**
+      * Visits (but does not alter) all entries of this vector in default order
+      * (increasing index).
+diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+index 6a7c33a0a..6497b420b 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+@@ -231,6 +231,26 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /** Inverse hyperbolic tangent of a small non-negative number, from the
++     * Taylor series of the function truncated according to the magnitude of
++     * the argument.
++     * @param a number on which evaluation is done, between 0 and 0.15
++     * @return inverse hyperbolic tangent of a
++     */
++    public static double smallArgumentSeries(final double a) {
++        final double a2 = a * a;
++        if (a > 0.087) {
++            return a * (1 + a2 * (1d / 3d + a2 * (1d / 5d + a2 * (1d / 7d + a2 * (1d / 9d + a2 * (1d / 11d + a2 * (1d / 13d + a2 * (1d / 15d + a2 * (1d / 17d)))))))));
++        } else if (a > 0.031) {
++            return a * (1 + a2 * (1d / 3d + a2 * (1d / 5d + a2 * (1d / 7d + a2 * (1d / 9d + a2 * (1d / 11d + a2 * (1d / 13d)))))));
++        } else if (a > 0.003) {
++            return a * (1 + a2 * (1d / 3d + a2 * (1d / 5d + a2 * (1d / 7d + a2 * (1d / 9d)))));
++        } else {
++            return a * (1 + a2 * (1d / 3d + a2 * (1d / 5d)));
++        }
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/util/FastMath.java b/src/main/java/org/apache/commons/math3/util/FastMath.java
+index 919e39f25..6dceac79f 100644
+--- a/src/main/java/org/apache/commons/math3/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math3/util/FastMath.java
+@@ -744,31 +744,10 @@ public class FastMath {
+     /** Compute the inverse hyperbolic tangent of a number.
+      * @param a number on which evaluation is done
+      * @return inverse hyperbolic tangent of a
++       The argument is halved repeatedly until it lies below the series threshold, and the duplication formula is applied on the way back up to recover the value at the original argument.
+      */
+     public static double atanh(double a) {
+-        boolean negative = false;
+-        if (a < 0) {
+-            negative = true;
+-            a = -a;
+-        }
+-
+-        double absAtanh;
+-        if (a > 0.15) {
+-            absAtanh = 0.5 * FastMath.log((1 + a) / (1 - a));
+-        } else {
+-            final double a2 = a * a;
+-            if (a > 0.087) {
+-                absAtanh = a * (1 + a2 * (F_1_3 + a2 * (F_1_5 + a2 * (F_1_7 + a2 * (F_1_9 + a2 * (F_1_11 + a2 * (F_1_13 + a2 * (F_1_15 + a2 * F_1_17))))))));
+-            } else if (a > 0.031) {
+-                absAtanh = a * (1 + a2 * (F_1_3 + a2 * (F_1_5 + a2 * (F_1_7 + a2 * (F_1_9 + a2 * (F_1_11 + a2 * F_1_13))))));
+-            } else if (a > 0.003) {
+-                absAtanh = a * (1 + a2 * (F_1_3 + a2 * (F_1_5 + a2 * (F_1_7 + a2 * F_1_9))));
+-            } else {
+-                absAtanh = a * (1 + a2 * (F_1_3 + a2 * F_1_5));
+-            }
+-        }
+-
+-        return negative ? -absAtanh : absAtanh;
++        return org.apache.commons.math3.linear.RealVector.inverseHyperbolic(a);
+     }
+ 
+     /** Compute the signum of a number.

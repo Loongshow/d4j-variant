@@ -1,0 +1,147 @@
+{
+  "schema_version": "d4j-fl-submission/v1",
+  "ok": true,
+  "tool": "submit_fault_localization",
+  "prediction_count": 10,
+  "predictions": [
+    {
+      "rank": 1,
+      "class": "org.apache.commons.lang3.time.DateUtils",
+      "method": "offsetMinuteField"
+    },
+    {
+      "rank": 2,
+      "class": "org.apache.commons.lang3.time.FastDatePrinter",
+      "method": "appendZoneOffset"
+    },
+    {
+      "rank": 3,
+      "class": "org.apache.commons.lang3.time.DateFormatUtils",
+      "method": "appendHourMinute"
+    },
+    {
+      "rank": 4,
+      "class": "org.apache.commons.lang3.time.FastDatePrinter$TimeZoneNumberRule",
+      "method": "appendTo"
+    },
+    {
+      "rank": 5,
+      "class": "org.apache.commons.lang3.CharUtils",
+      "method": "appendTwoDigits"
+    },
+    {
+      "rank": 6,
+      "class": "org.apache.commons.lang3.time.FastDatePrinter",
+      "method": "parsePattern"
+    },
+    {
+      "rank": 7,
+      "class": "org.apache.commons.lang3.time.FastDatePrinter",
+      "method": "format"
+    },
+    {
+      "rank": 8,
+      "class": "org.apache.commons.lang3.time.FastDateFormat",
+      "method": "format"
+    },
+    {
+      "rank": 9,
+      "class": "org.apache.commons.lang3.time.DateFormatUtils",
+      "method": "format"
+    },
+    {
+      "rank": 10,
+      "class": "org.apache.commons.lang3.time.FormatCache",
+      "method": "getInstance"
+    }
+  ],
+  "evidence_chain": [
+    {
+      "evidence": "Failing assertion expected west offset '-03:30' but observed '-03:-0'.",
+      "inference_summary": "The sign and hour are correct; the negative offset minute field is being passed or rendered with a negative value.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.time.DateUtils::offsetMinuteField",
+        "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset",
+        "org.apache.commons.lang3.time.DateFormatUtils::appendHourMinute"
+      ],
+      "references": [
+        {
+          "file": "failing_tests",
+          "line_start": 1,
+          "line_end": 3
+        }
+      ]
+    },
+    {
+      "evidence": "DateUtils.offsetMinuteField computes totalMinutes % 60; Java remainder is negative for negative offsets despite javadoc saying result is always 0..59.",
+      "inference_summary": "For GMT-03:30 this returns -30, explaining the '-0' minute tens digit when later formatted as two digits.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.time.DateUtils::offsetMinuteField"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+          "line_start": 674,
+          "line_end": 688
+        }
+      ]
+    },
+    {
+      "evidence": "FastDatePrinter.appendZoneOffset writes the offset sign and absolute hour, then passes DateUtils.offsetMinuteField(offsetMillis) to DateFormatUtils.appendHourMinute.",
+      "inference_summary": "This is the direct timezone numeric formatting method on the failing 'ZZ' path.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.time.FastDatePrinter::appendZoneOffset"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+          "line_start": 1153,
+          "line_end": 1175
+        }
+      ]
+    },
+    {
+      "evidence": "DateFormatUtils.appendHourMinute delegates the minute field to CharUtils.appendTwoDigits without normalization; CharUtils.appendTwoDigits is documented for values 0..99 and receives -30 in the failing path.",
+      "inference_summary": "These rendering helpers are plausible secondary locations, but the upstream minute value is the stronger suspect.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.time.DateFormatUtils::appendHourMinute",
+        "org.apache.commons.lang3.CharUtils::appendTwoDigits"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java",
+          "line_start": 325,
+          "line_end": 342
+        },
+        {
+          "file": "src/main/java/org/apache/commons/lang3/CharUtils.java",
+          "line_start": 542,
+          "line_end": 556
+        }
+      ]
+    },
+    {
+      "evidence": "Pattern 'ZZ' is mapped in FastDatePrinter.parsePattern to TimeZoneNumberRule.INSTANCE_COLON; TimeZoneNumberRule.appendTo obtains calendar zone and DST offsets then calls appendZoneOffset.",
+      "inference_summary": "The failing feature reaches the offset-formatting helpers through this rule selection and append method.",
+      "candidate_methods": [
+        "org.apache.commons.lang3.time.FastDatePrinter::parsePattern",
+        "org.apache.commons.lang3.time.FastDatePrinter$TimeZoneNumberRule::appendTo"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+          "line_start": 265,
+          "line_end": 270
+        },
+        {
+          "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+          "line_start": 1209,
+          "line_end": 1212
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "submitted_at": "2026-10-12T11:52:48Z"
+}

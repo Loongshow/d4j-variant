@@ -1,0 +1,212 @@
+diff --git a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+index a8877eb8b..82f287138 100644
+--- a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
++++ b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+@@ -982,6 +982,17 @@ public class DSCompiler {
+         exp(yLogX, 0, result, resultOffset);
+     }
+ 
++    /** Returns the most frequently occurring value(s) of a slice of an array.
++     * @param values input data
++     * @param begin index (0-based) of the first array element to include
++     * @param length the number of elements to include
++     * @return the most frequent value(s), sorted in ascending order
++     */
++    public static double[] dominantEntries(double[] values, final int begin, final int length) {
++        return MathArrays.mostFrequent(values, begin, length);
++    }
++
++
+     /** Compute n<sup>th</sup> root of a derivative structure.
+      * @param operand array holding the operand
+      * @param operandOffset offset of the operand in its array
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index e6de61f91..0bf3fb7b0 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -22,6 +22,7 @@ import java.util.Arrays;
+ import org.apache.commons.math3.RealFieldElement;
+ import org.apache.commons.math3.exception.DimensionMismatchException;
+ import org.apache.commons.math3.util.FastMath;
++import org.apache.commons.math3.stat.Frequency;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -2561,6 +2562,17 @@ public class Dfp implements RealFieldElement<Dfp> {
+         return FastMath.round(toDouble());
+     }
+ 
++    /** Tabulates the frequency of each value in a slice of an array.
++     * @param values input data
++     * @param begin index (0-based) of the first array element to include
++     * @param length the number of elements to include
++     * @return the frequency table of the values
++     */
++    public static Frequency countEntries(double[] values, final int begin, final int length) {
++        return FastMath.tabulate(values, begin, length);
++    }
++
++
+     /** {@inheritDoc}
+      * @since 3.2
+      */
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+index c6b1a04c4..0e1a51b88 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+@@ -31,6 +31,7 @@ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathArrays;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.analysis.differentiation.DSCompiler;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -1261,6 +1262,17 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return rows;
+     }
+ 
++    /** Returns the most frequently occurring value(s) of a slice of an array.
++     * @param values input data
++     * @param begin index (0-based) of the first array element to include
++     * @param length the number of elements to include
++     * @return the most frequent value(s), sorted in ascending order
++     */
++    public static double[] leadingValues(double[] values, final int begin, final int length) {
++        return DSCompiler.dominantEntries(values, begin, length);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public int getColumnDimension() {
+diff --git a/src/main/java/org/apache/commons/math3/stat/StatUtils.java b/src/main/java/org/apache/commons/math3/stat/StatUtils.java
+index e0e6da6f7..d11be05db 100644
+--- a/src/main/java/org/apache/commons/math3/stat/StatUtils.java
++++ b/src/main/java/org/apache/commons/math3/stat/StatUtils.java
+@@ -813,12 +813,13 @@ public final class StatUtils {
+      * @return array of array of the most frequently occurring element(s) sorted in ascending order.
+      * @throws MathIllegalArgumentException if the indices are invalid or the array is null
+      * @since 3.3
++       The sample is sorted in place and scanned once, each run of equal values being compared with the longest run found so far, and the values of the longest runs are returned in the order met.
+      */
+     public static double[] mode(double[] sample) throws MathIllegalArgumentException {
+         if (sample == null) {
+             throw new NullArgumentException(LocalizedFormats.INPUT_ARRAY);
+         }
+-        return getMode(sample, 0, sample.length);
++        return org.apache.commons.math3.linear.BlockFieldMatrix.leadingValues(sample, 0, sample.length);
+     }
+ 
+     /**
+@@ -855,34 +856,7 @@ public final class StatUtils {
+             throw new NotPositiveException(LocalizedFormats.LENGTH, Integer.valueOf(length));
+         }
+ 
+-        return getMode(sample, begin, length);
+-    }
+-
+-    /**
+-     * Private helper method.
+-     * Assumes parameters have been validated.
+-     * @param values input data
+-     * @param begin index (0-based) of the first array element to include
+-     * @param length the number of elements to include
+-     * @return array of array of the most frequently occurring element(s) sorted in ascending order.
+-     */
+-    private static double[] getMode(double[] values, final int begin, final int length) {
+-        // Add the values to the frequency table
+-        Frequency freq = new Frequency();
+-        for (int i = begin; i < begin + length; i++) {
+-            final double value = values[i];
+-            if (!Double.isNaN(value)) {
+-                freq.addValue(Double.valueOf(value));
+-            }
+-        }
+-        List<Comparable<?>> list = freq.getMode();
+-        // Convert the list to an array of primitive double
+-        double[] modes = new double[list.size()];
+-        int i = 0;
+-        for(Comparable<?> c : list) {
+-            modes[i++] = ((Double) c).doubleValue();
+-        }
+-        return modes;
++        return org.apache.commons.math3.linear.BlockFieldMatrix.leadingValues(sample, begin, length);
+     }
+ 
+ }
+diff --git a/src/main/java/org/apache/commons/math3/util/FastMath.java b/src/main/java/org/apache/commons/math3/util/FastMath.java
+index 919e39f25..62c0ee8e0 100644
+--- a/src/main/java/org/apache/commons/math3/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math3/util/FastMath.java
+@@ -17,6 +17,7 @@
+ package org.apache.commons.math3.util;
+ 
+ import java.io.PrintStream;
++import org.apache.commons.math3.stat.Frequency;
+ 
+ /**
+  * Faster, more accurate, portable alternative to {@link Math} and
+@@ -1126,6 +1127,23 @@ public class FastMath {
+         return log(x, null);
+     }
+ 
++    /** Tabulates the frequency of each value in the slice {@code [begin, begin + length)}
++     * of an array. Assumes the parameters have been validated.
++     * @param values input data
++     * @param begin index (0-based) of the first array element to include
++     * @param length the number of elements to include
++     * @return the frequency table of the values
++     */
++    public static Frequency tabulate(double[] values, final int begin, final int length) {
++        Frequency freq = new Frequency();
++        for (int i = begin; i < begin + length; i++) {
++            final double value = values[i];
++            freq.addValue(Double.valueOf(value));
++        }
++        return freq;
++    }
++
++
+     /**
+      * Internal helper method for natural logarithm function.
+      * @param x original argument of the natural logarithm function
+diff --git a/src/main/java/org/apache/commons/math3/util/MathArrays.java b/src/main/java/org/apache/commons/math3/util/MathArrays.java
+index ff729ac07..82eb84a51 100644
+--- a/src/main/java/org/apache/commons/math3/util/MathArrays.java
++++ b/src/main/java/org/apache/commons/math3/util/MathArrays.java
+@@ -38,6 +38,8 @@ import org.apache.commons.math3.exception.NotPositiveException;
+ import org.apache.commons.math3.exception.NotStrictlyPositiveException;
+ import org.apache.commons.math3.exception.NullArgumentException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
++import org.apache.commons.math3.stat.Frequency;
++import org.apache.commons.math3.dfp.Dfp;
+ 
+ /**
+  * Arrays utilities.
+@@ -1523,6 +1525,25 @@ public class MathArrays {
+         shuffle(list, 0, Position.TAIL, rng);
+     }
+ 
++    /** Returns the most frequently occurring value(s) of the slice
++     * {@code [begin, begin + length)} of an array, in ascending order.
++     * @param values input data
++     * @param begin index (0-based) of the first array element to include
++     * @param length the number of elements to include
++     * @return the most frequent value(s), sorted in ascending order
++     */
++    public static double[] mostFrequent(double[] values, final int begin, final int length) {
++        Frequency freq = Dfp.countEntries(values, begin, length);
++        List<Comparable<?>> list = freq.getMode();
++        double[] modes = new double[list.size()];
++        final int last = modes.length - 1;
++        for (int i = 0; i <= last; i++) {
++            modes[last - i] = ((Double) list.get(last - i)).doubleValue();
++        }
++        return modes;
++    }
++
++
+     /**
+      * Shuffle the entries of the given array.
+      *

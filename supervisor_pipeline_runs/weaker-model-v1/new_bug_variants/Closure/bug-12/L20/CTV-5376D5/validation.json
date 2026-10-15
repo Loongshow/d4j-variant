@@ -1,0 +1,273 @@
+{
+ "schema_version": "d4j-validation/v1",
+ "variant_id": "CTV-5376D5",
+ "status": "accepted",
+ "validator_version": "ownership-displacement/v1",
+ "validator_toolchain": {
+  "validator": "ownership-displacement/v1 (recipe 14, with all of 13 still applying)",
+  "jdk": "OpenJDK 11 (Homebrew openjdk@11)",
+  "ant": "Apache Ant (major/bin/ant)",
+  "test_runner": "defects4j test",
+  "host": "darwin arm64",
+  "bytecode_verification": "javap -c -p on build/classes after every compile; touched .class files deleted before every compile"
+ },
+ "validated_at": "2026-09-18T03:45:00Z",
+ "gate": {
+  "baseline_compile": {
+   "status": "pass",
+   "evidence": "pristine copy of workspaces/defects4j/Closure-12/fixed: defects4j compile OK (validation.log)"
+  },
+  "baseline_trigger": {
+   "status": "pass",
+   "evidence": "validation.log: pristine copy, full defects4j test -> Failing tests: 0 over 7614 tests"
+  },
+  "buggy_state_reproduced": {
+   "status": "pass",
+   "evidence": "framework/projects/Closure/patches/12.src.patch applied to a separate copy, MaybeReachingVariableUse.class deleted, recompiled: Failing tests: 1 - testIssue794b, failing_tests md5 a72397d6aa484367690b4e7f3bb7f761"
+  },
+  "variant_compile": {
+   "status": "pass",
+   "evidence": "MaybeReachingVariableUse.class and MaybeReachingVariableUse$*.class deleted, defects4j compile OK; javap -c -p shows the private method redefineIfLocal(String, Node, Node, ReachingUses) in the class and an invokespecial to it from computeMayUse"
+  },
+  "variant_trigger_runs": [
+   {
+    "run": 1,
+    "status": "expected_fail",
+    "signature": "Failing tests: 1\n  - com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testIssue794b",
+    "evidence": "validation.log determinism run 1; failing_tests md5 a72397d6aa484367690b4e7f3bb7f761"
+   },
+   {
+    "run": 2,
+    "status": "expected_fail",
+    "signature": "Failing tests: 1\n  - com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testIssue794b",
+    "evidence": "validation.log determinism run 2; failing_tests md5 a72397d6aa484367690b4e7f3bb7f761"
+   },
+   {
+    "run": 3,
+    "status": "expected_fail",
+    "signature": "Failing tests: 1\n  - com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testIssue794b",
+    "evidence": "validation.log determinism run 3; failing_tests md5 a72397d6aa484367690b4e7f3bb7f761"
+   }
+  ],
+  "deterministic": {
+   "status": "pass",
+   "evidence": "3/3 byte-identical failing_tests (md5 a72397d6aa484367690b4e7f3bb7f761) on the work copy and 3/3 identical again on a fresh copy rebuilt from variant.patch"
+  },
+  "original_regressions": {
+   "status": "pass",
+   "evidence": "full defects4j test on the variant: Failing tests: 1 - exactly framework/projects/Closure/trigger_tests/12; collateral 0 over the 7614-test suite"
+  },
+  "production_fault": {
+   "status": "pass",
+   "evidence": "only src/com/google/javascript/jscomp/MaybeReachingVariableUse.java changes; test.patch empty; diff -rq over the whole src and test trees against the pristine checkout lists that one file"
+  },
+  "gold_method_known": {
+   "status": "pass",
+   "gold": "com.google.javascript.jscomp.MaybeReachingVariableUse::redefineIfLocal",
+   "evidence": "private void redefineIfLocal(String, Node, Node, ReachingUses) present in the variant source and in the compiled bytecode"
+  },
+  "fault_isolated_in_gold": {
+   "status": "pass",
+   "evidence": "on a separate copy, replacing the gold's nullable-site convention with the boolean form the rest of the file uses - suppress the kill when conditional, always walk the right hand side - and changing nothing else returns the full suite to Failing tests: 0. That gold-restored copy is the base of the counterfactual sweep."
+  },
+  "causal_displacement": {
+   "status": "pass",
+   "evidence": "the gold is not the method the failing test invokes; causal distance 5 (test -> FlowSensitiveInlineVariables.enterScope/Candidate.canInline -> MaybeReachingVariableUse.analyze -> flowThrough -> computeMayUse -> redefineIfLocal). The gold is private, has one caller, and that caller is a private method in its own file."
+  },
+  "ownership_displacement": {
+   "status": "pass",
+   "state": "MaybeReachingVariableUse.ReachingUses#mayUseMap",
+   "decision_site": "FlowSensitiveInlineVariables.Candidate#canInline (uses.size() != 1) via MaybeReachingVariableUse#getUses - byte-identical to the fixed revision",
+   "other_executed_writers": 4,
+   "evidence": "coverage of the trigger marks addToUseIfLocal, removeFromUseIfLocal, ReachingUsesJoinOp#apply and the ReachingUses copy constructor as executed; all four are byte-identical to the fixed revision and each was independently mutated in the sweep (D7, D8, D9, D11). Grepping the state name mayUseMap lists six sites in one file, none of which is wrong on its own."
+  },
+  "local_plausibility": {
+   "status": "pass",
+   "evidence": "cold read of the gold in isolation: a nullable definition site documented with the package's own sentence ('{@code null} if this is a conditional define', copied from MustBeReachingVariableDef#addToDefIfLocal), an early return for the null case, then the kill and the walk of the right hand side. It is correct code for a must-analysis. Its wrongness is a property of the analysis it sits in and is invisible without comparing the two analyses' contracts."
+  },
+  "causal_dependency_audit": {
+   "status": "pass",
+   "evidence": "no no-op wrapper, no pure rename, no forwarding-only layer. The gold performs two distinct effects under one guard and deleting it changes behaviour. Measured: the gold-restored copy (same structure, correct convention) is green on the full suite, so the structure is behaviour-preserving and the fault is exactly the convention."
+  },
+  "test_preservation": {
+   "status": "pass",
+   "evidence": "same trigger, same assertion (assertNull at CompilerTestCase.java:892), same expected value, same failure class; test.patch is empty and the test tree is byte-identical to the fixed revision"
+  },
+  "lexical_decoupling": {
+   "status": "pass",
+   "verdict": "DECOUPLED",
+   "evidence": "lexgate.py on the rendered payload (test id + trigger source extracted from the workspace + the verbatim defects4j test -t output of this variant): verdict DECOUPLED, payload_tokens 118, scannable_reach [], one_hop_callers_named_in_payload [], gold_method_in_payload false, gold_class_in_payload false; --max-hits and --name-share left at their defaults. Full JSON shipped as lexgate.json."
+  },
+  "symptom_identity": {
+   "status": "pass",
+   "symptom_class": "T1",
+   "evidence": "the variant's failing_tests file is byte-identical (md5 a72397d6aa484367690b4e7f3bb7f761) to the file produced by the real Defects4J Closure-12 buggy revision built and run in the same environment; assertion text, Expected, Result and both printed AST trees included"
+  },
+  "counterfactual_decoys": {
+   "status": "pass",
+   "evidence": "11 hypotheses beside the gold, each mutated independently on a separate copy carrying the gold-restored variant (verified green on the full suite before the sweep), recompiled after deleting the touched .class: D1, D2, D3, D4, D5 and D6 reproduce the symptom class; D7, D8, D9, D10 and D11 were tested and do not. H=12, V=6. Mutation artifacts are private and are not shipped."
+  },
+  "fresh_copy_reproducibility": {
+   "status": "pass",
+   "evidence": "variant.patch applied with git apply on a fresh Closure-12f copy: --check clean, applied result byte-identical to the work copy, compile OK, 3/3 identical failing_tests with md5 a72397d6aa484367690b4e7f3bb7f761"
+  },
+  "method_catalog": {
+   "status": "pass_by_signature_check",
+   "caveat": "harness catalog builder not exported; adapter rebuilds the catalog at run time. The gold is a private method added by the variant, so it exists only in the variant's own catalog."
+  },
+  "patch_residue": {
+   "status": "pass",
+   "evidence": "package ships only variant.patch and an empty test.patch"
+  },
+  "vcs_isolation": {
+   "status": "deferred_to_adapter",
+   "evidence": "adapter strips VCS on workspace preparation"
+  },
+  "private_metadata_isolation": {
+   "status": "pass",
+   "evidence": "gates.mjs private_metadata_hits=[]; isolation guard PASS"
+  },
+  "source_integrity": {
+   "status": "deferred_to_run"
+  },
+  "leakage_scan": {
+   "status": "pass_with_exposure",
+   "evidence": "The rendered payload names neither com.google.javascript.jscomp.MaybeReachingVariableUse nor redefineIfLocal nor any production class that calls the gold. RECORDED COVARIATE (not a lexical exposure): the gold lives in the same file that the real Defects4J 12.src.patch edits, so an agent that has memorised the Defects4J answer for Closure-12 will open that file early. The design turns that into a cost rather than a shortcut: the method the real patch edits, hasExceptionHandler, is byte-identical to the fixed revision in this variant, so memorised knowledge lands on correct code. Any ranking analysis should still condition on file-level familiarity."
+  }
+ },
+ "blast_radius": {
+  "failing_tests_in_variant_full_suite": 1,
+  "d4j_trigger_set": [
+   "com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testIssue794b"
+  ],
+  "collateral": 0,
+  "suite_size": 7614
+ },
+ "difficulty_vector": {
+  "H": 12,
+  "V": 6,
+  "causal_distance": 5,
+  "cross_file_hops": 3,
+  "abstraction_hops": 3,
+  "evidence_joins": 2,
+  "decoy_density": 0.5,
+  "lexical_exposure": {
+   "verdict": "DECOUPLED",
+   "gold": "src/com/google/javascript/jscomp/MaybeReachingVariableUse.java#redefineIfLocal",
+   "gold_span": [
+    294,
+    301
+   ],
+   "payload_tokens": 118,
+   "keyword_reach": [
+    {
+     "token": "Node",
+     "total_hits": 5927,
+     "scannable": false,
+     "gold_lines": [
+      "294"
+     ]
+    }
+   ],
+   "scannable_reach": [],
+   "one_hop_callers_named_in_payload": [],
+   "name_exposure": {
+    "gold_method_in_payload": false,
+    "declarations_of_that_name": 1,
+    "name_is_identifying": false,
+    "gold_class_in_payload": false
+   },
+   "max_hits": 40
+  }
+ },
+ "decoys": [
+  {
+   "id": "D1",
+   "method": "com.google.javascript.jscomp.MaybeReachingVariableUse#hasExceptionHandler",
+   "why_plausible": "It is the one place the may-use analysis asks the control flow graph whether a statement can be abandoned; every downstream decision about that statement follows from its answer. It is also the method the real Defects4J patch for Closure-12 edits, so a reader who has memorised the bug checks it first.",
+   "mutation": "return true only when the FIRST outgoing edge is an ON_EX edge, instead of scanning all of them",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests byte-identical, md5 a72397d6aa484367690b4e7f3bb7f761; its own blast radius is 1, exactly the trigger set, so it is a live alternative of the same quality as the gold and is shipped correct in this variant",
+   "result": "reproduces_symptom"
+  },
+  {
+   "id": "D2",
+   "method": "com.google.javascript.jscomp.MaybeReachingVariableUse#flowThrough",
+   "why_plausible": "It is the only bridge between the graph-level abrupt-exit flag and the transfer function; the flag exists nowhere else in the analysis.",
+   "mutation": "thread the abrupt-exit flag only for variable declarations (conditional && n.isVar()), so an assignment statement inside a try block is treated as unconditional",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests byte-identical, md5 a72397d6aa484367690b4e7f3bb7f761; its own blast radius is 1, exactly the trigger set",
+   "result": "reproduces_symptom"
+  },
+  {
+   "id": "D3",
+   "method": "com.google.javascript.jscomp.MaybeReachingVariableUse#getUses",
+   "why_plausible": "It is the query the inliner actually calls; the in/out choice for a backward analysis is a classic direction-convention slip and it reads the same shared lattice the gold writes.",
+   "mutation": "answer the query from the node's in state instead of its out state",
+   "counterfactual": "reproduces the symptom class (validated, T2): same test, same assertion statement at CompilerTestCase.java:892, different result tree (`var x = 1` survives, `x = x + 1` is still inlined); own blast radius 39",
+   "result": "reproduces_symptom"
+  },
+  {
+   "id": "D4",
+   "method": "com.google.javascript.jscomp.ControlFlowAnalysis#mayThrowException",
+   "why_plausible": "It decides whether a statement is wired to a handler at all; a reviewer who believes a plain assignment cannot throw would move that case.",
+   "mutation": "move case Token.ASSIGN out of the returns-true group and into the returns-false group next to Token.FUNCTION",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests byte-identical, md5 a72397d6aa484367690b4e7f3bb7f761; own blast radius 3, extra ['com.google.javascript.jscomp.LiveVariableAnalysisTest::testExceptionThrowingAssignments', 'com.google.javascript.jscomp.UnreachableCodeEliminationTest::testRemoveUnreachableCode']",
+   "result": "reproduces_symptom"
+  },
+  {
+   "id": "D5",
+   "method": "com.google.javascript.jscomp.ControlFlowAnalysis#connectToPossibleExceptionHandler",
+   "why_plausible": "It is the producer of every ON_EX edge in the graph; a statement never connected to its catch block cannot be recognised as protected by any consumer.",
+   "mutation": "initialise the running jump cursor to null instead of to the cfg node, so the first enclosing handler is recorded in the finally map instead of getting an ON_EX edge",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests byte-identical, md5 a72397d6aa484367690b4e7f3bb7f761; own blast radius 17 (ControlFlowAnalysisTest, CheckUnreachableCodeTest, CoalesceVariableNamesTest, TypeInferenceTest, UnreachableCodeEliminationTest, LiveVariableAnalysisTest)",
+   "result": "reproduces_symptom"
+  },
+  {
+   "id": "D6",
+   "method": "com.google.javascript.jscomp.FlowSensitiveInlineVariables.Candidate#canInline",
+   "why_plausible": "It is the decision site itself and holds the exactly-one-use rule; a weakened bound there produces exactly the observed behaviour.",
+   "mutation": "relax the exactly-one-use test from uses.size() != 1 to uses.isEmpty()",
+   "counterfactual": "reproduces the symptom class (validated): failing_tests byte-identical, md5 a72397d6aa484367690b4e7f3bb7f761; own blast radius 5, extra ['com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testInlineExpressions11', 'com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testInlineExpressions13', 'com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testMultiUse', 'com.google.javascript.jscomp.FlowSensitiveInlineVariablesTest::testIssue777']",
+   "result": "reproduces_symptom"
+  },
+  {
+   "id": "D7",
+   "method": "com.google.javascript.jscomp.MaybeReachingVariableUse#addToUseIfLocal",
+   "why_plausible": "It is the writer that records a use at all and it writes the same shared lattice as the gold; a variable whose reads are never recorded would look inlinable.",
+   "mutation": "invert the escaped-variable guard so only escaped variables have their uses recorded",
+   "counterfactual": "does not reproduce (tested): the use set becomes empty rather than a singleton, so the exactly-one-use rule still refuses the inline and the trigger passes (Failing tests: 0 for the trigger)",
+   "result": "does_not_reproduce"
+  },
+  {
+   "id": "D8",
+   "method": "com.google.javascript.jscomp.MaybeReachingVariableUse#removeFromUseIfLocal",
+   "why_plausible": "It is the kill half of the transfer function and the second writer of the shared lattice; an over-eager kill is the shortest description of the observed symptom.",
+   "mutation": "invert the escaped-variable guard so the kill fires only for escaped variables",
+   "counterfactual": "does not reproduce (tested): this makes the analysis strictly more conservative, so the trigger passes",
+   "result": "does_not_reproduce"
+  },
+  {
+   "id": "D9",
+   "method": "com.google.javascript.jscomp.MaybeReachingVariableUse.ReachingUsesJoinOp#apply",
+   "why_plausible": "It is the lattice join and the third writer of the shared state; a join that loses an input would lose the use flowing in from the branch that leaves the try block.",
+   "mutation": "return a copy of the first input instead of the union of all inputs",
+   "counterfactual": "does not reproduce (tested): the protected statement's two successors - its normal successor and the catch block, which falls through to the same statement - carry the same use set here, so dropping one input changes nothing at that node and the trigger passes",
+   "result": "does_not_reproduce"
+  },
+  {
+   "id": "D10",
+   "method": "com.google.javascript.jscomp.MustBeReachingVariableDef#computeMustDef",
+   "why_plausible": "It supplies the definition node the use query is asked about, and it is the class whose null-site convention the gold borrows, so it is the natural place to look once the convention is suspected.",
+   "mutation": "record the cfg node for a conditional assignment instead of recording bottom",
+   "counterfactual": "does not reproduce (tested): every candidate this fabricates is still rejected by canInline's side-effect check on the definition's right hand side, so the trigger passes",
+   "result": "does_not_reproduce"
+  },
+  {
+   "id": "D11",
+   "method": "com.google.javascript.jscomp.MaybeReachingVariableUse.ReachingUses#ReachingUses(ReachingUses)",
+   "why_plausible": "It is the copy constructor, the fourth writer of the shared lattice; the transfer function starts from it at every node.",
+   "mutation": "create an empty multimap instead of copying the incoming one",
+   "counterfactual": "does not reproduce (tested): the use set collapses to empty rather than to a singleton, so no inline happens and the trigger passes",
+   "result": "does_not_reproduce"
+  }
+ ]
+}

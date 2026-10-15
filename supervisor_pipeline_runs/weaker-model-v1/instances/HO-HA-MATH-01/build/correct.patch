@@ -1,0 +1,200 @@
+diff --git a/src/main/java/org/apache/commons/math3/distribution/EnumeratedDistribution.java b/src/main/java/org/apache/commons/math3/distribution/EnumeratedDistribution.java
+index 96d52875b..4a6dbc385 100644
+--- a/src/main/java/org/apache/commons/math3/distribution/EnumeratedDistribution.java
++++ b/src/main/java/org/apache/commons/math3/distribution/EnumeratedDistribution.java
+@@ -30,6 +30,8 @@ import org.apache.commons.math3.exception.NullArgumentException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.random.RandomGenerator;
+ import org.apache.commons.math3.random.Well19937c;
++import org.apache.commons.math3.stat.Frequency;
++import org.apache.commons.math3.stat.descriptive.summary.Sum;
+ import org.apache.commons.math3.util.MathArrays;
+ import org.apache.commons.math3.util.Pair;
+ 
+@@ -126,6 +128,25 @@ public class EnumeratedDistribution<T> implements Serializable {
+         probabilities = MathArrays.normalizeArray(probs, 1.0);
+     }
+ 
++    /**
++     * Returns the transport cost of histogram {@code a} against histogram
++     * {@code b}, two arrays of masses over the same unit-spaced bins, as
++     * evaluated over the bins that hold mass.
++     * <p>
++     * The bins that hold mass in either histogram are first listed with
++     * {@link Frequency#occupiedBins(double[], double[])}; the value returned is
++     * exactly {@link Sum#carriedCost(double[], double[], int[])} applied to
++     * {@code a}, {@code b} and that list.
++     * </p>
++     *
++     * @param a masses of the first histogram, one entry per bin
++     * @param b masses of the second histogram, at least as long as {@code a}
++     * @return the transport cost
++     */
++    public static double transportCost(final double[] a, final double[] b) {
++        return Sum.carriedCost(a, b, Frequency.occupiedBins(a, b));
++    }
++
+     /**
+      * Reseed the random generator used to generate samples.
+      *
+diff --git a/src/main/java/org/apache/commons/math3/ml/distance/EarthMoversDistance.java b/src/main/java/org/apache/commons/math3/ml/distance/EarthMoversDistance.java
+index c36b24d32..b2257079c 100644
+--- a/src/main/java/org/apache/commons/math3/ml/distance/EarthMoversDistance.java
++++ b/src/main/java/org/apache/commons/math3/ml/distance/EarthMoversDistance.java
+@@ -16,7 +16,7 @@
+  */
+ package org.apache.commons.math3.ml.distance;
+ 
+-import org.apache.commons.math3.util.FastMath;
++import org.apache.commons.math3.distribution.EnumeratedDistribution;
+ 
+ /**
+  * Calculates the Earh Mover's distance (also known as Wasserstein metric) between two distributions.
+@@ -31,15 +31,15 @@ public class EarthMoversDistance implements DistanceMeasure {
+     /** Serializable version identifier. */
+     private static final long serialVersionUID = -5406732779747414922L;
+ 
+-    /** {@inheritDoc} */
++    /**
++     * {@inheritDoc}
++     * <p>
++     * The arrays are read as histograms over the same unit-spaced bins, and the
++     * value returned is the one computed by
++     * {@link EnumeratedDistribution#transportCost(double[], double[])}.
++     * </p>
++     */
+     public double compute(double[] a, double[] b) {
+-        double lastDistance = 0;
+-        double totalDistance = 0;
+-        for (int i = 0; i < a.length; i++) {
+-            final double currentDistance = (a[i] + lastDistance) - b[i];
+-            totalDistance += FastMath.abs(currentDistance);
+-            lastDistance = currentDistance;
+-        }
+-        return totalDistance;
++        return EnumeratedDistribution.transportCost(a, b);
+     }
+ }
+diff --git a/src/main/java/org/apache/commons/math3/stat/Frequency.java b/src/main/java/org/apache/commons/math3/stat/Frequency.java
+index 0f663d79b..526924672 100644
+--- a/src/main/java/org/apache/commons/math3/stat/Frequency.java
++++ b/src/main/java/org/apache/commons/math3/stat/Frequency.java
+@@ -533,6 +533,32 @@ public class Frequency implements Serializable {
+ 
+     //----------------------------------------------------------------------------------------------
+ 
++    /**
++     * Returns the indices of the bins that hold mass in at least one of two
++     * histograms over the same bins.
++     * <p>
++     * Index {@code i} is listed exactly when {@code a[i] != 0} or
++     * {@code b[i] != 0}, for {@code 0 <= i < a.length}. The indices are returned
++     * in increasing order; bins that are empty in both histograms are left out.
++     * </p>
++     *
++     * @param a masses of the first histogram, one entry per bin
++     * @param b masses of the second histogram, at least as long as {@code a}
++     * @return the indices of the occupied bins, in increasing order
++     */
++    public static int[] occupiedBins(final double[] a, final double[] b) {
++        final int[] bins = new int[a.length];
++        int count = 0;
++        for (int i = 0; i < a.length; i++) {
++            if (a[i] != 0 || b[i] != 0) {
++                bins[count++] = i;
++            }
++        }
++        final int[] occupied = new int[count];
++        System.arraycopy(bins, 0, occupied, 0, count);
++        return occupied;
++    }
++
+     /**
+      * Merge another Frequency object's counts into this instance.
+      * This Frequency's counts will be incremented (or set when not already set)
+diff --git a/src/main/java/org/apache/commons/math3/stat/descriptive/summary/Sum.java b/src/main/java/org/apache/commons/math3/stat/descriptive/summary/Sum.java
+index 9efca68a6..f1ddf94bd 100644
+--- a/src/main/java/org/apache/commons/math3/stat/descriptive/summary/Sum.java
++++ b/src/main/java/org/apache/commons/math3/stat/descriptive/summary/Sum.java
+@@ -21,6 +21,7 @@ import java.io.Serializable;
+ import org.apache.commons.math3.exception.MathIllegalArgumentException;
+ import org.apache.commons.math3.exception.NullArgumentException;
+ import org.apache.commons.math3.stat.descriptive.AbstractStorelessUnivariateStatistic;
++import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
+ 
+ 
+@@ -207,6 +208,40 @@ public class Sum extends AbstractStorelessUnivariateStatistic implements Seriali
+         return result;
+     }
+ 
++    /**
++     * Returns the cost of carrying the running surplus of histogram {@code a}
++     * over histogram {@code b} along a row of bins spaced one unit apart.
++     * <p>
++     * The listed bins are visited in increasing order with a surplus that starts
++     * at 0. At bin {@code j} the surplus becomes {@code (a[j] + surplus) - b[j]},
++     * and it is then carried from {@code j} to the next listed bin, or to index
++     * {@code a.length} after the last listed bin. Carrying it costs its absolute
++     * value for every unit step travelled, that is
++     * {@code |surplus| * (next - j)}. The method returns the sum of these costs.
++     * </p>
++     * <p>
++     * Bins missing from {@code bins} are expected to be empty in both
++     * histograms: the surplus passes through them unchanged, so each of them adds
++     * one more unit step to the trip that crosses it.
++     * </p>
++     *
++     * @param a masses of the first histogram, one entry per bin
++     * @param b masses of the second histogram, at least as long as {@code a}
++     * @param bins indices of the bins that hold mass, in increasing order
++     * @return the total carrying cost
++     */
++    public static double carriedCost(final double[] a, final double[] b, final int[] bins) {
++        double surplus = 0;
++        double cost = 0;
++        for (int k = 0; k < bins.length; k++) {
++            final int j = bins[k];
++            final int next = k + 1 < bins.length ? bins[k + 1] : a.length;
++            surplus = (a[j] + surplus) - b[j];
++            cost += FastMath.abs(surplus) * (next - j);
++        }
++        return cost;
++    }
++
+     /**
+      * Copies source to dest.
+      * <p>Neither source nor dest can be null.</p>
+diff --git a/src/test/java/org/apache/commons/math3/ml/distance/EarthMoversDistanceTest.java b/src/test/java/org/apache/commons/math3/ml/distance/EarthMoversDistanceTest.java
+index 01d1e7977..e4cfa55cb 100644
+--- a/src/test/java/org/apache/commons/math3/ml/distance/EarthMoversDistanceTest.java
++++ b/src/test/java/org/apache/commons/math3/ml/distance/EarthMoversDistanceTest.java
+@@ -47,4 +47,12 @@ public class EarthMoversDistanceTest {
+ 		Assert.assertEquals(expected, distance.compute(a, b), 1e-10);
+ 		Assert.assertEquals(expected, distance.compute(b, a), 1e-10);
+ 	}
++
++
++	@Test
++	public void testSixBinHistograms() {
++		final double[] first = { 0.5, 0.0, 0.0, 0.5, 0.0, 0.0 };
++		final double[] second = { 0.0, 0.0, 0.5, 0.0, 0.0, 0.5 };
++		Assert.assertEquals(2.0, new EarthMoversDistance().compute(first, second), 1e-12);
++	}
+ }
+diff --git a/src/test/java/org/apache/commons/math3/stat/FrequencyTest.java b/src/test/java/org/apache/commons/math3/stat/FrequencyTest.java
+index efa0601eb..b45587cc3 100644
+--- a/src/test/java/org/apache/commons/math3/stat/FrequencyTest.java
++++ b/src/test/java/org/apache/commons/math3/stat/FrequencyTest.java
+@@ -431,4 +431,11 @@ public final class FrequencyTest {
+         }
+     }
+ 
++
++    @Test
++    public void testNonEmptyPositions() {
++        final double[] a = { 0, 2, 0, 0, 1.5, 0 };
++        final double[] b = { 0, 0, 0, 3, 0.5, 0 };
++        Assert.assertArrayEquals(new int[] { 1, 3, 4 }, Frequency.occupiedBins(a, b));
++    }
+ }

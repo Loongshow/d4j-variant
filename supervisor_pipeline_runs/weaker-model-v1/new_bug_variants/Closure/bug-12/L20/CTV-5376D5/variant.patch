@@ -1,0 +1,56 @@
+diff --git a/src/com/google/javascript/jscomp/MaybeReachingVariableUse.java b/src/com/google/javascript/jscomp/MaybeReachingVariableUse.java
+--- a/src/com/google/javascript/jscomp/MaybeReachingVariableUse.java
++++ b/src/com/google/javascript/jscomp/MaybeReachingVariableUse.java
+@@ -32,6 +32,8 @@
+ import java.util.List;
+ import java.util.Set;
+ 
++import javax.annotation.Nullable;
++
+ /**
+  * Computes "may be" reaching use for all definitions of each variables.
+  *
+@@ -230,16 +232,13 @@
+       default:
+         if (NodeUtil.isAssignmentOp(n) && n.getFirstChild().isName()) {
+           Node name = n.getFirstChild();
+-          if (!conditional) {
+-            removeFromUseIfLocal(name.getString(), output);
+-          }
++          Node defSite = conditional ? null : cfgNode;
++          redefineIfLocal(name.getString(), defSite, name.getNext(), output);
+ 
+           // In case of a += "Hello". There is a read of a.
+           if (!n.isAssign()) {
+             addToUseIfLocal(name.getString(), cfgNode, output);
+           }
+-
+-          computeMayUse(name.getNext(), cfgNode, output, conditional);
+         } else {
+           /*
+            * We want to traverse in reverse order because we want the LAST
+@@ -284,6 +283,24 @@
+   }
+ 
+   /**
++   * Replaces the upward exposed uses of the given name with the reads that the
++   * new value is computed from. Do nothing if the variable name is one of the
++   * escaped variable.
++   *
++   * @param node The CFG node where the definition should be record to.
++   *     {@code null} if this is a conditional define.
++   * @param rValue The expression the new value is computed from.
++   */
++  private void redefineIfLocal(String name, @Nullable Node node, Node rValue,
++      ReachingUses use) {
++    if (node == null) {
++      return;
++    }
++    removeFromUseIfLocal(name, use);
++    computeMayUse(rValue, node, use, false);
++  }
++
++  /**
+    * Gets a list of nodes that may be using the value assigned to {@code name}
+    * in {@code defNode}. {@code defNode} must be one of the control flow graph
+    * nodes.

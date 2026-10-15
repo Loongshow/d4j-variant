@@ -1,0 +1,430 @@
+{
+ "bug": "B3",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "per_cell": {
+  "C00": {
+   "iid": "SB-B3-C00",
+   "gold": "org.jfree.data.general.DatasetUtilities::signedSums",
+   "trigger_reproduced": "expected:<2.0> but was:<NaN> at DatasetUtilitiesTests.java:723 (NaN block; blocks 1-3 pass)",
+   "ownership_tests_pass_on_variant": true,
+   "gold_fix_passes_trigger_and_ownership_tests": true,
+   "path": [
+    "DatasetUtilities.findStackedRangeBounds(CategoryDataset,double) [facade]",
+    "DatasetUtilities.signedSums [gold, 1 call below]",
+    "DatasetUtilities.placeTotals(double[],double) [plain sibling]"
+   ],
+   "a_unique_contract_violation": true,
+   "a_reason": "Only signedSums returns something its javadoc forbids: for column C1 = {5, -1, null, NaN} 'the total of the negative values' is -1 but it returns NaN (the 'else' branch sums every non-positive value, NaN included). Every other method on the path returns exactly what its javadoc says for the input it receives (placeTotals/hop 3: base+sums; the fold: min/max of the limits; delegates: pass-through).",
+   "b_decoy_doc_issue": false,
+   "b_reason": "No non-gold javadoc contradicts its code or accommodates a NaN bound: the fold's 'returns the range' cannot be read as 'NaN is a bound', the sibling/hop-3 doc is a plain base+totals contract, hop 2/4 are documented pass-throughs.",
+   "d_leakage": false,
+   "d_reason": "Names (signedSums, placeTotals) are neutral, unused elsewhere, not on the forbidden list; no comment in any added line; no fault vocabulary (NaN/skip/guard/...). Facade guard changed from pristine 'minimum <= maximum' to 'categoryCount > 0' (equivalent for finite inputs; it is what turns the NaN into the assertion signature instead of an NPE); identical in all four cells.",
+   "e_factor_purity": true,
+   "f_odd_form_correct_and_pinned": true,
+   "odd_form": "n/a (plain sibling: bottom = base + sums[0])",
+   "c_competing_repair": false,
+   "c_bypass": true,
+   "c_reason": "Competing repair (W13): none. Every one-line edit at a non-gold method that keeps consuming the gold's totals fails: on the trigger input signedSums returns [NaN, 5.0]; NaN carries no information about the -1 that the expected lower bound 2.0 = 3 + (-1) needs, so a consumer can only propagate NaN (the variant), drop the bound (fold-skip and NaN-tolerant compare -> Range(Infinity, 8) IllegalArgumentException; pristine guard -> null -> NPE) or substitute a constant (NaN-as-empty, strict consumption, hop-2/hop-4 post-processing -> 3.0). Producing 2.0 requires recomputing the total from the dataset, which by W13 is a bypass. Bypass (W13): yes, at the facade fold line - minimum = Math.min(minimum, base + findMinimumStackedRangeValue(dataset).doubleValue()); passes the trigger and the ownership tests and the full suite (0 failures, run on C00); its NaN-fallback variant (Double.isNaN(limits[0]) ? base + findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]) likewise. Neither repairs the data path: limits[0] (the gold's negative total, placeTotals' bottom) becomes dead and is replaced by an unrelated existing method.",
+   "verdict_basis": "a true, b false, c_competing_repair false (c_bypass true, recorded), d false, e true, f true"
+  },
+  "C01": {
+   "iid": "SB-B3-C01",
+   "gold": "org.jfree.data.general.DatasetUtilities::signedSums",
+   "trigger_reproduced": "expected:<2.0> but was:<NaN> at DatasetUtilitiesTests.java:723 (NaN block; blocks 1-3 pass)",
+   "ownership_tests_pass_on_variant": true,
+   "gold_fix_passes_trigger_and_ownership_tests": true,
+   "path": [
+    "DatasetUtilities.findStackedRangeBounds(CategoryDataset,double) [facade]",
+    "DatasetUtilities.signedSums [gold, 1 call below]",
+    "DatasetUtilities.placeTotals(double[],double) [odd sibling]"
+   ],
+   "a_unique_contract_violation": true,
+   "a_reason": "Only signedSums returns something its javadoc forbids: for column C1 = {5, -1, null, NaN} 'the total of the negative values' is -1 but it returns NaN (the 'else' branch sums every non-positive value, NaN included). Every other method on the path returns exactly what its javadoc says for the input it receives (placeTotals/hop 3: base+sums; the fold: min/max of the limits; delegates: pass-through).",
+   "b_decoy_doc_issue": false,
+   "b_reason": "No non-gold javadoc contradicts its code or accommodates a NaN bound: the fold's 'returns the range' cannot be read as 'NaN is a bound', the sibling/hop-3 doc is a plain base+totals contract, hop 2/4 are documented pass-throughs.",
+   "d_leakage": false,
+   "d_reason": "Names (signedSums, placeTotals) are neutral, unused elsewhere, not on the forbidden list; no comment in any added line; no fault vocabulary (NaN/skip/guard/...). Same facade guard change as C00.",
+   "e_factor_purity": true,
+   "f_odd_form_correct_and_pinned": true,
+   "odd_form": "top = base + sums[1]; height = sums[1] - sums[0]; bottom = top - height. Algebraically base + sums[0]; exact in floating point for every input the trigger (base 3; sums (0,5), (-1,5)) and the ownership tests (base 0; sums (0,3), (0,15), (-2,1), (-1,2), (0,1), (-2,0), (0,0)) exercise (checked). Pinned outside its javadoc by the trigger's own passing blocks 2-3, by testFindStackedRangeBounds_CategoryDataset1 and both renderer testFindRangeBounds (through the second production caller StackedBarRenderer.findRangeBounds(getBase())). The 'top - height' idiom occurs nowhere else in the renderers, so the pin is tests + caller, not idiom. (Not exact for extreme magnitudes, e.g. base 0.1, sums (-0.3, 1e16) -> 0.0 vs -0.2; untested.)",
+   "c_competing_repair": false,
+   "c_bypass": true,
+   "c_reason": "Competing repair (W13): none. Every one-line edit at a non-gold method that keeps consuming the gold's totals fails: on the trigger input signedSums returns [NaN, 5.0]; NaN carries no information about the -1 that the expected lower bound 2.0 = 3 + (-1) needs, so a consumer can only propagate NaN (the variant), drop the bound (fold-skip and NaN-tolerant compare -> Range(Infinity, 8) IllegalArgumentException; pristine guard -> null -> NPE) or substitute a constant (NaN-as-empty, strict consumption, hop-2/hop-4 post-processing -> 3.0). Producing 2.0 requires recomputing the total from the dataset, which by W13 is a bypass. Bypass (W13): yes, at the facade fold line - minimum = Math.min(minimum, base + findMinimumStackedRangeValue(dataset).doubleValue()); passes the trigger and the ownership tests; its NaN-fallback variant (Double.isNaN(limits[0]) ? base + findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]) likewise. Neither repairs the data path: limits[0] (the gold's negative total, placeTotals' bottom) becomes dead and is replaced by an unrelated existing method.",
+   "verdict_basis": "a true, b false, c_competing_repair false (c_bypass true, recorded), d false, e true, f true"
+  },
+  "C10": {
+   "iid": "SB-B3-C10",
+   "gold": "org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::signedSums",
+   "trigger_reproduced": "expected:<2.0> but was:<NaN> at DatasetUtilitiesTests.java:723 (NaN block; blocks 1-3 pass)",
+   "ownership_tests_pass_on_variant": true,
+   "gold_fix_passes_trigger_and_ownership_tests": true,
+   "path": [
+    "DatasetUtilities.findStackedRangeBounds [facade, delegate + lie]",
+    "StandardChartTheme.extentOfCategories [hop 1, fold]",
+    "AbstractXYItemRenderer.categoryLimits [hop 2, delegate]",
+    "AbstractRenderer.placeTotals(dataset,column,base) [hop 3, plain]",
+    "ValueAxis.collectValues [hop 4, delegate]",
+    "AbstractCategoryItemRenderer.signedSums [hop 5 = gold]"
+   ],
+   "a_unique_contract_violation": true,
+   "a_reason": "Only signedSums returns something its javadoc forbids: for column C1 = {5, -1, null, NaN} 'the total of the negative values' is -1 but it returns NaN (the 'else' branch sums every non-positive value, NaN included). Every other method on the path returns exactly what its javadoc says for the input it receives (placeTotals/hop 3: base+sums; the fold: min/max of the limits; delegates: pass-through).",
+   "b_decoy_doc_issue": false,
+   "b_reason": "No non-gold javadoc contradicts its code or accommodates a NaN bound: the fold's 'returns the range' cannot be read as 'NaN is a bound', the sibling/hop-3 doc is a plain base+totals contract, hop 2/4 are documented pass-throughs. The facade lie (running totals per series across categories) describes a different algorithm but says nothing about NaN or bounds and the facade is a one-line delegate, so it does not make the facade a defensible fault site.",
+   "d_leakage": false,
+   "d_reason": "Names (signedSums, placeTotals, extentOfCategories, categoryLimits, collectValues) are neutral, unused elsewhere, not on the forbidden list; no comment in any added line; no fault vocabulary (NaN/skip/guard/...). Lie sentence is appended inside the facade javadoc WITHOUT the leading ' * ' (bare '       The bounds are gathered...' line between '@return' and '*/'): not in the file's documentation voice, marks the facade javadoc as edited; points at the facade, not at the gold or hop 3. Each of the five inserted methods is followed by two blank lines (host files have none/one such run) - uniform over all five hops, so it does not single out the gold.",
+   "e_factor_purity": true,
+   "f_odd_form_correct_and_pinned": true,
+   "odd_form": "n/a (plain hop 3)",
+   "c_competing_repair": false,
+   "c_bypass": true,
+   "c_reason": "Competing repair (W13): none. Every one-line edit at a non-gold method that keeps consuming the gold's totals fails: on the trigger input signedSums returns [NaN, 5.0]; NaN carries no information about the -1 that the expected lower bound 2.0 = 3 + (-1) needs, so a consumer can only propagate NaN (the variant), drop the bound (fold-skip and NaN-tolerant compare -> Range(Infinity, 8) IllegalArgumentException; pristine guard -> null -> NPE) or substitute a constant (NaN-as-empty, strict consumption, hop-2/hop-4 post-processing -> 3.0). Producing 2.0 requires recomputing the total from the dataset, which by W13 is a bypass. Bypass (W13): yes, at the hop-1 fold line (and hop 3) - minimum = Math.min(minimum, base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue()); passes the trigger and the ownership tests; its NaN-fallback variant (Double.isNaN(limits[0]) ? base + findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]) likewise. Neither repairs the data path: limits[0] (the gold's negative total, placeTotals' bottom) becomes dead and is replaced by an unrelated existing method.",
+   "verdict_basis": "a true, b false, c_competing_repair false (c_bypass true, recorded), d false, e true, f true"
+  },
+  "C11": {
+   "iid": "SB-B3-C11",
+   "gold": "org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::signedSums",
+   "trigger_reproduced": "expected:<2.0> but was:<NaN> at DatasetUtilitiesTests.java:723 (NaN block; blocks 1-3 pass)",
+   "ownership_tests_pass_on_variant": true,
+   "gold_fix_passes_trigger_and_ownership_tests": true,
+   "path": [
+    "DatasetUtilities.findStackedRangeBounds [facade, delegate + lie]",
+    "StandardChartTheme.extentOfCategories [hop 1, fold]",
+    "AbstractXYItemRenderer.categoryLimits [hop 2, delegate]",
+    "AbstractRenderer.placeTotals(dataset,column,base) [hop 3, odd]",
+    "ValueAxis.collectValues [hop 4, delegate]",
+    "AbstractCategoryItemRenderer.signedSums [hop 5 = gold]"
+   ],
+   "a_unique_contract_violation": true,
+   "a_reason": "Only signedSums returns something its javadoc forbids: for column C1 = {5, -1, null, NaN} 'the total of the negative values' is -1 but it returns NaN (the 'else' branch sums every non-positive value, NaN included). Every other method on the path returns exactly what its javadoc says for the input it receives (placeTotals/hop 3: base+sums; the fold: min/max of the limits; delegates: pass-through).",
+   "b_decoy_doc_issue": false,
+   "b_reason": "No non-gold javadoc contradicts its code or accommodates a NaN bound: the fold's 'returns the range' cannot be read as 'NaN is a bound', the sibling/hop-3 doc is a plain base+totals contract, hop 2/4 are documented pass-throughs. The facade lie (running totals per series across categories) describes a different algorithm but says nothing about NaN or bounds and the facade is a one-line delegate, so it does not make the facade a defensible fault site.",
+   "d_leakage": false,
+   "d_reason": "Names (signedSums, placeTotals, extentOfCategories, categoryLimits, collectValues) are neutral, unused elsewhere, not on the forbidden list; no comment in any added line; no fault vocabulary (NaN/skip/guard/...). Same lie formatting and double-blank-line artefacts as C10.",
+   "e_factor_purity": true,
+   "f_odd_form_correct_and_pinned": true,
+   "odd_form": "hop 3: top = base + sums[1]; height = sums[1] - sums[0]; return {top - height, top}. Same arithmetic and same pins as C01 (trigger blocks 2-3 with base 3, the three ownership tests, second caller StackedBarRenderer.findRangeBounds(getBase())); exact on all tested inputs.",
+   "c_competing_repair": false,
+   "c_bypass": true,
+   "c_reason": "Competing repair (W13): none. Every one-line edit at a non-gold method that keeps consuming the gold's totals fails: on the trigger input signedSums returns [NaN, 5.0]; NaN carries no information about the -1 that the expected lower bound 2.0 = 3 + (-1) needs, so a consumer can only propagate NaN (the variant), drop the bound (fold-skip and NaN-tolerant compare -> Range(Infinity, 8) IllegalArgumentException; pristine guard -> null -> NPE) or substitute a constant (NaN-as-empty, strict consumption, hop-2/hop-4 post-processing -> 3.0). Producing 2.0 requires recomputing the total from the dataset, which by W13 is a bypass. Bypass (W13): yes, at the hop-1 fold line (and hop 3) - minimum = Math.min(minimum, base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue()); passes the trigger and the ownership tests; its NaN-fallback variant (Double.isNaN(limits[0]) ? base + findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]) likewise. Neither repairs the data path: limits[0] (the gold's negative total, placeTotals' bottom) becomes dead and is replaced by an unrelated existing method.",
+   "verdict_basis": "a true, b false, c_competing_repair false (c_bypass true, recorded), d false, e true, f true"
+  }
+ },
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_factor_purity": true,
+ "f_odd_form_correct_and_pinned": true,
+ "alternative_repairs_tried": [
+  {
+   "cell": "C00",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "minimum = Double.isNaN(limits[0]) ? minimum : Math.min(minimum, limits[0]);  -> trigger throws IllegalArgumentException Range(Infinity, 8.0)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C01",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "minimum = Double.isNaN(limits[0]) ? minimum : Math.min(minimum, limits[0]);  -> trigger throws IllegalArgumentException Range(Infinity, 8.0)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C00",
+   "method": "DatasetUtilities.placeTotals (plain sibling)",
+   "edit": "double bottom = Double.isNaN(sums[0]) ? base : base + sums[0];  -> expected:<2.0> but was:<3.0> (the -1 is already lost in the NaN total)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C01",
+   "method": "DatasetUtilities.placeTotals (odd sibling)",
+   "edit": "double height = Double.isNaN(sums[0]) ? sums[1] : sums[1] - sums[0];  -> expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C00",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "if (minimum <= maximum) {  [pristine guard instead of categoryCount > 0]  -> result null, trigger NullPointerException",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C00",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "BYPASS: minimum = Math.min(minimum, base + findMinimumStackedRangeValue(dataset).doubleValue());  [replaces: minimum = Math.min(minimum, limits[0]);]  -> trigger passes; ownership tests pass; full Chart suite 0 failures (run on C00). Consistent with the facade's own javadoc; leaves signedSums/placeTotals returning NaN contrary to theirs.",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "bypass (limits[0] - the gold's negative total and placeTotals' bottom - becomes dead; recomputed by the unrelated existing method findMinimumStackedRangeValue)"
+  },
+  {
+   "cell": "C01",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "if (minimum <= maximum) {  [pristine guard instead of categoryCount > 0]  -> result null, trigger NullPointerException",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C01",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "BYPASS: minimum = Math.min(minimum, base + findMinimumStackedRangeValue(dataset).doubleValue());  [replaces: minimum = Math.min(minimum, limits[0]);]  -> trigger passes; ownership tests pass; full Chart suite 0 failures (run on C00). Consistent with the facade's own javadoc; leaves signedSums/placeTotals returning NaN contrary to theirs.",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "bypass (limits[0] - the gold's negative total and placeTotals' bottom - becomes dead; recomputed by the unrelated existing method findMinimumStackedRangeValue)"
+  },
+  {
+   "cell": "C10",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "minimum = Double.isNaN(limits[0]) ? minimum : Math.min(minimum, limits[0]);  -> IllegalArgumentException Range(Infinity, 8.0)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C11",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "minimum = Double.isNaN(limits[0]) ? minimum : Math.min(minimum, limits[0]);  -> IllegalArgumentException Range(Infinity, 8.0)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C10",
+   "method": "AbstractRenderer.placeTotals (hop 3, plain)",
+   "edit": "double bottom = Double.isNaN(sums[0]) ? base : base + sums[0];  -> expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C11",
+   "method": "AbstractRenderer.placeTotals (hop 3, odd)",
+   "edit": "double height = Double.isNaN(sums[0]) ? sums[1] : sums[1] - sums[0];  -> expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C10",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "if (minimum <= maximum) {  [pristine guard]  -> NullPointerException in the trigger",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C11",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "if (minimum <= maximum) {  [pristine guard]  -> NullPointerException in the trigger",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C10",
+   "method": "ValueAxis.collectValues (hop 4)",
+   "edit": "return new StackedAreaRenderer().getStackValues(dataset, dataset.getRowCount(), column);  -> does not compile (protected access); no other project method returns a column's signed sums",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C10",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "BYPASS: minimum = Math.min(minimum, base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue());  -> trigger passes; ownership tests pass. Consistent with hop 1's own javadoc; leaves hops 3-5 returning NaN contrary to theirs.",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "bypass (limits[0] - the gold's negative total and placeTotals' bottom - becomes dead; recomputed by the unrelated existing method findMinimumStackedRangeValue)"
+  },
+  {
+   "cell": "C11",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "BYPASS: minimum = Math.min(minimum, base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue());  -> trigger passes; ownership tests pass. Consistent with hop 1's own javadoc; leaves hops 3-5 returning NaN contrary to theirs.",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "bypass (limits[0] - the gold's negative total and placeTotals' bottom - becomes dead; recomputed by the unrelated existing method findMinimumStackedRangeValue)"
+  },
+  {
+   "cell": "C10",
+   "method": "AbstractRenderer.placeTotals (hop 3, plain)",
+   "edit": "BYPASS: double bottom = base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue();  -> trigger passes; ownership tests pass; but returns the dataset-wide minimum as every column's bottom, contradicting its own 'for one column' javadoc (unobserved by the tests because only the fold is asserted)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "bypass (sums[0], the gold's negative total, becomes dead; recomputed by an unrelated existing method; also contradicts hop 3's own per-column javadoc)"
+  },
+  {
+   "cell": "C11",
+   "method": "AbstractRenderer.placeTotals (hop 3, odd)",
+   "edit": "BYPASS: return new double[] {base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue(), top};  -> trigger passes; ownership tests pass; same per-column doc violation as C10 hop 3",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "bypass (sums[0], the gold's negative total, becomes dead; recomputed by an unrelated existing method; also contradicts hop 3's own per-column javadoc)"
+  },
+  {
+   "cell": "C10",
+   "method": "AbstractRenderer.placeTotals (hop 3, plain)",
+   "edit": "double bottom = base + (org.jfree.data.DataUtilities.calculateColumnTotal(dataset, column) - sums[1]);  -> expected:<2.0> but was:<NaN> (calculateColumnTotal does not skip NaN)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger)"
+  },
+  {
+   "cell": "C00",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "minimum = limits[0] < minimum ? limits[0] : minimum;  [NaN-tolerant fold that still consumes limits[0]]  -> java.lang.IllegalArgumentException: Range(double, double): require lower (Infinity) <= upper (8.0).",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C00",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "minimum = Math.min(minimum, Double.isNaN(limits[0]) ? base + findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]);  [consumes limits[0] when finite; on the trigger input limits[0] is NaN and is replaced]  trigger passes; ownership tests pass; full Chart suite 0 failures",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "bypass (conditional): on the trigger input limits[0] is NaN and is discarded, the lower bound is recomputed by the unrelated existing method findMinimumStackedRangeValue; the gold's documented output is replaced, not repaired (signedSums still returns NaN as 'the total of the negative values')"
+  },
+  {
+   "cell": "C00",
+   "method": "DatasetUtilities.placeTotals (plain sibling)",
+   "edit": "double bottom = base + (sums[0] < 0.0 ? sums[0] : 0.0);  [consumes sums[0] through a strict test]  -> junit.framework.AssertionFailedError: expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C01",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "minimum = limits[0] < minimum ? limits[0] : minimum;  -> java.lang.IllegalArgumentException: Range(double, double): require lower (Infinity) <= upper (8.0).",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C01",
+   "method": "DatasetUtilities.findStackedRangeBounds (facade)",
+   "edit": "minimum = Math.min(minimum, Double.isNaN(limits[0]) ? base + findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]);  trigger passes; ownership tests pass",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "bypass (conditional): on the trigger input limits[0] is NaN and is discarded, the lower bound is recomputed by the unrelated existing method findMinimumStackedRangeValue; the gold's documented output is replaced, not repaired (signedSums still returns NaN as 'the total of the negative values')"
+  },
+  {
+   "cell": "C01",
+   "method": "DatasetUtilities.placeTotals (odd sibling)",
+   "edit": "double height = sums[1] - (sums[0] < 0.0 ? sums[0] : 0.0);  -> junit.framework.AssertionFailedError: expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C10",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "minimum = limits[0] < minimum ? limits[0] : minimum;  -> java.lang.IllegalArgumentException: Range(double, double): require lower (Infinity) <= upper (8.0).",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C10",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "minimum = Math.min(minimum, Double.isNaN(limits[0]) ? base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]);  trigger passes; ownership tests pass",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "bypass (conditional): on the trigger input limits[0] is NaN and is discarded, the lower bound is recomputed by the unrelated existing method findMinimumStackedRangeValue; the gold's documented output is replaced, not repaired (signedSums still returns NaN as 'the total of the negative values')"
+  },
+  {
+   "cell": "C10",
+   "method": "AbstractRenderer.placeTotals (hop 3, plain)",
+   "edit": "double bottom = base + (sums[0] < 0.0 ? sums[0] : 0.0);  -> junit.framework.AssertionFailedError: expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C10",
+   "method": "AbstractXYItemRenderer.categoryLimits (hop 2)",
+   "edit": "return new double[] {Double.isNaN(AbstractRenderer.placeTotals(dataset, column, base)[0]) ? base : AbstractRenderer.placeTotals(dataset, column, base)[0], AbstractRenderer.placeTotals(dataset, column, base)[1]};  [post-processes hop 3's output]  -> junit.framework.AssertionFailedError: expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C10",
+   "method": "ValueAxis.collectValues (hop 4)",
+   "edit": "return new double[] {Double.isNaN(AbstractCategoryItemRenderer.signedSums(dataset, column)[0]) ? 0.0 : AbstractCategoryItemRenderer.signedSums(dataset, column)[0], AbstractCategoryItemRenderer.signedSums(dataset, column)[1]};  [post-processes the gold's output]  -> junit.framework.AssertionFailedError: expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C11",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "minimum = limits[0] < minimum ? limits[0] : minimum;  -> java.lang.IllegalArgumentException: Range(double, double): require lower (Infinity) <= upper (8.0).",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  },
+  {
+   "cell": "C11",
+   "method": "StandardChartTheme.extentOfCategories (hop 1)",
+   "edit": "minimum = Math.min(minimum, Double.isNaN(limits[0]) ? base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]);  trigger passes; ownership tests pass",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true,
+   "w13_class": "bypass (conditional): on the trigger input limits[0] is NaN and is discarded, the lower bound is recomputed by the unrelated existing method findMinimumStackedRangeValue; the gold's documented output is replaced, not repaired (signedSums still returns NaN as 'the total of the negative values')"
+  },
+  {
+   "cell": "C11",
+   "method": "AbstractRenderer.placeTotals (hop 3, odd)",
+   "edit": "double height = sums[1] - (sums[0] < 0.0 ? sums[0] : 0.0);  -> junit.framework.AssertionFailedError: expected:<2.0> but was:<3.0>",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "w13_class": "n/a (does not pass the trigger) - keeps consuming the gold's totals and therefore cannot recover the -1 lost in the NaN"
+  }
+ ],
+ "reasons": "CONFIRMED under the refined single-owner rule (AMENDMENTS W13): a = true, b = false, c_competing_repair = false, c_bypass = true (recorded), d = false, e = true, f = true in all four cells. (c) competing repair: NONE FOUND in 34 trials (20 original + 14 under W13; at least two refined-sense candidates per geometry: NaN-tolerant fold compare, strict consumption at the plain/odd sibling or hop 3, hop-2 and hop-4 post-processing of the upstream array, and the NaN-fallback fold). Every edit that keeps the gold's output in use fails the trigger (Range(Infinity, 8.0) IllegalArgumentException, NullPointerException, or expected:<2.0> but was:<3.0>), and this is forced, not accidental: signedSums returns [NaN, 5.0] on the trigger column {5, -1, null, NaN}, NaN carries no information about the -1 that the expected 2.0 = 3 + (-1) requires, and no method on the path transforms the dataset before the gold, so only an edit inside signedSums can make its documented output ('the total of the negative values') correct. (c) bypass: YES, in every cell. Exact edits, all passing the trigger and the three ownership tests: (i) facade fold line, C00/C01: `minimum = Math.min(minimum, base + findMinimumStackedRangeValue(dataset).doubleValue());` (full Chart suite 0 failures, run on C00); (ii) hop-1 fold line, C10/C11: `minimum = Math.min(minimum, base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue());`; (iii) hop 3, C10: `double bottom = base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue();` and C11: `return new double[] {base + org.jfree.data.general.DatasetUtilities.findMinimumStackedRangeValue(dataset).doubleValue(), top};` (these also contradict hop 3's own per-column javadoc); (iv) the conditional form at the same fold lines: `minimum = Math.min(minimum, Double.isNaN(limits[0]) ? base + findMinimumStackedRangeValue(dataset).doubleValue() : limits[0]);` (FQN in C10/C11; full suite 0 failures, run on C00). All discard limits[0]/sums[0] - the gold's and placeTotals' documented output becomes dead - and recompute the quantity with the pristine, unrelated DatasetUtilities.findMinimumStackedRangeValue (strict '< 0.0', so it skips NaN). They do not point at a fault location; recorded as a limitation per W13. Note the chain arm has two bypass sites (hop 1, hop 3) against the one-hop arm's one (facade). (a) true - only signedSums's documented output is wrong for its input; every other hop returns what its javadoc says for what it receives; NaN-skipping at the summation is pinned by the TableXYDataset overload, StackedAreaRenderer.getStackValues, the KeyToGroupMap overload, createStackedValueList and the existing trigger itself. (b) false - no non-gold javadoc contradicts its code or accommodates a NaN bound; the facade lie describes a different algorithm, says nothing about NaN, and the C10/C11 facade is a one-line delegate. (d) false - neutral unused names, no comments, no fault vocabulary; cosmetic only: the lie line lacks the ' * ' prefix (points at the facade) and each chain hop is followed by two blank lines (uniform over all five hops). (e) true - C00/C01 and C10/C11 differ only in placeTotals' three body lines (plus the git index line); the gold's javadoc+body is byte-identical in all four cells (sha256 d2bd494d...); gold 1 call below the facade in C00/C01, 5 in C10/C11; lie only in C10/C11; one shared non-declared change: fold guard 'minimum <= maximum' -> 'categoryCount > 0' (equivalent for finite inputs; it is what yields the NaN assertion signature rather than an NPE). (f) true - the odd form (top - height) equals base + sums[0] exactly on every tested input and is pinned by the trigger's own passing blocks (base 3), the three ownership tests and the second caller StackedBarRenderer.findRangeBounds(getBase()). This verdict supersedes the first write of this file (REJECTED on the pre-W13 reading of (c), where the bypass counted as an alternative repair).",
+ "notes": "Method: four scratch copies of construction/fresh/Chart per pass (two passes), variant.patch applied with git apply, defects4j compile, trigger reproduced in every copy ('expected:<2.0> but was:<NaN>', line 723), ownership tests run on every variant (all pass), gold fix (else -> if (v < 0.0)) applied in each cell: trigger and ownership tests pass. Each trial: one-line edit applied in the scratch copy, the edited source's class files deleted before recompiling, trigger + three ownership tests run, file restored and recompiled (an early driver version restored by mv and let ant skip recompilation; those runs were discarded and redone). W13 classification of every passing edit: 10 passing trials, all bypasses (fold replacement x4 cells, hop-3 replacement x2 cells, fold NaN-fallback x4 cells); 0 competing repairs. Refined-sense candidates tried (all fail): fold NaN-tolerant compare (C00, C01, C10, C11), strict consumption at the plain/odd sibling or hop 3 (C00, C01, C10, C11), hop-2 post-processing of placeTotals' array (C10), hop-4 post-processing of the gold's array (C10); plus the earlier fold-skip, NaN-as-empty, pristine-guard, hop-4 delegate (does not compile) and calculateColumnTotal (does not skip NaN) trials. Other observations, not grounds for rejection: the fixture contains Defects4J's own *.java.bak copies of three test files that differ from the live files only by D4J's flaky-method comment-outs; CRLF preserved in all patches; test.patch empty and identical (sha e3b0c442...) across cells; in C00/C01 the sibling placeTotals is called by the facade with the gold's output and in C10/C11 all four hops execute under the trigger. If the builder wants to close the bypass without a rebuild: a dataset whose only column holds just null values distinguishes them - the (correct) facade returns Range(base, base) while findMinimumStackedRangeValue returns null and every bypass form throws NullPointerException; no existing test exercises that input."
+}
