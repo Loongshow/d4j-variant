@@ -18,6 +18,7 @@ Only the model differs between blocks. Decisions and deviations are logged in or
 | Stage B (gpt-5.5) | Does a 5-hop chain with a facade lie, and/or an odd-looking correct hop, reduce Acc@1 on three fresh bugs? | `STAGE_B_DESIGN.md`, `STAGE_B_PREREGISTRATION.md`, `STAGE_B_RESULTS.md`, `SUPERVISOR_UPDATE_STAGE_B.md` |
 | Study 1 (gpt-5 timeouts, retrospective) | What caused gpt-5's ten held-out timeouts, and is the introduced ambiguity a plausible cause? | `gpt5-timeouts/GPT5_TIMEOUT_ANALYSIS.md`, `GPT5_AMBIGUITY_HYPOTHESIS.md`, `GPT5_TIMEOUT_MATCHED_COMPARISON.md`, `GPT5_TIMEOUT_RUN_INDEX.csv`, `GPT5_TIMEOUT_TIMELINES.csv`, `GPT5_TIMEOUT_BLIND_LABELS.json` |
 | Study 2 (Stage B on GPT-5.6) | Does the Stage B drop transfer to GPT-5.6 when only the model changes? | `stageB-gpt56/GPT56_STAGE_B_PREREGISTRATION.md`, `GPT56_STAGE_B_RESULTS.md`, `GPT55_VS_GPT56_STAGE_B.csv`, `GPT55_VS_GPT56_ANALYSIS.md`, `CROSS_MODEL_FAILURE_MODES.md`, `SUPERVISOR_UPDATE_STAGE_B_GPT56.md` |
+| Report to the supervisor (16 Oct 2026) | Both studies, with the decisions still needed | `stageB-gpt56/SUPERVISOR_REPORT_2026-10-16.md` (the report as sent), `stageB-gpt56/SUPERVISOR_QUESTIONS_2026-10-16.md` (open questions, English and Chinese) |
 
 ## Headline results
 

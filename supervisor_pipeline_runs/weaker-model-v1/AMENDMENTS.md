@@ -500,3 +500,18 @@ for replays and the 253 health probes.
   - the comparison of wrong and correct runs now uses the same-instance runs;
   - reasoning tokens are reported as a model-level offset;
   - the labellers' blinding is now stated as weaker, because the variant patch shows each run's cell structure.
+
+## W21 (2026-10-16): report sent to the supervisor; open questions recorded
+
+- The report on Studies 1 and 2 was sent to the supervisor as a web page. Its Markdown copy is
+  `stageB-gpt56/SUPERVISOR_REPORT_2026-10-16.md`. It supersedes `SUPERVISOR_UPDATE_STAGE_B_GPT56.md` as the letter actually sent;
+  the earlier draft is kept.
+- Before sending, four reviewer agents checked the report (numbers, faithfulness, readability, completeness), and a second round
+  re-checked the revised page. All figures match the verified study documents. Figures computed only for the report are marked
+  as such: the GPT-5.6 decomposition estimate of about $16–17, the per-project intervals, and the cost totals.
+- `stageB-gpt56/SUPERVISOR_QUESTIONS_2026-10-16.md` lists the 14 questions still open for the supervisor, in English and Chinese,
+  with sources. They were found by two independent sweeps of all documents and merged after a check against the sources.
+  - Items 1–3 block the next paid experiment: the decomposition's go/no-go and model, its factor set, and the budget ceiling after
+    the passed $40 check-in.
+- No experiment was run and no frozen file was changed.
+
