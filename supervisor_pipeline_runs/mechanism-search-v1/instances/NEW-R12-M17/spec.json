@@ -1,0 +1,103 @@
+{
+ "iid": "NEW-R12-M17",
+ "project": "JacksonCore",
+ "group": "NEW-R12",
+ "mechanism": "M17",
+ "recipe": "R12",
+ "tags": [
+  "M17"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+  "method": "nextToken",
+  "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+  "edits": [
+   {
+    "old": "_tokenInputCol = _inputPtr - _currInputRowStart - 1;",
+    "new": "_tokenInputCol = _inputPtr - _currInputRowStart;"
+   }
+  ]
+ },
+ "fault_lines": [
+  "_tokenInputCol = _inputPtr - _currInputRowStart;"
+ ],
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.core.base.ParserBase",
+   "method": "getTokenColumnNr",
+   "file": "src/main/java/com/fasterxml/jackson/core/base/ParserBase.java"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.base.ParserBase",
+   "method": "getTokenLocation",
+   "file": "src/main/java/com/fasterxml/jackson/core/base/ParserBase.java"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+   "method": "loadMore",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+   "method": "_skipLF",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java"
+  }
+ ],
+ "entry_points": [
+  "com.fasterxml.jackson.core.JsonFactory::createParser",
+  "com.fasterxml.jackson.core.JsonLocation::getColumnNr"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.core.json.UTF8StreamJsonParser::nextToken",
+  "com.fasterxml.jackson.core.json.UTF8StreamJsonParser::nextFieldName",
+  "com.fasterxml.jackson.core.json.TestJsonParser::testKeywords",
+  "com.fasterxml.jackson.core.base.ParserBase::getCurrentLocation",
+  "com.fasterxml.jackson.core.JsonLocation::getColumnNr"
+ ],
+ "ownership_reason": "ReaderBasedJsonParser.nextToken owns the fault. The field it writes is specified in ParserBase: _tokenInputCol is the 'Column on input row that current token starts; 0-based (although in the end it'll be converted to 1-based)', and that single 0-based to 1-based conversion is done for every parser by ParserBase.getTokenColumnNr (col + 1), whose result JsonLocation.getColumnNr documents as 1-based. When nextToken records the token start, _skipWSOrEnd has already consumed the token's first character, so _inputPtr is one past it and _inputPtr - _currInputRowStart is the number of characters of the row up to and including that character (the 1-based column), not the 0-based index the field holds. The variant stores that count, getTokenColumnNr adds its +1 on top, and every reader-parser token column is one too high (the first '[' reports column 2, 'true' at line 2 reports 4). The repository fixes the reading in several places: the byte-stream parser performs the same step with the subtraction (UTF8StreamJsonParser.nextToken and nextFieldName(SerializableString): _tokenInputCol = _inputPtr - _currInputRowStart - 1;), the char-offset assignment two lines above the gold line subtracts 1 for the same reason, and ParserBase.getCurrentLocation converts the index of the next unread character with + 1 ('1-based'). The competitors are correct and pinned: getTokenColumnNr and getTokenLocation are shared with UTF8StreamJsonParser, and the existing passing test TestJsonParser.testKeywords asserts column 1 for the first token of a byte-stream parser, so dropping the +1 (or subtracting 1 in getTokenLocation) breaks it; loadMore's row-start rebasing and _skipLF's row start each move only one line of the trigger (line 1 versus line 2), so neither can make both column assertions pass. Restoring '- 1' in nextToken alone makes the trigger pass with the full suite green; none of the declared one-line competitor edits does.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.core.json.TestJsonParser::testKeywords"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/com/fasterxml/jackson/core/json/TestJsonParser.java",
+  "test_class": "com.fasterxml.jackson.core.json.TestJsonParser",
+  "test_method": "testTokenColumnsAcrossLines",
+  "imports": [],
+  "code": "    public void testTokenColumnsAcrossLines() throws Exception\n    {\n        JsonParser jp = createParserUsingReader(\"[ [\\n  true ] ]\");\n        assertToken(JsonToken.START_ARRAY, jp.nextToken());\n        JsonLocation outer = jp.getTokenLocation();\n        assertToken(JsonToken.START_ARRAY, jp.nextToken());\n        JsonLocation inner = jp.getTokenLocation();\n        assertToken(JsonToken.VALUE_TRUE, jp.nextToken());\n        JsonLocation value = jp.getTokenLocation();\n        assertToken(JsonToken.END_ARRAY, jp.nextToken());\n        assertToken(JsonToken.END_ARRAY, jp.nextToken());\n        assertNull(jp.nextToken());\n        jp.close();\n\n        assertEquals(1, outer.getLineNr());\n        assertEquals(1, outer.getColumnNr());\n        assertEquals(1, inner.getLineNr());\n        assertEquals(3, inner.getColumnNr());\n        assertEquals(2, value.getLineNr());\n        assertEquals(3, value.getColumnNr());\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "expected:<1> but was:<2>",
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/base/ParserBase.java",
+   "old": "        return (col < 0) ? col : (col + 1);",
+   "new": "        return (col < 0) ? col : col;",
+   "why": "one-line decoy edit: getTokenColumnNr treats _tokenInputCol as already 1-based (no +1 conversion)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/base/ParserBase.java",
+   "old": "                                getTokenColumnNr());",
+   "new": "                                getTokenColumnNr() - 1);",
+   "why": "one-line decoy edit: getTokenLocation reports the column one lower"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "old": "        _currInputRowStart -= _inputEnd;",
+   "new": "        _currInputRowStart -= _inputEnd - 1;",
+   "why": "one-line decoy edit: loadMore rebases the row start one character later"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "old": "        ++_currInputRow;\n        _currInputRowStart = _inputPtr;\n    }\n\n    private int _skipWS()",
+   "new": "        ++_currInputRow;\n        _currInputRowStart = _inputPtr + 1;\n    }\n\n    private int _skipWS()",
+   "why": "one-line decoy edit: _skipLF starts the new row one character after the line feed"
+  }
+ ],
+ "variant_id": "CTV-5BB177",
+ "kind": "new",
+ "gold_key": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::nextToken"
+}

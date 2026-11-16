@@ -1,0 +1,94 @@
+{
+ "iid": "NEW-R7-M10",
+ "project": "Math",
+ "group": "NEW-R7",
+ "mechanism": "M10",
+ "tags": [
+  "M10"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.math3.stat.ranking.NaturalRanking",
+  "method": "containsNaNs",
+  "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+  "edits": [
+   {
+    "old": "    private boolean containsNaNs(IntDoublePair[] ranks) {\n        for (int i = 0; i < ranks.length; i++) {",
+    "new": "    private boolean containsNaNs(IntDoublePair[] ranks) {\n        for (int i = 0; i < ranks.length - 1; i++) {"
+   }
+  ]
+ },
+ "fault_lines": [
+  "for (int i = 0; i < ranks.length - 1; i++) {"
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+   "old": "            case FAILED:\n                nanPositions = getNanPositions(ranks);\n                if (nanPositions.size() > 0) {\n                    throw new NotANumberException();\n                }\n                break;",
+   "new": "            case FAILED:\n                if (containsNaNs(ranks)) {\n                    throw new NotANumberException();\n                }\n                break;",
+   "purpose": "behaviour-preserving refactor of the FAILED branch of the entry rank(): test for NaNs with the existing containsNaNs helper instead of building a position list that is never read afterwards (nanPositions is only read for FIXED); throws iff a NaN is present, exactly as before. Gives containsNaNs a second production caller so the FAILED half of the trigger pins ownership (owner invariance)."
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math3.stat.ranking.NaturalRanking",
+   "method": "removeNaNs",
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.math3.stat.ranking.NaturalRanking::rank"
+ ],
+ "evidence": [
+  "org.apache.commons.math3.stat.ranking.NaturalRanking::getNanPositions",
+  "org.apache.commons.math3.stat.ranking.NaturalRanking::recodeNaNs",
+  "org.apache.commons.math3.stat.ranking.NaturalRankingTest::testNaNsRemovedTiesSequential",
+  "org.apache.commons.math3.stat.ranking.NaturalRankingTest::testNaNsFailed"
+ ],
+ "ownership_reason": "NaturalRanking.containsNaNs is the NaN guard consulted by removeNaNs (REMOVED) and, in this variant, by the FAILED branch of rank(). Its javadoc contract is 'true iff ranks contains one or more NaNs', but its scan stops at ranks.length - 1, so an input whose only NaN is in the last position is reported NaN-free: under REMOVED, removeNaNs returns the array unchanged and rank() ranks the NaN as the largest value (an extra trailing rank, length 6 instead of 5); under FAILED, rank() does not throw. removeNaNs is correct relative to that contract: its own removal pass visits every index, and the passing NaturalRankingTest.testNaNsRemovedTiesSequential shows it dropping NaNs at interior and trailing positions (exampleData: NaN at index 6 of 9; multipleNaNs: NaNs at indices 2 and 3) with correct shifts of the later positions. The entry rank() dispatches each NaNStrategy to the helper of that role and is pinned by testDefault and testNaNsFailed (FAILED throws for an interior NaN) and by the REMOVED test above; its validation and branching are unchanged in meaning (the FAILED context edit is proven behaviour-preserving by G1). The sibling scans getNanPositions and recodeNaNs in the same class iterate i < ranks.length. The trigger needs both callers of containsNaNs to see the trailing NaN (REMOVED drops it, FAILED throws), so no edit confined to removeNaNs or to rank() repairs it; the minimal repair restores the loop bound i < ranks.length in containsNaNs.",
+ "ownership_tests": [
+  "org.apache.commons.math3.stat.ranking.NaturalRankingTest::testNaNsRemovedTiesSequential",
+  "org.apache.commons.math3.stat.ranking.NaturalRankingTest::testNaNsFailed",
+  "org.apache.commons.math3.stat.ranking.NaturalRankingTest::testDefault"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/math3/stat/ranking/NaturalRankingTest.java",
+  "test_class": "org.apache.commons.math3.stat.ranking.NaturalRankingTest",
+  "test_method": "testNaNsRemovedThenFailed",
+  "code": "    @Test\n    public void testNaNsRemovedThenFailed() {\n        double[] data = { 8, 3, 5, 3, 9, Double.NaN };\n        NaturalRanking ranking = new NaturalRanking(NaNStrategy.REMOVED);\n        double[] ranks = ranking.rank(data);\n        double[] correctRanks = new double[] { 4, 1.5, 3, 1.5, 5 };\n        TestUtils.assertEquals(correctRanks, ranks, 0d);\n        ranking = new NaturalRanking(NaNStrategy.FAILED);\n        try {\n            ranking.rank(data);\n            Assert.fail(\"expected NotANumberException due to NaNStrategy.FAILED\");\n        } catch (NotANumberException e) {\n            // expected\n        }\n    }\n",
+  "imports": []
+ },
+ "extra_tests": [],
+ "expected_signature": "expected has length 5 observed length = 6",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+   "old": "        if (!containsNaNs(ranks)) {",
+   "new": "        if (ranks.length == 0) {",
+   "why": "one-line decoy edit: removeNaNs skips the containsNaNs shortcut and always runs its removal pass (the REMOVED half then passes, the FAILED half still does not throw)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+   "old": "ranks[k].getValue(), ranks[k].getPosition() - 1);",
+   "new": "ranks[k].getValue(), ranks[k].getPosition());",
+   "why": "one-line decoy edit: removeNaNs stops shifting the original positions of the elements after a dropped NaN"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+   "old": "                for (int k = i + 1; k < ranks.length; k++) {",
+   "new": "                for (int k = i; k < ranks.length; k++) {",
+   "why": "one-line decoy edit: removeNaNs starts the position shift at the dropped element itself"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+   "old": "                if (containsNaNs(ranks)) {",
+   "new": "                if (!getNanPositions(ranks).isEmpty()) {",
+   "why": "one-line entry edit: rank() validates FAILED through the full position scan (the FAILED half then passes, the REMOVED half still keeps the NaN)"
+  }
+ ],
+ "variant_id": "CTV-065313",
+ "kind": "new",
+ "gold_key": "org.apache.commons.math3.stat.ranking.NaturalRanking::containsNaNs"
+}

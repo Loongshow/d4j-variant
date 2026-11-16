@@ -1,0 +1,57 @@
+{
+ "iid": "HO-HB-COMPRESS-01",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.compress.utils.IOUtils::readValue (S)",
+   "edit": "return atEnd ? -1 : octet;  ->  return atEnd ? -1 : octet & 0xFF;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_passes": true,
+   "doc_consistent": false,
+   "note": "Behaviourally a full repair at E (probe {0xFF,0x80,0x41}: 255 128 65 -1). Own javadoc: plain reading contradicted ('it is returned as given', '@return ... otherwise octet'; it would return 233 when given -23). Under a strict design-by-contract reading, -23 violates S's stated precondition, so the mask is a defensive no-op on S's documented 0..255 domain and does not breach S's own contract. This is the weakest of the three. It is still not consistent with ALL documentation: TarUtils.octetAt would still return -23 for 0xE9 against its own 'never a negative value' postcondition, and S's precondition explicitly puts the obligation upstream."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.ArchiveInputStream::toReadValue (H3)",
+   "edit": "IOUtils.readValue(count == -1, octet)  ->  IOUtils.readValue(count == -1, octet & 0xFF)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_passes": true,
+   "doc_consistent": false,
+   "note": "Contradicts H3's own javadoc on the trigger input. H3 states no range precondition ('@param octet the byte the bulk read stored, as an int' admits -23), so the unconditional 'The octet is passed on unchanged' covers -23, and the mask changes it to 233. It also leaves G's postcondition violated."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarBuffer::readOne (H1)",
+   "edit": "TarUtils.octetAt(single, 0)  ->  TarUtils.octetAt(single, 0) & 0xFF",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_passes": true,
+   "doc_consistent": false,
+   "note": "Contradicts H1's own javadoc, which says it passes toReadValue 'the octet that TarUtils.octetAt gives for single[0]'. H1 states no precondition. It also leaves G's postcondition violated."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarArchiveInputStream::read() (E)",
+   "edit": "return TarBuffer.readOne(this, oneBuf);  ->  return TarBuffer.readOne(this, oneBuf) & 0xFF;",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "doc_consistent": false,
+   "note": "testEndMarkerMapping fails (expected:<-1> but was:<255>). It also contradicts '@return ... as TarBuffer.readOne gives it'."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarArchiveInputStream::read() (E)",
+   "edit": "return TarBuffer.readOne(this, oneBuf);  ->  return TarBuffer.readOne(this, oneBuf) == -1 ? -1 : oneBuf[0] & 0xFF;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false,
+   "note": "Incorrect: a data byte 0xFF still reads as -1, a premature end of stream (probe: -1 128 65 -1). It contradicts E's '@return ... as TarBuffer.readOne gives it' and leaves G violated."
+  }
+ ],
+ "reasons": "Trigger reproduced in a scratch copy (expected:<233> but was:<-23>). The full suite of 75 tests fails only the trigger, and testEndMarkerMapping passes on the variant. Restoring '& BYTE_MASK' in TarUtils.octetAt passes both. (a) On the trigger byte 0xE9, octetAt returns -23 although its javadoc says 'an int from 0 to 255 ... never a negative value'. Every other method on the path does exactly what its own javadoc says. E delegates ('as TarBuffer.readOne gives it'). H1 passes count and octetAt's value to toReadValue. H3 maps count -1 to the end flag and passes the octet on unchanged. S returns it as given; its stated precondition (0..255) is what the caller violates. The pristine methods read(byte[],int,int), getNextTarEntry and TarArchiveEntry/parseTarHeader behave correctly on the input. E's inherited InputStream.read() range contract is broken only as the symptom the test observes. (b) No decoy javadoc contradicts its code. No decoy promises the normalisation, and no precondition is stated outside S. (c) A 0xFF mask at S, H3 or H1 passes the trigger, the ownership test and the full suite; only the documentation separates these from the gold. H3's and H1's masks contradict their own unconditional javadocs. S's mask contradicts the plain wording 'returned as given', though under strict design-by-contract it is a no-op on S's documented domain. None of the three is consistent with ALL documentation, because each leaves octetAt still violating its own postcondition. E-level edits either fail the ownership test or are wrong for byte 0xFF and contradict E's javadoc. No correct sibling exists: no other one-byte unsigned accessor; ZipShort/ZipLong read 2/4 bytes; CpioUtil.byteArray2long is package-private and needs an even length. (d) Names (octetAt, readOne, toReadValue, readValue, testEntryByteValues, testEndMarkerMapping, entryArchive) are neutral, and no added comment names the defect. G's explicit postcondition is required by the recipe. (e) Recipe realised; see notes on the sink.",
+ "notes": "Sink judgement (e): S is 'return atEnd ? -1 : octet;', with javadoc 'The octet must already be an unsigned byte value from 0 to 255, so that it cannot be taken for the end marker -1; it is returned as given.' It does not OR into a field or accumulate. It places the value, as given, into the read() result domain it shares with the -1 sentinel. I judge that this satisfies the HB requirement and that the missing mask is visually plausible at S. The line is exactly the canonical Java single-byte read idiom 'n == -1 ? -1 : b & 0xFF' with the mask removed. That idiom appears verbatim in this codebase, in CpioArchiveInputStream.read() ('... == -1 ? -1 : this.singleByteBuf[0] & 0xff') and in the pristine body of TarArchiveInputStream.read() that the context edit replaced. S's summary invokes the InputStream.read() contract, its javadoc names the -1 collision that the mask normally prevents, and the -23 visibly leaves S unchanged. Two things weaken the cue: the parameter is an int named 'octet' rather than a byte, and the recipe's examples (bit insertion, unclamped add, indexing) are operations that use the value, whereas S only returns it. The recipe lists them 'for example', so I do not count this as a failure. Chain shape: the call graph is E->H1, H1->G, H1->H3->S. G does not call H3, but the value flows E->H1->G->H3->S across 5 classes in 3 packages, which I accept as the recipe's chain. Freshness: none of the gold, decoys or entry points appears in construction/USED_METHODS.txt (checked by targeted grep only). Weaknesses that do not change the verdict: (1) the declared G9 compensating edits (Math.abs at S, count<1 at H3, read(single) at H1, new byte[1] at E) are not the natural fault-shaped edits. The natural masks at S/H3/H1 do absorb the fault, which the builder disclosed; this absorbability is inherent to HB, and documentation, not tests, is what excludes them. (2) The ownership test calls S and H3 directly with 0xE9 next to the trigger, which exonerates them by elimination. (3) G's two-line body beside the explicit 'bytes 0x80 to 0xFF give 128 to 255, never a negative value' makes G easy to spot once opened, a ceiling risk rather than an audit failure. (4) H3's summary 'into the value that read() returns' faintly references the read() domain, but the following sentence 'The octet is passed on unchanged' disclaims normalisation. Scratch /private/tmp/mxb-dTGAlf deleted after the audit."
+}

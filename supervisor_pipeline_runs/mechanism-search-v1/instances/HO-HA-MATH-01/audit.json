@@ -1,0 +1,42 @@
+{
+ "iid": "HO-HA-MATH-01",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math3.stat.Frequency::occupiedBins",
+   "edit": "one line: 'if (a[i] != 0 || b[i] != 0) {' -> 'if (true) {' (list every bin, empty or not)",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.math3.distribution.EnumeratedDistribution::transportCost",
+   "edit": "replace Frequency.occupiedBins(a, b) with an all-indices array {0..a.length-1} built inline (3 lines; no one-line int-range helper such as MathArrays.natural exists in this Math version)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.math3.ml.distance.EarthMoversDistance::compute",
+   "edit": "inline the pristine 7-line per-bin loop instead of delegating to transportCost",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "Frequency::occupiedBins / EnumeratedDistribution::transportCost / EarthMoversDistance::compute",
+   "edit": "declared G9 edits (occupancy keyed on a only; argument swap in H1; argument swap in E), taken from validation.json G9 record, not re-run",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  }
+ ],
+ "reasons": "Reproduced: variant compiles, the trigger EarthMoversDistanceTest::testSixBinHistograms fails (1 failing test), and both ownership tests (FrequencyTest::testNonEmptyPositions, EarthMoversDistanceTest::test) pass. (a) Sum.carriedCost's javadoc fixes its value exactly: running surplus (a[j]+surplus)-b[j] at each listed bin, charged |surplus|*(next-j) up to the next listed bin or a.length, with unlisted bins stated to be empty and only crossed. Its code drops the (next-j) factor, giving 1.0 on bins {0,2,3,5} where its own doc gives 2.0 (0.5*2 + 0.5*2). That is a self-contained violation. Every other method on the path matches its own javadoc exactly. Frequency.occupiedBins lists i < a.length with a[i]!=0 || b[i]!=0 in increasing order, which gives {0,2,3,5}, and the new test pins this. EnumeratedDistribution.transportCost is documented as 'exactly Sum.carriedCost applied to a, b and' occupiedBins(a, b), and that is its whole body. EarthMoversDistance.compute's added method doc says it returns transportCost's value, and it does. (b) No decoy javadoc contradicts its code. H1's opening phrase 'as evaluated over the bins that hold mass' could, read in isolation, suggest a gap-collapsed cost, which equals 1.0 here. But the same sentence fixes 'unit-spaced bins', the second paragraph defines the value as exactly the H3 composition, and H3's doc independently requires 2.0. So the phrase cannot make H1 an owner or let H3 off. (c) Both requested alternatives fail on documentation. Making occupiedBins list every bin is one line and passes the trigger, but it contradicts occupiedBins' 'bins that are empty in both histograms are left out' and carriedCost's '@param bins indices of the bins that hold mass', and it fails testNonEmptyPositions. Passing all indices from transportCost passes the trigger and both ownership tests, because no test pins H1 on sparse input. But it takes 3 lines in Java 6 and contradicts H1's 'first listed with Frequency#occupiedBins ... exactly ... that list' and H3's @param bins precondition. Rewriting E contradicts E's method doc and is 7 lines. Apart from E, H1, H2 and H3 there is no other earth mover's distance or transport-cost implementation in src/main, no flag, and no correct sibling. (d) Method and test names are neutral (testSixBinHistograms, testNonEmptyPositions) and G2a/G2b pass. The fault leaves a plain 'cost += FastMath.abs(surplus);' that reads as complete. The only pointer to the gold is its own contract, which the recipe requires. (e) The HA structure is present. E is an existing public method with a small self-contained loop, and its body is now one delegation. H1 is in another package and composes H2 and H3, each in a further class. That is 4 classes in 4 packages (ml.distance, distribution, stat, stat.descriptive.summary). The gold is H3 and its fault quietly omits a step its javadoc promises. All helpers are public static in existing production classes. None of the gold, decoy, entry-point or host classes appears in USED_METHODS.txt.",
+ "notes": "G1 / upstream behaviour: I applied correct.patch to a fresh copy. The full dev suite gives 'Failing tests: 0'. I also ran a 2,000,000-case differential check of the pristine EMD loop against the CORRECT composition: random sparse arrays of length 0-11, including NaN, +/-Inf, -0.0, negative masses and mismatched b lengths. There were 0 value mismatches beyond rounding and 0 exception mismatches; b shorter than a still throws ArrayIndexOutOfBoundsException in the same cases. About 5% of cases differ in the last ulp (max relative difference 8.2e-16), because |s|*(next-j) replaces repeated additions of |s|. The builder disclosed this. It is mathematically behaviour-preserving and well inside the upstream test tolerance, so I do not count it as a G1 failure. Naturalness of the helper contracts: listing the union support of two histograms (H2) and computing a 1-D Wasserstein-1 cost over sparse support as sum |cumulative surplus| * gap width (H3) are standard formulations. The dependency, where gap weighting belongs to H3 because H2 omits doubly-empty bins, follows from the sparse decomposition and is not an artificial restriction, and H3's doc states the precondition explicitly. The contrived part is placement. Sum, Frequency and EnumeratedDistribution are loose semantic homes, and ml.distance now depends on distribution. That comes from the recipe's requirement for cross-package static helpers in existing classes, and it gives no decoy a defensible claim. Residual caveats, none decisive: E's class-level doc (Earth Mover's distance) is violated as observed, which is inherent to HA, while its method-level doc is satisfied. H1 is pinned on sparse input only by documentation, not by a test. The fault edit spans two adjacent lines (the 'next' local and the '* (next - j)' factor) in one hunk."
+}

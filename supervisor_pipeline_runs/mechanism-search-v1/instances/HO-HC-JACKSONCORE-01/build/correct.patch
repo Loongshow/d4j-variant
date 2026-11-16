@@ -1,0 +1,150 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonEncoding.java b/src/main/java/com/fasterxml/jackson/core/JsonEncoding.java
+index 75912e52..34e93dcb 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonEncoding.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonEncoding.java
+@@ -49,4 +49,24 @@ public enum JsonEncoding {
+      *   (or if not applicable)
+      */
+     public boolean isBigEndian() { return _bigEndian; }
++
++    /**
++     * Returns the supplementary code point (U+10000 to U+10FFFF) of a UTF-16
++     * surrogate pair, given its two parts as computed by
++     * {@link com.fasterxml.jackson.core.io.CharTypes}:
++     *<ul>
++     * <li>{@code highOffset}: the offset from the high surrogate to U+D800, the start
++     *   of the high-surrogate block; this is zero or negative (see
++     *   {@link com.fasterxml.jackson.core.io.CharTypes#surrogateOffset})</li>
++     * <li>{@code lowIndex}: the index of the low surrogate within the low-surrogate
++     *   block, 0 to 0x3FF</li>
++     *</ul>
++     * The result grows with the position of the high surrogate: the pair
++     * (U+D800, U+DC00) gives U+10000, and every code unit by which the high surrogate
++     * lies above U+D800 adds 0x400 to the result. {@code lowIndex} is added as given.
++     */
++    public static int supplementaryCodePoint(int highOffset, int lowIndex)
++    {
++        return 0x10000 - highOffset * 0x400 + lowIndex;
++    }
+ }
+diff --git a/src/main/java/com/fasterxml/jackson/core/io/CharTypes.java b/src/main/java/com/fasterxml/jackson/core/io/CharTypes.java
+index dac97ffb..966e2c96 100644
+--- a/src/main/java/com/fasterxml/jackson/core/io/CharTypes.java
++++ b/src/main/java/com/fasterxml/jackson/core/io/CharTypes.java
+@@ -2,6 +2,8 @@ package com.fasterxml.jackson.core.io;
+ 
+ import java.util.Arrays;
+ 
++import com.fasterxml.jackson.core.JsonEncoding;
++
+ public final class CharTypes
+ {
+     private final static char[] HEX_CHARS = "0123456789ABCDEF".toCharArray();
+@@ -230,5 +232,54 @@ public final class CharTypes
+     {
+         return (byte[]) HEX_BYTES.clone();
+     }
++
++    /**
++     * Returns the offset from the UTF-16 code unit {@code unit} to {@code blockStart},
++     * the first code unit of the surrogate block that {@code unit} belongs to: the
++     * amount that has to be added to {@code unit} to reach {@code blockStart}, that is
++     * {@code blockStart - unit}. For a unit inside the block the result is zero or
++     * negative: 0 for the first unit of the block, down to -0x3FF for the last one.
++     *
++     * @param unit UTF-16 code unit (a high or a low surrogate)
++     * @param blockStart First code unit of the block: 0xD800 for high surrogates,
++     *   0xDC00 for low surrogates
++     */
++    public static int surrogateOffset(int unit, int blockStart)
++    {
++        return blockStart - unit;
++    }
++
++    /**
++     * Returns the index of the low surrogate {@code low} within the low-surrogate
++     * block U+DC00 to U+DFFF: 0 for U+DC00, increasing by one per code unit up to
++     * 0x3FF for U+DFFF. This index forms the ten low-order bits of the supplementary
++     * code point of the surrogate pair. Since {@link #surrogateOffset} returns the
++     * offset from a unit to the start of its block, the index is that offset negated.
++     */
++    public static int lowSurrogateIndex(int low)
++    {
++        return -surrogateOffset(low, 0xDC00);
++    }
++
++    /**
++     * Returns the supplementary code point (U+10000 to U+10FFFF) encoded by the
++     * UTF-16 surrogate pair {@code high}, {@code low}. The pair is checked first:
++     * {@code high} has to lie in the high-surrogate block U+D800 to U+DBFF and
++     * {@code low} in the low-surrogate block U+DC00 to U+DFFF; otherwise an
++     * {@link IllegalArgumentException} is thrown. The code point is then assembled by
++     * {@link JsonEncoding#supplementaryCodePoint} from the offset of {@code high} to
++     * U+D800, as returned by {@link #surrogateOffset}, and the index of {@code low},
++     * as returned by {@link #lowSurrogateIndex}.
++     */
++    public static int combineSurrogates(int high, int low)
++    {
++        int highOffset = surrogateOffset(high, 0xD800);
++        int lowIndex = lowSurrogateIndex(low);
++        if (highOffset > 0 || highOffset < -0x3FF || lowIndex < 0 || lowIndex > 0x3FF) {
++            throw new IllegalArgumentException("Invalid surrogate pair: first char 0x"
++                    +Integer.toHexString(high)+", second 0x"+Integer.toHexString(low));
++        }
++        return JsonEncoding.supplementaryCodePoint(highOffset, lowIndex);
++    }
+ }
+ 
+diff --git a/src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java b/src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java
+index 8aee9c80..ba235f3e 100644
+--- a/src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java
++++ b/src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java
+@@ -387,7 +387,7 @@ public final class JsonStringEncoder
+         if (secondPart < SURR2_FIRST || secondPart > SURR2_LAST) {
+             throw new IllegalArgumentException("Broken surrogate pair: first char 0x"+Integer.toHexString(firstPart)+", second 0x"+Integer.toHexString(secondPart)+"; illegal combination");
+         }
+-        return 0x10000 + ((firstPart - SURR1_FIRST) << 10) + (secondPart - SURR2_FIRST);
++        return CharTypes.combineSurrogates(firstPart, secondPart);
+     }
+ 
+     protected static void _illegalSurrogate(int code) {
+diff --git a/src/test/java/com/fasterxml/jackson/core/io/TestCharTypes.java b/src/test/java/com/fasterxml/jackson/core/io/TestCharTypes.java
+index 53e9715e..b5632674 100644
+--- a/src/test/java/com/fasterxml/jackson/core/io/TestCharTypes.java
++++ b/src/test/java/com/fasterxml/jackson/core/io/TestCharTypes.java
+@@ -20,4 +20,14 @@ public class TestCharTypes
+             assertEquals(expected, actual);
+         }
+     }
++
++    public void testSurrogateUnitPositions()
++    {
++        assertEquals(0, CharTypes.surrogateOffset(0xD800, 0xD800));
++        assertEquals(-0x3D, CharTypes.surrogateOffset(0xD83D, 0xD800));
++        assertEquals(-0x3FF, CharTypes.surrogateOffset(0xDFFF, 0xDC00));
++        assertEquals(0, CharTypes.lowSurrogateIndex(0xDC00));
++        assertEquals(0x200, CharTypes.lowSurrogateIndex(0xDE00));
++        assertEquals(0x3FF, CharTypes.lowSurrogateIndex(0xDFFF));
++    }
+ }
+diff --git a/src/test/java/com/fasterxml/jackson/core/io/TestJsonStringEncoder.java b/src/test/java/com/fasterxml/jackson/core/io/TestJsonStringEncoder.java
+index 0fcd0747..6c4ab7d5 100644
+--- a/src/test/java/com/fasterxml/jackson/core/io/TestJsonStringEncoder.java
++++ b/src/test/java/com/fasterxml/jackson/core/io/TestJsonStringEncoder.java
+@@ -101,5 +101,15 @@ public class TestJsonStringEncoder
+         }
+         return sb.toString();
+     }
+-}
+ 
++    public void testUtf8ForAstralCharacter() throws Exception
++    {
++        JsonStringEncoder encoder = new JsonStringEncoder();
++        byte[] utf8 = encoder.encodeAsUTF8("\uD83D\uDE00");
++        StringBuilder hex = new StringBuilder();
++        for (byte b : utf8) {
++            hex.append(Integer.toHexString(0x100 | (b & 0xFF)).substring(1));
++        }
++        assertEquals("f09f9880", hex.toString());
++    }
++}

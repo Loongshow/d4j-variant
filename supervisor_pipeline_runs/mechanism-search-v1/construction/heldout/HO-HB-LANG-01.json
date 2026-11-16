@@ -1,0 +1,147 @@
+{
+ "iid": "HO-HB-LANG-01",
+ "project": "Lang",
+ "group": "HO-HB-LANG-01",
+ "mechanism": "M19",
+ "tags": [
+  "M19",
+  "M6",
+  "M2"
+ ],
+ "recipe": "HB",
+ "kind": "new",
+ "tier": "HELDOUT",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.lang3.time.DateUtils",
+  "method": "offsetMinuteField",
+  "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+  "edits": [
+   {
+    "old": "        final int totalMinutes = Math.abs(offsetMillis) / (60 * 1000);",
+    "new": "        final int totalMinutes = offsetMillis / (60 * 1000);"
+   }
+  ]
+ },
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+   "old": "            int offset = calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET);\n\n            if (offset < 0) {\n                buffer.append('-');\n                offset = -offset;\n            } else {\n                buffer.append('+');\n            }\n\n            final int hours = offset / (60 * 60 * 1000);\n            buffer.append((char)(hours / 10 + '0'));\n            buffer.append((char)(hours % 10 + '0'));\n\n            if (mColon) {\n                buffer.append(':');\n            }\n\n            final int minutes = offset / (60 * 1000) - 60 * hours;\n            buffer.append((char)(minutes / 10 + '0'));\n            buffer.append((char)(minutes % 10 + '0'));\n",
+   "new": "            final int offset = calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET);\n            appendZoneOffset(buffer, offset, mColon);\n",
+   "purpose": "TimeZoneNumberRule.appendTo keeps reading ZONE_OFFSET + DST_OFFSET and hands the offset to the new FastDatePrinter.appendZoneOffset (same output)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+   "old": "    /**\n     * <p>Inner class to output a time zone as a number {@code +/-HHMM}\n",
+   "new": "    /**\n     * <p>Appends a time zone offset in the form {@code +HHMM}, or {@code +HH:MM}\n     * when {@code colon} is true.</p>\n     *\n     * <p>The sign is {@code '-'} for a negative offset and {@code '+'} otherwise.\n     * The hour field is the number of whole hours in the magnitude of the offset.\n     * The minute field is the value of {@link DateUtils#offsetMinuteField(int)}\n     * for the offset. Both fields are written by\n     * {@link DateFormatUtils#appendHourMinute(StringBuffer, int, int, boolean)}.</p>\n     *\n     * @param buffer  the buffer to append to, not null\n     * @param offsetMillis  the offset from UTC in milliseconds, may be negative\n     * @param colon  whether to put a {@code ':'} between the hour and minute fields\n     */\n    public static void appendZoneOffset(final StringBuffer buffer, final int offsetMillis, final boolean colon) {\n        int hours = offsetMillis / (60 * 60 * 1000);\n        if (offsetMillis < 0) {\n            buffer.append('-');\n            hours = -hours;\n        } else {\n            buffer.append('+');\n        }\n        DateFormatUtils.appendHourMinute(buffer, hours, DateUtils.offsetMinuteField(offsetMillis), colon);\n    }\n\n    // ----------------------------------------------------------------------\n    /**\n     * <p>Inner class to output a time zone as a number {@code +/-HHMM}\n",
+   "purpose": "H1: FastDatePrinter.appendZoneOffset writes the sign and the whole hours of the magnitude, takes the minute field from DateUtils.offsetMinuteField and writes both through DateFormatUtils.appendHourMinute"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "old": "    public static Calendar toCalendar(final Date date) {\n        final Calendar c = Calendar.getInstance();\n        c.setTime(date);\n        return c;\n    }\n",
+   "new": "    public static Calendar toCalendar(final Date date) {\n        final Calendar c = Calendar.getInstance();\n        c.setTime(date);\n        return c;\n    }\n\n    //-----------------------------------------------------------------------\n    /**\n     * <p>Gets the minute field of a time zone offset, as written in the\n     * {@code +HHMM} form.</p>\n     *\n     * <p>The minute field is taken from the magnitude of the offset: it is the\n     * number of whole minutes left over once the whole hours have been removed.\n     * The result is always in the range 0 to 59, whatever the sign of the offset.\n     * For example, both {@code +09:45} and {@code -09:45} give 45, and\n     * {@code -07:00} gives 0.</p>\n     *\n     * @param offsetMillis  the offset from UTC in milliseconds, may be negative\n     * @return the minute field of the offset, from 0 to 59\n     */\n    public static int offsetMinuteField(final int offsetMillis) {\n        final int totalMinutes = Math.abs(offsetMillis) / (60 * 1000);\n        return totalMinutes % 60;\n    }\n",
+   "purpose": "G: DateUtils.offsetMinuteField returns the minutes left over after the whole hours of the offset's magnitude (0..59 for either sign)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java",
+   "old": "import java.util.TimeZone;\n",
+   "new": "import java.util.TimeZone;\n\nimport org.apache.commons.lang3.CharUtils;\n",
+   "purpose": "import CharUtils for the new helper"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java",
+   "old": "    public static String format(final Calendar calendar, final String pattern, final TimeZone timeZone, final Locale locale) {\n        final FastDateFormat df = FastDateFormat.getInstance(pattern, timeZone, locale);\n        return df.format(calendar);\n    }\n",
+   "new": "    public static String format(final Calendar calendar, final String pattern, final TimeZone timeZone, final Locale locale) {\n        final FastDateFormat df = FastDateFormat.getInstance(pattern, timeZone, locale);\n        return df.format(calendar);\n    }\n\n    /**\n     * <p>Appends an hour field and a minute field, each as two digits, in the\n     * form {@code HHMM}, or {@code HH:MM} when {@code colon} is true.</p>\n     *\n     * <p>Each field is written by {@link CharUtils#appendTwoDigits(StringBuffer, int)};\n     * the values are passed on as given.</p>\n     *\n     * @param buffer  the buffer to append to, not null\n     * @param hours  the hour field\n     * @param minutes  the minute field\n     * @param colon  whether to put a {@code ':'} between the two fields\n     */\n    public static void appendHourMinute(final StringBuffer buffer, final int hours, final int minutes, final boolean colon) {\n        CharUtils.appendTwoDigits(buffer, hours);\n        if (colon) {\n            buffer.append(':');\n        }\n        CharUtils.appendTwoDigits(buffer, minutes);\n    }\n",
+   "purpose": "H3: DateFormatUtils.appendHourMinute writes HH[:]MM through CharUtils.appendTwoDigits, values passed on as given"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/CharUtils.java",
+   "old": "    public static boolean isAsciiAlphanumeric(final char ch) {\n        return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9');\n    }\n",
+   "new": "    public static boolean isAsciiAlphanumeric(final char ch) {\n        return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9');\n    }\n\n    //--------------------------------------------------------------------------\n    /**\n     * <p>Appends a value to a buffer as exactly two decimal digits, tens first.</p>\n     *\n     * <p>The value must already be in the range 0 to 99; it is placed as given,\n     * one digit character per decimal place, with no range check.</p>\n     *\n     * <pre>\n     *   CharUtils.appendTwoDigits(buffer, 7)  appends \"07\"\n     *   CharUtils.appendTwoDigits(buffer, 42) appends \"42\"\n     * </pre>\n     *\n     * @param buffer  the buffer to append to, not null\n     * @param value  the value to append, from 0 to 99\n     */\n    public static void appendTwoDigits(final StringBuffer buffer, final int value) {\n        buffer.append((char) (value / 10 + '0'));\n        buffer.append((char) (value % 10 + '0'));\n    }\n",
+   "purpose": "S: CharUtils.appendTwoDigits places a 0..99 value as two digit characters, as given (documented precondition)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.CharUtils",
+   "method": "appendTwoDigits",
+   "file": "src/main/java/org/apache/commons/lang3/CharUtils.java"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.DateFormatUtils",
+   "method": "appendHourMinute",
+   "file": "src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.FastDatePrinter",
+   "method": "appendZoneOffset",
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.DateFormatUtils",
+   "method": "format",
+   "file": "src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java",
+   "decl": "final long millis, final String pattern, final TimeZone timeZone, final Locale locale"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.lang3.time.DateFormatUtils::format"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.time.DateUtils::offsetMinuteField",
+  "org.apache.commons.lang3.CharUtils::appendTwoDigits",
+  "org.apache.commons.lang3.time.FastDatePrinterTest::testFormat"
+ ],
+ "ownership_reason": "CharUtils.appendTwoDigits (the sink) documents its precondition: the value must already be in 0..99 and is placed as given, digit by digit, with no range check; it does exactly that. DateFormatUtils.appendHourMinute documents that it passes both fields on as given, and does. FastDatePrinter.appendZoneOffset documents the sign ('-' for a negative offset), the hour field (whole hours of the magnitude, which it gets by negating the truncated hours for a negative offset) and that the minute field is DateUtils.offsetMinuteField(offsetMillis); it passes the signed offset, which that helper's contract accepts ('may be negative'). DateUtils.offsetMinuteField documents the postcondition: the minutes left over after the whole hours of the offset's MAGNITUDE, always 0..59 whatever the sign (+05:30 and -05:30 both give 30). On the variant it divides the signed offset, so GMT-03:30 (-12600000 ms) gives -210 % 60 = -30, and the sink, as documented, writes the tens digit -3 as the character '-' (48-3=45), producing -03:-0. The east zone +05:30 in the same trigger is formatted correctly, and the existing FastDatePrinterTest.testFormat (America/New_York -0500/-04:00) still passes on the variant, so the sign and hour path of appendZoneOffset, appendHourMinute and the sink are exercised and correct; only whole-hour negative offsets were ever tested, which is why the omission is latent. Restoring Math.abs in offsetMinuteField alone makes the trigger and the full suite pass. The declared one-line edits at the decoys do not absorb it: negating the offset at the call site breaks +05:30, reducing modulo 60 in appendHourMinute keeps -30, and taking abs of the sink's units digit leaves the '-' tens digit.",
+ "ownership_tests": [
+  "org.apache.commons.lang3.time.FastDatePrinterTest::testFormat",
+  "org.apache.commons.lang3.CharUtilsTest::testDigitPairPlacement",
+  "org.apache.commons.lang3.time.DateFormatUtilsTest::testHourMinuteFieldLayout"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/lang3/time/DateFormatUtilsTest.java",
+  "test_class": "org.apache.commons.lang3.time.DateFormatUtilsTest",
+  "test_method": "testHalfHourZonesEitherSideOfUtc",
+  "imports": [],
+  "code": "    @Test\n    public void testHalfHourZonesEitherSideOfUtc() {\n        final long instant = 1000000000000L;\n        final String east = DateFormatUtils.format(instant, \"ZZ\", TimeZone.getTimeZone(\"GMT+05:30\"), Locale.US);\n        final String west = DateFormatUtils.format(instant, \"ZZ\", TimeZone.getTimeZone(\"GMT-03:30\"), Locale.US);\n        assertEquals(\"+05:30 -03:30\", east + \" \" + west);\n    }\n"
+ },
+ "extra_tests": [
+  {
+   "test_file": "src/test/java/org/apache/commons/lang3/CharUtilsTest.java",
+   "imports": [],
+   "code": "    @Test\n    public void testDigitPairPlacement() {\n        final StringBuffer buffer = new StringBuffer();\n        CharUtils.appendTwoDigits(buffer, 7);\n        CharUtils.appendTwoDigits(buffer, 42);\n        CharUtils.appendTwoDigits(buffer, 0);\n        CharUtils.appendTwoDigits(buffer, 99);\n        assertEquals(\"07420099\", buffer.toString());\n    }\n"
+  },
+  {
+   "test_file": "src/test/java/org/apache/commons/lang3/time/DateFormatUtilsTest.java",
+   "imports": [],
+   "code": "\n    @Test\n    public void testHourMinuteFieldLayout() {\n        final StringBuffer buffer = new StringBuffer();\n        DateFormatUtils.appendHourMinute(buffer, 9, 5, true);\n        buffer.append(' ');\n        DateFormatUtils.appendHourMinute(buffer, 14, 0, false);\n        assertEquals(\"09:05 1400\", buffer.toString());\n    }\n"
+  }
+ ],
+ "expected_signature": "expected:<+05:30 -03:[3]0> but was:<+05:30 -03:[-]0>",
+ "fault_lines": [
+  "        final int totalMinutes = offsetMillis / (60 * 1000);"
+ ],
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java",
+   "old": "        DateFormatUtils.appendHourMinute(buffer, hours, DateUtils.offsetMinuteField(offsetMillis), colon);",
+   "new": "        DateFormatUtils.appendHourMinute(buffer, hours, DateUtils.offsetMinuteField(-offsetMillis), colon);",
+   "why": "one-line H1 edit: appendZoneOffset hands the minute helper the negated offset, mirroring its own negation of the hours"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateFormatUtils.java",
+   "old": "        CharUtils.appendTwoDigits(buffer, minutes);",
+   "new": "        CharUtils.appendTwoDigits(buffer, minutes % 60);",
+   "why": "one-line H3 edit: appendHourMinute reduces the minute field modulo 60 before writing it"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/CharUtils.java",
+   "old": "        buffer.append((char) (value % 10 + '0'));",
+   "new": "        buffer.append((char) (Math.abs(value % 10) + '0'));",
+   "why": "one-line sink edit: appendTwoDigits takes the absolute value of the units digit"
+  }
+ ],
+ "variant_id": "CTV-49DDB6",
+ "gold_key": "org.apache.commons.lang3.time.DateUtils::offsetMinuteField"
+}

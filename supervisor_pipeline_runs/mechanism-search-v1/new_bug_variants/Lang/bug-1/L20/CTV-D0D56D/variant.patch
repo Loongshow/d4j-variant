@@ -1,0 +1,189 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index a0a499a98..d9b699803 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -945,6 +945,23 @@ public class ArrayUtils {
+         return subarray;
+     }
+ 
++    /**
++     * <p>Gathers a run of elements of an {@code int} array into a {@code long}.</p>
++     *
++     * @param array  the array to gather from
++     * @param startIndex  the index of the first element to gather
++     * @param initial  the starting value of the result
++     * @param at  the position in the result at which the first element is placed
++     * @param count  the number of elements to gather
++     * @return the gathered value
++     * @since 3.2
++     */
++    public static long gather(final int[] array, final int startIndex, final long initial, final int at, final int count) {
++        final int[] run = new int[count];
++        System.arraycopy(array, startIndex, run, 0, count);
++        return EnumUtils.compose(run, initial, at);
++    }
++
+     /**
+      * <p>Produces a new {@code short} array containing the elements
+      * between the start and end indices.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/BitField.java b/src/main/java/org/apache/commons/lang3/BitField.java
+index 2bb728fde..2b8365d1b 100644
+--- a/src/main/java/org/apache/commons/lang3/BitField.java
++++ b/src/main/java/org/apache/commons/lang3/BitField.java
+@@ -16,6 +16,8 @@
+  */
+ package org.apache.commons.lang3;
+ 
++import org.apache.commons.lang3.math.NumberUtils;
++
+ /**
+  * <p>Operations on bit-mapped fields.</p>
+  *
+@@ -150,7 +152,7 @@ public class BitField {
+      *  parameter replacing the old bits
+      */
+     public int setValue(final int holder, final int value) {
+-        return (holder & ~_mask) | ((value << _shift_count) & _mask);
++        return (int) NumberUtils.overlay(holder, value, 0, _shift_count, Integer.bitCount(_mask), _mask);
+     }
+ 
+     /**
+@@ -280,4 +282,22 @@ public class BitField {
+         return flag ? setByte(holder) : clearByte(holder);
+     }
+ 
++    /**
++     * <p>Widens the values of a run to the given field.</p>
++     *
++     * @param run the values to widen
++     * @param initial the starting value of the result
++     * @param at the position in the result at which the first value is placed
++     * @param width the width of a value
++     * @param field the field of the first value, forwarded to the combining stage
++     * @return the widened values combined into the result
++     */
++    public static long widen(final int[] run, final long initial, final int at, final int width, final long field) {
++        final long[] words = new long[run.length];
++        for (int i = 0; i < run.length; i++) {
++            words[i] = 0xffffffffL & run[i];
++        }
++        return ObjectUtils.combine(words, initial, at, width, field);
++    }
++
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/Conversion.java b/src/main/java/org/apache/commons/lang3/Conversion.java
+index 91131ad83..4d4501321 100644
+--- a/src/main/java/org/apache/commons/lang3/Conversion.java
++++ b/src/main/java/org/apache/commons/lang3/Conversion.java
+@@ -689,15 +689,7 @@ public class Conversion {
+             throw new IllegalArgumentException(
+                 "(nInts-1)*32+dstPos is greather or equal to than 64");
+         }
+-        long out = dstInit;
+-        int shift = 0;
+-        for (int i = 0; i < nInts; i++ ) {
+-            shift = i * 32 + dstPos;
+-            final long bits = ((0xffffffffL & src[i + srcPos]) << shift);
+-            final long mask = 0xffffffffL << shift;
+-            out = (out & ~mask) | bits;
+-        }
+-        return out;
++        return ArrayUtils.gather(src, srcPos, dstInit, dstPos, nInts);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/EnumUtils.java b/src/main/java/org/apache/commons/lang3/EnumUtils.java
+index 7a03b5970..c7bdc862b 100644
+--- a/src/main/java/org/apache/commons/lang3/EnumUtils.java
++++ b/src/main/java/org/apache/commons/lang3/EnumUtils.java
+@@ -277,6 +277,22 @@ public class EnumUtils {
+         return results;
+     }
+ 
++    /**
++     * <p>Composes a run of {@code int} values into a {@code long}, deriving the value
++     * width and the field of the first value.</p>
++     *
++     * @param run the values to compose
++     * @param initial the starting value of the result
++     * @param at the position in the result at which the first value is placed
++     * @return the composed value
++     * @since 3.2
++     */
++    public static long compose(final int[] run, final long initial, final int at) {
++        final int width = Integer.SIZE;
++        final long field = (1L << width) - 1;
++        return BitField.widen(run, initial, at, width, field);
++    }
++
+     /**
+      * Validate that {@code enumClass} is compatible with representation in a {@code long}.
+      * @param <E> the type of the enumeration
+diff --git a/src/main/java/org/apache/commons/lang3/ObjectUtils.java b/src/main/java/org/apache/commons/lang3/ObjectUtils.java
+index ab31d6f8e..0a748e21e 100644
+--- a/src/main/java/org/apache/commons/lang3/ObjectUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ObjectUtils.java
+@@ -28,6 +28,7 @@ import java.util.Map;
+ import java.util.TreeSet;
+ 
+ import org.apache.commons.lang3.exception.CloneFailedException;
++import org.apache.commons.lang3.math.NumberUtils;
+ import org.apache.commons.lang3.mutable.MutableInt;
+ import org.apache.commons.lang3.text.StrBuilder;
+ 
+@@ -572,6 +573,27 @@ public class ObjectUtils {
+         return null;
+     }
+ 
++    // Combine
++    //-----------------------------------------------------------------------
++    /**
++     * Combine a run of values into a single value.
++     *
++     * @param words the values to combine
++     * @param initial the starting value of the result
++     * @param at the position in the result at which the first value is placed
++     * @param width the width of a value
++     * @param field the field covering one value
++     * @return the combined value
++     * @since 3.2
++     */
++    public static long combine(final long[] words, final long initial, final int at, final int width, final long field) {
++        long total = initial;
++        for (int i = 0; i < words.length; i++) {
++            total = NumberUtils.overlay(total, words[i], i, at, width, field);
++        }
++        return total;
++    }
++
+     // cloning
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+index 70b8d6466..f27c69740 100644
+--- a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
++++ b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+@@ -1295,6 +1295,23 @@ public class NumberUtils {
+         return Math.max(Math.max(a, b), c);
+     }
+ 
++    /**
++     * <p>Overlays a value onto a holder at the position given by its index.</p>
++     *
++     * @param holder  the value to overlay onto
++     * @param word  the value to place
++     * @param index  the index of the value within its run
++     * @param at  the position of the lsb of the first value
++     * @param width  the width of a value
++     * @param field  the field of the first value of the run
++     * @return the holder with the value placed
++     */
++    public static long overlay(final long holder, final long word, final int index, final int at, final int width, final long field) {
++        final long m = field << (index * width);
++        final int shift = at + index * width;
++        return (holder & ~m) | ((word << shift) & m);
++    }
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Checks whether the <code>String</code> contains only

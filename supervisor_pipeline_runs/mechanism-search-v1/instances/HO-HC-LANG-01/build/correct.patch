@@ -1,0 +1,234 @@
+diff --git a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+index 70b8d6466..06b968808 100644
+--- a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
++++ b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+@@ -1295,6 +1295,25 @@ public class NumberUtils {
+         return Math.max(Math.max(a, b), c);
+     }
+ 
++    //-----------------------------------------------------------------------
++    /**
++     * <p>Returns the offset from a value to the largest multiple of a step
++     * that does not exceed the value.</p>
++     *
++     * <p>The offset is measured from {@code value} to that multiple, so it is
++     * zero or negative and {@code value + offset} is the multiple. For example,
++     * a value of 330 with a step of 60 gives -30, because 330 + (-30) = 300.</p>
++     *
++     * @param value  the value, zero or positive
++     * @param step  the step, positive
++     * @return the offset from {@code value} to the largest multiple of {@code step}
++     *  that does not exceed it, from {@code 1 - step} to zero
++     * @since 3.2
++     */
++    public static long offsetToFloorMultiple(final long value, final long step) {
++        return value / step * step - value;
++    }
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Checks whether the <code>String</code> contains only
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index b16af53d4..dad3a6562 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -25,6 +25,8 @@ import java.util.Iterator;
+ import java.util.Locale;
+ import java.util.NoSuchElementException;
+ 
++import org.apache.commons.lang3.math.NumberUtils;
++
+ /**
+  * <p>A suite of utilities surrounding the use of the
+  * {@link java.util.Calendar} and {@link java.util.Date} object.</p>
+@@ -1828,6 +1830,53 @@ public class DateUtils {
+         return result;
+     }
+ 
++    //-----------------------------------------------------------------------
++    /**
++     * <p>Returns the number of whole hours in a duration, given the offset from
++     * the duration to the start of its hour.</p>
++     *
++     * <p>Only complete hours are counted, so the result rounds down, never up:
++     * it is the number of the hour that starts at or before {@code millis}. The
++     * offset is the value of {@link NumberUtils#offsetToFloorMultiple(long, long)}
++     * for {@code millis} and {@link #MILLIS_PER_HOUR}. It runs from {@code millis}
++     * to the start of the hour, so it is zero or negative and
++     * {@code millis + offsetToHour} is the start of the hour. For example,
++     * 5 hours 30 minutes with an offset of minus 30 minutes gives 5.</p>
++     *
++     * @param millis  the duration in milliseconds, zero or positive
++     * @param offsetToHour  the offset from {@code millis} to the start of its hour,
++     *  zero or negative and greater than minus one hour
++     * @return the number of whole hours in {@code millis}
++     * @throws IllegalArgumentException if {@code offsetToHour} is positive, or is
++     *  minus one hour or less
++     * @since 3.2
++     */
++    public static int wholeHours(final long millis, final long offsetToHour) {
++        if (offsetToHour > 0 || offsetToHour <= -MILLIS_PER_HOUR) {
++            throw new IllegalArgumentException("The offset " + offsetToHour + " is not within one hour");
++        }
++        return (int) ((millis + offsetToHour) / MILLIS_PER_HOUR);
++    }
++
++    /**
++     * <p>Returns the number of whole minutes by which a duration runs past the
++     * start of its hour.</p>
++     *
++     * <p>The start of the hour is {@code millis} plus the value of
++     * {@link NumberUtils#offsetToFloorMultiple(long, long)} for
++     * {@link #MILLIS_PER_HOUR}. That offset is zero or negative, so its negation
++     * is the time elapsed since the start of the hour. For example, 5 hours
++     * 30 minutes gives 30.</p>
++     *
++     * @param millis  the duration in milliseconds, zero or positive
++     * @return the whole minutes past the start of the hour, from 0 to 59
++     * @since 3.2
++     */
++    public static int minutesPastHour(final long millis) {
++        final long offsetToHour = NumberUtils.offsetToFloorMultiple(millis, MILLIS_PER_HOUR);
++        return (int) (-offsetToHour / MILLIS_PER_MINUTE);
++    }
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Date iterator.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java b/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java
+index 18c896493..33f0f5ce1 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDatePrinter.java
+@@ -33,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.ConcurrentMap;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.math.NumberUtils;
+ 
+ /**
+  * <p>FastDatePrinter is a fast and thread-safe version of
+@@ -1100,6 +1101,43 @@ public class FastDatePrinter implements DatePrinter, Serializable {
+         return value;
+     }
+ 
++    /**
++     * <p>Appends a time zone offset in the numeric form {@code +/-HHMM}, or
++     * {@code +/-HH:MM} when a colon is requested.</p>
++     *
++     * <p>The sign is {@code '+'} when local time is ahead of UTC and {@code '-'}
++     * when it is behind. It is followed by two digits for the whole hours of the
++     * offset's magnitude and two digits for its remaining minutes.</p>
++     *
++     * @param buffer  the buffer to append to
++     * @param offsetMillis  the offset of local time from UTC in milliseconds, the sum
++     *  of the {@code Calendar.ZONE_OFFSET} and {@code Calendar.DST_OFFSET} fields
++     * @param colon  true to put a colon between the hours and the minutes
++     * @since 3.2
++     */
++    public static void appendZoneOffset(final StringBuffer buffer, final int offsetMillis, final boolean colon) {
++        long offset = offsetMillis;
++        if (offset < 0) {
++            buffer.append('-');
++            offset = -offset;
++        } else {
++            buffer.append('+');
++        }
++
++        final long offsetToHour = NumberUtils.offsetToFloorMultiple(offset, DateUtils.MILLIS_PER_HOUR);
++        final int hours = DateUtils.wholeHours(offset, offsetToHour);
++        buffer.append((char)(hours / 10 + '0'));
++        buffer.append((char)(hours % 10 + '0'));
++
++        if (colon) {
++            buffer.append(':');
++        }
++
++        final int minutes = DateUtils.minutesPastHour(offset);
++        buffer.append((char)(minutes / 10 + '0'));
++        buffer.append((char)(minutes % 10 + '0'));
++    }
++
+     /**
+      * <p>Inner class to output a time zone name.</p>
+      */
+@@ -1182,26 +1220,7 @@ public class FastDatePrinter implements DatePrinter, Serializable {
+          */
+         @Override
+         public void appendTo(final StringBuffer buffer, final Calendar calendar) {
+-            int offset = calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET);
+-
+-            if (offset < 0) {
+-                buffer.append('-');
+-                offset = -offset;
+-            } else {
+-                buffer.append('+');
+-            }
+-
+-            final int hours = offset / (60 * 60 * 1000);
+-            buffer.append((char)(hours / 10 + '0'));
+-            buffer.append((char)(hours % 10 + '0'));
+-
+-            if (mColon) {
+-                buffer.append(':');
+-            }
+-
+-            final int minutes = offset / (60 * 1000) - 60 * hours;
+-            buffer.append((char)(minutes / 10 + '0'));
+-            buffer.append((char)(minutes % 10 + '0'));
++            appendZoneOffset(buffer, calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET), mColon);
+         }
+     }
+ 
+diff --git a/src/test/java/org/apache/commons/lang3/math/NumberUtilsTest.java b/src/test/java/org/apache/commons/lang3/math/NumberUtilsTest.java
+index bdd2a242e..bc02a5f37 100644
+--- a/src/test/java/org/apache/commons/lang3/math/NumberUtilsTest.java
++++ b/src/test/java/org/apache/commons/lang3/math/NumberUtilsTest.java
+@@ -1400,4 +1400,11 @@ public class NumberUtilsTest {
+         assertTrue(Float.isNaN(NumberUtils.max(bF)));
+     }
+ 
++    @Test
++    public void testOffsetDownToStep() {
++        assertEquals(-30L, NumberUtils.offsetToFloorMultiple(330L, 60L));
++        assertEquals(0L, NumberUtils.offsetToFloorMultiple(300L, 60L));
++        assertEquals(-59L, NumberUtils.offsetToFloorMultiple(359L, 60L));
++        assertEquals(0L, NumberUtils.offsetToFloorMultiple(0L, 60L));
++    }
+ }
+diff --git a/src/test/java/org/apache/commons/lang3/time/DateFormatUtilsTest.java b/src/test/java/org/apache/commons/lang3/time/DateFormatUtilsTest.java
+index 2d8984218..01616e2ce 100644
+--- a/src/test/java/org/apache/commons/lang3/time/DateFormatUtilsTest.java
++++ b/src/test/java/org/apache/commons/lang3/time/DateFormatUtilsTest.java
+@@ -249,4 +249,13 @@ public class DateFormatUtilsTest {
+     }
+     */
+ 
++    @Test
++    public void testIsoDateTimeForKolkata() {
++        final TimeZone kolkata = TimeZone.getTimeZone("Asia/Kolkata");
++        final Calendar cal = Calendar.getInstance(kolkata);
++        cal.clear();
++        cal.set(2013, Calendar.MARCH, 4, 9, 15, 0);
++        assertEquals("2013-03-04T09:15:00+05:30",
++                DateFormatUtils.format(cal.getTime(), "yyyy-MM-dd'T'HH:mm:ssZZ", kolkata));
++    }
+ }
+diff --git a/src/test/java/org/apache/commons/lang3/time/DateUtilsTest.java b/src/test/java/org/apache/commons/lang3/time/DateUtilsTest.java
+index 1f2454d89..7e3664d70 100644
+--- a/src/test/java/org/apache/commons/lang3/time/DateUtilsTest.java
++++ b/src/test/java/org/apache/commons/lang3/time/DateUtilsTest.java
+@@ -1691,5 +1691,13 @@ public class DateUtilsTest {
+     void warn(final String msg) {
+         System.err.println(msg);
+     }
+-}
+ 
++    @Test
++    public void testMinutesIntoTheHour() {
++        assertEquals(30, DateUtils.minutesPastHour(5 * DateUtils.MILLIS_PER_HOUR + 30 * DateUtils.MILLIS_PER_MINUTE));
++        assertEquals(45, DateUtils.minutesPastHour(12 * DateUtils.MILLIS_PER_HOUR + 45 * DateUtils.MILLIS_PER_MINUTE
++                + 59 * DateUtils.MILLIS_PER_SECOND));
++        assertEquals(0, DateUtils.minutesPastHour(3 * DateUtils.MILLIS_PER_HOUR));
++        assertEquals(0, DateUtils.minutesPastHour(0));
++    }
++}

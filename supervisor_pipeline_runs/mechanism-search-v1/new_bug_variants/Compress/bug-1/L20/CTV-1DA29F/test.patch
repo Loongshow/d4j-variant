@@ -1,0 +1,59 @@
+diff --git a/src/test/java/org/apache/commons/compress/archivers/TarTestCase.java b/src/test/java/org/apache/commons/compress/archivers/TarTestCase.java
+index 7865d7b3..56a3dd3e 100644
+--- a/src/test/java/org/apache/commons/compress/archivers/TarTestCase.java
++++ b/src/test/java/org/apache/commons/compress/archivers/TarTestCase.java
+@@ -28,6 +28,8 @@ import java.io.OutputStream;
+ import org.apache.commons.compress.AbstractTestCase;
+ import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ import org.apache.commons.compress.utils.IOUtils;
++import java.io.ByteArrayInputStream;
++import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+ 
+ public final class TarTestCase extends AbstractTestCase {
+     public void testTarArchiveCreation() throws Exception {
+@@ -108,4 +110,45 @@ public final class TarTestCase extends AbstractTestCase {
+         in.close();
+     }
+ 
++    private static byte[] entryArchive(String name, byte[] data) throws IOException {
++        final byte[] archive = new byte[10240];
++        final byte[] nameBytes = name.getBytes("US-ASCII");
++        System.arraycopy(nameBytes, 0, archive, 0, nameBytes.length);
++        final byte[] size = (Integer.toOctalString(data.length) + " ").getBytes("US-ASCII");
++        System.arraycopy(size, 0, archive, 124, size.length);
++        System.arraycopy(data, 0, archive, 512, data.length);
++        return archive;
++    }
++
++    public void testEntryByteValues() throws Exception {
++        final byte[] data = {0x41, (byte) 0xE9, 0x7A};
++        final TarArchiveInputStream in =
++            new TarArchiveInputStream(new ByteArrayInputStream(entryArchive("bytes.bin", data)));
++        try {
++            assertNotNull(in.getNextTarEntry());
++            assertEquals(0x41, in.read());
++            assertEquals(0xE9, in.read());
++            assertEquals(0x7A, in.read());
++        } finally {
++            in.close();
++        }
++    }
++
++    public void testEndMarkerMapping() throws Exception {
++        assertEquals(-1, IOUtils.readValue(true, 0x41));
++        assertEquals(0x41, IOUtils.readValue(false, 0x41));
++        assertEquals(0xE9, IOUtils.readValue(false, 0xE9));
++        assertEquals(-1, ArchiveInputStream.toReadValue(-1, 0x41));
++        assertEquals(0xE9, ArchiveInputStream.toReadValue(1, 0xE9));
++        final TarArchiveInputStream in =
++            new TarArchiveInputStream(new ByteArrayInputStream(entryArchive("text.txt", new byte[] {0x41, 0x7A})));
++        try {
++            assertNotNull(in.getNextTarEntry());
++            assertEquals(0x41, in.read());
++            assertEquals(0x7A, in.read());
++            assertEquals(-1, in.read());
++        } finally {
++            in.close();
++        }
++    }
+ }

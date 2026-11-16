@@ -1,0 +1,104 @@
+diff --git a/src/test/java/org/apache/commons/compress/archivers/CpioTestCase.java b/src/test/java/org/apache/commons/compress/archivers/CpioTestCase.java
+index aa0f68c2..5192c17e 100644
+--- a/src/test/java/org/apache/commons/compress/archivers/CpioTestCase.java
++++ b/src/test/java/org/apache/commons/compress/archivers/CpioTestCase.java
+@@ -29,6 +29,11 @@ import java.util.Map;
+ import org.apache.commons.compress.AbstractTestCase;
+ import org.apache.commons.compress.archivers.cpio.CpioArchiveEntry;
+ import org.apache.commons.compress.utils.IOUtils;
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream;
++import org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream;
++import org.apache.commons.compress.archivers.cpio.CpioConstants;
+ 
+ public final class CpioTestCase extends AbstractTestCase {
+ 
+@@ -101,4 +106,39 @@ public final class CpioTestCase extends AbstractTestCase {
+                      73 + 5 * lineSepLength, t.length());
+     }
+ 
++    public void testBinaryFormatRoundTrip() throws Exception {
++        final byte[] content = "binary cpio".getBytes("US-ASCII");
++
++        final ByteArrayOutputStream bout = new ByteArrayOutputStream();
++        final CpioArchiveOutputStream os =
++            new CpioArchiveOutputStream(bout, CpioConstants.FORMAT_OLD_BINARY);
++        final CpioArchiveEntry entry = new CpioArchiveEntry(CpioConstants.FORMAT_OLD_BINARY);
++        entry.setName("data.txt");
++        entry.setMode(CpioConstants.C_ISREG | 0644);
++        entry.setNumberOfLinks(1);
++        entry.setTime(1000);
++        entry.setSize(content.length);
++        os.putArchiveEntry(entry);
++        os.write(content, 0, content.length);
++        os.closeArchiveEntry();
++        os.close();
++
++        final byte[] archive = bout.toByteArray();
++        assertEquals(86, archive.length);
++
++        final CpioArchiveInputStream in =
++            new CpioArchiveInputStream(new ByteArrayInputStream(archive));
++        final CpioArchiveEntry back = in.getNextCPIOEntry();
++        assertEquals("data.txt", back.getName());
++        assertEquals(content.length, back.getSize());
++        final ByteArrayOutputStream data = new ByteArrayOutputStream();
++        IOUtils.copy(in, data);
++        final byte[] restored = data.toByteArray();
++        assertEquals(content.length, restored.length);
++        for (int i = 0; i < content.length; i++) {
++            assertEquals("byte " + i, content[i], restored[i]);
++        }
++        assertNull(in.getNextCPIOEntry());
++        in.close();
++    }
+ }
+diff --git a/src/test/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStreamTest.java b/src/test/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStreamTest.java
+index ee8aab7b..f087884e 100644
+--- a/src/test/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStreamTest.java
++++ b/src/test/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStreamTest.java
+@@ -3,6 +3,9 @@ package org.apache.commons.compress.archivers.cpio;
+ import java.io.FileInputStream;
+ 
+ import org.apache.commons.compress.AbstractTestCase;
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import org.apache.commons.compress.utils.IOUtils;
+ 
+ public class CpioArchiveInputStreamTest extends AbstractTestCase {
+ 
+@@ -28,4 +31,33 @@ public class CpioArchiveInputStreamTest extends AbstractTestCase {
+          in.close();
+          assertEquals(result.toString(), expected.toString());
+     }    
++
++    public void testNewFormatRoundTrip() throws Exception {
++        final byte[] content = "ascii entry".getBytes("US-ASCII");
++
++        final ByteArrayOutputStream bout = new ByteArrayOutputStream();
++        final CpioArchiveOutputStream os =
++            new CpioArchiveOutputStream(bout, CpioConstants.FORMAT_NEW);
++        final CpioArchiveEntry entry = new CpioArchiveEntry(CpioConstants.FORMAT_NEW);
++        entry.setName("data.txt");
++        entry.setMode(CpioConstants.C_ISREG | 0644);
++        entry.setNumberOfLinks(1);
++        entry.setTime(1000);
++        entry.setSize(content.length);
++        os.putArchiveEntry(entry);
++        os.write(content, 0, content.length);
++        os.closeArchiveEntry();
++        os.close();
++
++        final CpioArchiveInputStream in =
++            new CpioArchiveInputStream(new ByteArrayInputStream(bout.toByteArray()));
++        final CpioArchiveEntry back = in.getNextCPIOEntry();
++        assertEquals("data.txt", back.getName());
++        assertEquals(content.length, back.getSize());
++        final ByteArrayOutputStream data = new ByteArrayOutputStream();
++        IOUtils.copy(in, data);
++        assertEquals("ascii entry", new String(data.toByteArray(), "US-ASCII"));
++        assertNull(in.getNextCPIOEntry());
++        in.close();
++    }
+ }

@@ -1,0 +1,214 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/Base64Variant.java b/src/main/java/com/fasterxml/jackson/core/Base64Variant.java
+index 045a316a..6f31db77 100644
+--- a/src/main/java/com/fasterxml/jackson/core/Base64Variant.java
++++ b/src/main/java/com/fasterxml/jackson/core/Base64Variant.java
+@@ -369,51 +369,7 @@ public final class Base64Variant
+      */
+     public String encode(byte[] input, boolean addQuotes)
+     {
+-        int inputEnd = input.length;
+-        StringBuilder sb;
+-        {
+-            // let's approximate... 33% overhead, ~= 3/8 (0.375)
+-            int outputLen = inputEnd + (inputEnd >> 2) + (inputEnd >> 3);
+-            sb = new StringBuilder(outputLen);
+-        }
+-        if (addQuotes) {
+-            sb.append('"');
+-        }
+-
+-        int chunksBeforeLF = getMaxLineLength() >> 2;
+-
+-        // Ok, first we loop through all full triplets of data:
+-        int inputPtr = 0;
+-        int safeInputEnd = inputEnd-3; // to get only full triplets
+-
+-        while (inputPtr <= safeInputEnd) {
+-            // First, mash 3 bytes into lsb of 32-bit int
+-            int b24 = ((int) input[inputPtr++]) << 8;
+-            b24 |= ((int) input[inputPtr++]) & 0xFF;
+-            b24 = (b24 << 8) | (((int) input[inputPtr++]) & 0xFF);
+-            encodeBase64Chunk(sb, b24);
+-            if (--chunksBeforeLF <= 0) {
+-                // note: must quote in JSON value, so not really useful...
+-                sb.append('\\');
+-                sb.append('n');
+-                chunksBeforeLF = getMaxLineLength() >> 2;
+-            }
+-        }
+-
+-        // And then we may have 1 or 2 leftover bytes to encode
+-        int inputLeft = inputEnd - inputPtr; // 0, 1 or 2
+-        if (inputLeft > 0) { // yes, but do we have room for output?
+-            int b24 = ((int) input[inputPtr++]) << 16;
+-            if (inputLeft == 2) {
+-                b24 |= (((int) input[inputPtr++]) & 0xFF) << 8;
+-            }
+-            encodeBase64Partial(sb, b24, inputLeft);
+-        }
+-
+-        if (addQuotes) {
+-            sb.append('"');
+-        }
+-        return sb.toString();
++        return Base64Variants.encodeToText(this, input, addQuotes);
+     }
+ 
+     /**
+diff --git a/src/main/java/com/fasterxml/jackson/core/Base64Variants.java b/src/main/java/com/fasterxml/jackson/core/Base64Variants.java
+index 63f434af..e1871f09 100644
+--- a/src/main/java/com/fasterxml/jackson/core/Base64Variants.java
++++ b/src/main/java/com/fasterxml/jackson/core/Base64Variants.java
+@@ -4,6 +4,9 @@
+  */
+ package com.fasterxml.jackson.core;
+ 
++import com.fasterxml.jackson.core.io.CharTypes;
++import com.fasterxml.jackson.core.util.ByteArrayBuilder;
++
+ /**
+  * Container for commonly used Base64 variants:
+  *<ul>
+@@ -108,4 +111,54 @@ public final class Base64Variants
+         }
+         throw new IllegalArgumentException("No Base64Variant with name "+name);
+     }
++
++    /**
++     * Builds the base64 text for given bytes, using settings of given variant.
++     *<p>
++     * Input is consumed from the start in groups of three bytes; when fewer than
++     * three bytes remain, the last group holds the remaining one or two bytes.
++     * For each group, the group value is obtained from
++     * {@link ByteArrayBuilder#packGroup} (with the group's start index and byte
++     * count) and passed, together with the byte count, to
++     * {@link CharTypes#appendBase64Group}, which appends the characters.
++     *<p>
++     * Line splitting: a counter starts at {@code variant.getMaxLineLength() >> 2};
++     * it is decremented after each complete (three-byte) group, and whenever it
++     * reaches zero or less, an escaped linefeed (a backslash followed by 'n', as
++     * needed within a JSON String value) is appended and the counter starts over.
++     * The final one- or two-byte group never adds a linefeed.
++     *<p>
++     * If {@code addQuotes} is true, the text is enclosed in double quotes.
++     *
++     * @param variant Variant whose alphabet, padding and line length are used
++     * @param input Bytes to convert
++     * @param addQuotes Whether to surround the text in double quotes
++     *
++     * @return Text built as described above
++     */
++    public static String encodeToText(Base64Variant variant, byte[] input, boolean addQuotes)
++    {
++        final int inputEnd = input.length;
++        // let's approximate... 33% overhead, ~= 3/8 (0.375)
++        StringBuilder sb = new StringBuilder(inputEnd + (inputEnd >> 2) + (inputEnd >> 3));
++        if (addQuotes) {
++            sb.append('"');
++        }
++        int chunksBeforeLF = variant.getMaxLineLength() >> 2;
++        int inputPtr = 0;
++        while (inputPtr < inputEnd) {
++            int count = Math.min(3, inputEnd - inputPtr);
++            CharTypes.appendBase64Group(variant, sb, ByteArrayBuilder.packGroup(input, inputPtr, count), count);
++            inputPtr += count;
++            if (count == 3 && --chunksBeforeLF <= 0) {
++                sb.append('\\');
++                sb.append('n');
++                chunksBeforeLF = variant.getMaxLineLength() >> 2;
++            }
++        }
++        if (addQuotes) {
++            sb.append('"');
++        }
++        return sb.toString();
++    }
+ }
+diff --git a/src/main/java/com/fasterxml/jackson/core/io/CharTypes.java b/src/main/java/com/fasterxml/jackson/core/io/CharTypes.java
+index dac97ffb..6303c924 100644
+--- a/src/main/java/com/fasterxml/jackson/core/io/CharTypes.java
++++ b/src/main/java/com/fasterxml/jackson/core/io/CharTypes.java
+@@ -2,6 +2,8 @@ package com.fasterxml.jackson.core.io;
+ 
+ import java.util.Arrays;
+ 
++import com.fasterxml.jackson.core.Base64Variant;
++
+ public final class CharTypes
+ {
+     private final static char[] HEX_CHARS = "0123456789ABCDEF".toCharArray();
+@@ -221,6 +223,34 @@ public final class CharTypes
+         }
+     }
+ 
++    /**
++     * Appends the base64 characters of one group of input bytes, using alphabet
++     * and padding settings of given variant.
++     *<p>
++     * Group value {@code bits} must be laid out as {@link
++     * com.fasterxml.jackson.core.util.ByteArrayBuilder#packGroup} returns it: a
++     * value between 0 and 0xFFFFFF with the first byte in bits 16 to 23.
++     * If {@code byteCount} is 3, the four characters produced by
++     * {@link Base64Variant#encodeBase64Chunk(StringBuilder, int)} are appended;
++     * if it is 1 or 2, the characters produced by
++     * {@link Base64Variant#encodeBase64Partial(StringBuilder, int, int)} are
++     * appended (two or three characters, plus padding if the variant uses it).
++     * Nothing else (no linefeeds or quotes) is appended.
++     *
++     * @param variant Variant whose alphabet and padding are used
++     * @param sb Builder to append characters to
++     * @param bits Group value, between 0 and 0xFFFFFF
++     * @param byteCount Number of bytes in the group: 1, 2 or 3
++     */
++    public static void appendBase64Group(Base64Variant variant, StringBuilder sb, int bits, int byteCount)
++    {
++        if (byteCount == 3) {
++            variant.encodeBase64Chunk(sb, bits);
++        } else {
++            variant.encodeBase64Partial(sb, bits, byteCount);
++        }
++    }
++
+     public static char[] copyHexChars()
+     {
+         return (char[]) HEX_CHARS.clone();
+diff --git a/src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java b/src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java
+index c5cff337..ab5a7e3c 100644
+--- a/src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java
++++ b/src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java
+@@ -127,6 +127,35 @@ public final class ByteArrayBuilder
+         }
+     }
+ 
++    /**
++     * Packs one group of one to three bytes, read from given array, into the
++     * low 24 bits of an int, in big-endian order: the layout that
++     * {@link #appendThreeBytes} writes out, and the one base64 encoding consumes.
++     *<p>
++     * Bytes are read from index {@code offset} on. Each byte is taken as an
++     * unsigned octet (0 to 255): the first byte occupies bits 16 to 23, the
++     * second bits 8 to 15 and the third bits 0 to 7. Positions of bytes beyond
++     * {@code count} are zero, and bits 24 to 31 are always zero, so the result is
++     * always between 0 and 0xFFFFFF, inclusive.
++     *
++     * @param data Array to read bytes from
++     * @param offset Index of the first byte of the group
++     * @param count Number of bytes in the group: 1, 2 or 3
++     *
++     * @return Group value, between 0 and 0xFFFFFF
++     */
++    public static int packGroup(byte[] data, int offset, int count)
++    {
++        int bits = 0;
++        for (int i = 0; i < 3; ++i) {
++            bits <<= 8;
++            if (i < count) {
++                bits |= data[offset + i];
++            }
++        }
++        return bits;
++    }
++
+     /**
+      * Method called when results are finalized and we can get the
+      * full aggregated result buffer to return to the caller
