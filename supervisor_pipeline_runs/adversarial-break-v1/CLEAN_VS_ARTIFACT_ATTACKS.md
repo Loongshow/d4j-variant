@@ -1,0 +1,35 @@
+# Clean versus artifact: how each built attack should be read
+
+The brief allows artifacts in this exploratory phase and asks only that every manipulation be classified
+honestly. This file records, per built attack, which parts are legitimate program structure a thesis benchmark
+could keep, which parts are artifacts that exploit the agent rather than the task, and what would have to
+change to clean it. Results are filled in from the screening and confirmation files as they arrive.
+
+| Attack | CLEAN component | ARTIFACT component | Trap classes | Could be cleaned into a thesis experiment? |
+|---|---|---|---|---|
+| `ADV-DEPTH-01` | a non-terminal fault (H3 stops masking) with real correct downstream computation; a two-assertion test where only the second discriminates | H5's javadoc promises the masking that H3 dropped, and H3's javadoc is worded so its unmasked body reads as textbook widening; a one-line repair at H5 also passes the trigger, so ownership is contested by design | DEPTH_PRIOR_TRAP, ATTRIBUTION_TRAP, OWNERSHIP_TRAP, LEXICAL_TRAP | yes: drop the H5 javadoc promise, keep H3's contract explicit about masking, and the instance becomes the non-terminal-gold experiment the depth-prior analysis has asked for |
+| `ADV-REGISTRY-01` | a real registry-by-runtime-type dispatch over five real implementations that every packing facade uses; the fault sits in the implementation the trigger selects | Packer16's deliberately unusual but correct shift expression, registered first so that a linear reader meets it before the gold; five classes share the method name `pack` | SEARCH_TRAP, TOOL_BEHAVIOR_TRAP, CANDIDATE_OVERLOAD, MODEL_SPECIFIC | yes: keep the registry and the five implementations (the indirect-flow experiment), write Packer16 conventionally |
+| `ADV-LEX-01` | the historical five-hop chain and fault | the gold is stripped of name, javadoc, parameter names and constant; a decoy method carries all of them, is executed only through a trivially true guard, and contradicts its own javadoc | LEXICAL_TRAP, ATTRIBUTION_TRAP, CONTEXT_TRAP | partly: the witness-removal half (generic gold) is a legitimate "how much does local evidence matter" manipulation; the planted decoy is an artifact and should be dropped or replaced by a real sibling |
+| `ADV-OVERLOAD-01` | 18 real sibling conversions executed by one test; a fault in one; no existing test exercises the faulty region | the assertion is a single boolean over an XOR of round trips, chosen so that the failure text carries no numeric clue | CANDIDATE_OVERLOAD, FAILURE_SIGNAL_TRAP | yes: the sibling set is real production code; replace the boolean with the natural per-round-trip assertions to recover a clean coarse-versus-fine failure-signal experiment |
+| `ADV-OWNER-01` | a real round trip whose encoder emits a spec-shaped but wrong string and whose decoder is correct | none beyond the choice of a value whose upper word exercises the faulty region | OWNERSHIP_TRAP, ATTRIBUTION_TRAP, FAILURE_SIGNAL_TRAP | yes as is: producer-versus-consumer attribution with the gold at the producer is the mirror image of CHART-PIE-03 and is already a legitimate design |
+| `ADV-DEFINER-01` | CHART-PIE-03's real five-hop chain with a pure definer (`drift`) whose sign convention is pinned by its own unit test, a non-terminal adapter (`nudge`) that owns the negation, and a textbook terminal (`shift`) | the definer's convention (`point1 - point2`) is chosen so that its sign reads as "reversed" against the intended displacement; the pinning test exists only in the variant arm | ATTRIBUTION_TRAP, OWNERSHIP_TRAP, DEPTH_PRIOR_TRAP | yes, and it is the closest of the seven to a thesis instance: it is PIE-03 with ownership made unique by a unit test. To clean it, add `testDrift` to both arms (so the pin is not variant-only) and keep the rest |
+| `ADV-MASK-01` | a real second consumer (`BitField.setValue` delegating to `overlay`) pins the deepest hop's contract; the gold line is the verbatim line of a previously validated chain; every hop is real production-shaped code | `overlay` is parameterised so that its field/word shift asymmetry (field by `index*width`, word by `at+index*width`) looks locally inconsistent although it is correct for a pre-positioned field; the asymmetry exists to attract the fix | DEPTH_PRIOR_TRAP, CONTEXT_TRAP, OWNERSHIP_TRAP, ATTRIBUTION_TRAP | partly: "the contract lives at a shallow hop and the deepest hop merely looks wrong but is pinned by a second consumer" is a legitimate depth-prior experiment; documenting `overlay`'s pre-positioned-field contract would remove the artifact and probably most of the effect |
+| `ADV-COMPOSITE-01` | the same structure as `ADV-DEFINER-01` (pinned pure definer, non-terminal adapter that owns the sign, textbook terminal) | everything stacked on top: the gold is renamed to the generic `resolve`, stripped of javadoc and meaningful parameter names, and padded with about twenty lines of guards so the two delta lines fall outside a `grep -A20` window; the terminal's javadoc claims the exploded-section semantics that the gold implements; the trigger's assertions are coarsened to booleans so the failure text carries no 87.5/112.5 clue | ATTRIBUTION_TRAP, OWNERSHIP_TRAP, DEPTH_PRIOR_TRAP, LEXICAL_TRAP, TOOL_BEHAVIOR_TRAP, FAILURE_SIGNAL_TRAP, CONTEXT_TRAP, ARTIFACT | no, not as a whole: it is by construction the union of every artifact that worked, and its value is as an upper bound on how wrong the models can be made, not as a thesis instance. Its clean core is `ADV-DEFINER-01` |
+
+## Rules applied
+
+- A component is CLEAN if a reviewer who did not know the gold could defend the code as plausible production
+  code and the test as a plausible regression test.
+- A component is an ARTIFACT if it exists only to steer the agent: planted documentation that contradicts the
+  code, deliberately odd correct code, unused-but-executed decoys, or a failure signal coarsened on purpose.
+- Declared collateral (an existing test that also fails) is recorded per attack in `TOP5_ATTACKS.md`; it is
+  visible only to an agent that runs the whole test class, which no model did in the pilot.
+
+## Result summary per attack
+
+Filled from `CONFIRMATION_RESULTS.md` and `MAX_DIFFICULTY_RESULTS.md` once every planned run is in; see `WHAT_ACTUALLY_BREAKS_LLM_FL.md`
+for the reading. The short version recorded there: the attacks whose CLEAN component carries the effect (`ADV-DEFINER-01`) broke both models;
+the attacks whose effect rests on a planted decoy (`ADV-LEX-01`) broke only the weaker model and only sometimes; the artifact-only
+manipulations (`ADV-OVERLOAD-01`, `ADV-OWNER-01`, `ADV-REGISTRY-01`) did not break the primary weaker model at all; and the composite,
+which stacks every artifact on the clean definer core, left the gold where the core left it in every answer (Opus rank 3, Sonnet rank 5)
+and only raised Sonnet's exhaustion from three runs in ten to five in ten. Artifacts bought no attribution effect beyond the clean lever.

@@ -1,0 +1,28 @@
+"""Final three-project comparison (Lang reference, Math = supplementary block with first block shown separately, Chart).
+Usage: build_final_comparison.py <math_supplementary_results.json> <chart_results.json> <out.json>"""
+import json, sys, statistics
+MS, CH = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
+ref = json.load(open("/Users/shawnli/Desktop/Honours/defects4j/supervisor_pipeline_runs/conversion-branch-dispatch-v1/analysis/data/reference_prior_experiments.json"))
+lang = json.load(open("/Users/shawnli/Desktop/Honours/defects4j/supervisor_pipeline_runs/conversion-long-chain-v1/long_chain_results.json"))["per_arm"]
+def mean(xs): xs = [x for x in xs if x is not None]; return round(statistics.mean(xs), 2) if xs else None
+def chart_block(arm):
+    rs = [r for r in CH["runs"] if r["arm"] == arm]; comp = [r for r in rs if r["status"] == "completed"]; act = [r for r in rs if (r["tool_call_count"] or 0) > 0]; A = CH["per_arm"][arm]
+    d = {"label": "run-001..005", "n_launched": len(rs), "completed": len(comp), "provider_affected_runs": sum(1 for r in rs if r["timing"].get("stalled_request")), "gold_ranks_completed": [r["gold_rank"] for r in comp],
+         "acc_at_1": A["acc_at_1"], "mrr": A["mrr"], "first_gold_step_all": [r["gold_first_exposed_step"] for r in rs], "first_gold_step_mean_active": mean([r["gold_first_exposed_step"] for r in act]),
+         "tool_calls_all": [r["tool_call_count"] for r in rs], "tool_calls_completed_mean": mean([r["tool_call_count"] for r in comp]), "runs_with_activity": len(act), "cost_usd": round(A["total_cost_usd"], 4)}
+    if arm == "TREATMENT": d.update({"full_five_hop_traversal_active": A.get("full_five_hop_traversal_rate_active"), "lexical_bypass_strict_active": A.get("lexical_bypass_rate_active"), "hop_exposure_mean": A.get("hop_exposure_mean"), "buggy_line_after_h4_call_runs": A.get("buggy_line_after_h4_call_runs")})
+    return d
+L = {"CONTROL": {"label": "long-chain experiment run-001..005", "n_launched": 5, "completed": 5, "provider_affected_runs": 0, "gold_ranks_completed": lang["CONTROL"]["gold_ranks"], "acc_at_1": lang["CONTROL"]["acc_at_1"], "mrr": lang["CONTROL"]["mrr"],
+                  "first_gold_step_all": lang["CONTROL"]["first_gold_step"], "first_gold_step_mean_active": mean(lang["CONTROL"]["first_gold_step"]), "tool_calls_all": lang["CONTROL"]["tool_calls"], "tool_calls_completed_mean": mean(lang["CONTROL"]["tool_calls"]), "runs_with_activity": 5, "cost_usd": round(lang["CONTROL"]["total_cost_usd"], 4)},
+     "TREATMENT": {"label": "long-chain experiment run-001..005", "n_launched": 5, "completed": 5, "provider_affected_runs": 0, "gold_ranks_completed": lang["LONG_TREATMENT"]["gold_ranks"], "acc_at_1": lang["LONG_TREATMENT"]["acc_at_1"], "mrr": lang["LONG_TREATMENT"]["mrr"],
+                   "first_gold_step_all": lang["LONG_TREATMENT"]["first_gold_step"], "first_gold_step_mean_active": mean(lang["LONG_TREATMENT"]["first_gold_step"]), "tool_calls_all": lang["LONG_TREATMENT"]["tool_calls"], "tool_calls_completed_mean": mean(lang["LONG_TREATMENT"]["tool_calls"]), "runs_with_activity": 5,
+                   "full_five_hop_traversal_active": ref["five_hop_direct"]["full_five_hop_traversal_rate"], "lexical_bypass_strict_active": ref["five_hop_direct"]["lexical_bypass_rate"], "cost_usd": round(lang["LONG_TREATMENT"]["total_cost_usd"], 4)}}
+out = {"schema_version": "cross-project-final/v1", "label": "NON-CANONICAL / FINAL THREE-PROJECT COMPARISON / GPT-5.6 DIAGNOSTIC", "rule": "per project; Math shown as first block (provider-stall-damaged) and supplementary block separately, plus a descriptive union; no pooling across projects; timeouts never misses",
+       "projects": {"Lang": L, "Math_first_block": MS["first_block"], "Math_supplementary_block": MS["supplementary_block"], "Math_combined_descriptive": MS["combined_descriptive"], "Chart": {"CONTROL": chart_block("CONTROL"), "TREATMENT": chart_block("TREATMENT")}}}
+def row(name, C, T):
+    f = lambda x: "-" if x is None else (f"{x:.2f}" if isinstance(x, float) else str(x))
+    return (f"| {name} | {C['completed']}/{C['n_launched']} | {C['gold_ranks_completed']} | {f(C['acc_at_1'])} | {f(C['mrr'])} | {f(C['first_gold_step_mean_active'])} (n={C.get('runs_with_activity')}) | {f(C['tool_calls_completed_mean'])} | "
+            f"{T['completed']}/{T['n_launched']} | {T['gold_ranks_completed']} | {f(T['acc_at_1'])} | {f(T['mrr'])} | {f(T['first_gold_step_mean_active'])} (n={T.get('runs_with_activity')}) | {f(T['tool_calls_completed_mean'])} | {f(T.get('full_five_hop_traversal_active'))} | {f(T.get('lexical_bypass_strict_active'))} |")
+hdr = ["| Project (block) | CONTROL completed | CONTROL gold ranks | CONTROL Acc@1 | CONTROL MRR | CONTROL first-gold step (mean; runs with activity) | CONTROL tool calls (completed mean) | 5-hop completed | 5-hop gold ranks | 5-hop Acc@1 | 5-hop MRR | 5-hop first-gold step (mean; runs with activity) | 5-hop tool calls (completed mean) | Full-chain traversal (runs with activity) | Strict lexical bypass (runs with activity) |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+tbl = hdr + [row("Lang (reference)", L["CONTROL"], L["TREATMENT"]), row("Math — first block run-001..005 (stall-damaged)", MS["first_block"]["CONTROL"], MS["first_block"]["TREATMENT"]), row("Math — supplementary block run-006..010", MS["supplementary_block"]["CONTROL"], MS["supplementary_block"]["TREATMENT"]), row("Chart run-001..005", out["projects"]["Chart"]["CONTROL"], out["projects"]["Chart"]["TREATMENT"])]
+out["final_table_md"] = "\n".join(tbl); json.dump(out, open(sys.argv[3], "w"), indent=1); print(out["final_table_md"])

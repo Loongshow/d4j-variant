@@ -1,0 +1,48 @@
+"""Write variant_manifest.json, validation.json and NON_CANONICAL.md for both HA packages from the EXECUTED validation / reproduction / lexgate / counterfactual results.
+No status is pre-written. Usage: package_ha.py"""
+import json, os, hashlib, datetime
+R = "/Users/shawnli/Desktop/Honours/defects4j/supervisor_pipeline_runs/hypothesis-ambiguity-v1"; cfg = json.load(open(os.path.join(R, "analysis/pair_config_ha.json")))
+h = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+for arm in ("low", "high"):
+    V = cfg["low_id"] if arm == "low" else cfg["high_id"]; other = cfg["high_id"] if arm == "low" else cfg["low_id"]; pkg = os.path.join(R, "packages", V); A = cfg[arm]
+    val = json.load(open(os.path.join(R, "validation", f"{arm.upper()}_VALIDATION.json"))); rep = json.load(open(os.path.join(R, "repro", f"{arm.upper()}_REPRODUCTION.json")))
+    lex = json.load(open(os.path.join(R, "analysis/leakage", f"lexgate_{arm}.json"))); cf = json.load(open(os.path.join(R, "analysis", f"counterfactual_{arm}.json")))
+    gates = {g["gate"]: g["status"] for g in val["gates"]}; assert val["overall"] == "pass" and rep["overall"] == "pass", (arm, val["overall"], rep["overall"])
+    sig = val["trigger_runs"][0]["signature"]
+    cands = [{"class": c["class"], "method": c["method"], "file": c["file"], "role": "decoy candidate" if arm == "high" else "value-oriented helper", "actually_faulty": False} for c in A["candidates"]]
+    manifest = {
+     "schema_version": "d4j-variant-manifest/v1", "manifest_extension": "hypothesis-ambiguity-v1/manifest/v1", "variant_id": V, "pair_id": cfg["pair_id"], "arm": arm, "condition": "LOW ambiguity" if arm == "low" else "HIGH ambiguity", "paired_variant": other,
+     "relation_to_the_paired_variant": "Same project, bug, gold method (identical body), facade body, trigger (byte-identical test.patch), failure signature, call depth and file set; only the bodies/names of the three non-gold depth-2 helpers differ (LOW: gather/widen/merge, value-oriented; HIGH: offset/advance/deposit, position-oriented).",
+     "status": "non_canonical_validated", "benchmark_eligible": False, "non_canonical": True, "label": "NON-CANONICAL / HYPOTHESIS-AMBIGUITY EXPERIMENT / GPT-5.6 / CONSTRUCTION-VALIDATION ONLY",
+     "source": {"defects4j_project": "Lang", "defects4j_bug_id": 1, "bug_slug": "Lang-1", "fixed_revision": "1f", "baseline_version": "Lang-1f (D4J_Lang_1_FIXED_VERSION)", "artifact_path": f"supervisor_pipeline_runs/hypothesis-ambiguity-v1/packages/{V}"},
+     "construction": {"method": "deterministic local construction on a fresh Lang-1f checkout (scripts/build_ha.py; exact asserted edits; git diff)", "llm_generation_used": False, "paid_model_executed_at_packaging": False},
+     "semantic_bug": {"family": cfg["semantic_bug"]["family"], "effect": cfg["semantic_bug"]["effect"], "buggy_line_text": cfg["bug_line"].strip(), "correct_line_text": cfg["orig_line"].strip(), "locally_coherent": True,
+                      "contract_violated": "dstPos is the position of the lsb in bits; the lane term must be the 0-based index of the lane containing dstPos (floor), see analysis/CONTRACT_DEPENDENCY.md"},
+     "trigger": {"test_id": cfg["trigger"], "test_class": cfg["trigger"].split("::")[0], "test_method": cfg["trigger"].split("::")[1], "all_empirically_failing_tests": [cfg["trigger"]], "failure_signature": sig, "expected_signature_fragment": cfg["expected_signature"], "test_patch_sha256": h(os.path.join(pkg, "test.patch"))},
+     "fault": {"locations": [{"class": cfg["gold_class"], "method": cfg["gold_method"], "file": cfg["gold_file"], "production": True}], "gold": {"faulty_class": cfg["gold_class"], "faulty_method": cfg["gold_method"], "faulty_file": cfg["gold_file"]}},
+     "synthetic_call_hops": 2, "facade_to_gold_call_edges": 2, "chain": {"facade": "org.apache.commons.lang3.Conversion#intArrayToLong (keeps both guards)", "hop1": {"class": cfg["hop1"]["class"], "method": cfg["hop1"]["method"], "file": cfg["hop1"]["file"]}, "gold": {"class": cfg["gold_class"], "method": cfg["gold_method"], "file": cfg["gold_file"]}, "depth2_helpers": cands},
+     "hypothesis_ambiguity": {"candidate_set": ["Conversion#intArrayToLong (facade)", "ArrayUtils#pack", "BitField#lane (gold)"] + [f"{c['class'].split('.')[-1]}#{c['method']}" for c in A["candidates"]],
+                              "genuine_non_gold_candidates_P1_P8": (["ArrayUtils#pack", "ArrayUtils#advance", "NumberUtils#deposit"] if arm == "high" else ["ArrayUtils#pack"]), "counterfactual_repairs": [{"candidate": r["candidate"], "classification": r["classification"]} for r in cf["repairs"]]},
+     "changed_files": [{"file": cfg["facade_file"], "role": "facade"}, {"file": cfg["hop1"]["file"], "role": "hop1 + helper + import"}, {"file": cfg["gold_file"], "role": "gold + helper"}, {"file": "src/main/java/org/apache/commons/lang3/math/NumberUtils.java", "role": "helper"}, {"file": cfg["test_file"], "role": "trigger"}],
+     "reasoning": {"level": "L20", "level_semantics": "LEGACY DISCOVERY SLOT ONLY (storage directory name required by the frozen harness) — NOT a measured reasoning level; see facade_to_gold_call_edges and hypothesis_ambiguity", "changed_node": f"{cfg['gold_class']}#{cfg['gold_method']}"},
+     "artifacts": {"manifest": "variant_manifest.json", "variant_patch": "variant.patch", "test_patch": "test.patch", "validation": "validation.json", "non_canonical_notice": "NON_CANONICAL.md"},
+     "artifact_hashes": {"variant.patch": h(os.path.join(pkg, "variant.patch")), "test.patch": h(os.path.join(pkg, "test.patch"))},
+     "validation_artifact_hashes": {f"validation/{arm.upper()}_VALIDATION.json": h(os.path.join(R, "validation", f"{arm.upper()}_VALIDATION.json")), f"repro/{arm.upper()}_REPRODUCTION.json": h(os.path.join(R, "repro", f"{arm.upper()}_REPRODUCTION.json"))},
+     "reproducibility": {"status": "passed", "reproduced_at": rep["finished_at"], "method": "fresh defects4j checkout, git apply of packaged patches only, compile, trigger x3, static structure check", "checkout_head": rep["checkout_head"]},
+     "leakage": {"lexgate_verdict": lex["verdict"], "lexgate_scannable_reach": lex.get("scannable_reach", []), "lexgate_name_exposure": lex["name_exposure"], "note": "analysis/LEAKAGE_AUDIT.md"},
+     "provenance": {"toolchain": {"defects4j": "v3.0.1-9-gac76feee", "jdk": "OpenJDK 11.0.30", "python": "3.13.12"}, "supervisor_generator_used": False, "llm_used_for_construction": False},
+     "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    json.dump(manifest, open(os.path.join(pkg, "variant_manifest.json"), "w"), indent=1)
+    gate_map = {"baseline_compile": "A", "baseline_trigger": "D", "baseline_related_test": "B1", "variant_compile": "F", "deterministic": "H", "clean_value_mismatch": "I", "collateral": "K", "source_reset": "L", "correct_chain_compiles": "M", "correct_logic_through_chain": "N", "correct_chain_full_suite_equals_baseline": "N2", "bug_inside_gold_only": "O", "wiring_and_candidates_called": "P", "candidate_bodies_real_work": "Q", "dynamic_candidate_participation": "R"}
+    vj = {"schema_version": "d4j-validation/v1", "validation_extension": "hypothesis-ambiguity-v1/validation/v1", "variant_id": V, "status": "accepted", "accepted": True, "non_canonical": True, "validated_at": val["finished_at"],
+          "gate": {k: {"status": gates[g]} for k, g in gate_map.items()}}
+    vj["gate"]["variant_trigger"] = {"status": "expected_fail" if gates["G"] == "pass" else "FAIL", "test_id": cfg["trigger"], "signature": sig}
+    vj["gate"]["variant_trigger_runs"] = [{"run": t["run"], "status": "expected_fail" if t["n_fail"] == 1 else "FAIL", "signature": t["signature"], "failing_tests_sha256": t["failing_tests_sha256"]} for t in val["trigger_runs"]]
+    vj["gate"]["collateral"].update({"baseline_failures": val["baseline_full_suite_failures"], "buggy_failures": val["buggy_full_suite_failures"]})
+    vj["gate"]["fresh_checkout_reproduction"] = {"status": rep["overall"], "steps": [[s["step"], s["status"]] for s in rep["steps"]], "checkout_head": rep["checkout_head"]}
+    vj["gate"]["lexgate"] = {"status": "documented", "verdict": lex["verdict"]}; vj["gate"]["counterfactual_repair_audit"] = {"status": "documented", "gold_repair": next(r["classification"] for r in cf["repairs"] if "GOLD" in r["candidate"]), "decoy_repairs": {r["candidate"]: r["classification"] for r in cf["repairs"] if "GOLD" not in r["candidate"]}}
+    vj["validated_with"] = {"baseline_revision": "Lang-1f", "construction_checkout": val["work_checkout"], "fresh_checkout": rep["fresh_checkout"]}; vj["paid_model_executed"] = False
+    json.dump(vj, open(os.path.join(pkg, "validation.json"), "w"), indent=1)
+    open(os.path.join(pkg, "NON_CANONICAL.md"), "w").write(f"NON-CANONICAL · HYPOTHESIS-AMBIGUITY EXPERIMENT · GPT-5.6 · CONSTRUCTION / VALIDATION ONLY · NO PAID MODEL EXECUTED AT PACKAGING TIME\n\n{V}: {'LOW' if arm == 'low' else 'HIGH'} fault-hypothesis-ambiguity condition of pair HA-01 (Lang-1f). Fault: BitField#lane computes a lane count instead of the lane index (ceiling vs floor); trigger ConversionTest::testLang1140; same gold, distance and trigger in both conditions.\nNot part of the canonical CRFLB corpus. reasoning.level is a legacy storage slot only; facade-to-gold call edges = 2.\nValidation: validation/{arm.upper()}_VALIDATION.json (overall {val['overall']}); reproduction: repro/{arm.upper()}_REPRODUCTION.json (overall {rep['overall']}); lexgate: {lex['verdict']}.\n")
+    print(V, "packaged; gates:", {k: gates[g] for k, g in gate_map.items()})
+print(open(os.path.join(R, "packages", "HA-LOW-01", "NON_CANONICAL.md")).read()[:200])
