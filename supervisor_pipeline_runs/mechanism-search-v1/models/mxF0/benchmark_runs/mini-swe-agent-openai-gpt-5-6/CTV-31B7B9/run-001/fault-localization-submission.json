@@ -1,0 +1,128 @@
+{
+  "schema_version": "d4j-fl-submission/v1",
+  "ok": true,
+  "tool": "submit_fault_localization",
+  "prediction_count": 10,
+  "predictions": [
+    {
+      "rank": 1,
+      "class": "org.apache.commons.compress.archivers.zip.ZipUtil",
+      "method": "dosToJavaTime"
+    },
+    {
+      "rank": 2,
+      "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+      "method": "populateFromCentralDirectory"
+    },
+    {
+      "rank": 3,
+      "class": "org.apache.commons.compress.archivers.zip.ZipUtil",
+      "method": "toDosTime"
+    },
+    {
+      "rank": 4,
+      "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+      "method": "writeCentralFileHeader"
+    },
+    {
+      "rank": 5,
+      "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+      "method": "writeLocalFileHeader"
+    },
+    {
+      "rank": 6,
+      "class": "org.apache.commons.compress.archivers.zip.ZipLong",
+      "method": "getValue"
+    },
+    {
+      "rank": 7,
+      "class": "org.apache.commons.compress.archivers.zip.ZipLong",
+      "method": "getBytes"
+    },
+    {
+      "rank": 8,
+      "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+      "method": "putNextEntry"
+    },
+    {
+      "rank": 9,
+      "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+      "method": "finish"
+    },
+    {
+      "rank": 10,
+      "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+      "method": "getEntry"
+    }
+  ],
+  "evidence_chain": [
+    {
+      "evidence": "The failing test sets 10:20:46 and performs a ZIP write/read timestamp round trip; the isolated Defects4J invocation reproduces the failure.",
+      "inference_summary": "The fault is in ZIP timestamp packing, unpacking, or the central-directory read/write path.",
+      "candidate_methods": [
+        "ZipUtil.dosToJavaTime",
+        "ZipUtil.toDosTime",
+        "ZipFile.populateFromCentralDirectory"
+      ],
+      "references": []
+    },
+    {
+      "evidence": "ZipUtil.toDosTime stores seconds as seconds >> 1, as required by the two-second DOS timestamp representation, while ZipUtil.dosToJavaTime reads the five-bit field directly into Calendar.SECOND without multiplying by two.",
+      "inference_summary": "A stored value of 23 for 46 seconds is decoded as 23 seconds, making dosToJavaTime the dominant fault candidate.",
+      "candidate_methods": [
+        "ZipUtil.dosToJavaTime"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+          "line_start": 45,
+          "line_end": 60
+        },
+        {
+          "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipUtil.java",
+          "line_start": 93,
+          "line_end": 103
+        }
+      ]
+    },
+    {
+      "evidence": "ZipFile.populateFromCentralDirectory reads the packed timestamp with ZipLong.getValue, calls ZipUtil.dosToJavaTime, and assigns that result to the returned entry.",
+      "inference_summary": "This is the direct production read path producing the timestamp observed by the assertion.",
+      "candidate_methods": [
+        "ZipFile.populateFromCentralDirectory",
+        "ZipLong.getValue"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+          "line_start": 306,
+          "line_end": 349
+        }
+      ]
+    },
+    {
+      "evidence": "ZipArchiveOutputStream writes the timestamp into both local and central headers through ZipUtil.toDosTime; ZipFile uses the central-directory value.",
+      "inference_summary": "The central-header writer is the strongest writer-side alternative; local-header writing and byte conversion helpers are secondary alternatives.",
+      "candidate_methods": [
+        "ZipArchiveOutputStream.writeCentralFileHeader",
+        "ZipArchiveOutputStream.writeLocalFileHeader",
+        "ZipLong.getBytes"
+      ],
+      "references": [
+        {
+          "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+          "line_start": 677,
+          "line_end": 679
+        },
+        {
+          "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+          "line_start": 761,
+          "line_end": 763
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "submitted_at": "2026-10-10T03:41:14Z"
+}

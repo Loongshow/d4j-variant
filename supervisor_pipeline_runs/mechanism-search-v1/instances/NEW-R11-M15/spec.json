@@ -1,0 +1,117 @@
+{
+ "iid": "NEW-R11-M15",
+ "project": "Math",
+ "group": "NEW-R11",
+ "mechanism": "M15",
+ "tags": [
+  "M15"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.math3.fraction.BigFraction",
+  "method": "doubleValue",
+  "file": "src/main/java/org/apache/commons/math3/fraction/BigFraction.java",
+  "edits": [
+   {
+    "old": "            int shift = Math.max(numerator.bitLength(),\n                                 denominator.bitLength()) - FastMath.getExponent(Double.MAX_VALUE);",
+    "new": "            int shift = numerator.bitLength() - FastMath.getExponent(Double.MAX_VALUE);"
+   }
+  ]
+ },
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math3.linear.AbstractFieldMatrix",
+   "method": "power",
+   "file": "src/main/java/org/apache/commons/math3/linear/AbstractFieldMatrix.java"
+  },
+  {
+   "class": "org.apache.commons.math3.linear.AbstractFieldMatrix",
+   "method": "multiply",
+   "file": "src/main/java/org/apache/commons/math3/linear/AbstractFieldMatrix.java"
+  },
+  {
+   "class": "org.apache.commons.math3.fraction.BigFraction",
+   "method": "multiply",
+   "file": "src/main/java/org/apache/commons/math3/fraction/BigFraction.java",
+   "decl": "final BigFraction fraction"
+  },
+  {
+   "class": "org.apache.commons.math3.fraction.BigFraction",
+   "method": "add",
+   "file": "src/main/java/org/apache/commons/math3/fraction/BigFraction.java",
+   "decl": "final BigFraction fraction"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.math3.linear.MatrixUtils::createFieldMatrix",
+  "org.apache.commons.math3.linear.Array2DRowFieldMatrix::getEntry",
+  "org.apache.commons.math3.linear.AbstractRealMatrix::power"
+ ],
+ "evidence": [
+  "org.apache.commons.math3.fraction.BigFraction::floatValue",
+  "org.apache.commons.math3.fraction.BigFractionTest::testDoubleValueForLargeNumeratorAndDenominator",
+  "org.apache.commons.math3.fraction.BigFractionTest::testFloatValueForLargeNumeratorAndDenominator",
+  "org.apache.commons.math3.linear.FieldMatrixImplTest::testPower",
+  "org.apache.commons.math3.linear.AbstractRealMatrix::power"
+ ],
+ "ownership_reason": "BigFraction.doubleValue owns the fault. Its normal branch (numerator.doubleValue() / denominator.doubleValue()) is correct and is the only branch any existing caller needs; the fallback under if (Double.isNaN(result)) runs only when both BigInteger parts exceed Double.MAX_VALUE, and its own comment says it must shift numerator and/or denominator 'to put them in range'. The variant computes the shift from numerator.bitLength() alone, so when the denominator is at least two bits longer than the numerator (any reduced fraction below 1/2 with both parts above 2^1024) the shifted denominator is still >= 2^1024, converts to Infinity, and the result collapses to 0.0. The sibling BigFraction.floatValue performs the same fallback with Math.max(numerator.bitLength(), denominator.bitLength()), and the passing MATH-744 tests (BigFractionTest.testDoubleValueForLargeNumeratorAndDenominator / testFloatValueForLargeNumeratorAndDenominator) pin the fallback only for a numerator larger than the denominator (value 5), which the variant still satisfies. The competitors produce the exact fraction: P = [[3/4,1/4],[1/4,3/4]] has P^n = [[(2^n+1)/2^(n+1), (2^n-1)/2^(n+1)], ...] (eigenvalues 1 and 1/2), BigFraction reduces every result to lowest terms in its constructor, AbstractFieldMatrix.power is pinned against repeated multiplication by the passing FieldMatrixImplTest.testPower and mirrors AbstractRealMatrix.power, which in the trigger itself supplies the reference 0.5 entries; BigFractionTest.testAdd/testMultiply pin the arithmetic. In the trigger the steps 1, 2, 10, 100 and 1000 agree (all parts below 2^1024, normal branch); only n = 2000 reaches the fallback, where the diagonal (2^2000+1)/2^2001 (denominator one bit longer) still converts to 0.5 and the off-diagonal (2^2000-1)/2^2001 (two bits longer) becomes 0.0. Since a reduced BigFraction has a unique representation, no edit to power, multiply or add can change what doubleValue receives without breaking the exact-arithmetic tests; restoring the max of both bit lengths in doubleValue is the minimal repair.",
+ "ownership_tests": [
+  "org.apache.commons.math3.linear.FieldMatrixImplTest::testPower",
+  "org.apache.commons.math3.fraction.BigFractionTest::testDoubleValueForLargeNumeratorAndDenominator",
+  "org.apache.commons.math3.fraction.BigFractionTest::testFloatValueForLargeNumeratorAndDenominator",
+  "org.apache.commons.math3.fraction.BigFractionTest::testAdd",
+  "org.apache.commons.math3.fraction.BigFractionTest::testMultiply"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/math3/linear/FieldMatrixImplTest.java",
+  "test_class": "org.apache.commons.math3.linear.FieldMatrixImplTest",
+  "test_method": "testTwoStateChainExactAndFloatingStepsAgree",
+  "imports": [
+   "import org.apache.commons.math3.fraction.BigFraction;"
+  ],
+  "code": "    @Test\n    public void testTwoStateChainExactAndFloatingStepsAgree() {\n        final FieldMatrix<BigFraction> exact = MatrixUtils.createFieldMatrix(new BigFraction[][] {\n            { new BigFraction(3, 4), new BigFraction(1, 4) },\n            { new BigFraction(1, 4), new BigFraction(3, 4) }\n        });\n        final RealMatrix approximate = MatrixUtils.createRealMatrix(new double[][] {\n            { 0.75, 0.25 },\n            { 0.25, 0.75 }\n        });\n        for (final int n : new int[] { 1, 2, 10, 100, 1000, 2000 }) {\n            final FieldMatrix<BigFraction> exactSteps = exact.power(n);\n            final RealMatrix approximateSteps = approximate.power(n);\n            for (int i = 0; i < 2; i++) {\n                for (int j = 0; j < 2; j++) {\n                    Assert.assertEquals(approximateSteps.getEntry(i, j),\n                                        exactSteps.getEntry(i, j).doubleValue(), 1.0e-12);\n                }\n            }\n        }\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "expected:<0.5> but was:<0.0>",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/AbstractFieldMatrix.java",
+   "old": "        final int power = p - 1;",
+   "new": "        final int power = p;",
+   "why": "one-line decoy edit: AbstractFieldMatrix.power decomposes p instead of p - 1 in binary"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/AbstractFieldMatrix.java",
+   "old": "        FieldMatrix<T> result = this.copy();",
+   "new": "        FieldMatrix<T> result = MatrixUtils.createFieldIdentityMatrix(getField(), getRowDimension());",
+   "why": "one-line decoy edit: AbstractFieldMatrix.power starts the product from the identity instead of a copy of this"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/AbstractFieldMatrix.java",
+   "old": "                    sum = sum.add(getEntry(row, i).multiply(m.getEntry(i, col)));",
+   "new": "                    sum = getEntry(row, i).multiply(m.getEntry(i, col)).add(sum);",
+   "why": "one-line decoy edit: AbstractFieldMatrix.multiply accumulates each product on the other side of the sum"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/fraction/BigFraction.java",
+   "old": "            num = (numerator.multiply(fraction.denominator)).add((fraction.numerator).multiply(denominator));",
+   "new": "            num = (fraction.numerator.multiply(denominator)).add(numerator.multiply(fraction.denominator));",
+   "why": "one-line decoy edit: BigFraction.add forms the cross-multiplied numerator in the opposite order"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/fraction/BigFraction.java",
+   "old": "        if (ZERO.equals(fraction)) {\n            return this;\n        }\n\n        BigInteger num = null;\n        BigInteger den = null;\n\n        if (denominator.equals(fraction.denominator)) {\n            num = numerator.add(fraction.numerator);",
+   "new": "        if (fraction.numerator.signum() == 0) {\n            return this;\n        }\n\n        BigInteger num = null;\n        BigInteger den = null;\n\n        if (denominator.equals(fraction.denominator)) {\n            num = numerator.add(fraction.numerator);",
+   "why": "one-line decoy edit: BigFraction.add short-circuits on a zero numerator instead of equals(ZERO)"
+  }
+ ],
+ "fault_lines": [
+  "int shift = numerator.bitLength() - FastMath.getExponent(Double.MAX_VALUE);"
+ ],
+ "gold_key": "org.apache.commons.math3.fraction.BigFraction::doubleValue",
+ "variant_id": "CTV-85B21D",
+ "kind": "new"
+}

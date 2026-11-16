@@ -1,0 +1,1147 @@
+{
+  "summary": "For each report, confirm or reject every verifier finding against primary data and propose exact replacement text for confirmed ones",
+  "agentCount": 4,
+  "logs": [],
+  "result": {
+    "adjudicated": [
+      {
+        "file": "HELDOUT_CONFIRMATION_RESULTS.md",
+        "decisions": [
+          {
+            "finding_quote": "a 300 s budget timeout while waiting for a model response (HA-COMPRESS run-003)",
+            "decision": "CONFIRMED",
+            "reason": "I read the run-003 trajectory (mini-swe-agent.traj.json) and commands.log, which puts the timer start at 12:16:12.221Z. The single assistant message is at +5.49 s and carries 3 tool calls (grep, defects4j test, find). All three tool results are stamped +304.85 s, after which the run exits with TimeExceeded. model_stats.api_calls is 1, and block_mxF0.jsonl also has api_calls 1. Runs 001 and 004 to 006 of the same variant got their first tool results 0.06 to 0.57 s after the model response. The budget therefore ran out in the tool step, not while waiting on the model. X11's 'second model call did not return' is not supported either. Edits B and M fix the report.",
+            "edits": [
+              {
+                "old": "a 300 s budget timeout while waiting for a model response (HA-COMPRESS run-003).",
+                "new": "a 300 s budget timeout (HA-COMPRESS run-003). Its only model call returned about 5 s into\n  the run, and the budget ran out before the results of the three commands it issued were recorded, so the time was lost in\n  that tool step, not in waiting for a model response."
+              },
+              {
+                "old": "  - One agent-side timeout (HA-COMPRESS run-003), counted as a no-answer under the frozen rule. It occurred during the same\n    provider-degradation window.",
+                "new": "  - One scored timeout (HA-COMPRESS run-003), counted as a no-answer under the frozen rule. Its only model call returned about\n    5 s into the run; the results of the three commands it issued were recorded at about 305 s, after the 300 s budget, and no\n    second model call was made (api_calls = 1). The budget was therefore spent in that tool step, not in waiting for the\n    provider; X11's description of a second model call that did not return is not borne out by the trajectory. The run (12:16\n    to 12:21Z) followed the HO-HA-COMPRESS-01 run-002 provider stall and a 574 s health probe, about 35 minutes before the\n    HO-HB-COMPRESS-01 stalls."
+              }
+            ]
+          },
+          {
+            "finding_quote": "It occurred during the same provider-degradation window.",
+            "decision": "CONFIRMED",
+            "reason": "In driver_mxF0.log, HA-COMPRESS run-002 runs from 11:49:28 to 12:05:34 and is a provider_stall. A probe then times out at 574.3 s (12:15:08), and three probes pass between 12:15:59 and 12:16:09. Run-003 runs from 12:16:09 to 12:21:17. The HB-COMPRESS run-005 stall starts at 12:56:40, about 35 minutes later. The timing is next to the earlier degradation, but the run lost its time in a tool step, so linking it to provider degradation is not supported. The sentence is replaced by edit M, given under the first finding.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Every instance is READY on builder gates G0 to G14. G14, harness compatibility, was added after X10 and passes for every instance.",
+            "decision": "CONFIRMED",
+            "reason": "I iterated over instances/HO-*/validation.json. Only HO-HC-MATH-01 (started 2026-10-11T17:35+1100) has a G14 gate. The other 8 were validated on 10-10 and list G0 to G13 only. A grep for G14 and harness_check outside the verification files finds only HO-HC-MATH-01's records, the scripts, the HO_cont plan text and the reports. No retro-check output is archived. All 9 instances did stage in valid runs.",
+            "edits": [
+              {
+                "old": "  - Every instance is READY on builder gates G0 to G14. G14, harness compatibility, was added after X10 and passes for every\n    instance.",
+                "new": "  - Every instance is READY on builder gates G0 to G13. G14, harness compatibility, was added in X10. It is recorded as passed\n    only for HO-HC-MATH-01 r1; for the other eight, X10 reports a retro check that is not archived. All nine instances were\n    staged by the harness in their valid runs."
+              }
+            ]
+          },
+          {
+            "finding_quote": "held-out confirmation is complete for the 3 strongest",
+            "decision": "PARTLY",
+            "reason": "The problem is real. family_summary.json lists M19 (0.0), M5 (0.5) and M3 (0.714) as the only PROMISING families, and M10 as NULL (3/3). The held-out keys are M10 (HA), M19 (HB) and M3 (HC). The frozen plan does derive the HA, HB and HC failure modes from those three families' S1 misses and states stop rule B on that basis, so the report follows the plan's operationalisation. It should say so explicitly. One part of the proposed fix is wrong: it says M5 was represented through HA and HC. The plan table assigns MASK-01 and CF-V1 to HA, and MASK-01 run 3 to HB, so M5 is carried through HA and HB, not HC. Edit C also absorbs the n = 4 point and the 'robust' scope.",
+            "edits": [
+              {
+                "old": "The global stop rule's condition **B** is met:\n\n- 17 families were screened, against a requirement of at least 12;\n- held-out confirmation is complete for the 3 strongest;\n- none reaches pooled Acc@1 ≤ 0.60.\n\nGPT-5.6 is therefore robust under the tested manipulations.",
+                "new": "The global stop rule's condition **B** is met, as the frozen held-out plan operationalises it:\n\n- 17 families were screened, against a requirement of at least 12;\n- held-out confirmation is complete for three failure-mode recipes (HA, HB, HC) that the plan derived from the S1 misses of\n  the three strongest screened families (M19, M3, M5). The recipes are coded M10, M19 and M3: M5 is carried only through the\n  HA and HB failure modes, and M10 itself screened NULL (NEW-R7-M10, 3/3). One HB cell, HO-HB-COMPRESS-01, has 4 valid runs\n  rather than the preregistered 5 (X11);\n- none reaches pooled Acc@1 ≤ 0.60.\n\nUnder rule B's preregistered wording, GPT-5.6 is therefore robust under the tested manipulations. This is scoped to GPT-5.6 at\neffort medium in mini-swe-agent (300 s) on these 9 synthetic single-fault instances, and the per-recipe Wilson 95% lower\nbounds (0.702, 0.785, 0.796) do not exclude moderate reductions."
+              }
+            ]
+          },
+          {
+            "finding_quote": "held-out confirmation is complete for the 3 strongest",
+            "decision": "CONFIRMED",
+            "reason": "This is the n = 4 finding. PREREGISTRATION.md requires '5 valid runs each'. summary.json gives HO-HB-COMPRESS-01 n = 4 and M19 n = 14, and X11 records that the second allowed top-up was not used. The unqualified 'complete' needs the n = 4 caveat, which edit C (under the previous finding) adds.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Infrastructure events (all excluded and never scored; details in AMENDMENTS)",
+            "decision": "CONFIRMED",
+            "reason": "In analysis/per_run.csv, CTV-9CE7EA run-003 has included=True, driver_verdict=valid, status_kind=behavioural, acc1=0 and rank1_category=NO_ANSWER. The section heading says everything listed was excluded, yet it lists this scored run. The excluded events are the X10 setup failure and five provider stalls (1 on HA-COMPRESS, 4 on HB-COMPRESS).",
+            "edits": [
+              {
+                "old": "## Infrastructure events (all excluded and never scored; details in AMENDMENTS)",
+                "new": "## Infrastructure events and one scored timeout (details in AMENDMENTS)\n\nThe X10 setup failure and the five provider stalls were excluded and never scored. HA-COMPRESS run-003 is not an\ninfrastructure event: it is a valid run, scored as a no-answer."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Design (frozen before any held-out run)",
+            "decision": "CONFIRMED",
+            "reason": "FREEZE.json gives HO.json frozen at 2026-10-10T05:04:55Z, HO_cont.json at 2026-10-11T11:42:48Z and HO_top.json at 2026-10-11T14:13:38Z. The first HO row in block_mxF0.jsonl is at 2026-10-11T04:46:47Z, and the slot-8 STOP_INTEGRITY is at 04:52:13Z. HO-HC-MATH-01 r1 was validated at 06:35Z, and G14 came with it. The report already says each plan was frozen before its first call, but the heading overclaims.",
+            "edits": [
+              {
+                "old": "## Design (frozen before any held-out run)\n\n- **Recipes.**",
+                "new": "## Design\n\nThe recipes, the nine instances as first frozen (HO-HC-MATH-01 at r0) and `plans/HO.json` were frozen before any held-out run.\nGate G14, HO-HC-MATH-01 r1, `plans/HO_cont.json` and `plans/HO_top.json` were added after held-out runs had begun (X10, X11),\neach before its own first call.\n\n- **Recipes.**"
+              }
+            ]
+          },
+          {
+            "finding_quote": "a 300 s budget timeout while waiting for a model response (HA-COMPRESS run-003)",
+            "decision": "CONFIRMED",
+            "reason": "This duplicates the first finding, and I verified the same timestamps. The model responded at +5.49 s and the tool results were recorded at +304.85 s, with api_calls = 1. Three probes passed between 12:15:59 and 12:16:09, just before launch. In the other runs the first tool results came 0.06 to 0.57 s after the model response. Edits B and M, given under the first finding, cover this, including the provider-window wording.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Infrastructure events (all excluded and never scored; details in AMENDMENTS)",
+            "decision": "CONFIRMED",
+            "reason": "Same issue as the earlier heading finding: run-003 is included and scored (per_run.csv; summary.json M10 no_answers = 1). The 'agent-side' versus 'waiting for a model response' inconsistency is resolved by edits B and M under the first finding and by edit L under the earlier heading finding.",
+            "edits": []
+          },
+          {
+            "finding_quote": "held-out confirmation is complete for the 3 strongest;",
+            "decision": "PARTLY",
+            "reason": "The core point stands: HA is coded M10, which screened NULL, no recipe is coded M5, and the n = 4 cell is real. Two parts of the finding overreach. The frozen HELDOUT_CONFIRMATION_PLAN.md ('Why these three mechanisms' and stop rule B) records the mapping from the three families to the failure-mode recipes before any held-out run, so it is not an unrecorded swap. And 'M5's defining condition was never tested' is an interpretation that the data do not settle. Edit C, given under the first 'complete for the 3 strongest' finding, applies the modest correction.",
+            "edits": []
+          },
+          {
+            "finding_quote": "no mechanism reduces GPT-5.6's accuracy on fresh held-out instances.",
+            "decision": "PARTLY",
+            "reason": "I recomputed the Wilson 95% intervals: 14/15 gives (0.702, 0.988), 14/14 gives (0.785, 1.0) and 15/15 gives (0.796, 1.0). HA's lower bound is below X8's 0.80 PARTIALLY_SUPPORTED threshold, so the headline overclaims. What the data show is that no recipe reached ≤ 0.60. The proposed phrase 'reductions of up to about 20 to 30 points' assumes a baseline that the held-out design lacks, so I instead name the lower bounds directly. 'Robust under the tested manipulations' is the preregistered rule-B wording, so I keep it, with scope and the intervals added (edit C).",
+            "edits": [
+              {
+                "old": "**Result: no mechanism reduces GPT-5.6's accuracy on fresh held-out instances.**",
+                "new": "**Result: none of the three held-out recipes brought GPT-5.6's pooled Acc@1 down to the preregistered ≤ 0.60 threshold on fresh held-out instances.**"
+              }
+            ]
+          },
+          {
+            "finding_quote": "The Phase 4 diagnostics had already shown why.",
+            "decision": "CONFIRMED",
+            "reason": "P4-DEPTH-01-r1/spec.json has two edits: the NumberUtils.overlay decoy javadoc, and BitField.widen's javadoc changed to unsigned words, with why 'pin the gold's contract'. P4-COMPRESS07-r1 removes TarBuffer.digest and TarBufferTest.java. Both scored 3/3 against 0/3 for their parents. The two-sided Fisher p for [[0,3],[3,0]] is 0.10. X4 says revisions are 'never confirmation evidence'. The causal framing and the single-edit attribution for DEPTH-01 are therefore overclaims. Edit K also covers the next finding.",
+            "edits": [
+              {
+                "old": "The Phase 4 diagnostics had already shown why. The two 0/3 screening effects vanished, 3/3 each, once the decoy's doc\ncontradiction was removed (DEPTH-01) and the correct sibling offering an alternative entry-point repair was removed\n(COMPRESS-07). Held-out instances that leave the documentation a single defensible owner reproduce that ceiling.",
+                "new": "The Phase 4 diagnostics are consistent with this, but they are exploratory (X4) and small. The two 0/3 screening effects\nbecame 3/3 each after validity repairs (n = 3 per arm; 0/3 against 3/3 gives a two-sided Fisher p of 0.10). The DEPTH-01\nrevision made two javadoc edits, removing the decoy's doc contradiction and pinning the gold's own contract, so which edit\nmattered is not identified. The COMPRESS-07 revision removed the correct sibling that offered an alternative entry-point\nrepair, together with its test. The held-out instances, whose documentation makes the gold the single defensible owner, were\nalso at or near ceiling. No held-out arm varied that property, and 8 of the 9 builder reports had already flagged the gold as\neasy to spot or the instance as at ceiling risk. The held-out null therefore cannot be credited specifically to single-owner\ndocumentation, and it does not show robustness to stronger forms of these mechanisms."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Held-out instances that leave the documentation a single defensible owner reproduce that ceiling.",
+            "decision": "CONFIRMED",
+            "reason": "I searched the builder reports. 8 of 9 flag ease or ceiling risk: HA-COMPRESS 'easy to spot', HA-JACKSONCORE 'may sit at ceiling', HA-MATH 'can easily localise', HB-COMPRESS 'ceiling risk', HB-LANG, HC-JACKSONCORE 'a ceiling is likely', HC-LANG and HC-MATH 'may hit a ceiling'. HB-MATH is the only one with no such flag. No held-out arm varied documentation ownership. Edit K, given under the previous finding, replaces this sentence. I left out the finding's broader claim about auditors accepting recipe deviations, since it is not needed for the correction.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Each was built by an independent builder that never saw model output.",
+            "decision": "CONFIRMED",
+            "reason": "BUILDER_BRIEF.md limits builders to the plan's rules and recipe sections and forbids reading model output. The plan file also contains S1 outcome summaries and the Predictions section. The HO-HB-COMPRESS-01 and HO-HC-JACKSONCORE-01 builder reports cite the plan's HB and HC predictions, and the HO-HC-LANG-01 and HO-HC-JACKSONCORE-01 audits do too. AUDIT_BRIEF does permit auditors to read the plan. All 9 audit.json files record the auditor only as 'independent agent'. The edits replace the unverifiable 'never saw model output' and the self-attested independence with what is recorded.",
+            "edits": [
+              {
+                "old": "Each was built by an independent builder that\n  never saw model output.",
+                "new": "Each was built by a separate builder agent that\n  was instructed not to read model output, trajectories or metrics (`construction/heldout/BUILDER_BRIEF.md`). The plan the\n  builders read also summarises S1 outcomes and states the pre-run predictions, and at least two builder reports\n  (HO-HB-COMPRESS-01, HO-HC-JACKSONCORE-01) cite those predictions."
+              },
+              {
+                "old": "Each gold was **CONFIRMED** by an independent auditor that did not build the instance (`instances/<iid>/audit.json`).",
+                "new": "Each gold was **CONFIRMED** by an auditor that did not build the instance (`instances/<iid>/audit.json`, which records the\n    auditor only as \"independent agent\")."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Design (frozen before any held-out run)",
+            "decision": "CONFIRMED",
+            "reason": "This duplicates the earlier Design finding, with the same FREEZE.json and block_mxF0.jsonl timestamps. Edit D, given under that finding, covers it.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Every instance is READY on builder gates G0 to G14.",
+            "decision": "CONFIRMED",
+            "reason": "This duplicates the earlier G14 finding. G14 appears only in HO-HC-MATH-01/validation.json, and no retro-check record exists. Edit F, given under that finding, covers it and notes that all instances staged in valid runs.",
+            "edits": []
+          },
+          {
+            "finding_quote": "flagged by the r0 setup-failure stop; no leakage (X11)",
+            "decision": "CONFIRMED",
+            "reason": "analysis/heldout/summary.json M3 has C5_scanner_clean_and_valid = false, with stops ['CTV-21982A/run-001:STOP_INTEGRITY'], and report.txt shows C5=n. Under X8, any STOP_INTEGRITY fails C5. The cell should say 'no' and keep the context. The verdict is unchanged.",
+            "edits": [
+              {
+                "old": "| C5 scanner clean, instances valid | yes | yes | flagged by the r0 setup-failure stop; no leakage (X11) |",
+                "new": "| C5 scanner clean, instances valid | yes | yes | no: the HO-HC-MATH-01 r0 setup-failure STOP_INTEGRITY counts under X8 (no agent step ran; no leakage; X11) |"
+              }
+            ]
+          },
+          {
+            "finding_quote": "consistency: a 300 s budget timeout while waiting for a model response (HA-COMPRESS run-003)",
+            "decision": "CONFIRMED",
+            "reason": "Verified against the trajectory, commands.log and block_mxF0.jsonl (api_calls 1, final_gap_s -4.9). The model returned at +5.49 s and the tool results came at +304.85 s. Edits B and M, given under the first finding, fix both this sentence and the 'provider-degradation window' sentence. Edit M also notes that X11's second-call description is not borne out. AMENDMENTS itself is not edited here.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: The two 0/3 screening effects vanished, 3/3 each, once the decoy's doc contradiction was removed (DEPTH-01)",
+            "decision": "CONFIRMED",
+            "reason": "P4-DEPTH-01-r1/spec.json has two javadoc edits, one to the decoy NumberUtils.overlay and one to the gold BitField.widen, so the recovery cannot be credited to the decoy fix alone (n = 3). Edit K, under the Phase 4 finding, covers this.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: Every instance is READY on builder gates G0 to G14. G14, harness compatibility, was added after X10 and passes for every instance.",
+            "decision": "CONFIRMED",
+            "reason": "Same as the G14 report findings: only HO-HC-MATH-01 has a G14 record. Edit F, under the first G14 finding, covers it.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: n/a (no misses)",
+            "decision": "CONFIRMED",
+            "reason": "summary.json gives C3_no_answers_under_half_of_misses = false and C4_half_wrong_answered_exposed_gold = false for M19 and M3, and C4 false for M10. report.txt shows C3=n and C4=n. The table's 'n/a' cells misstate the computed record, although the verdict is unchanged.",
+            "edits": [
+              {
+                "old": "| C3 no-answers under half of the misses | no (the 1 miss is a no-answer) | n/a (no misses) | n/a (no misses) |",
+                "new": "| C3 no-answers under half of the misses | no (the 1 miss is a no-answer) | no (computed false; no misses) | no (computed false; no misses) |"
+              },
+              {
+                "old": "| C4 at least half of the wrong answered runs exposed the gold | n/a (no wrong answered runs) | n/a | n/a |",
+                "new": "| C4 at least half of the wrong answered runs exposed the gold | no (computed false; no wrong answered runs) | no (computed false; none) | no (computed false; none) |"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "file": "FAILED_MECHANISMS.md",
+        "decisions": [
+          {
+            "finding_quote": "Accuracy fell only where the documentation left two methods defensible (PROMISING_MECHANISMS.md).",
+            "decision": "CONFIRMED",
+            "reason": "In labels_screening_blind.json, defensible is 'yes' only for the 3 DEPTH-01 runs (CTV-C9C374) and 'no' for the other 9 of the 12 S1 misses. In labels_S1.json the coordinator marks MASK-01 run-001 and CF-V1 run-002 'no'; COMPRESS-07 x3, DEFINER-01 and MASK-01 run-003 'partly'; DEPTH-01 x3 and CHART-01-ADAPTER x2 'yes'. PROMISING_MECHANISMS.md itself has the section 'Reductions not explained by an ambiguous gold' (MASK-01 on both judgements, CHART-01-ADAPTER on the blind reading). So the sentence contradicts both label sets and the source it cites. The edit rewrites all of item 3, which also covers findings 2, 17 and 30.",
+            "edits": [
+              {
+                "old": "3. **Odd-looking correct code alone does not mislead** when nearby evidence pins it (M1, M3 with a pinned definer). Accuracy\n   fell only where the documentation left two methods defensible (PROMISING_MECHANISMS.md).",
+                "new": "3. **Odd-looking correct code with nearby pinning evidence did not mislead in the two S2 prototypes built to test it**\n   (NEW-R1-M1 and NEW-R3-M3, 3/3 each, exploratory). This is not a general protection. In RH-ADV-DEFINER-01 the definer\n   `drift`, which reads backwards but is pinned by a passing unit test, was blamed in 1 of 3 runs, and in frozen GPT-5.6 data a\n   quiet gold beside a locally odd correct competitor is the strongest predictor of a miss (Acc@1 0.38, MECHANISM_MINING.md).\n   Accuracy fell on 6 S1 instances (12 wrong runs). The blind labellers judged only the 3 DEPTH-01 answers defensible and the\n   other 9 not defensible (COMPRESS-07, CHART-01-ADAPTER, DEFINER-01, MASK-01, CF-V1). The coordinator review also judged the\n   DEPTH-01 answers defensible, agreed that MASK-01 run 1 and CF-V1 run 2 were not, judged the two CHART-01-ADAPTER answers\n   defensible, and judged the COMPRESS-07, DEFINER-01 and MASK-01 run 3 answers partly defensible (PROMISING_MECHANISMS.md)."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Odd-looking correct code alone does not mislead when nearby evidence pins it (M1, M3 with a pinned definer).",
+            "decision": "PARTLY",
+            "reason": "DEFINER-01 is a clean counterexample. Run-001 ranked PlotUtilities::drift first (gold rank 5), and the blind label states that drift is pinned by PlotUtilitiesTests::testDrift. CHART-01-ADAPTER is weaker evidence. Its misses blamed the caller CompassPlot::ring, not an odd-looking definer, and the coordinator judged those answers defensible, so that case is contested. The item-3 rewrite (edit given under finding 1) cites DEFINER-01 as the counterexample, marks CHART-01-ADAPTER as contested, and limits the protective claim to the two S2 prototypes.",
+            "edits": []
+          },
+          {
+            "finding_quote": "which recipes M2, M5 to M8 and M17 deliberately provide so that the task stays solvable",
+            "decision": "CONFIRMED",
+            "reason": "The SCREENING_BUILD_RECIPES.md table has no M5 recipe; M6 is folded into R1 with M1, and R1 provides no sibling, inverse or second caller. In family_summary.json, M5 is family_class PROMISING (3/6), not a failed mechanism. R3 (M3) does provide a passing test and a second production caller: NEW-R3-M3's builder report cites PoissonDistribution.probability. So M3 belongs in the list, which finding 21's version leaves out. I also checked the evidence chains of the NULL runs. M2 (CTV-72D9FC) cites the writer in all 3 runs and readNewEntry in 2. M7 (CTV-31B7B9) cites the encoder in all 3. M8 (CTV-50035B) never displays the bodies of the second callers. The edit lists the right recipes, reports the observed comparisons modestly, and adds the held-out construction caveat (finding 24).",
+            "edits": [
+              {
+                "old": "The agent compares the gold with its sibling, its inverse or its second caller, which\n   recipes M2, M5 to M8 and M17 deliberately provide so that the task stays solvable.",
+                "new": "The S2 recipes for M2, M3, M7, M8 and M17 deliberately provide decisive evidence of this kind (a sibling, an inverse, a\n   second caller or a passing test) so that the task stays solvable. The correct runs were not systematically coded. In the\n   evidence chains, the M2 runs cite the writer (and, in 2 of 3, the new-format reader `readNewEntry`) and the M7 runs cite\n   the encoder, but the M8 runs resolved the fault from the callee's own return contract without displaying the second\n   callers' bodies. M5 (distant decisive evidence) has no S2 recipe and was PROMISING in screening (3/6;\n   PROMISING_MECHANISMS.md). In the held-out recipes a locally visible violation was required by construction (plan rule 4:\n   the gold's javadoc states a postcondition its code violates), so the held-out null tests only that validity-repaired form."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Cue-trust pilot (misleading or decisive cues in the prompt)",
+            "decision": "CONFIRMED",
+            "reason": "cue-trust-v3/README.md describes the manipulation as misleading identifier names and comments with the code's behaviour unchanged. The pilot ran under F0 only, the frozen prompt (PREREGISTRATION.md 'Pilot arm'). The cues were therefore in the source code, not in the prompt, and none was 'decisive'. PILOT_NULL_ANALYSIS.md also judges the null 'Not yet decidable', so the edit adds that (finding 20).",
+            "edits": [
+              {
+                "old": "- **Cue-trust pilot** (misleading or decisive cues in the prompt): 27/27 gold at rank 1. The agent checked cues against the code\n  and the tests (PILOT_NULL_ANALYSIS.md in cue-trust-v3).",
+                "new": "- **Cue-trust pilot** (misleading identifier names and comments in the source code, gold-excusing or decoy-blaming, with\n  behaviour unchanged; frozen F0 prompt): 27/27 gold at rank 1. Every cue was refuted by co-visible code or by the failing\n  test source in the prompt, so the pilot's own null analysis judges it undecidable whether identifier cues can move GPT-5.6\n  (PILOT_NULL_ANALYSIS.md in cue-trust-v3)."
+              }
+            ]
+          },
+          {
+            "finding_quote": "3 of the 7 M3 instances; the other M3 instances are in PROMISING_MECHANISMS.md",
+            "decision": "CONFIRMED",
+            "reason": "family_summary.json lists 7 M3 instances. Four are NULL: NEW-R3-M3 plus LANG-03, LANG-04 and MATH-05. NEW-R3-M3 appears in this file's S2 table, and PROMISING_MECHANISMS.md lists only COMPRESS-07-ADAPTER, CHART-01-ADAPTER and DEFINER-01. The family is PROMISING overall at 15/21. One edit to the row covers this finding and findings 12 and 31.",
+            "edits": [
+              {
+                "old": "| M3 adapter, unit/offset type | RH-LB-LANG-03, RH-LB-LANG-04, RH-LB-MATH-05 ADAPTER | 3 of the 7 M3 instances; the other M3 instances are in PROMISING_MECHANISMS.md |",
+                "new": "| M3 adapter, Level B conventions (offset units, case folding, scale units) | RH-LB-LANG-03, RH-LB-LANG-04, RH-LB-MATH-05 ADAPTER | 3 of the 7 M3 instances. NEW-R3-M3 (S2 table) is also NULL; the other three (LB-COMPRESS-07-ADAPTER, LB-CHART-01-ADAPTER, ADV-DEFINER-01) are in PROMISING_MECHANISMS.md, and the M3 family is PROMISING overall (15/21) |"
+              }
+            ]
+          },
+          {
+            "finding_quote": "twins of PROMISING/WEAK instances whose contract is stated at the gold",
+            "decision": "CONFIRMED",
+            "reason": "I diffed the CTV-BFBD6F (DEFINER-01) and CTV-6180CA (CF-V3) variant.patch files. The only change is the javadoc of the definer PlotUtilities.drift; the gold is unchanged. INSTANCE_PROVENANCE.csv calls CF-V3 an 'explicit definer javadoc' variant. PROMISING_MECHANISMS.md says OCFLB-CHART-01-ADAPTER differs from LB-CHART-01-ADAPTER in several features, and that CF-V3 is not a twin of CF-V1. So neither instance is a twin, and CF-V3's contract is not at the gold. The edit also labels the row as controls (finding 32).",
+            "edits": [
+              {
+                "old": "| M3 with explicit contract | RH-OCFLB-CHART-01-ADAPTER, RH-CF-V3 (Chart) | twins of PROMISING/WEAK instances whose contract is stated at the gold |",
+                "new": "| controls: M3 with explicit contract | RH-OCFLB-CHART-01-ADAPTER, RH-CF-V3 (Chart) | explicit-contract controls, not single-factor twins. OCFLB-CHART-01-ADAPTER states contracts at the definer and the gold but also differs from LB-CHART-01-ADAPTER in several other features; CF-V3 differs from ADV-DEFINER-01 only in an explicit javadoc on the definer `drift` (the gold is unchanged) |"
+              }
+            ]
+          },
+          {
+            "finding_quote": "HC convention attribution with a second production caller | M3 (CHART-01-ADAPTER, DEFINER-01, MASK-01)",
+            "decision": "CONFIRMED",
+            "reason": "The HELDOUT_CONFIRMATION_PLAN.md failure-mode table derives HC from LB-CHART-01-ADAPTER (2 runs) and ADV-DEFINER-01 (1 run) only. MASK-01's two misses went to HA (run 1) and HB (run 3), and this file already lists MASK-01 under both.",
+            "edits": [
+              {
+                "old": "| M3 (CHART-01-ADAPTER, DEFINER-01, MASK-01) |",
+                "new": "| M3 (CHART-01-ADAPTER, DEFINER-01) |"
+              }
+            ]
+          },
+          {
+            "finding_quote": "The Phase 4 diagnostics explain why the screening effects did not transfer",
+            "decision": "CONFIRMED",
+            "reason": "MECHANISM_SCREENING_MATRIX.csv has P4 rows only for P4-DEPTH-01-r1 and P4-COMPRESS07-r1 (3/3 each). P4-DEPTH-01-r1's spec has two javadoc edits, so its recovery is confounded, as PROMISING_MECHANISMS.md concedes. AMENDMENTS X4 says revisions are never confirmation evidence. MASK-01, CHART-01-ADAPTER, DEFINER-01 and CF-V1 were never revised. A causal 'explain' is therefore not supported. The edit also covers finding 18.",
+            "edits": [
+              {
+                "old": "The Phase 4 diagnostics explain why the screening effects did not transfer: the two 0/3 effects became 3/3 once the validity\nproblem was repaired (PROMISING_MECHANISMS.md).",
+                "new": "Phase 4 (exploratory, n = 3 per arm, AMENDMENTS X4) revised only the two 0/3 instances, and both became 3/3 after their\nflagged features were changed. P4-COMPRESS07-r1 removed the correct sibling; P4-DEPTH-01-r1 changed two javadocs at once (the\ndecoy's contradiction and the gold's contract), so its two repairs are not separable. This is consistent with, but does not\nestablish, those two effects depending on validity problems. The other reductions (MASK-01 1/3, CHART-01-ADAPTER 1/3,\nDEFINER-01 2/3, CF-V1 2/3) were not revised, so Phase 4 does not explain the held-out result as a whole\n(PROMISING_MECHANISMS.md)."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Acc@1 0.86 to 1.00 across the displacement families. It delays first exposure of the gold, but rank 1 holds.",
+            "decision": "PARTLY",
+            "reason": "I recomputed from MECHANISM_RUN_DATA.csv (gpt-5.6, behavioural): diagnostic-noncanonical-v1 1.00, v2 1.00, v3 0.941 (188 runs), conversion-dispatch 0.90, branch-dispatch 0.95, long-chain 1.00. The 0.86 reproduces only for v3 with infrastructure failures counted as misses (177/205), which breaks the mining rule. The M0 tag gives 0.97 (163/168). MECHANISM_MINING.md does not state the delayed-exposure claim, but this root does have a source for it: mining/annotations/diagnostic-noncanonical-v3.json summarises the earlier reports ('Displacement delays the gold but does not change rank'). The finding's 'no file' claim is therefore wrong. 'Rank 1 holds' is too strong, because CHART-PIE-TREATMENT-03 scored 0/5 in a displacement family. MECHANISM_MINING.md attributes that miss to a locally odd definer.",
+            "edits": [
+              {
+                "old": "- **M0, structural displacement** (depth, hops): Acc@1 0.86 to 1.00 across the displacement families. It delays first\n  exposure of the gold, but rank 1 holds.",
+                "new": "- **M0, structural displacement** (depth, hops): tag-level Acc@1 0.97 (168 runs, 67 instances); the displacement families\n  score 0.90 to 1.00 on valid behavioural runs. The earlier displacement studies, as summarised in\n  mining/annotations/diagnostic-noncanonical-v3.json, report that displacement delays first exposure of the gold while rank 1\n  usually holds. The answered misses in these families include CHART-PIE-TREATMENT-03 (0/5), which MECHANISM_MINING.md\n  attributes to a locally odd definer rather than to displacement."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Each family below was screened ... and scored NULL: every run ranked the gold first.",
+            "decision": "CONFIRMED",
+            "reason": "family_summary.json gives M3 family_class PROMISING (15/21); only the listed M3 instances are NULL. The held-out rows have 5 runs each (HO-HB-COMPRESS-01 has 4) and HA has a miss (gold_ranks '1 None 1 1 1'). The M0 and cue-trust items come from earlier data. per_run.csv shows that HO-HA-COMPRESS-01 run-003 did not read the gold (full_gold_read False, coverage 0.0). Every S1 and S2 run executed a test, and 90 of the 91 included S1+S2 runs read the gold in full; the exception is REGISTRY-01 run-001. One edit scopes the opening sentence and covers findings 16 and 26.",
+            "edits": [
+              {
+                "old": "Each family below was screened under the frozen GPT-5.6 protocol with 3 valid runs per instance (MECHANISM_SCREENING_REPORT.md)\nand scored NULL: every run ranked the gold first. The agent ran a test in every one of these runs, and it read the gold\nmethod in full in all of them except one run of RH-ADV-REGISTRY-01, where the gold was read in full in 2 of 3 runs.",
+                "new": "Each instance in the S2 and S1 tables below was screened under the frozen GPT-5.6 protocol with 3 valid runs per instance\n(MECHANISM_SCREENING_REPORT.md) and scored NULL: every run ranked the gold first. The M3 rows there are the NULL instances\nof a family that was PROMISING overall (15/21). The held-out section uses 5 runs per instance (4 for HO-HB-COMPRESS-01) and\nhas one miss, and the last section summarises earlier, non-screening data. The agent ran a test in every screening run, and\nit read the gold method in full in all of them except one run of RH-ADV-REGISTRY-01, where the gold was read in full in 2 of\n3 runs. In held-out, HO-HA-COMPRESS-01 run-003 (a no-answer timeout) also did not read the gold."
+              }
+            ]
+          },
+          {
+            "finding_quote": "The fault is two calls below, in the private guard `containsNaNs`.",
+            "decision": "CONFIRMED",
+            "reason": "NEW-R7-M10/builder_report.json mechanism_fit says the guard is 'two calls below the entry under REMOVED (rank -> removeNaNs -> containsNaNs) and one call below under FAILED'. The trigger exercises both strategies.",
+            "edits": [
+              {
+                "old": "The fault is two calls below, in the private guard `containsNaNs`.",
+                "new": "The fault is in the private guard `containsNaNs`: two calls below on the REMOVED path (`rank` → `removeNaNs` → `containsNaNs`) and one call below on the FAILED path; the trigger exercises both."
+              }
+            ]
+          },
+          {
+            "finding_quote": "M3 adapter, unit/offset type",
+            "decision": "CONFIRMED",
+            "reason": "In INSTANCE_PROVENANCE.csv, LANG-03 is 'offset units', LANG-04 'text normalization (case folding)' and MATH-05 'scale units'. The row edit is given under finding 5.",
+            "edits": []
+          },
+          {
+            "finding_quote": "The gold caller (`StrSubstitutor.substitute`) misreads it; a second caller reads it correctly.",
+            "decision": "CONFIRMED",
+            "reason": "NEW-R6-M8/builder_report.json names two other callers that use the return value as a length under passing tests: StrBuilder.replaceImpl(StrMatcher,...) and StrTokenizer.readWithQuotes.",
+            "edits": [
+              {
+                "old": "The gold caller (`StrSubstitutor.substitute`) misreads it; a second caller reads it correctly.",
+                "new": "The gold caller (`StrSubstitutor.substitute`) misreads it; two other callers (`StrBuilder.replaceImpl`, `StrTokenizer.readWithQuotes`) read it as a length under passing tests."
+              }
+            ]
+          },
+          {
+            "finding_quote": "The test drives the long `writeEntryHeader` and `parseTarHeader` directly.",
+            "decision": "CONFIRMED",
+            "reason": "NEW-R9-M13/builder_report.json says the trigger calls entry.writeEntryHeader(header) by name and rebuilds the entry with new TarArchiveEntry(header), 'which calls parseTarHeader'. So parseTarHeader is reached only through the constructor.",
+            "edits": [
+              {
+                "old": "The test drives the long `writeEntryHeader` and `parseTarHeader` directly.",
+                "new": "The test calls the long `writeEntryHeader` directly and reaches the long `parseTarHeader` through the `TarArchiveEntry(byte[])` constructor."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Held-out NOT_SUPPORTED: the three strongest screening mechanisms (Phase 5)",
+            "decision": "CONFIRMED",
+            "reason": "HELDOUT_CONFIRMATION_PLAN.md names the strongest screening families as M19, M3 and M5. analysis/heldout/summary.json keys the recipes M10 (HA), M19 (HB) and M3 (HC). M10's own prototype NEW-R7-M10 screened NULL (3/3). The held-out tags (M10|M3|M2, M19|M6|M2, M3|M1) include no M5. The recipes are failure-mode recipes, not the three strongest mechanisms. The edit retitles the section and adds one explanatory paragraph, which covers finding 23.",
+            "edits": [
+              {
+                "old": "## Held-out NOT_SUPPORTED: the three strongest screening mechanisms (Phase 5)",
+                "new": "## Held-out NOT_SUPPORTED: three failure-mode recipes from the strongest screening families (Phase 5)\n\nBy screening label the strongest families were M19, M3 and M5 (HELDOUT_CONFIRMATION_PLAN.md). Each recipe carries a failure\nmode seen in their S1 misses, in a validity-repaired form; the recipes do not replicate the families. HA's M10 label names\nthe entry-point failure mode, not a strong screening family (NEW-R7-M10 scored 3/3), and no held-out instance carries an M5\ntag."
+              }
+            ]
+          },
+          {
+            "finding_quote": "it read the gold method in full in all of them except one run of RH-ADV-REGISTRY-01",
+            "decision": "CONFIRMED",
+            "reason": "per_run.csv: in S1+S2 the only full_gold_read=False is REGISTRY-01 run-001 (coverage 0.1). The document also covers held-out, where HO-HA-COMPRESS-01 run-003 has full_gold_read False and coverage 0.0. The opening-paragraph edit given under finding 10 scopes the claim to screening runs and adds the held-out exception.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Accuracy fell only where the documentation left two methods defensible (PROMISING_MECHANISMS.md).",
+            "decision": "CONFIRMED",
+            "reason": "Same issue as finding 1, which I verified against both label sets and PROMISING_MECHANISMS.md. COMPRESS-07's flagged feature is a correct sibling that offers an alternative repair, not documentation. CF-V1 and MASK-01 have empty validity fields in the matrix. The item-3 rewrite given under finding 1 addresses this.",
+            "edits": []
+          },
+          {
+            "finding_quote": "The Phase 4 diagnostics explain why the screening effects did not transfer: the two 0/3 effects became 3/3 once the validity problem was repaired",
+            "decision": "CONFIRMED",
+            "reason": "Each Phase 4 arm has n = 3, and only 2 of the 6 reduced instances were revised. P4-DEPTH-01-r1's spec edits[1] also pins the gold's contract (BitField.widen). AMENDMENTS X4 rules revisions out as confirmation evidence. The hedged rewrite given under finding 8 covers this. I did not add the finding's builder/auditor-salience explanation as a claim; finding 24's edit addresses the construction caveat instead.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Cue-trust pilot (misleading or decisive cues in the prompt)",
+            "decision": "CONFIRMED",
+            "reason": "Same as finding 4. PILOT_NULL_ANALYSIS.md describes comment cues and field renames in the code, and says the prompt's failing-test source 'acquits the decoys'. The edit is given under finding 4.",
+            "edits": []
+          },
+          {
+            "finding_quote": "27/27 gold at rank 1. The agent checked cues against the code and the tests",
+            "decision": "PARTLY",
+            "reason": "The behavioural sentence is supported: PILOT_NULL_ANALYSIS.md says 'GPT-5.6 verified rather than took shortcuts' and describes the cues being refuted by co-visible code and by the test source. Presenting the pilot as a failed mechanism overclaims, though, since the same file judges 'Manipulation simply ineffective' to be 'Not yet decidable'. The edit given under finding 4 adds the undecidability verdict.",
+            "edits": []
+          },
+          {
+            "finding_quote": "which recipes M2, M5 to M8 and M17 deliberately provide so that the task stays solvable",
+            "decision": "PARTLY",
+            "reason": "The M5 point is right: family_summary.json gives M5 PROMISING, pooled 0.5. The M6 point is also right: no standalone recipe, and tag accuracy 0.361 in mining_tag_acc.json. The proposed list should not drop M3, however. Recipe R3 and NEW-R3-M3 deliberately provide a passing pin test and a second production caller (PoissonDistribution.probability). The edit given under finding 3 lists M2, M3, M7, M8 and M17 and states M5's PROMISING status.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Mechanisms that work by keeping the gold unread or unexecuted (M0, M10, M12, M13, M14, M15) do not survive.",
+            "decision": "PARTLY",
+            "reason": "Each S2 prototype (NEW-R7 to R11) has n_valid 3 and acc1 1.0. Wilson(3,3) is about [0.44, 1.0], so these screens cannot rule out a reduction, and PREREGISTRATION says no exploratory result is reported as confirmation. M15's gold is executed by design, so 'unexecuted' is wrong. I did not adopt the finding's tag-level frozen numbers (M14 0.79, M15 0.81), because those tags overlap and are not the primary mechanism. The edit also adds the protocol scope (finding 29).",
+            "edits": [
+              {
+                "old": "1. **GPT-5.6 inspects and tests.** Every screening run ran a test, and the gold was read in full in 89 of the 90 valid runs. Mechanisms that\n   work by keeping the gold unread or unexecuted (M0, M10, M12, M13, M14, M15) do not survive.",
+                "new": "1. **GPT-5.6 inspects and tests under this protocol** (effort medium, failing-test source in the prompt, runnable tests, 50\n   calls and 300 s). Every screening run ran a test, and the gold was read in full in 89 of the 90 valid runs. In the single\n   exploratory prototypes of mechanisms meant to draw attention away from the gold (M10, M12, M13, M14, M15), the gold was\n   read and ranked first in every run (3/3 each; n = 3 cannot rule out a moderate reduction), and M0 was near ceiling in\n   frozen data (0.97)."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Held-out NOT_SUPPORTED: the three strongest screening mechanisms (Phase 5)",
+            "decision": "PARTLY",
+            "reason": "The core point is right and is fixed by the heading edit given under finding 15. This report does not discuss stop rule B, so the finding's stop-rule implication needs no edit here.",
+            "edits": []
+          },
+          {
+            "finding_quote": "A gold that violates something visible locally is found.",
+            "decision": "PARTLY",
+            "reason": "Plan rule 4 (HELDOUT_CONFIRMATION_PLAN.md) requires the gold's javadoc to state a postcondition its code violates. The builder and audit notes flag ceiling or salience risk: HO-HA-JACKSONCORE-01 'the gold has noticeable local oddness', HO-HB-COMPRESS-01 'any model that opens TarUtils.octetAt will probably spot it', and HO-HC-LANG-01 'Expect strong models near ceiling'. For the held-out data, then, this property is a construction requirement, not a finding. The observation still stands for screening. The caveat sentence is added in the item-2 edit given under finding 3.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Acc@1 0.86 to 1.00 across the displacement families. It delays first exposure of the gold, but rank 1 holds.",
+            "decision": "PARTLY",
+            "reason": "The range is wrong (0.90 to 1.00 on behavioural runs), and 'rank 1 holds' is too strong given CHART-PIE-TREATMENT-03 at 0/5. The finding's statement that no file in this root mentions delayed exposure is wrong: mining/annotations/diagnostic-noncanonical-v3.json summarises the earlier reports showing it. The edit given under finding 9 fixes the range, cites that source, and names the 0/5 miss.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Each family below was screened under the frozen GPT-5.6 protocol with 3 valid runs per instance",
+            "decision": "CONFIRMED",
+            "reason": "Same as finding 10. The held-out section has n = 5 per instance (4 for HB-COMPRESS-01) and one HA miss, M3 is PROMISING at family level, and M0 and cue-trust come from earlier data. The edit is given under finding 10.",
+            "edits": []
+          },
+          {
+            "finding_quote": "All nine instances were built fresh by independent builders, and independent auditors confirmed every gold.",
+            "decision": "CONFIRMED",
+            "reason": "HO-HB-LANG-01/audit_r0.json has verdict REJECTED. Per AMENDMENTS X6 and INSTANCE_PROVENANCE.csv (revision 1), the original builder revised and re-packaged it under the same id instead of the fresh rebuild that plan line 144-145 requires. HO-HC-MATH-01 was revised after a setup failure in which no agent step ran (X10). All 9 final audit.json verdicts are CONFIRMED and all validations are READY. 'Built fresh' therefore glosses over the two revisions.",
+            "edits": [
+              {
+                "old": "All nine instances were built fresh by independent builders, and independent auditors confirmed every gold.",
+                "new": "All nine instances were built by builders who had built no screening instance and saw no GPT-5.6 output, and an auditor who\nhad not built the instance confirmed each final gold. Two were revised before any agent step: HO-HB-LANG-01 after its first\naudit rejected it for leakage (revised by its original builder rather than rebuilt fresh, as the plan's audit rule requires;\nAMENDMENTS X6), and HO-HC-MATH-01 after a harness setup failure (AMENDMENTS X10)."
+              }
+            ]
+          },
+          {
+            "finding_quote": "The agent compares the gold with its sibling, its inverse or its second caller",
+            "decision": "CONFIRMED",
+            "reason": "I checked the CTV-50035B (NEW-R6-M8) trajectories and submissions. Run-002 has no replaceImpl or readWithQuotes hit. Run-001 shows only the replaceImpl(int,...) call inside replace(int,int,String). Run-003 shows grep declaration lines. No run displays the StrMatcher overload body or readWithQuotes, and the evidence chains reason from isMatch's return length and substitute's pos++. M2 (CTV-72D9FC) and M7 (CTV-31B7B9) chains do cite the writer, readNewEntry and the encoder. The correct runs have no systematic coding. The edit given under finding 3 reports this modestly.",
+            "edits": []
+          },
+          {
+            "finding_quote": "GPT-5.6 inspects and tests.",
+            "decision": "PARTLY",
+            "reason": "PREREGISTRATION.md fixes effort medium, 50 model calls and 300 s. The prompt gives the failing test source and allows running the failing test. Stating the scope is reasonable and modest, but the observation itself is accurate: per_run.csv shows 91/91 S1+S2 runs executed tests. The scope qualifier is added in the item-1 edit given under finding 22.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Odd-looking correct code alone does not mislead when nearby evidence pins it (M1, M3 with a pinned definer).",
+            "decision": "CONFIRMED",
+            "reason": "The generalisation rests on two n = 3 prototypes, and it omits the DEFINER-01 counterexample: drift is pinned by testDrift, yet run-001 blamed it. MECHANISM_MINING.md line 46 gives Acc@1 0.38 for a quiet gold beside a locally odd competitor, and line 65 calls visual asymmetry the strongest predictor. The rewrite given under finding 1 states both.",
+            "edits": []
+          },
+          {
+            "finding_quote": "3 of the 7 M3 instances; the other M3 instances are in PROMISING_MECHANISMS.md",
+            "decision": "CONFIRMED",
+            "reason": "Same as finding 5. The edit is given there.",
+            "edits": []
+          },
+          {
+            "finding_quote": "M3 with explicit contract | RH-OCFLB-CHART-01-ADAPTER, RH-CF-V3 (Chart)",
+            "decision": "PARTLY",
+            "reason": "MECHANISM_SCREENING_MATRIX.csv codes these as M3-contract, and the plan calls them 'explicit-contract controls', so they should be labelled as controls. The plan does not predict 3/3 for them, though; it uses their observed 3/3 to motivate the HC prediction. A separate section is unnecessary, because the S1 table already has a 'controls' row. The edit given under finding 6 relabels the row 'controls: M3 with explicit contract'.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: M3 (CHART-01-ADAPTER, DEFINER-01, MASK-01)",
+            "decision": "CONFIRMED",
+            "reason": "The plan table derives HC from LB-CHART-01-ADAPTER (2) and ADV-DEFINER-01 (1) only. The edit is given under finding 7.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: Acc@1 0.86 to 1.00 across the displacement families",
+            "decision": "CONFIRMED",
+            "reason": "The recomputed behavioural range is 0.90 to 1.00, matching STABLE_ACCURACY_REDUCTION_SUMMARY.md. The 0.86 comes from v3 with provider failures counted (177/205). The edit is given under finding 9.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: Accuracy fell only where the documentation left two methods defensible",
+            "decision": "CONFIRMED",
+            "reason": "This contradicts the blind labels (3 yes, 9 no) and PROMISING_MECHANISMS.md. The edit is given under finding 1.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: the two 0/3 effects became 3/3 once the validity problem was repaired",
+            "decision": "CONFIRMED",
+            "reason": "The arms have n = 3, the DEPTH-01 revision made two edits, the blind labels do not call COMPRESS-07 a gold-validity problem, and four reductions were never revised. The hedged edit is given under finding 8.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: twins of PROMISING/WEAK instances whose contract is stated at the gold",
+            "decision": "CONFIRMED",
+            "reason": "The variant.patch diff shows that CF-V3 differs from DEFINER-01 only in the javadoc of the definer drift. The edit is given under finding 6.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: Held-out NOT_SUPPORTED: the three strongest screening mechanisms (Phase 5)",
+            "decision": "CONFIRMED",
+            "reason": "M10 screened NULL. The strongest families were M19, M3 and M5, and the recipes are failure-mode recipes. The edit is given under finding 15.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: the other M3 instances are in PROMISING_MECHANISMS.md",
+            "decision": "CONFIRMED",
+            "reason": "NEW-R3-M3 appears in this file's S2 table, not in PROMISING_MECHANISMS.md. The edit is given under finding 5.",
+            "edits": []
+          }
+        ]
+      },
+      {
+        "file": "MECHANISM_TAXONOMY.md",
+        "decisions": [
+          {
+            "finding_quote": "7 S1 instances: LB-COMPRESS-07-ADAPTER 0/3, LB-CHART-01-ADAPTER 1/3, ADV-DEFINER-01 2/3, LB-LANG-03, LB-LANG-04 and LB-MATH-05 3/3 each",
+            "decision": "CONFIRMED",
+            "reason": "MECHANISM_SCREENING_MATRIX.csv has exactly 6 block=S1 rows with mechanism=M3: DEFINER-01, CHART-01-ADAPTER, COMPRESS-07, LANG-03, LANG-04, MATH-05. NEW-R3-M3 is block S2. family_summary.json M3 lists 7 instances (with NEW-R3-M3), n=21, correct=15. The S1 M3-control RH-LB-CHART-01-DEFINER (3/3) is missing from the cell. I fixed the count and added the control and the family total.",
+            "edits": [
+              {
+                "old": "7 S1 instances: LB-COMPRESS-07-ADAPTER 0/3",
+                "new": "6 S1 instances: LB-COMPRESS-07-ADAPTER 0/3"
+              },
+              {
+                "old": "explicit-contract twins 3/3 each; NEW-R3-M3 3/3",
+                "new": "explicit-contract twins 3/3 each; M3-control LB-CHART-01-DEFINER 3/3; NEW-R3-M3 (S2) 3/3 (M3 family: 7 instances, 15/21)"
+              }
+            ]
+          },
+          {
+            "finding_quote": "not re-screened; displacement families 0.86 to 1.00 in frozen data",
+            "decision": "CONFIRMED",
+            "reason": "I recomputed from MECHANISM_RUN_DATA.csv, GPT-5.6, status_kind=behavioural: diag-nc v1 1.00, v2 1.00, v3 0.941 (188 runs), conversion-dispatch 0.90, branch-dispatch 0.95, long-chain 1.00. 0.86 appears only for diag-nc-v3 over all 205 attempts (0.863), with its 17 infrastructure runs counted as misses. That breaks MECHANISM_MINING.md's analysis-set rule that provider failures are excluded. STABLE_ACCURACY_REDUCTION_SUMMARY.md already gives 0.90 to 1.00.",
+            "edits": [
+              {
+                "old": "not re-screened; displacement families 0.86 to 1.00 in frozen data",
+                "new": "not re-screened; displacement families 0.90 to 1.00 in frozen data (valid behavioural runs)"
+              }
+            ]
+          },
+          {
+            "finding_quote": "failure modes carried by HA and HC: 14/15 and 15/15",
+            "decision": "CONFIRMED",
+            "reason": "In the HELDOUT_CONFIRMATION_PLAN.md failure-mode table, HA = COMPRESS-07 (3), ADV-MASK-01 (1), CF-V1 (1); HB = ADV-DEPTH-01 (3), ADV-MASK-01 (1); HC = LB-CHART-01-ADAPTER (2), ADV-DEFINER-01 (1). labels_S1.json puts MASK-01 run 1 and CF-V1 run 2 as ENTRY_POINT_RANKING (HA) and MASK-01 run 3 as mask placement/sink (HB). No M5 run went to HC. HB is 14/14 in analysis/heldout/summary.json, and no HO instance carries an M5 tag. The finding's optional 'HC as well' variant is speculative and is not used.",
+            "edits": [
+              {
+                "old": "failure modes carried by HA and HC: 14/15 and 15/15",
+                "new": "failure modes carried by HA (MASK-01 run 1, CF-V1 run 2) and HB (MASK-01 run 3): 14/15 and 14/14; no held-out instance is tagged M5"
+              }
+            ]
+          },
+          {
+            "finding_quote": "Every such screening effect disappeared once the ambiguity was repaired.",
+            "decision": "CONFIRMED",
+            "reason": "Numbers lens. The matrix has only two kind=derived instances (P4-COMPRESS07-r1, P4-DEPTH-01-r1), each 0/3 to 3/3. These are exploratory under X4, and two-sided Fisher on [[0,3],[3,0]] gives p = 0.10. P4-DEPTH-01-r1 makes two javadoc edits at once (spec.json). P4-COMPRESS07-r1 removes the sibling and TarBufferTest.java. MASK-01 and CF-V1 have no derived revision. CHART-01-ADAPTER and DEFINER-01 have only pre-existing explicit-contract twins (OCFLB-CHART-01-ADAPTER, CF-V3), which FAILURE_MODE_ANALYSIS.md describes as not single-factor for OCFLB, and as a definer-only javadoc for CF-V3. This edit also covers findings on the same sentence (inference lens) and consistency.",
+            "edits": [
+              {
+                "old": "built in earlier studies. Every such screening effect disappeared once the ambiguity was repaired.",
+                "new": "built in earlier studies. Only two screening effects were revised, in exploratory Phase 4 diagnostics (X4): DEPTH-01 (two javadoc edits at once) and COMPRESS-07 (the sibling and its test removed) each went from 0/3 to 3/3 (two-sided Fisher p = 0.10; which change mattered is not identified). The explicit-contract twins of LB-CHART-01-ADAPTER (OCFLB-CHART-01-ADAPTER, which also differs in other features) and ADV-DEFINER-01 (CF-V3, an explicit javadoc on the definer only) scored 3/3. MASK-01 and CF-V1 were not re-run in a repaired form."
+              }
+            ]
+          },
+          {
+            "finding_quote": "A second defensible fault location exists.",
+            "decision": "CONFIRMED",
+            "reason": "Numbers lens. In labels_screening_blind.json, final.defensible is 'yes' only for CTV-C9C374 runs 1-3 (DEPTH-01) and 'no' for the other 9. labels_S1.json (coordinator) has 5 yes, 5 partly, 2 no. FAILURE_MODE_ANALYSIS.md's conclusion now says only the DEPTH-01 answers are defensible on both judgements. The heading overstates defensibility. I reworded it to the analysis's 'competing location with a documented argument' and stated both label sets. The rest of this condition is edited under the companion finding (inference lens) and the 'Every such screening effect' finding.",
+            "edits": [
+              {
+                "old": "**A second defensible fault location exists.** Examples are",
+                "new": "**A competing location with a documented argument exists.** On the blind labels it was defensible only for DEPTH-01 (3 runs); the blind labellers judged the other 9 S1 rank-1 answers not defensible, while the coordinator's earlier labels were more lenient (5 yes, 5 partly, 2 no). Examples are"
+              }
+            ]
+          },
+          {
+            "finding_quote": "NOT_SUPPORTED (held-out): confirmed absent on fresh instances.",
+            "decision": "CONFIRMED",
+            "reason": "AMENDMENTS.md X8 defines NOT_SUPPORTED as the residual class: not STABLE, pooled > 0.80, and no instance <= 0.60. analysis/heldout/summary.json pooled_acc1_wilson95 is [0.702, 0.988] for HA, [0.785, 1.0] for HB and [0.796, 1.0] for HC. The plan says each recipe tests the mechanism 'in its valid form', with documentation making the gold the unique owner. Protocol: GPT-5.6, medium effort. 'Confirmed absent' therefore overclaims. This edit also covers the inference-lens finding on the same text and the consistency finding.",
+            "edits": [
+              {
+                "old": "- **NOT_SUPPORTED (held-out):** confirmed absent on fresh instances.",
+                "new": "- **NOT_SUPPORTED (held-out):** on its 3 fresh instances, the recipe met neither the STABLE criteria nor the PARTIALLY_SUPPORTED thresholds of AMENDMENTS.md X8 (pooled Acc@1 ≤ 0.80, or any instance ≤ 0.60). This is a point-estimate classification, not a demonstration that the effect is absent: the per-recipe Wilson 95% lower bounds are 0.70 (HA), 0.785 (HB) and 0.796 (HC). The recipes tested each failure mode in a form where the documentation makes the gold the unique owner, and the result covers GPT-5.6 at medium effort under this harness only."
+              }
+            ]
+          },
+          {
+            "finding_quote": "NULL in screening: no reduction in any screened instance.",
+            "decision": "CONFIRMED",
+            "reason": "Every NULL row is correct for instances whose primary mechanism is that family (family_summary.json), but the definition as worded is false at tag level. A per-tag recompute over valid matrix rows gives M1 on RH-ADV-DEPTH-01 0/3 and RH-ADV-MASK-01 1/3, M2 on RH-LB-CHART-01-ADAPTER 1/3 and RH-ADV-DEFINER-01 2/3, M17 on RH-LB-COMPRESS-07-ADAPTER 0/3, and M20 on RH-ADV-DEFINER-01 2/3. Other NULL-row tags are all 3/3. The report uses tag-level evidence elsewhere (M6). I made the definition explicit and listed the tag-level reductions.",
+            "edits": [
+              {
+                "old": "- **NULL in screening:** no reduction in any screened instance.",
+                "new": "- **NULL in screening:** every screened instance whose primary mechanism is this one scored 3/3. Some of these mechanisms are also secondary tags on S1 instances that did show reductions: M1 on ADV-DEPTH-01 (0/3) and ADV-MASK-01 (1/3), M2 on LB-CHART-01-ADAPTER (1/3) and ADV-DEFINER-01 (2/3), M17 on LB-COMPRESS-07-ADAPTER (0/3), and M20 on ADV-DEFINER-01 (2/3)."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Untested: no valid instance in this study.",
+            "decision": "CONFIRMED",
+            "reason": "RH-ADV-OWNER-01 (M7|M4) and RH-ADV-REGISTRY-01 (M16|M4) are valid S1 instances carrying the M4 tag, both 3/3. Only the dedicated carrier NEW-R4-M4 was INVALID (n_valid 1). I scoped the definition to primary mechanism, added an 'Untested as a carrier' status for tag-only mechanisms (M4, and M6 under the M6-row edit), and noted the tags in the M4 row. M18 has no instance or tag and stays Untested.",
+            "edits": [
+              {
+                "old": "- **Untested:** no valid instance in this study.",
+                "new": "- **Untested:** no valid instance whose primary mechanism is this one. **Untested as a carrier** marks a mechanism that appears only as a secondary tag on other instances (M4, M6)."
+              },
+              {
+                "old": "NEW-R4-M4 INVALID (the harness rejects a gold whose class ends in \"Test\") | none | Untested |",
+                "new": "NEW-R4-M4 INVALID (the harness rejects a gold whose class ends in \"Test\"); as a tag only: RH-ADV-OWNER-01 3/3, RH-ADV-REGISTRY-01 3/3 | none | Untested as a carrier |"
+              }
+            ]
+          },
+          {
+            "finding_quote": "NEW-R2-M2 3/3 (Compress) | as a tag in HB: 14/14",
+            "decision": "CONFIRMED",
+            "reason": "Matrix/spec tags: HO-HA-* = M10|M3|M2 (14/15), HO-HB-* = M19|M6|M2 (14/14), HO-HC-* = M3|M1 (15/15). The M2 cell leaves out HA, and the M1 cell says 'none' though M1 tags all HC instances. Neither M1 nor M2 was a held-out target (PREREGISTRATION.md tier 2; summary.json keys are M10, M19, M3). The M2 row's 'NOT_SUPPORTED as a carrier' is replaced here as well; see the 'NOT_SUPPORTED as a carrier' finding.",
+            "edits": [
+              {
+                "old": "| NEW-R1-M1 3/3 (Lang); RH-CF-V5 control 3/3 | none | NULL in screening |",
+                "new": "| NEW-R1-M1 3/3 (Lang); RH-CF-V5 control 3/3 | as a tag only, not a held-out target: HC 15/15 | NULL in screening |"
+              },
+              {
+                "old": "| NEW-R2-M2 3/3 (Compress) | as a tag in HB: 14/14 | NULL in screening; NOT_SUPPORTED as a carrier |",
+                "new": "| NEW-R2-M2 3/3 (Compress) | as a tag only, not a held-out target: HA 14/15, HB 14/14 | NULL in screening |"
+              }
+            ]
+          },
+          {
+            "finding_quote": "as a tag only (ADV-DEFINER-01, P4-DEPTH-01-r1 3/3)",
+            "decision": "CONFIRMED",
+            "reason": "RH-ADV-DEFINER-01 (tags M3|M2|M6|M20) scored 2/3 (gold ranks 5 1 1, WEAK), so the cell reads as if it were 3/3. NEW-R1-M1 (M1|M6|M2, 3/3) also carries M6 and is omitted. The row's 'NOT_SUPPORTED as a carrier' is replaced with 'Untested as a carrier', since M6 had no dedicated instance and no held-out recipe. This covers the 'NOT_SUPPORTED as a carrier' finding for M6 and the consistency finding on this cell.",
+            "edits": [
+              {
+                "old": "| as a tag only (ADV-DEFINER-01, P4-DEPTH-01-r1 3/3) | as a tag in HB: 14/14 | NOT_SUPPORTED as a carrier |",
+                "new": "| as a tag only: ADV-DEFINER-01 2/3, NEW-R1-M1 3/3, P4-DEPTH-01-r1 3/3 | as a tag only, not a held-out target: HB 14/14 | Untested as a carrier |"
+              }
+            ]
+          },
+          {
+            "finding_quote": "or in long helper chains (CF-V1, MASK-01)",
+            "decision": "CONFIRMED",
+            "reason": "The mining annotations give search_depth_hops of 3 for ADV-MASK-01 and 4 for CF-V1, and 3 for LB-COMPRESS-07-ADAPTER, whose noted chain is computeCheckSum -> tally -> magnitudeOf/widen -> byteValue -> sumPair. Only the plan's prediction prose calls the CF-V1/MASK chains '5-hop'. Chain length is not shown to separate these runs. This edit pairs with the line-54 edit under the '3 of 5 runs' finding.",
+            "edits": [
+              {
+                "old": "chains (CF-V1, MASK-01).",
+                "new": "chains, but the mining annotations give MASK-01 3 hops and CF-V1 4 hops, no more than COMPRESS-07's 3, so chain length is not shown to explain them."
+              }
+            ]
+          },
+          {
+            "finding_quote": "an alternative repair existed at that method (3 of 5 runs)",
+            "decision": "CONFIRMED",
+            "reason": "In labels_screening_blind.json, secondary ALTERNATIVE_REPAIR_SITE goes to COMPRESS-07 runs 1 and 3 and MASK-01 run 1, not to COMPRESS-07 run 2. FAILURE_MODE_ANALYSIS.md says only COMPRESS-07 offers a concrete alternative (sibling TarBuffer.digest, present in all 3 of its runs) and that the MASK-01 reroute is not supported by documentation. The 'only when' framing also implies a partition the labels do not give. I rewrote it as the instance-level fact.",
+            "edits": [
+              {
+                "old": "test calls first. This happened only when an alternative repair existed at that method (3 of 5 runs) or in long helper",
+                "new": "test calls first (5 runs). Three were on COMPRESS-07, where a correct sibling offered an alternative repair at that method. The other two (MASK-01 run 1, CF-V1 run 2) had no documentation-supported alternative; the held-out plan attributes them to long helper"
+              }
+            ]
+          },
+          {
+            "finding_quote": "Screening effect explained: a screening reduction that disappeared once a validity problem was repaired.",
+            "decision": "CONFIRMED",
+            "reason": "No row uses this status. Rows instead use undefined statuses: 'screening effect not confirmed' (M5) and 'no reduction (frozen evidence)' (M0). The two P4 revisions are exploratory, n = 3, with confounded edits, so 'explained' would overclaim if applied. I removed it and defined the statuses actually used. M2/M6's 'NOT_SUPPORTED as a carrier' is removed under other findings, and 'Untested as a carrier' is defined under the Untested finding.",
+            "edits": [
+              {
+                "old": "- **Screening effect explained:** a screening reduction that disappeared once a validity problem was repaired.",
+                "new": "- **Screening effect not confirmed:** a screening reduction whose instances were not re-run in a repaired form, and whose failure modes were carried by held-out recipes that showed no reduction; no held-out recipe was tagged with the mechanism itself (M5).\n- **No reduction (frozen evidence):** not re-screened in this study; frozen tag-level Acc@1 was near ceiling (M0, 0.97)."
+              }
+            ]
+          },
+          {
+            "finding_quote": "3 valid runs per instance, frozen GPT-5.6 protocol",
+            "decision": "CONFIRMED",
+            "reason": "MECHANISM_SCREENING_MATRIX.csv: NEW-R4-M4 n_valid=1, validity INVALID_GOLD_UNSUBMITTABLE. Every other screened instance has 3. This is minor, but the wording is easy to make exact.",
+            "edits": [
+              {
+                "old": "3 valid runs per instance, frozen GPT-5.6 protocol",
+                "new": "3 valid runs per valid instance (NEW-R4-M4 was dropped as invalid after 1 run), frozen GPT-5.6 protocol"
+              }
+            ]
+          },
+          {
+            "finding_quote": "confirmed absent on fresh instances",
+            "decision": "CONFIRMED",
+            "reason": "Inference lens; same text as the numbers-lens NOT_SUPPORTED finding. X8 makes NOT_SUPPORTED a threshold class, and the Wilson lower bounds (0.70/0.785/0.796) leave moderate reductions possible. The recipes tested the documentation-unique-owner form, for GPT-5.6 at medium effort only. All of this is in the edit given under 'NOT_SUPPORTED (held-out): confirmed absent on fresh instances.'",
+            "edits": []
+          },
+          {
+            "finding_quote": "A second defensible fault location exists.",
+            "decision": "CONFIRMED",
+            "reason": "Inference lens. Blind labels: defensible only for DEPTH-01. For CHART-01-ADAPTER, the blind defensible_reason says ring 'breaks no contract' (offset javadoc, RingPlot.collapse, testCollapse), so 'a convention that no method states' is wrong; FAILURE_MODE_ANALYSIS.md says 'a convention not fixed at the gold'. M20's own instance RH-ADV-COMPOSITE-01 scored 3/3. FAILURE_MODE_ANALYSIS.md's setting 1 lists only DEPTH-01 (M19), COMPRESS-07 and CHART-01-ADAPTER (M3). The M5 misses fall under entry-point ranking or neither, and DEFINER-01 (the only M20-tagged miss) fits neither. The heading edit is under the numbers-lens finding; this edit fixes the convention wording and the coverage claim.",
+            "edits": [
+              {
+                "old": "or a convention that no method states. These cover M3, M5, M19 and M20 as",
+                "new": "or a convention not fixed at the gold. In this study these were M3 and M19 instances (LB-COMPRESS-07-ADAPTER, LB-CHART-01-ADAPTER, ADV-DEPTH-01), all as"
+              }
+            ]
+          },
+          {
+            "finding_quote": "Every such screening effect disappeared once the ambiguity was repaired.",
+            "decision": "PARTLY",
+            "reason": "Inference lens. The core is right: only P4-DEPTH-01-r1 and P4-COMPRESS07-r1 were revised, both are exploratory (X4) with n = 3 per arm (Fisher p = 0.10) and confounded edits (two javadoc edits; sibling plus TarBufferTest.java removed), and DEFINER-01 and MASK-01 were never repaired. But the proposed text says the explicit-contract twins belong to CHART-01-ADAPTER and CF-V1. The twin is of ADV-DEFINER-01 (CF-V3, per FAILURE_MODE_ANALYSIS.md), and CF-V1 has no repaired twin. The corrected edit is given under the numbers-lens finding on this sentence.",
+            "edits": []
+          },
+          {
+            "finding_quote": "collapses the mechanisms into two conditions under which GPT-5.6 ranks a wrong method first",
+            "decision": "CONFIRMED",
+            "reason": "FAILURE_MODE_ANALYSIS.md's conclusion says 'Not every miss fits these settings: DEFINER-01 and MASK-01 run 3 ...'. Setting 1 (DEPTH-01 ×3, COMPRESS-07 ×3, CHART-01-ADAPTER ×2) plus setting 2 (5 entry-point runs, overlapping on COMPRESS-07) covers 10 of 12 misses. FAILURE_MODE_ANALYSIS.md Method 5 also discloses that the labels are post-hoc, not the preregistered Phase 7 set, so I added that here. That covers the post-hoc-taxonomy finding. The gold was read in all 12 misses.",
+            "edits": [
+              {
+                "old": "The failure-mode analysis (FAILURE_MODE_ANALYSIS.md) collapses the mechanisms into two conditions under which GPT-5.6 ranks a",
+                "new": "The failure-mode analysis (FAILURE_MODE_ANALYSIS.md, which uses a post-hoc label set rather than the preregistered Phase 7 labels) describes two settings in which GPT-5.6 ranked a"
+              },
+              {
+                "old": "wrong method first. In every one of those runs, the agent had already read the gold.",
+                "new": "wrong method first. They cover 10 of the 12 S1 misses; ADV-DEFINER-01 run 1 and ADV-MASK-01 run 3 fit neither. In all 12 misses the agent had already read the gold."
+              }
+            ]
+          },
+          {
+            "finding_quote": "It did not survive held-out instances with a single documented owner.",
+            "decision": "PARTLY",
+            "reason": "There is a real overclaim. HA (recipe: 3- or 4-class chains, unique documented owner, no sibling) scored 14/15, the only miss a no-answer. Every fresh build in the study was at ceiling (S2 36/36, held-out 43/43 answered), so the null cannot be attributed to documentation ownership. But the proposed 'Long (5-hop) chains were not tested' rests on the plan's prose, which conflicts with the mining hop annotations (MASK-01 3, CF-V1 4). I left chain length to the companion edit and stated the confound modestly.",
+            "edits": [
+              {
+                "old": "It did not survive held-out instances with a single documented owner.",
+                "new": "Held-out HA instances (3- or 4-class chains, a documented unique owner and no alternative repair site) scored 14/15, the only miss a no-answer. This is consistent with the account but does not establish it: every freshly built instance in the study was at ceiling whatever its mechanism (S2 36/36, held-out 43/43 answered)."
+              }
+            ]
+          },
+          {
+            "finding_quote": "on local oddness alone (M1, M6 as a carrier) did not reduce accuracy",
+            "decision": "CONFIRMED",
+            "reason": "M0 was not screened in this study. M6 had no dedicated carrier; it is a tag only, on NEW-R1-M1, DEFINER-01 2/3 and P4-DEPTH-01-r1. Each listed family rests on 1 to 2 instances × 3 runs (P(3/3 | p=0.6) = 0.216), and most dedicated prototypes were fresh NEW-R builds, all at ceiling. mining_tag_acc.json gives M1 0.567 and M6 0.361. I removed M0 from the 'search' list and restated the sentence as weak, confounded exploratory evidence.",
+            "edits": [
+              {
+                "old": "Mechanisms that act on search (M0, M10 as search, M12, M13, M14, M15)",
+                "new": "Mechanisms that act on search (M10 as search, M12, M13, M14, M15)"
+              },
+              {
+                "old": "local oddness alone (M1, M6 as a carrier) did not reduce accuracy.",
+                "new": "local oddness alone (M1) showed no misses in this study's screen, each tested on one or two instances with 3 runs. M0 was not re-screened (frozen data only), and M6 had no dedicated carrier. This is weak, exploratory evidence against a large effect, and it is confounded with build provenance: most of these prototypes were fresh builds, and every freshly built instance in the study was at ceiling. For M1 and M6, the frozen tag-level Acc@1 was 0.57 and 0.36."
+              }
+            ]
+          },
+          {
+            "finding_quote": "failure modes carried by HA and HC: 14/15 and 15/15",
+            "decision": "CONFIRMED",
+            "reason": "Inference lens; same mapping error as the numbers-lens finding, whose M5-row edit applies. The finding also notes that the M3 row cites only HC, although M3 tags all HA instances (M10|M3|M2, 14/15), which carried COMPRESS-07's (primary M3) entry-point misses. I added the HA tag result to the M3 row, matching the tag-level treatment elsewhere.",
+            "edits": [
+              {
+                "old": "| **HC: 15/15** (Lang, Math, JacksonCore) |",
+                "new": "| **HC: 15/15** (Lang, Math, JacksonCore); as a tag in HA: 14/15 |"
+              }
+            ]
+          },
+          {
+            "finding_quote": "NOT_SUPPORTED as a carrier",
+            "decision": "CONFIRMED",
+            "reason": "PREREGISTRATION.md assigns SUPPORTED, PARTIALLY_SUPPORTED or NOT_SUPPORTED only to the strongest 2 to 4 mechanisms with frozen held-out recipes. analysis/heldout/summary.json keys are M10, M19 and M3 only. M2 and M6 appear only as secondary tags on HA and HB. The label is replaced in the M2 row edit (finding 'NEW-R2-M2 3/3 ... as a tag in HB') and the M6 row edit (finding 'as a tag only (ADV-DEFINER-01 ...)').",
+            "edits": []
+          },
+          {
+            "finding_quote": "no reduction in any screened instance",
+            "decision": "CONFIRMED",
+            "reason": "Inference-lens duplicate of the NULL-in-screening finding; the tag-level reductions are confirmed by recompute. The edits are given under 'NULL in screening: no reduction in any screened instance.' (definition) and 'as a tag only (ADV-DEFINER-01, P4-DEPTH-01-r1 3/3)' (M6 cell with the 2/3 score and NEW-R1-M1).",
+            "edits": []
+          },
+          {
+            "finding_quote": "7 S1 instances",
+            "decision": "CONFIRMED",
+            "reason": "Duplicate of the first finding: 6 S1 M3 instances plus NEW-R3-M3 (S2), giving 7 instances and 15/21 = 0.714 (family_summary.json). The edits are given under the first finding.",
+            "edits": []
+          },
+          {
+            "finding_quote": "As a failure mode it appeared in 5 of 12 S1 misses",
+            "decision": "CONFIRMED",
+            "reason": "The failure-mode categories (ENTRY_POINT_RANKING, DECOY_DOC_CONTRADICTION, etc.) are not the PREREGISTRATION.md Measures label set (ENTRY_POINT_BIAS, LOCAL_ODDNESS_BIAS, ...). FAILURE_MODE_ANALYSIS.md Method 5 states that AMENDMENTS.md records no amendment for this, and the taxonomy did not disclose it. The disclosure is added once, in the mapping-section intro, under the 'collapses the mechanisms into two conditions' finding.",
+            "edits": []
+          },
+          {
+            "finding_quote": "displacement families 0.86 to 1.00 in frozen data",
+            "decision": "CONFIRMED",
+            "reason": "Duplicate of the earlier displacement finding. diag-nc-v3 is 0.941 on 188 behavioural runs and 0.863 only over all 205 attempts. The edit is given under 'not re-screened; displacement families 0.86 to 1.00 in frozen data'. No edit is made about CHART-PIE-TREATMENT-03.",
+            "edits": []
+          },
+          {
+            "finding_quote": "fresh, independently built and audited instances",
+            "decision": "CONFIRMED",
+            "reason": "All 9 instances/HO-*/audit.json give auditor = 'independent agent' and nothing that shows it differs from the builder. builder_report.json has no builder identity. Freshness holds: I cross-checked held-out gold, decoy and entry-point names against construction/USED_METHODS.txt (134 lines), 0 hits. I kept 'fresh' and qualified the independence claim.",
+            "edits": [
+              {
+                "old": "fresh, independently built and audited instances",
+                "new": "fresh instances (no gold, decoy or entry point is in construction/USED_METHODS.txt), built and audited by agents described as independent; the audit records name the auditor only as \"independent agent\", so independence is not verifiable from them"
+              }
+            ]
+          },
+          {
+            "finding_quote": "consistency: failure modes carried by HA and HC: 14/15 and 15/15",
+            "decision": "CONFIRMED",
+            "reason": "Same as the report finding. The plan's table maps M5's misses to HA (MASK-01 run 1, CF-V1 run 2) and HB (MASK-01 run 3), and HB is 14/14. The edit is given under the first 'failure modes carried by HA and HC' decision.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: displacement families 0.86 to 1.00 in frozen data",
+            "decision": "CONFIRMED",
+            "reason": "This conflicts with STABLE_ACCURACY_REDUCTION_SUMMARY.md's 0.90 to 1.00 on valid behavioural runs, which my recompute confirms. The edit is given under 'not re-screened; displacement families 0.86 to 1.00 in frozen data'.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: These cover M3, M5, M19 and M20 as built in earlier studies. Every such screening effect disappeared once the ambiguity was repaired.",
+            "decision": "CONFIRMED",
+            "reason": "Only DEPTH-01 and COMPRESS-07 were revised (the matrix's only derived rows). MASK-01, CF-V1, CHART-01-ADAPTER and DEFINER-01 were not. M20's instance COMPOSITE-01 scored 3/3. Blind labels: 3 defensible, 9 not. Edits are given under the inference-lens 'A second defensible fault location exists.' finding (coverage clause) and the numbers-lens 'Every such screening effect...' finding (repair claim).",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: P4-DEPTH-01-r1 3/3 after the doc fix",
+            "decision": "CONFIRMED",
+            "reason": "instances/P4-DEPTH-01-r1/spec.json has two edits: the NumberUtils.overlay javadoc (removes the decoy contradiction) and the BitField.widen javadoc (pins the gold's unsigned contract). FAILURE_MODE_ANALYSIS.md says the effects cannot be separated. 'The doc fix' implies a single change.",
+            "edits": [
+              {
+                "old": "P4-DEPTH-01-r1 3/3 after the doc fix",
+                "new": "P4-DEPTH-01-r1 3/3 after two javadoc edits made at once (decoy contradiction removed, gold contract pinned; exploratory, effects not separable)"
+              }
+            ]
+          },
+          {
+            "finding_quote": "consistency: confirmed absent on fresh instances",
+            "decision": "CONFIRMED",
+            "reason": "This conflicts with the summary report's Limitations, and with the Wilson lower bounds 0.702/0.785/0.796 in analysis/heldout/summary.json. The edit is given under 'NOT_SUPPORTED (held-out): confirmed absent on fresh instances.'",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: 7 S1 instances: LB-COMPRESS-07-ADAPTER 0/3",
+            "decision": "CONFIRMED",
+            "reason": "The matrix has 6 S1 rows with mechanism M3, and NEW-R3-M3 is S2 (7 M3 instances in all, per family_summary.json). The edit is given under the first finding.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: as a tag only (ADV-DEFINER-01, P4-DEPTH-01-r1 3/3)",
+            "decision": "CONFIRMED",
+            "reason": "NEW-R1-M1 (M1|M6|M2, 3/3) carries M6 and was omitted, and DEFINER-01 is 2/3. M1 tags HC (15/15) and M2 tags HA (14/15) as well as HB. Edits are given under 'as a tag only (ADV-DEFINER-01, P4-DEPTH-01-r1 3/3)' (M6 row) and 'NEW-R2-M2 3/3 (Compress) | as a tag in HB: 14/14' (M1 and M2 rows).",
+            "edits": []
+          }
+        ]
+      },
+      {
+        "file": "AMENDMENTS.md",
+        "decisions": [
+          {
+            "finding_quote": "The second model call did not return within the 300 s budget (`TimeExceeded`).",
+            "decision": "CONFIRMED",
+            "reason": "I checked CTV-9CE7EA/run-003. mini-swe-agent.traj.json has info.model_stats.api_calls = 1 and exit TimeExceeded. There is one assistant turn at 12:16:17.71Z, 5.5 s after execution_timer_started_at 12:16:12.221Z (commands.log), with 3 tool calls (grep, defects4j test, find). All 3 returned code 0, but all 3 results are stamped 12:21:17.07Z, which is 304.85 s after the start. The ledger has api_calls 1 and final_gap_s -4.9. In the instance's other runs (001, 004, 005, 006) every batch with a defects4j test returned in 0.52 to 0.57 s. In mini-swe-agent default.py, query() raises TimeExceeded before n_calls += 1 and model.query, so no second call was made. driver_mxF0.log puts the launch at 12:16:09Z. Run-002's stall ran 11:49:28 to 12:05:34. The 574 s probe ended at 12:15:08, and three fast probes (5.6, 4.0, 5.8 s) passed just before launch. The record therefore shows no provider latency in this run. This one edit also carries the fixes for the overlapping findings: the stall-rule finding, the inference-lens finding on the same bullet, and consistency finding #1.",
+            "edits": [
+              {
+                "old": "  - The agent's first model call issued three commands, which completed. The second model call did not return within the\n    300 s budget (`TimeExceeded`).\n  - Stall rule 2 did not apply, because less than 60 s of budget remained after the last tool result.\n  - It occurred at 12:16Z, in the same window as a provider stall (run-002 at 12:05Z) and a 574-second health probe (12:15Z).",
+                "new": "  - The run made one model call (api_calls = 1). It returned 5.5 s after the timer started, with three commands (grep,\n    `defects4j test`, find). All three exited 0, but their results were recorded only at 304.9 s, 4.9 s after the 300 s\n    budget had expired, so the agent stopped (`TimeExceeded`) before any second model call. In this instance's other runs,\n    batches containing a `defects4j test` call returned in about 0.5 s. The cause of the delay in the tool step is not\n    recorded.\n  - Neither stall rule applied: rule 1 needs at most 2 commands (the run issued 3), and rule 2 needs more than 60 s of\n    budget left after the last tool result (the final gap was -4.9 s).\n  - It launched at 12:16:09Z, after run-002's provider stall (11:49Z to 12:05Z) and a 574-second health probe (ended\n    12:15:08Z), but three fast probes (4.0 to 5.8 s) passed just before launch and its one model call returned in 5.5 s, so\n    the record shows no provider latency in this run."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Stall rule 2 did not apply, because less than 60 s of budget remained after the last tool result.",
+            "decision": "CONFIRMED",
+            "reason": "In scripts/ct_status.py classify(), rule 1 is stall = api_calls<=2 and commands<=2. The run had 3 commands, so rule 1 fails. Rule 2 needs the last event to be a tool result with final_gap > 60. Here final_gap is -4.9, so no budget was left at all. The report leaves out rule 1 and understates the gap. The fix is part of the combined edit under the first finding ('Neither stall rule applied: ...').",
+            "edits": []
+          },
+          {
+            "finding_quote": "the agent ran `find /private/tmp /usr /opt -name 'junit-4*.jar'` while looking for a JUnit jar",
+            "decision": "CONFIRMED",
+            "reason": "The trajectory of CTV-065313/run-002 shows that tool call 10 was `find /private/tmp /usr /opt -type f \\( -name 'junit-4*.jar' -o -name 'junit.jar' \\) 2>/dev/null | head -20`. Its only output line was /private/tmp/ct3ws-diagF1/.../CTV-BEE8CB/lib/junit.jar, which the 'junit.jar' pattern matched. The command as the report quotes it could not have produced that path.",
+            "edits": [
+              {
+                "old": "  `find /private/tmp /usr /opt -name 'junit-4*.jar'` while looking for a JUnit jar.",
+                "new": "  `find /private/tmp /usr /opt -type f \\( -name 'junit-4*.jar' -o -name 'junit.jar' \\) 2>/dev/null | head -20` (call 10)\n  while looking for a JUnit jar."
+              }
+            ]
+          },
+          {
+            "finding_quote": "The hash after these fixes is recorded with each held-out validation.",
+            "decision": "CONFIRMED",
+            "reason": "(numbers lens) instances/HO-*/validation.json have only the keys baseline_failures, finished_at, gates, iid, overall, schema_version, signature and started_at, and none of them holds a hash. The packaged new_bug_variants/*/validation.json give validator_version as the path 'mechanism-search-v1/mx_build_validate.py' only. A grep for the current mx_build_validate.py sha256 (a9c93054...) outside the verification inputs finds nothing. FREEZE.json does not mention mx_build_validate. The only builder hash on record is the recipe-freeze hash 0921e2ac... in RECIPES_FROZEN.json. This edit also covers the inference-lens duplicate and consistency finding #14.",
+            "edits": [
+              {
+                "old": "The hash after\n  these fixes is recorded with each held-out validation.",
+                "new": "The builder\n  hash after these fixes is not recorded: the packaged held-out validation records name the validator only by path\n  (`validator_version`), and FREEZE.json does not hash the builder."
+              }
+            ]
+          },
+          {
+            "finding_quote": "A retro check of all 11 new variants passed except HO-HC-MATH-01.",
+            "decision": "CONFIRMED",
+            "reason": "Of the 9 HO validation.json files, only HO-HC-MATH-01's has a G14 gate. The other 8 stop at G13, and the P4 records list D1 to D5 only. No retro-check log exists, since a grep for G14 and 'retro' finds only HO-HC-MATH-01 files, plans/HO_cont.json, scripts and reports. The count of 11 can be traced (9 HO plus 2 P4), so that part of the finding is wrong, but the check's outcome is not archived. There is indirect support: across new_bug_variants and instances, only HO-HC-MATH-01/build_r0 patches touch *.bak, *.orig or *.rej files, and every other HO and P4 variant staged without setup failure (ledger statuses). This edit also covers the overlapping finding on the retro check and diff, and consistency finding #13.",
+            "edits": [
+              {
+                "old": "  - A retro check of all 11 new variants passed except HO-HC-MATH-01.",
+                "new": "  - A retro check of all 11 new variants (9 held-out, 2 P4) is reported to have passed except HO-HC-MATH-01, but its output\n    was not archived: G14 is recorded only in HO-HC-MATH-01's r1 validation. Indirect support: no other new variant's\n    patches touch a `*.bak`, `*.orig` or `*.rej` file, and every other held-out and P4 variant staged without setup failure."
+              }
+            ]
+          },
+          {
+            "finding_quote": "The builder checkouts are byte-identical to the server checkouts (`diff -rq`, 0 lines, all five projects).",
+            "decision": "CONFIRMED",
+            "reason": "I recomputed `diff -rq construction/fresh/<P> models/mxF0/workspaces/defects4j/<P>-1/fixed`. It prints 23 lines for Chart and 20 each for Compress, JacksonCore, Lang and Math, and every line is in .git or .svn metadata. With -x .git -x .svn the count is 0 for all five projects. The working trees match, so validity is unaffected, but the statement as written is inaccurate.",
+            "edits": [
+              {
+                "old": "The builder checkouts are byte-identical to the server\n    checkouts (`diff -rq`, 0 lines, all five projects).",
+                "new": "Excluding VCS metadata, the builder checkouts are identical to the\n    server checkouts (`diff -rq -x .git -x .svn`, 0 lines, all five projects); a plain `diff -rq` lists only `.git` and\n    `.svn` differences."
+              }
+            ]
+          },
+          {
+            "finding_quote": "Every other held-out run is scanner-clean.",
+            "decision": "CONFIRMED",
+            "reason": "The block_mxF0.jsonl held-out rows show CTV-E04F64/run-001 (HO-HA-JACKSONCORE-01) and CTV-B68398/run-002 (HO-HC-LANG-01) with flagged_calls = 1, contaminated = false and verdict valid. I re-ran scan_v3.py read-only. Both flagged calls wrote and compiled a scratch Java file under /tmp (/tmp/Tmp.java and /tmp/ProbeCTV.java), with no harness content shown. Apart from the r0 setup-failure STOP_INTEGRITY, no HO row has a STOP verdict. The others are valid or provider_stall infrastructure. 'Scanner-clean' overstates this.",
+            "edits": [
+              {
+                "old": "leakage. Every other held-out run is scanner-clean.",
+                "new": "leakage. No other held-out run has a STOP_CONTAMINATION, STOP_INTEGRITY or STOP_SCAN_FAILED record. Two\n  (HO-HA-JACKSONCORE-01 run-001, HO-HC-LANG-01 run-002) each had one flagged call that wrote a scratch Java file under\n  `/tmp`, which the scanner did not judge contaminating."
+              }
+            ]
+          },
+          {
+            "finding_quote": "`nr1m1` and `r2m2` to `r13m9` (about 1 GB)",
+            "decision": "CONFIRMED",
+            "reason": "No file outside AMENDMENTS.md records a size, and the directories no longer exist under /private/tmp. The NEW-R* builder_report.json files name /private/tmp/r2m2 to /private/tmp/r13m9, so the names are traceable but the size is not. The point is minor, but an untraceable number should not be stated as fact.",
+            "edits": [
+              {
+                "old": "`nr1m1` and `r2m2` to `r13m9` (about 1 GB),",
+                "new": "`nr1m1` and `r2m2` to `r13m9` (total size not recorded),"
+              }
+            ]
+          },
+          {
+            "finding_quote": "A different, independent auditor audits the revision.",
+            "decision": "CONFIRMED",
+            "reason": "(numbers lens) instances/HO-HB-LANG-01/audit_r0.json (REJECTED) and audit.json (revision_audited r1, CONFIRMED) both give the auditor only as 'independent agent'. The only distinguishing detail is the scratch directory (mxb-NqxgnB vs mxb-zWyvZX). The records therefore cannot show that a different auditor was used. The present tense also misdescribes a completed audit. This edit covers the inference-lens duplicate as well.",
+            "edits": [
+              {
+                "old": "- **Re-audit.** A different, independent auditor audits the revision. The original verdict is kept as",
+                "new": "- **Re-audit.** The revision was re-audited and CONFIRMED (`instances/HO-HB-LANG-01/audit.json`, revision r1). Both audit\n  records name the auditor only as \"independent agent\", so they do not show that the r1 auditor differed from the r0\n  auditor. The original verdict is kept as"
+              }
+            ]
+          },
+          {
+            "finding_quote": "The agent's first model call issued three commands, which completed. The second model call did not return within the 300 s budget (`TimeExceeded`).",
+            "decision": "CONFIRMED",
+            "reason": "This duplicates the first finding, seen through the inference lens, and the same data apply (api_calls 1, model reply at +5.5 s, tool results at +304.85 s, final gap -4.9 s, fast probes before launch). The combined edit under the first finding replaces these bullets and removes the implied provider cause. I did not adopt the finding's added claim that the miss 'reflects a harness or tool-execution delay', beyond stating that the delay was in the tool step and its cause is not recorded.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Consistency with the plan.** This keeps the plan's rule that an instance is never modified after its first behavioural run.",
+            "decision": "CONFIRMED",
+            "reason": "HELDOUT_CONFIRMATION_PLAN.md lines 144-145 read: 'A REJECTED instance is replaced by a fresh build from the same recipe **before any run**; it is never modified after a run.' HO-HB-LANG-01's builder_report.json says validator attempt 1 was rejected on leakage. The revision changed only the javadoc example ('no code changed', contract unchanged), followed by a second validator attempt, and the instance was packaged under the same CTV-49DDB6. That is an in-place revision, not a fresh build. The never-modify-after-run rule was kept, but the audit-rejection rule was not followed, and AMENDMENTS should record this as a deviation.",
+            "edits": [
+              {
+                "old": "- **Consistency with the plan.** This keeps the plan's rule that an instance is never modified after its first behavioural\n  run.",
+                "new": "- **Deviation from the plan.** HELDOUT_CONFIRMATION_PLAN.md says a REJECTED instance \"is replaced by a fresh build from the\n  same recipe **before any run**\". HO-HB-LANG-01 was instead revised in place (javadoc example only; same contract, fault\n  and id), then re-validated and re-audited. The revision came before any run, so the plan's rule that an instance is never\n  modified after its first behavioural run is kept."
+              }
+            ]
+          },
+          {
+            "finding_quote": "The hash after these fixes is recorded with each held-out validation.",
+            "decision": "CONFIRMED",
+            "reason": "(inference lens) This duplicates the numbers-lens finding on the same sentence. The packaged validations hold validator_version as a path only, and FREEZE.json has no builder hash. The edit is given under the first 'hash after these fixes' decision.",
+            "edits": []
+          },
+          {
+            "finding_quote": "This is a disclosed residual risk to cost, not to data validity.",
+            "decision": "CONFIRMED",
+            "reason": "In scripts/scan_v3.py, any call's output triggers contamination on NARROW (gold_rank, gold_methods, structured_submission, variant_manifest, cue-trust-v3, mechanism-search, VARIANT_KEY, the repo path), on foreign CTV ids or on cross-level cue tokens. After a flagged call it also triggers on MARK or pristine-only lines. There is no pattern for gold method names, and a display carrying none of these markers would pass. The dash-encoded claude-501 path does not contain the repo path or 'mechanism-search'. Agents do search /tmp outside their workspace (CTV-065313/run-002, and CTV-E72EE8/run-003 runs `find /tmp`), and mx_tmp_audit.py skips claude-*. 'Not to data validity' therefore overclaims. X7's 'so the data stay valid' and X2's 'out-of-workspace source' have the same problem. A grep of all 148 recorded trajectories finds no access to claude-501, which I added as the supported mitigating fact.",
+            "edits": [
+              {
+                "old": "  workspace. The frozen scanner stops any run that displays out-of-workspace harness content or another variant id\n  (X2 showed that it does), and such a run is excluded.\n- **Conclusion.** This is a disclosed residual risk to cost, not to data validity.",
+                "new": "  workspace. The frozen scanner stops any run whose output shows another variant id, a harness marker, the experiment name\n  or the repository path, or, after an out-of-workspace call, a pristine-only source line (X2 showed the variant-id check\n  working), and such a run is excluded. It does not match gold method names as such, so a gold name shown without any of\n  these markers would not be stopped.\n- **Conclusion.** This is a disclosed residual risk. Most exposures would be stopped and cost a run, but the scanner does not\n  catch every possible display, so some risk to data validity remains. No recorded trajectory shows access to\n  `/private/tmp/claude-501`."
+              },
+              {
+                "old": "The scanner would stop such a\n  run, so the data stay valid, but every stop costs a run.",
+                "new": "The scanner would stop such a\n  run if its output showed a pristine-only line, a harness marker or another variant id, and every stop costs a run. Source\n  shown without any of these would not be caught, so a residual validity risk remains."
+              },
+              {
+                "old": "  - Validity is protected by the scanner, which stops any run that displays another variant ID or out-of-workspace source.",
+                "new": "  - Validity is protected by the scanner, which stops any run that displays another variant ID or, after an\n    out-of-workspace call, harness content or a pristine-only source line."
+              }
+            ]
+          },
+          {
+            "finding_quote": "G1 already proves those edits behaviour-preserving, so the semantics are unchanged.",
+            "decision": "CONFIRMED",
+            "reason": "G1 in mx_build_validate.py checks that the CORRECT config passes the trigger and the ownership tests and adds no full-suite failure. That is test evidence, not proof. instances/HO-HC-MATH-01/builder_report.json says a context edit is 'mathematically identical ... but not bit-identical; G1 passes', and audit_r0.json notes that it differs in rounding and in non-finite edge cases. HO-HA-MATH-01/builder_report.json says behaviour preservation holds 'only up to rounding in general'.",
+            "edits": [
+              {
+                "old": "The check now skips context-edited files first. G1 already proves those\n  edits behaviour-preserving, so the semantics are unchanged.",
+                "new": "The check now skips context-edited files first. Those edits are covered\n  instead by G1, which checks that the CORRECT configuration (context edits, no fault) passes the trigger, the ownership tests\n  and the full suite. That is test-level evidence of behaviour preservation, not proof: the HO-HC-MATH-01 and HO-HA-MATH-01\n  builders note context edits that are equivalent only up to rounding."
+              }
+            ]
+          },
+          {
+            "finding_quote": "A different, independent auditor audits the revision.",
+            "decision": "CONFIRMED",
+            "reason": "(inference lens) This duplicates the numbers-lens finding, and the edit is given there. On the finding's extra point: the 'original builder' claim rests only on the revision being recorded in the same builder_report.json, and the records carry no builder or auditor id. I made no further edit because the X6 revision bullet is not otherwise contradicted.",
+            "edits": []
+          },
+          {
+            "finding_quote": "A retro check of all 11 new variants passed except HO-HC-MATH-01. The builder checkouts are byte-identical to the server checkouts (`diff -rq`, 0 lines, all five projects).",
+            "decision": "CONFIRMED",
+            "reason": "This overlaps the two separate findings above. G14 is recorded only for HO-HC-MATH-01, and neither the retro check nor the diff comparison was archived. I re-ran the diff and it reproduces only when VCS metadata is excluded. The edits are given under those two decisions.",
+            "edits": []
+          },
+          {
+            "finding_quote": "Under the frozen rule the run is excluded: contamination can never be released.",
+            "decision": "PARTLY",
+            "reason": "Ledger: S2 slot 15 CTV-065313/run-002 was completed, behavioural, gold_rank 1, verdict STOP_CONTAMINATION. S2_cont slot 0 (run-003) is its replacement. PREREGISTRATION.md says behavioural outcomes are 'never re-run' and provides replacement for infrastructure failures, and ct_driver.py forbids releasing contamination stops. No frozen rule covers re-running an excluded behavioural run, though the screening tier asks for 3 valid runs per instance, so the deviation is arguable rather than clear-cut. X2 already discloses the replacement. The finding's claim that NEW-R7-M10 'scores 3/3 either way' is wrong: without the replacement it would be 2/2 (run-001 and run-004), and with the excluded run 4/4. All four runs ranked the gold first, so accuracy is 1.0 in every case. I added a modest note.",
+            "edits": [
+              {
+                "old": "Under the frozen rule the run is excluded: contamination can never be\n  released.",
+                "new": "Under the frozen rule the run is excluded: contamination can never be\n  released. No frozen rule covers replacing an excluded behavioural run: PREREGISTRATION.md says behavioural outcomes are\n  never re-run and provides replacement for infrastructure failures, while screening asks for 3 valid runs per instance. The\n  replacement below is therefore recorded as a deviation. It does not change the result: all four NEW-R7-M10 runs, the\n  excluded one included, ranked the gold first."
+              }
+            ]
+          },
+          {
+            "finding_quote": "The S1 result for RH-ADV-DEPTH-01 is reported with this caveat.",
+            "decision": "PARTLY",
+            "reason": "All 18 instances/RH-*/reproduction.json files contain only apply_ok, compile_ok, trigger output and failing-tests head, with no full-suite result. P4-DEPTH-01-r1's D3 recorded parent_full = [testIntArrayToLong, testLang1112]. P4-COMPRESS07-r1's D3 checked only the revision ('baseline', 'variant_full'), not the parent. So only one parent was full-suite checked, not two as the finding says, which leaves 17 re-hosted instances with no recorded full-suite check, not 16. VARIANT_KEY lists Conversion::intArrayToLong as an entry point for RH-ADV-MASK-01, LEX-01, REGISTRY-01 and RH-LB-LANG-03-ADAPTER. I added this as a neutral fact, without claiming that those instances fail.",
+            "edits": [
+              {
+                "old": "  are unchanged. The S1 result for RH-ADV-DEPTH-01 is reported with this caveat.",
+                "new": "  are unchanged. The S1 result for RH-ADV-DEPTH-01 is reported with this caveat. The re-host reproduction ran no full suite\n  for any of the 18 re-hosted instances, and only RH-ADV-DEPTH-01's parent was later full-suite checked (P4 gate D3), so\n  whether the other 17 fail extra tests in this harness is not recorded. Four of them (RH-ADV-MASK-01, RH-ADV-LEX-01,\n  RH-ADV-REGISTRY-01, RH-LB-LANG-03-ADAPTER) list the same `Conversion::intArrayToLong` entry point."
+              }
+            ]
+          },
+          {
+            "finding_quote": "consistency: The second model call did not return within the 300 s budget",
+            "decision": "CONFIRMED",
+            "reason": "This concerns AMENDMENTS.md X11. The trajectory and ledger record api_calls = 1, and the tool results arrive at +304.85 s. The fix is in the combined edit under the first finding.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: A retro check of all 11 new variants passed except HO-HC-MATH-01.",
+            "decision": "CONFIRMED",
+            "reason": "This concerns AMENDMENTS.md X10. No archived retro-check output exists, and G14 appears only in HO-HC-MATH-01's validation. The fix is the edit under the 'retro check' finding, which now says the result is reported but unarchived and gives the indirect support.",
+            "edits": []
+          },
+          {
+            "finding_quote": "consistency: The hash after these fixes is recorded with each held-out validation.",
+            "decision": "CONFIRMED",
+            "reason": "This concerns AMENDMENTS.md X5. No post-fix builder hash appears in any held-out validation or builder record, and only RECIPES_FROZEN.json's freeze-time hash exists. The fix is the edit under the first 'hash after these fixes' decision.",
+            "edits": []
+          }
+        ]
+      }
+    ]
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Adjudicate"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "adjudicate:HELDOUT_CONFIRMATION_RESULTS.md",
+      "phaseIndex": 1,
+      "phaseTitle": "Adjudicate",
+      "agentId": "a3ba09a8006ef41f0",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1791801761756,
+      "queuedAt": 1791801761737,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "You are the adjudicator for verifier findings on ONE research report: /Users/shawnli/Desktop/Honours/defects4j/.claude/worktrees/strict-depth-experiment-run-524113/supervisor_pipeline_runs/mechanism-search-v1/HELDOUT_CONFIRMATION_RESULTS.md. Independent verifiers produced findings about it; some may be wrong.\nLoad the findings with: /opt/miniconda3/bin/python -c \"import json; d=json.load(open('/Us…",
+      "promptFramed": true,
+      "lastProgressAt": 1791802328526,
+      "tokens": 167621,
+      "toolCalls": 44,
+      "durationMs": 566765,
+      "resultPreview": "{\"decisions\":[{\"finding_quote\":\"a 300 s budget timeout while waiting for a model response (HA-COMPRESS run-003)\",\"decision\":\"CONFIRMED\",\"reason\":\"I read the run-003 trajectory (mini-swe-agent.traj.json) and commands.log, which puts the timer start at 12:16:12.221Z. The single assistant message is at +5.49 s and carries 3 tool calls (grep, defects4j test, find). All three tool results are stamped +…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "adjudicate:FAILED_MECHANISMS.md",
+      "phaseIndex": 1,
+      "phaseTitle": "Adjudicate",
+      "agentId": "a5928ce1a7d9cd8ca",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1791801761756,
+      "queuedAt": 1791801761737,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "You are the adjudicator for verifier findings on ONE research report: /Users/shawnli/Desktop/Honours/defects4j/.claude/worktrees/strict-depth-experiment-run-524113/supervisor_pipeline_runs/mechanism-search-v1/FAILED_MECHANISMS.md. Independent verifiers produced findings about it; some may be wrong.\nLoad the findings with: /opt/miniconda3/bin/python -c \"import json; d=json.load(open('/Users/shawnli…",
+      "promptFramed": true,
+      "lastProgressAt": 1791802443283,
+      "tokens": 192024,
+      "toolCalls": 41,
+      "durationMs": 678624,
+      "resultPreview": "{\"decisions\":[{\"finding_quote\":\"Accuracy fell only where the documentation left two methods defensible (PROMISING_MECHANISMS.md).\",\"decision\":\"CONFIRMED\",\"reason\":\"In labels_screening_blind.json, defensible is 'yes' only for the 3 DEPTH-01 runs (CTV-C9C374) and 'no' for the other 9 of the 12 S1 misses. In labels_S1.json the coordinator marks MASK-01 run-001 and CF-V1 run-002 'no'; COMPRESS-07 x3, …"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "adjudicate:MECHANISM_TAXONOMY.md",
+      "phaseIndex": 1,
+      "phaseTitle": "Adjudicate",
+      "agentId": "a990ce5ad1b7056d0",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1791801761759,
+      "queuedAt": 1791801761738,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "You are the adjudicator for verifier findings on ONE research report: /Users/shawnli/Desktop/Honours/defects4j/.claude/worktrees/strict-depth-experiment-run-524113/supervisor_pipeline_runs/mechanism-search-v1/MECHANISM_TAXONOMY.md. Independent verifiers produced findings about it; some may be wrong.\nLoad the findings with: /opt/miniconda3/bin/python -c \"import json; d=json.load(open('/Users/shawnl…",
+      "promptFramed": true,
+      "lastProgressAt": 1791802411719,
+      "tokens": 170255,
+      "toolCalls": 28,
+      "durationMs": 647059,
+      "resultPreview": "{\"decisions\":[{\"finding_quote\":\"7 S1 instances: LB-COMPRESS-07-ADAPTER 0/3, LB-CHART-01-ADAPTER 1/3, ADV-DEFINER-01 2/3, LB-LANG-03, LB-LANG-04 and LB-MATH-05 3/3 each\",\"decision\":\"CONFIRMED\",\"reason\":\"MECHANISM_SCREENING_MATRIX.csv has exactly 6 block=S1 rows with mechanism=M3: DEFINER-01, CHART-01-ADAPTER, COMPRESS-07, LANG-03, LANG-04, MATH-05. NEW-R3-M3 is block S2. family_summary.json M3 list…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "adjudicate:AMENDMENTS.md",
+      "phaseIndex": 1,
+      "phaseTitle": "Adjudicate",
+      "agentId": "a3a377e3817b8be68",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1791801761761,
+      "queuedAt": 1791801761738,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "promptPreview": "You are the adjudicator for verifier findings on ONE research report: /Users/shawnli/Desktop/Honours/defects4j/.claude/worktrees/strict-depth-experiment-run-524113/supervisor_pipeline_runs/mechanism-search-v1/AMENDMENTS.md. Independent verifiers produced findings about it; some may be wrong.\nLoad the findings with: /opt/miniconda3/bin/python -c \"import json; d=json.load(open('/Users/shawnli/Deskto…",
+      "promptFramed": true,
+      "lastProgressAt": 1791802518135,
+      "tokens": 172376,
+      "toolCalls": 58,
+      "durationMs": 753475,
+      "resultPreview": "{\"decisions\":[{\"finding_quote\":\"The second model call did not return within the 300 s budget (`TimeExceeded`).\",\"decision\":\"CONFIRMED\",\"reason\":\"I checked CTV-9CE7EA/run-003. mini-swe-agent.traj.json has info.model_stats.api_calls = 1 and exit TimeExceeded. There is one assistant turn at 12:16:17.71Z, 5.5 s after execution_timer_started_at 12:16:12.221Z (commands.log), with 3 tool calls (grep, def…"
+    }
+  ],
+  "totalTokens": 702276,
+  "totalToolCalls": 171
+}

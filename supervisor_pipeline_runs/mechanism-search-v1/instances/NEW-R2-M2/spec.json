@@ -1,0 +1,123 @@
+{
+ "iid": "NEW-R2-M2",
+ "project": "Compress",
+ "group": "NEW-R2",
+ "mechanism": "M2",
+ "tags": [
+  "M2"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream",
+  "method": "readOldBinaryEntry",
+  "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStream.java",
+  "edits": [
+   {
+    "old": "        ret.setSize(readBinaryLong(4, swapHalfWord));\n        ret.setName(readCString((int) namesize));\n        pad(ret.getHeaderSize() + namesize, 2);\n",
+    "new": "        ret.setSize(readBinaryLong(4, swapHalfWord));\n        ret.setName(readCString((int) namesize));\n"
+   }
+  ]
+ },
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream",
+   "method": "writeOldBinaryEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStream.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream",
+   "method": "read",
+   "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStream.java",
+   "decl": "final byte[] b, final int off, final int len"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream",
+   "method": "readCString",
+   "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStream.java"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream",
+   "method": "closeArchiveEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStream.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream::getNextCPIOEntry",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream::putNextEntry"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream::readNewEntry",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream::writeNewEntry",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream::writeOldBinaryEntry",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream::read",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream::closeArchiveEntry",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStreamTest::testNewFormatRoundTrip",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStreamTest::testCpioUnarchive",
+  "org.apache.commons.compress.archivers.CpioTestCase::testBinaryFormatRoundTrip"
+ ],
+ "ownership_reason": "readOldBinaryEntry is the header reader of the old binary format and returns without consuming the NUL byte that pads the 26-byte header plus the NUL-terminated name to an even length, so data reading starts one byte early and the first data byte returned is that pad byte (0). The writer side is pinned: CpioArchiveOutputStream.writeOldBinaryEntry pads header plus name to a multiple of two, and the trigger first asserts the archive length that exactly this layout produces (86 = 26+9+1 header, 11+1 data, 26+11+1 trailer; without the header pads it would be 84), which passes on the variant. Both sides apply the same 2-byte alignment to the binary data area (CpioArchiveInputStream.read and CpioArchiveOutputStream.closeArchiveEntry pad data to 2 for FORMAT_OLD_BINARY), and the new-format header reader readNewEntry ends with pad(getHeaderSize() + namesize, 4), mirroring writeNewEntry: each format-specific header reader consumes its own header pad. The shared helpers readCString and read serve formats with different alignment (old ASCII has none) and are shown correct by the passing CpioArchiveInputStreamTest.testNewFormatRoundTrip (same odd-length name through readCString/read in the new format) and testCpioUnarchive (bla.cpio with padded new-format headers). The minimal repair restores pad(ret.getHeaderSize() + namesize, 2) as the last step of readOldBinaryEntry.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStreamTest::testNewFormatRoundTrip",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStreamTest::testCpioUnarchive"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/CpioTestCase.java",
+  "test_class": "org.apache.commons.compress.archivers.CpioTestCase",
+  "test_method": "testBinaryFormatRoundTrip",
+  "imports": [
+   "import java.io.ByteArrayInputStream;",
+   "import java.io.ByteArrayOutputStream;",
+   "import org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream;",
+   "import org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream;",
+   "import org.apache.commons.compress.archivers.cpio.CpioConstants;"
+  ],
+  "code": "    public void testBinaryFormatRoundTrip() throws Exception {\n        final byte[] content = \"binary cpio\".getBytes(\"US-ASCII\");\n\n        final ByteArrayOutputStream bout = new ByteArrayOutputStream();\n        final CpioArchiveOutputStream os =\n            new CpioArchiveOutputStream(bout, CpioConstants.FORMAT_OLD_BINARY);\n        final CpioArchiveEntry entry = new CpioArchiveEntry(CpioConstants.FORMAT_OLD_BINARY);\n        entry.setName(\"data.txt\");\n        entry.setMode(CpioConstants.C_ISREG | 0644);\n        entry.setNumberOfLinks(1);\n        entry.setTime(1000);\n        entry.setSize(content.length);\n        os.putArchiveEntry(entry);\n        os.write(content, 0, content.length);\n        os.closeArchiveEntry();\n        os.close();\n\n        final byte[] archive = bout.toByteArray();\n        assertEquals(86, archive.length);\n\n        final CpioArchiveInputStream in =\n            new CpioArchiveInputStream(new ByteArrayInputStream(archive));\n        final CpioArchiveEntry back = in.getNextCPIOEntry();\n        assertEquals(\"data.txt\", back.getName());\n        assertEquals(content.length, back.getSize());\n        final ByteArrayOutputStream data = new ByteArrayOutputStream();\n        IOUtils.copy(in, data);\n        final byte[] restored = data.toByteArray();\n        assertEquals(content.length, restored.length);\n        for (int i = 0; i < content.length; i++) {\n            assertEquals(\"byte \" + i, content[i], restored[i]);\n        }\n        assertNull(in.getNextCPIOEntry());\n        in.close();\n    }\n"
+ },
+ "extra_tests": [
+  {
+   "test_file": "src/test/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStreamTest.java",
+   "code": "    public void testNewFormatRoundTrip() throws Exception {\n        final byte[] content = \"ascii entry\".getBytes(\"US-ASCII\");\n\n        final ByteArrayOutputStream bout = new ByteArrayOutputStream();\n        final CpioArchiveOutputStream os =\n            new CpioArchiveOutputStream(bout, CpioConstants.FORMAT_NEW);\n        final CpioArchiveEntry entry = new CpioArchiveEntry(CpioConstants.FORMAT_NEW);\n        entry.setName(\"data.txt\");\n        entry.setMode(CpioConstants.C_ISREG | 0644);\n        entry.setNumberOfLinks(1);\n        entry.setTime(1000);\n        entry.setSize(content.length);\n        os.putArchiveEntry(entry);\n        os.write(content, 0, content.length);\n        os.closeArchiveEntry();\n        os.close();\n\n        final CpioArchiveInputStream in =\n            new CpioArchiveInputStream(new ByteArrayInputStream(bout.toByteArray()));\n        final CpioArchiveEntry back = in.getNextCPIOEntry();\n        assertEquals(\"data.txt\", back.getName());\n        assertEquals(content.length, back.getSize());\n        final ByteArrayOutputStream data = new ByteArrayOutputStream();\n        IOUtils.copy(in, data);\n        assertEquals(\"ascii entry\", new String(data.toByteArray(), \"US-ASCII\"));\n        assertNull(in.getNextCPIOEntry());\n        in.close();\n    }\n",
+   "imports": [
+    "import java.io.ByteArrayInputStream;",
+    "import java.io.ByteArrayOutputStream;",
+    "import org.apache.commons.compress.utils.IOUtils;"
+   ]
+  }
+ ],
+ "expected_signature": "byte 0 expected:<98> but was:<0>",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStream.java",
+   "old": "        writeCString(entry.getName());\n        pad(entry.getHeaderSize() + entry.getName().length() + 1, 2);\n",
+   "new": "        writeCString(entry.getName());\n",
+   "why": "one-line decoy edit: writeOldBinaryEntry stops padding header plus name to an even length"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStream.java",
+   "old": "        return new String(tmpBuffer, 0, tmpBuffer.length - 1);",
+   "new": "        if (length % 2 != 0) { this.in.skip(1); }\n        return new String(tmpBuffer, 0, tmpBuffer.length - 1);",
+   "why": "one-line decoy edit: readCString skips one byte after an odd-length name"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStream.java",
+   "old": "            pad(this.cpioEntry.getSize(), 2);",
+   "new": "            pad(this.cpioEntry.getSize() + 1, 2);",
+   "why": "one-line decoy edit: closeArchiveEntry pads binary data by size + 1"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveInputStream.java",
+   "old": "                pad(this.entry.getSize(), 2);",
+   "new": "                pad(this.entry.getSize() + 1, 2);",
+   "why": "one-line decoy edit: read pads binary data by size + 1"
+  }
+ ],
+ "variant_id": "CTV-72D9FC",
+ "kind": "new",
+ "fault_lines": [
+  "ret.setSize(readBinaryLong(4, swapHalfWord));\n        ret.setName(readCString((int) namesize));"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream::readOldBinaryEntry"
+}

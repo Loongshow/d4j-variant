@@ -1,0 +1,230 @@
+diff --git a/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java b/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java
+index e0b4b5841..3cdf7f1d4 100644
+--- a/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java
++++ b/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java
+@@ -18,6 +18,8 @@ package org.apache.commons.math3.stat.correlation;
+ 
+ import org.apache.commons.math3.exception.NumberIsTooSmallException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
++import org.apache.commons.math3.stat.descriptive.moment.Mean;
++import org.apache.commons.math3.util.MathUtils;
+ 
+ /**
+  * Bivariate Covariance implementation that does not require input data to be
+@@ -78,16 +80,21 @@ class StorelessBivariateCovariance {
+     /**
+      * Update the covariance estimation with a pair of variables (x, y).
+      *
++     * <p>The deviations of the new pair are taken as the amounts by which
++     * {@code x} and {@code y} fall short of the current means
++     * ({@link MathUtils#shortfall(double, double)}); each mean is lowered by its
++     * shortfall divided by the new number of observations.</p>
++     *
+      * @param x the x value
+      * @param y the y value
+      */
+     public void increment(final double x, final double y) {
+         n++;
+-        final double deltaX = x - meanX;
+-        final double deltaY = y - meanY;
+-        meanX += deltaX / n;
+-        meanY += deltaY / n;
+-        covarianceNumerator += ((n - 1.0) / n) * deltaX * deltaY;
++        final double sx = MathUtils.shortfall(x, meanX);
++        final double sy = MathUtils.shortfall(y, meanY);
++        meanX -= sx / n;
++        meanY -= sy / n;
++        covarianceNumerator += ((n - 1.0) / n) * sx * sy;
+     }
+ 
+     /**
+@@ -96,16 +103,23 @@ class StorelessBivariateCovariance {
+      * have been obtained by by performing all of the {@link #increment(double, double)}
+      * operations in {@code cov} directly on this.
+      *
++     * <p>The means are pooled with {@link Mean#pool(double, double, double)},
++     * starting from the means of {@code cov}: the shortfall passed is the amount by
++     * which each mean of {@code cov} falls short of the corresponding mean of this
++     * instance ({@link MathUtils#shortfall(double, double)}), and the weight is the
++     * share of this instance in the combined number of observations. The covariance
++     * numerators are combined with the same shortfalls.</p>
++     *
+      * @param cov StorelessBivariateCovariance instance to append.
+      */
+     public void append(StorelessBivariateCovariance cov) {
+         double oldN = n;
+         n += cov.n;
+-        final double deltaX = cov.meanX - meanX;
+-        final double deltaY = cov.meanY - meanY;
+-        meanX += deltaX * cov.n / n;
+-        meanY += deltaY * cov.n / n;
+-        covarianceNumerator += cov.covarianceNumerator + oldN * cov.n / n * deltaX * deltaY;
++        final double sx = MathUtils.shortfall(cov.meanX, meanX);
++        final double sy = MathUtils.shortfall(cov.meanY, meanY);
++        meanX = Mean.pool(cov.meanX, sx, oldN / n);
++        meanY = Mean.pool(cov.meanY, sy, oldN / n);
++        covarianceNumerator += cov.covarianceNumerator + oldN * cov.n / n * sx * sy;
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java.bak b/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java.bak
+index e0b4b5841..3cdf7f1d4 100644
+--- a/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java.bak
++++ b/src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java.bak
+@@ -18,6 +18,8 @@ package org.apache.commons.math3.stat.correlation;
+ 
+ import org.apache.commons.math3.exception.NumberIsTooSmallException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
++import org.apache.commons.math3.stat.descriptive.moment.Mean;
++import org.apache.commons.math3.util.MathUtils;
+ 
+ /**
+  * Bivariate Covariance implementation that does not require input data to be
+@@ -78,16 +80,21 @@ class StorelessBivariateCovariance {
+     /**
+      * Update the covariance estimation with a pair of variables (x, y).
+      *
++     * <p>The deviations of the new pair are taken as the amounts by which
++     * {@code x} and {@code y} fall short of the current means
++     * ({@link MathUtils#shortfall(double, double)}); each mean is lowered by its
++     * shortfall divided by the new number of observations.</p>
++     *
+      * @param x the x value
+      * @param y the y value
+      */
+     public void increment(final double x, final double y) {
+         n++;
+-        final double deltaX = x - meanX;
+-        final double deltaY = y - meanY;
+-        meanX += deltaX / n;
+-        meanY += deltaY / n;
+-        covarianceNumerator += ((n - 1.0) / n) * deltaX * deltaY;
++        final double sx = MathUtils.shortfall(x, meanX);
++        final double sy = MathUtils.shortfall(y, meanY);
++        meanX -= sx / n;
++        meanY -= sy / n;
++        covarianceNumerator += ((n - 1.0) / n) * sx * sy;
+     }
+ 
+     /**
+@@ -96,16 +103,23 @@ class StorelessBivariateCovariance {
+      * have been obtained by by performing all of the {@link #increment(double, double)}
+      * operations in {@code cov} directly on this.
+      *
++     * <p>The means are pooled with {@link Mean#pool(double, double, double)},
++     * starting from the means of {@code cov}: the shortfall passed is the amount by
++     * which each mean of {@code cov} falls short of the corresponding mean of this
++     * instance ({@link MathUtils#shortfall(double, double)}), and the weight is the
++     * share of this instance in the combined number of observations. The covariance
++     * numerators are combined with the same shortfalls.</p>
++     *
+      * @param cov StorelessBivariateCovariance instance to append.
+      */
+     public void append(StorelessBivariateCovariance cov) {
+         double oldN = n;
+         n += cov.n;
+-        final double deltaX = cov.meanX - meanX;
+-        final double deltaY = cov.meanY - meanY;
+-        meanX += deltaX * cov.n / n;
+-        meanY += deltaY * cov.n / n;
+-        covarianceNumerator += cov.covarianceNumerator + oldN * cov.n / n * deltaX * deltaY;
++        final double sx = MathUtils.shortfall(cov.meanX, meanX);
++        final double sy = MathUtils.shortfall(cov.meanY, meanY);
++        meanX = Mean.pool(cov.meanX, sx, oldN / n);
++        meanY = Mean.pool(cov.meanY, sy, oldN / n);
++        covarianceNumerator += cov.covarianceNumerator + oldN * cov.n / n * sx * sy;
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/math3/stat/descriptive/moment/Mean.java b/src/main/java/org/apache/commons/math3/stat/descriptive/moment/Mean.java
+index ab4df5ca1..ebd423968 100644
+--- a/src/main/java/org/apache/commons/math3/stat/descriptive/moment/Mean.java
++++ b/src/main/java/org/apache/commons/math3/stat/descriptive/moment/Mean.java
+@@ -282,4 +282,32 @@ public class Mean extends AbstractStorelessUnivariateStatistic
+         dest.incMoment = source.incMoment;
+         dest.moment = source.moment.copy();
+     }
++
++    /**
++     * Returns the mean of the union of two groups of observations.
++     * <p>
++     * The first group has mean {@code mean}. That mean falls short of the mean of
++     * the second group by {@code shortfall}, as computed by
++     * {@link MathUtils#shortfall(double, double)} with the first group's mean as the
++     * value and the second group's mean as the reference, so the second group's mean
++     * is {@code mean + shortfall}. {@code weight} is the second group's share of the
++     * combined number of observations, between 0 and 1.</p>
++     * <p>
++     * The pooled mean lies between the two group means: starting from {@code mean}
++     * it moves toward the second group's mean by the fraction {@code weight} of the
++     * distance between them. It is therefore above {@code mean} when
++     * {@code shortfall} is positive, below {@code mean} when {@code shortfall} is
++     * negative, equal to {@code mean} when {@code weight} is 0 and equal to the
++     * second group's mean when {@code weight} is 1.</p>
++     *
++     * @param mean mean of the first group
++     * @param shortfall amount by which {@code mean} falls short of the mean of the
++     * second group
++     * @param weight share of the second group in the combined number of observations
++     * @return the mean of the union of the two groups
++     * @since 3.3
++     */
++    public static double pool(final double mean, final double shortfall, final double weight) {
++        return mean + shortfall * weight;
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/math3/util/MathUtils.java b/src/main/java/org/apache/commons/math3/util/MathUtils.java
+index 494d2ef1e..7d3aae1d5 100644
+--- a/src/main/java/org/apache/commons/math3/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math3/util/MathUtils.java
+@@ -114,6 +114,23 @@ public final class MathUtils {
+         return a - p * FastMath.floor((a - offset) / p) - offset;
+     }
+ 
++    /**
++     * Returns the amount by which a value falls short of a reference value.
++     * <p>
++     * The shortfall is measured from {@code value} up to {@code reference}, so it
++     * equals {@code reference - value}: it is positive when {@code value} lies below
++     * {@code reference}, negative when {@code value} lies above it, and zero when
++     * the two are equal.</p>
++     *
++     * @param value value compared with the reference
++     * @param reference reference value
++     * @return {@code reference - value}
++     * @since 3.3
++     */
++    public static double shortfall(final double value, final double reference) {
++        return reference - value;
++    }
++
+     /**
+      * Returns the first argument with the sign of the second argument.
+      *
+diff --git a/src/test/java/org/apache/commons/math3/stat/correlation/StorelessCovarianceTest.java b/src/test/java/org/apache/commons/math3/stat/correlation/StorelessCovarianceTest.java
+index 06052e9af..4798d8f50 100644
+--- a/src/test/java/org/apache/commons/math3/stat/correlation/StorelessCovarianceTest.java
++++ b/src/test/java/org/apache/commons/math3/stat/correlation/StorelessCovarianceTest.java
+@@ -258,6 +258,20 @@ public class StorelessCovarianceTest {
+         return new Array2DRowRealMatrix(matrixData);
+     }
+ 
+-
++    @Test
++    public void testCombinedSamplesAcceptFurtherData() {
++        final StorelessCovariance combined = new StorelessCovariance(2);
++        combined.increment(new double[] { 6, 1 });
++        combined.increment(new double[] { 2, 5 });
++        combined.increment(new double[] { 4, 3 });
++        final StorelessCovariance other = new StorelessCovariance(2);
++        other.increment(new double[] { 5, 4 });
++        other.increment(new double[] { 7, 7 });
++        other.increment(new double[] { 9, 7 });
++        combined.append(other);
++        combined.increment(new double[] { 4, 6 });
++        combined.increment(new double[] { 3, 6 });
++        // sample covariance of the eight rows
++        Assert.assertEquals(1.0, combined.getCovariance(0, 1), 1.0e-12);
++    }
+ }
+-

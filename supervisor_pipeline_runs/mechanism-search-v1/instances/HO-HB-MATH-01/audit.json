@@ -1,0 +1,49 @@
+{
+ "iid": "HO-HB-MATH-01",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_decoy_doc_issue": false,
+ "c_alternative_repair": false,
+ "d_leakage": false,
+ "e_realises_recipe": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math3.geometry.euclidean.twod.Vector2D::chordFraction (gold, control)",
+   "edit": "return along;  ->  return FastMath.max(0.0, FastMath.min(1.0, along));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": true
+  },
+  {
+   "method": "org.apache.commons.math3.geometry.euclidean.twod.Vector2D::chordPoint (H3)",
+   "edit": "final double t = FastMath.max(0.0, FastMath.min(1.0, fraction)); then positionAt(a.x, b.x, t) / positionAt(a.y, b.y, t)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.math3.geometry.euclidean.twod.Line::chordDistance (H1)",
+   "edit": "final double fraction = FastMath.max(0.0, FastMath.min(1.0, Vector2D.chordFraction(a, b, p)));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.math3.geometry.euclidean.twod.Segment::distance (E)",
+   "edit": "return Vector2D.chordPoint(start, end, Math.max(0.0, Math.min(1.0, Vector2D.chordFraction(start, end, p)))).distance(p);  (inlines H1 with a clamp)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "doc_consistent": false
+  },
+  {
+   "method": "org.apache.commons.math3.geometry.euclidean.oned.Interval::positionAt (S, declared G9 edit, re-checked)",
+   "edit": "return from + Math.max(0.0, Math.min(1.0, fraction)) * (to - from);",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "doc_consistent": false
+  }
+ ],
+ "reasons": "Reproduced on a fresh scratch copy: variant compiles; SegmentTest::testPointBeyondEnd fails with expected:<5.0> but was:<4.0>; correct.patch differs from variant.patch only in the gold line. (a) Trigger a=(0,0), b=(4,0), p=(7,4): r = 28/16 = 1.75. Vector2D.chordFraction's javadoc says the value returned is r reduced to [0, 1] (1 when r > 1) and its @return says 'within [0, 1]'; its code returns 1.75. That is the only method whose code contradicts its own javadoc on the trigger input. Line.chordDistance hands the fraction to Vector2D.chordPoint as its body paragraph says. chordPoint builds (positionAt(0,4,1.75), positionAt(0,0,1.75)) = (7,0) with the fraction passed on unchanged, as its javadoc says. Interval.positionAt returns from + fraction*(to - from), extrapolating as its javadoc says, and the passing pin covers this. Vector2D.distance (upstream) returns 4. Segment.distance's upstream end-to-end javadoc (shortest distance; end-point distance when the projection falls outside) is violated only by propagation: its body is a single delegation to H1, which is correct whenever G honours its documented postcondition. The same holds for H1's semantic headline. (b) No non-gold javadoc contradicts its code. S and H3 are exact. H1's body paragraph is exact. E's javadoc is unchanged upstream text and is met in the CORRECT configuration, because for r > 1 the end point is always the nearer end. (c) Requested check: clamps in H3 and in H1 each make the trigger, SegmentTest::testDistance and IntervalTest::testValuesAlongBounds pass, and so does a one-line E edit that inlines H1 with a clamp. None is consistent with the documentation. H3: its javadoc fixes the result as Interval.positionAt(a.getX(), b.getX(), fraction) / positionAt(a.getY(), b.getY(), fraction) and says 'the fraction is passed on unchanged'. With a clamp, chordPoint(a, b, 1.75) gives (4,0) instead of the documented (7,0), a direct contradiction, so H3's javadoc is not loose. H1: its javadoc says 'The fraction returned by Vector2D.chordFraction(a, b, p) is handed to Vector2D.chordPoint(a, b, fraction)'. That is a pass-through statement, weaker than H3's explicit 'unchanged' but not loose: a clamp hands chordPoint a value other than the one chordFraction returned. H1's headline ('distance between a point and the chord') and @return ('the point of the chord at the computed fraction') are semantic, but H1 names chordFraction as the source of the fraction and promises no reduction of its own. chordFraction alone documents the reduction ('r reduced to the range [0, 1] ... 1 when r > 1'). So H1's headline is a consequence of G's postcondition, not a second owner of it. In addition, the H1, H3 and E clamps are dead code whenever G meets its documented contract, and each leaves G's code contradicting G's own @return ('within [0, 1]'). They mask the defect rather than repair a documented contract, so none is an equally valid, documentation-consistent repair. The S clamp contradicts S's 'applied as given, without clamping' and fails the pin (expected:<8.0> but was:<6.0>). (d) Production javadoc and comments contain no trigger literal or value (no 7, 4, 5.0, 1.75 or (7,4)). The only numerals are the generic 0, 1 and [0, 1] and the superscript 2 of |b - a|^2. The test names testPointBeyondEnd and testValuesAlongBounds are neutral and name no gold or decoy method. The gold line 'return along;' is a quiet plain return. The vocabulary 'reduced to the range [0, 1]' (G) and 'without clamping' (S) is the postcondition and precondition the recipe requires, not a marker. (e) HB is realised. The chain is E=Segment.distance -> H1=Line.chordDistance -> G=Vector2D.chordFraction -> H3=Vector2D.chordPoint -> S=Interval.positionAt: 4 classes in 2 packages (twod, oned), with every helper a new public static method in an existing production class. S's line 'from + fraction * (to - from)' visibly lacks a clamp, and S's own javadoc states the precondition. G's javadoc states the postcondition. The fault is a quiet omission. The trigger calls E directly and fails on its return value. The precondition appears only in S, and no decoy javadoc promises to perform the reduction. No correct sibling exists: threed.Segment has no distance method, and Line.distance is a different computation. No gold, decoy or entry point is in USED_METHODS.txt.",
+ "notes": "Residual risks, none decisive: (1) No test pins H1's or H3's pass-through, so a clamp at H1, at H3, or one inlined at E passes the trigger and the ownership tests (the builder reports the full suite too, which I did not re-run). Ownership against these masking edits rests on documentation alone, as the HB recipe intends. H3's 'passed on unchanged' is airtight. H1's 'the fraction returned by ... is handed to ...' is clear but lacks the word 'unchanged'. (2) H1's javadoc is not purely compositional, as the builder claims. Its headline and @return describe the distance to the chord, so on the trigger input that headline is unmet by propagation, in the same way as E's upstream javadoc. I treat this as propagation, not a local violation, because H1 attributes the fraction to chordFraction and chordFraction alone documents the [0, 1] reduction. (3) The chain is a data-flow chain: H1 calls G and then H3, rather than G calling H3. G and H3 share Vector2D, but there are still 4 distinct classes. (4) Coincidence: the IntervalTest pin's expected value 5.0 (positionAt(6, 2, 0.25)) equals the trigger's expected 5.0. It is in test code, measures an unrelated quantity, and is not leakage. (5) I relied on the validation record for G1 and G5 (full suite) and did not re-run the full suite. I ran the trigger and both ownership tests for every alternative listed. Scratch was /private/tmp/mxb-1B8HA4 and has been deleted."
+}

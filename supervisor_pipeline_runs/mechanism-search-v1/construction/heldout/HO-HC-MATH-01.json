@@ -1,0 +1,129 @@
+{
+ "iid": "HO-HC-MATH-01",
+ "project": "Math",
+ "group": "HO-HC-MATH-01",
+ "mechanism": "M3",
+ "tags": [
+  "M3",
+  "M1"
+ ],
+ "recipe": "HC",
+ "kind": "new",
+ "tier": "HELDOUT",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.math3.stat.descriptive.moment.Mean",
+  "method": "pool",
+  "file": "src/main/java/org/apache/commons/math3/stat/descriptive/moment/Mean.java",
+  "edits": [
+   {
+    "old": "        return mean + shortfall * weight;",
+    "new": "        return mean - shortfall * weight;"
+   }
+  ]
+ },
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/util/MathUtils.java",
+   "old": "        final double p = FastMath.abs(period);\n        return a - p * FastMath.floor((a - offset) / p) - offset;\n    }\n",
+   "new": "        final double p = FastMath.abs(period);\n        return a - p * FastMath.floor((a - offset) / p) - offset;\n    }\n\n    /**\n     * Returns the amount by which a value falls short of a reference value.\n     * <p>\n     * The shortfall is measured from {@code value} up to {@code reference}, so it\n     * equals {@code reference - value}: it is positive when {@code value} lies below\n     * {@code reference}, negative when {@code value} lies above it, and zero when\n     * the two are equal.</p>\n     *\n     * @param value value compared with the reference\n     * @param reference reference value\n     * @return {@code reference - value}\n     * @since 3.3\n     */\n    public static double shortfall(final double value, final double reference) {\n        return reference - value;\n    }\n",
+   "purpose": "definer D: MathUtils.shortfall(value, reference) returns reference - value (documented: the amount by which value falls short of reference)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/descriptive/moment/Mean.java",
+   "old": "        dest.incMoment = source.incMoment;\n        dest.moment = source.moment.copy();\n    }\n",
+   "new": "        dest.incMoment = source.incMoment;\n        dest.moment = source.moment.copy();\n    }\n\n    /**\n     * Returns the mean of the union of two groups of observations.\n     * <p>\n     * The first group has mean {@code mean}. That mean falls short of the mean of\n     * the second group by {@code shortfall}, as computed by\n     * {@link MathUtils#shortfall(double, double)} with the first group's mean as the\n     * value and the second group's mean as the reference, so the second group's mean\n     * is {@code mean + shortfall}. {@code weight} is the second group's share of the\n     * combined number of observations, between 0 and 1.</p>\n     * <p>\n     * The pooled mean lies between the two group means: starting from {@code mean}\n     * it moves toward the second group's mean by the fraction {@code weight} of the\n     * distance between them. It is therefore above {@code mean} when\n     * {@code shortfall} is positive, below {@code mean} when {@code shortfall} is\n     * negative, equal to {@code mean} when {@code weight} is 0 and equal to the\n     * second group's mean when {@code weight} is 1.</p>\n     *\n     * @param mean mean of the first group\n     * @param shortfall amount by which {@code mean} falls short of the mean of the\n     * second group\n     * @param weight share of the second group in the combined number of observations\n     * @return the mean of the union of the two groups\n     * @since 3.3\n     */\n    public static double pool(final double mean, final double shortfall, final double weight) {\n        return mean + shortfall * weight;\n    }\n",
+   "purpose": "adapter A: Mean.pool(mean, shortfall, weight) returns mean + shortfall * weight (pooled mean of two groups; direction documented)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java",
+   "old": "import org.apache.commons.math3.exception.NumberIsTooSmallException;\nimport org.apache.commons.math3.exception.util.LocalizedFormats;\n",
+   "new": "import org.apache.commons.math3.exception.NumberIsTooSmallException;\nimport org.apache.commons.math3.exception.util.LocalizedFormats;\nimport org.apache.commons.math3.stat.descriptive.moment.Mean;\nimport org.apache.commons.math3.util.MathUtils;\n",
+   "purpose": "imports for the helpers"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java",
+   "old": "     * Update the covariance estimation with a pair of variables (x, y).\n     *\n     * @param x the x value\n     * @param y the y value\n     */\n    public void increment(final double x, final double y) {\n        n++;\n        final double deltaX = x - meanX;\n        final double deltaY = y - meanY;\n        meanX += deltaX / n;\n        meanY += deltaY / n;\n        covarianceNumerator += ((n - 1.0) / n) * deltaX * deltaY;\n    }\n",
+   "new": "     * Update the covariance estimation with a pair of variables (x, y).\n     *\n     * <p>The deviations of the new pair are taken as the amounts by which\n     * {@code x} and {@code y} fall short of the current means\n     * ({@link MathUtils#shortfall(double, double)}); each mean is lowered by its\n     * shortfall divided by the new number of observations.</p>\n     *\n     * @param x the x value\n     * @param y the y value\n     */\n    public void increment(final double x, final double y) {\n        n++;\n        final double sx = MathUtils.shortfall(x, meanX);\n        final double sy = MathUtils.shortfall(y, meanY);\n        meanX -= sx / n;\n        meanY -= sy / n;\n        covarianceNumerator += ((n - 1.0) / n) * sx * sy;\n    }\n",
+   "purpose": "P2: increment expresses its deviations as shortfalls; bit-identical (sx = -deltaX exactly, meanX -= sx / n)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java",
+   "old": "     * @param cov StorelessBivariateCovariance instance to append.\n     */\n    public void append(StorelessBivariateCovariance cov) {\n        double oldN = n;\n        n += cov.n;\n        final double deltaX = cov.meanX - meanX;\n        final double deltaY = cov.meanY - meanY;\n        meanX += deltaX * cov.n / n;\n        meanY += deltaY * cov.n / n;\n        covarianceNumerator += cov.covarianceNumerator + oldN * cov.n / n * deltaX * deltaY;\n    }\n",
+   "new": "     * <p>The means are pooled with {@link Mean#pool(double, double, double)},\n     * starting from the means of {@code cov}: the shortfall passed is the amount by\n     * which each mean of {@code cov} falls short of the corresponding mean of this\n     * instance ({@link MathUtils#shortfall(double, double)}), and the weight is the\n     * share of this instance in the combined number of observations. The covariance\n     * numerators are combined with the same shortfalls.</p>\n     *\n     * @param cov StorelessBivariateCovariance instance to append.\n     */\n    public void append(StorelessBivariateCovariance cov) {\n        double oldN = n;\n        n += cov.n;\n        final double sx = MathUtils.shortfall(cov.meanX, meanX);\n        final double sy = MathUtils.shortfall(cov.meanY, meanY);\n        meanX = Mean.pool(cov.meanX, sx, oldN / n);\n        meanY = Mean.pool(cov.meanY, sy, oldN / n);\n        covarianceNumerator += cov.covarianceNumerator + oldN * cov.n / n * sx * sy;\n    }\n",
+   "purpose": "C: append takes the shortfalls with D and pools the means with A, anchored at the means of cov with this instance's share as weight; mathematically identical to meanX += deltaX * cov.n / n, covariance numerator bit-identical"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math3.util.MathUtils",
+   "method": "shortfall",
+   "file": "src/main/java/org/apache/commons/math3/util/MathUtils.java"
+  },
+  {
+   "class": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance",
+   "method": "append",
+   "file": "src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java"
+  },
+  {
+   "class": "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance",
+   "method": "increment",
+   "file": "src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java"
+  },
+  {
+   "class": "org.apache.commons.math3.stat.correlation.StorelessCovariance",
+   "method": "append",
+   "file": "src/main/java/org/apache/commons/math3/stat/correlation/StorelessCovariance.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.math3.stat.correlation.StorelessCovariance::increment",
+  "org.apache.commons.math3.stat.correlation.StorelessCovariance::append",
+  "org.apache.commons.math3.stat.correlation.StorelessCovariance::getCovariance"
+ ],
+ "evidence": [
+  "org.apache.commons.math3.util.MathUtils::shortfall",
+  "org.apache.commons.math3.stat.correlation.StorelessBivariateCovariance::increment",
+  "org.apache.commons.math3.stat.correlation.StorelessCovarianceTest::testLonglyByRow"
+ ],
+ "ownership_reason": "MathUtils.shortfall(value, reference) is documented to return reference - value (positive when value lies below reference) and its code does exactly that. StorelessBivariateCovariance.increment uses that convention for every observation: sx = shortfall(x, meanX) = meanX - x, the mean is lowered by sx / n, and the numerator grows by ((n - 1) / n) * sx * sy. The existing, passing StorelessCovarianceTest tests (testLonglyByRow, testSwissFertilityByRow and the others that feed rows through increment) pin this convention: reversing shortfall moves every running mean the other way and changes every covariance. StorelessBivariateCovariance.append passes Mean.pool exactly the arguments Mean.pool documents: the mean of cov as the first group's mean, shortfall(cov.meanX, meanX) = meanX - cov.meanX as the amount by which that mean falls short of the second group's (this instance's) mean, and oldN / n, this instance's share, as the weight. Mean.pool's javadoc states the direction of its result explicitly: starting from mean it moves toward the second group's mean (mean + shortfall), so it lies above mean when shortfall is positive. Its code returns mean - shortfall * weight, which moves away from the second group's mean. The covariance numerator is merged correctly (it uses the shortfalls taken before the means are updated), so getCovariance is right immediately after append and testEquivalence still passes (its first append starts from an empty instance, where the weight is 0, and nothing uses the means after its second append). The displaced means only surface when more rows are added after append: the trigger's two later rows are measured from the wrong means, and getCovariance(0, 1) returns 3.25 instead of 1.0. Restoring the plus sign in Mean.pool alone makes the trigger and the full suite pass; reversing shortfall instead breaks increment and the existing covariance tests.",
+ "ownership_tests": [
+  "org.apache.commons.math3.stat.correlation.StorelessCovarianceTest::testLonglyByRow",
+  "org.apache.commons.math3.stat.correlation.StorelessCovarianceTest::testEquivalence"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/math3/stat/correlation/StorelessCovarianceTest.java",
+  "test_class": "org.apache.commons.math3.stat.correlation.StorelessCovarianceTest",
+  "test_method": "testCombinedSamplesAcceptFurtherData",
+  "imports": [],
+  "code": "    @Test\n    public void testCombinedSamplesAcceptFurtherData() {\n        final StorelessCovariance combined = new StorelessCovariance(2);\n        combined.increment(new double[] { 6, 1 });\n        combined.increment(new double[] { 2, 5 });\n        combined.increment(new double[] { 4, 3 });\n        final StorelessCovariance other = new StorelessCovariance(2);\n        other.increment(new double[] { 5, 4 });\n        other.increment(new double[] { 7, 7 });\n        other.increment(new double[] { 9, 7 });\n        combined.append(other);\n        combined.increment(new double[] { 4, 6 });\n        combined.increment(new double[] { 3, 6 });\n        // sample covariance of the eight rows\n        Assert.assertEquals(1.0, combined.getCovariance(0, 1), 1.0e-12);\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "expected:<1.0> but was:<3.25",
+ "fault_lines": [
+  "        return mean - shortfall * weight;"
+ ],
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/util/MathUtils.java",
+   "old": "        return reference - value;",
+   "new": "        return value - reference;",
+   "why": "one-line definer edit: shortfall returns the usual deviation value - reference"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java",
+   "old": "        final double sx = MathUtils.shortfall(cov.meanX, meanX);",
+   "new": "        final double sx = MathUtils.shortfall(meanX, cov.meanX);",
+   "why": "one-line caller edit: append measures the x shortfall the other way round (this mean below the mean of cov)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/correlation/StorelessBivariateCovariance.java",
+   "old": "        meanX = Mean.pool(cov.meanX, sx, oldN / n);",
+   "new": "        meanX = Mean.pool(cov.meanX, -sx, oldN / n);",
+   "why": "one-line caller edit: append negates the x shortfall it passes to pool"
+  }
+ ],
+ "variant_id": "CTV-21982A",
+ "gold_key": "org.apache.commons.math3.stat.descriptive.moment.Mean::pool"
+}

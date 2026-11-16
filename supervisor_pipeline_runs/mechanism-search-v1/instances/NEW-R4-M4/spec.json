@@ -1,0 +1,108 @@
+{
+ "iid": "NEW-R4-M4",
+ "project": "Math",
+ "group": "NEW-R4",
+ "mechanism": "M4",
+ "tags": [
+  "M4"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.math3.stat.inference.MannWhitneyUTest",
+  "method": "mannWhitneyU",
+  "file": "src/main/java/org/apache/commons/math3/stat/inference/MannWhitneyUTest.java",
+  "edits": [
+   {
+    "old": "double sumRankX = 0;",
+    "new": "long sumRankX = 0;"
+   }
+  ]
+ },
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math3.stat.ranking.NaturalRanking",
+   "method": "rank",
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java"
+  },
+  {
+   "class": "org.apache.commons.math3.stat.ranking.NaturalRanking",
+   "method": "resolveTie",
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java"
+  },
+  {
+   "class": "org.apache.commons.math3.stat.inference.MannWhitneyUTest",
+   "method": "calculateAsymptoticPValue",
+   "file": "src/main/java/org/apache/commons/math3/stat/inference/MannWhitneyUTest.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.math3.stat.inference.MannWhitneyUTest::mannWhitneyUTest"
+ ],
+ "evidence": [
+  "org.apache.commons.math3.stat.ranking.NaturalRankingTest::testDefault",
+  "org.apache.commons.math3.stat.inference.MannWhitneyUTestTest::testMannWhitneyUSimple",
+  "org.apache.commons.math3.stat.inference.WilcoxonSignedRankTest::wilcoxonSignedRank",
+  "org.apache.commons.math3.stat.inference.MannWhitneyUTest::calculateAsymptoticPValue"
+ ],
+ "ownership_reason": "The trigger runs a three-stage computation: NaturalRanking.rank (with resolveTie, TiesStrategy.AVERAGE) ranks the concatenated samples, MannWhitneyUTest.mannWhitneyU turns the ranks of x into the U statistic, and calculateAsymptoticPValue turns Umin = n1*n2 - U into a two-sided normal-approximation p-value. Stage 1 is correct: NaturalRankingTest::testDefault (passing) asserts that AVERAGE gives tied pairs half-integer ranks ({1.5,1.5,4,3,5}, {3,2,4.5,4.5,6.5,6.5,1}); for the trigger data it gives 6.5 to both 20s and 8.5 to both 22s, so the x rank sum is 5+8.5+3+11+10+6.5 = 44 and U = max(44-21, 30-23) = 23. Stage 3 is correct: it is a pure function of (Umin, n1, n2) that never sees the data or the ties, and MannWhitneyUTestTest::testMannWhitneyUSimple (passing) pins it (U=17, n1=5, n2=4 -> 0.08641); the trigger's expected 0.14413 is exactly that same formula at U=23 (EU=15, VarU=30, z=-1.4606); with a tie-corrected variance it would be 0.1423, so the documented tie bias does not explain the failure. Stage 2 owns the fault: mannWhitneyU accumulates the double ranks into a long, and the compound assignment silently truncates every x.5 rank, so the rank sum becomes 43, U becomes 22 and p becomes 0.2012. The other consumer of NaturalRanking.rank, WilcoxonSignedRankTest::wilcoxonSignedRank, accumulates its rank sum in a double. Restoring the double accumulator makes the trigger pass with nothing else changed; untied data (all existing tests) has integral ranks, which is why the suite does not notice.",
+ "ownership_tests": [
+  "org.apache.commons.math3.stat.ranking.NaturalRankingTest::testDefault",
+  "org.apache.commons.math3.stat.inference.MannWhitneyUTestTest::testMannWhitneyUSimple"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/math3/stat/inference/MannWhitneyUTestTest.java",
+  "test_class": "org.apache.commons.math3.stat.inference.MannWhitneyUTestTest",
+  "test_method": "testTiedObservationsPValue",
+  "imports": [],
+  "code": "    @Test\n    public void testTiedObservationsPValue() {\n        final double x[] = {19, 22, 16, 29, 24, 20};\n        final double y[] = {20, 11, 17, 12, 22};\n\n        Assert.assertEquals(0.14413, testStatistic.mannWhitneyUTest(x, y), 1e-5);\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "expected:<0.14413> but was:<0.20124262095772394>",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+   "old": "fill(ranks, tiesTrace, (2 * c + length - 1) / 2d);",
+   "new": "fill(ranks, tiesTrace, FastMath.ceil((2 * c + length - 1) / 2d));",
+   "why": "one-line decoy edit (resolveTie): AVERAGE ties rounded up to an integral rank"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+   "old": "fill(ranks, tiesTrace, (2 * c + length - 1) / 2d);",
+   "new": "fill(ranks, tiesTrace, FastMath.floor((2 * c + length - 1) / 2d));",
+   "why": "one-line decoy edit (resolveTie): AVERAGE ties rounded down to an integral rank"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/ranking/NaturalRanking.java",
+   "old": "            if (Double.compare(ranks[i].getValue(), ranks[i - 1].getValue()) > 0) {",
+   "new": "            if (ranks[i].getValue() > ranks[i - 1].getValue()) {",
+   "why": "one-line decoy edit (rank): tie-run detection by plain comparison"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/inference/MannWhitneyUTest.java",
+   "old": "        final double z = (Umin - EU) / FastMath.sqrt(VarU);",
+   "new": "        final double z = (Umin - EU + 0.5) / FastMath.sqrt(VarU);",
+   "why": "one-line decoy edit (calculateAsymptoticPValue): continuity correction"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/inference/MannWhitneyUTest.java",
+   "old": "        final double VarU = n1n2prod * (n1 + n2 + 1) / 12.0;",
+   "new": "        final double VarU = n1n2prod * (n1 + n2) / 12.0;",
+   "why": "one-line decoy edit (calculateAsymptoticPValue): variance with n1 + n2 instead of n1 + n2 + 1"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/stat/inference/MannWhitneyUTest.java",
+   "old": "        final double Umin = x.length * y.length - Umax;",
+   "new": "        final double Umin = x.length * y.length - Umax - 1;",
+   "why": "one-line entry edit (mannWhitneyUTest): shift Umin by one; satisfies the trigger but must break testMannWhitneyUSimple"
+  }
+ ],
+ "variant_id": "CTV-15AB64",
+ "kind": "new",
+ "fault_lines": [
+  "long sumRankX = 0;"
+ ],
+ "gold_key": "org.apache.commons.math3.stat.inference.MannWhitneyUTest::mannWhitneyU"
+}

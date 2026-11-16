@@ -1,0 +1,92 @@
+{
+ "iid": "NEW-R1-M1",
+ "project": "Lang",
+ "group": "NEW-R1-M1",
+ "mechanism": "M1",
+ "tags": [
+  "M1",
+  "M6",
+  "M2"
+ ],
+ "tier": "EXPLORATORY",
+ "recipe": "R1",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.lang3.time.DurationFormatUtils",
+  "method": "formatPeriod",
+  "decl": "final String format, final boolean padWithZeros",
+  "file": "src/main/java/org/apache/commons/lang3/time/DurationFormatUtils.java",
+  "edits": [
+   {
+    "old": "        // each initial estimate is adjusted in case it is under 0\n        while (milliseconds < 0) {\n            milliseconds += 1000;\n            seconds -= 1;\n        }\n        while (seconds < 0) {",
+    "new": "        // each initial estimate is adjusted in case it is under 0\n        while (seconds < 0) {"
+   }
+  ]
+ },
+ "context_edits": [],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.time.DurationFormatUtils",
+   "method": "format",
+   "file": "src/main/java/org/apache/commons/lang3/time/DurationFormatUtils.java"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.DurationFormatUtils",
+   "method": "lexx",
+   "file": "src/main/java/org/apache/commons/lang3/time/DurationFormatUtils.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.lang3.time.DurationFormatUtils::formatPeriod"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.time.DurationFormatUtils::formatPeriod",
+  "org.apache.commons.lang3.time.DurationFormatUtils::formatDuration",
+  "org.apache.commons.lang3.time.DurationFormatUtilsTest::testFormatDurationHMS",
+  "org.apache.commons.lang3.time.DurationFormatUtilsTest::testFormatDurationISO",
+  "org.apache.commons.lang3.time.DurationFormatUtilsTest::testFormatPeriodISO"
+ ],
+ "ownership_reason": "formatPeriod(long,long,String,boolean,TimeZone) takes per-field differences of the two calendars and, under its own comment 'each initial estimate is adjusted in case it is under 0', normalises a negative field by borrowing from the next larger one (seconds, minutes and hours by while-loops, days and months further down); the millisecond difference is the only field left unadjusted. For the trigger (10:15:30.750 -> 10:16:05.250, 34500 ms) it therefore hands format() seconds=35 and milliseconds=-500. format() only renders the field values it receives: its seconds-then-millis branch (add 1000, left-pad, drop the leading digit) is correct for every normalised value 0..999, which is what formatDuration's remainder arithmetic always supplies and what the passing testFormatDurationHMS / testFormatDurationISO / testFormatPeriodISO pin ('0:00:00.001', '0:00:13.465', '...12.001S'). The wrong seconds digit (35 instead of 34) is appended before the S token is reached, so no edit inside format()'s millisecond branch can repair the output, and lexx tokenises 'H:mm:ss.SSS' correctly (testLexx). The minimal repair restores the millisecond borrow (milliseconds += 1000; seconds -= 1) in formatPeriod.",
+ "ownership_tests": [
+  "org.apache.commons.lang3.time.DurationFormatUtilsTest::testFormatDurationHMS",
+  "org.apache.commons.lang3.time.DurationFormatUtilsTest::testFormatDurationISO",
+  "org.apache.commons.lang3.time.DurationFormatUtilsTest::testFormatPeriodISO",
+  "org.apache.commons.lang3.time.DurationFormatUtilsTest::testLexx"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/lang3/time/DurationFormatUtilsTest.java",
+  "test_class": "org.apache.commons.lang3.time.DurationFormatUtilsTest",
+  "test_method": "testPeriodWithFractionalSeconds",
+  "imports": [],
+  "code": "    @Test\n    public void testPeriodWithFractionalSeconds() {\n        final TimeZone gmt = TimeZone.getTimeZone(\"GMT\");\n        final Calendar cal = Calendar.getInstance(gmt);\n        cal.clear();\n        cal.set(2013, Calendar.JUNE, 1, 10, 15, 30);\n        cal.set(Calendar.MILLISECOND, 750);\n        final long start = cal.getTimeInMillis();\n        cal.set(2013, Calendar.JUNE, 1, 10, 16, 5);\n        cal.set(Calendar.MILLISECOND, 250);\n        final long end = cal.getTimeInMillis();\n        assertEquals(34500L, end - start);\n        assertEquals(\"0:00:34.500\", DurationFormatUtils.formatPeriod(start, end, \"H:mm:ss.SSS\", true, gmt));\n    }\n"
+ },
+ "extra_tests": [],
+ "expected_signature": "expected:<0:00:3[4.5]00> but was:<0:00:3[5.]00>",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DurationFormatUtils.java",
+   "old": "                        buffer.append(str.substring(1));",
+   "new": "                        buffer.append(str.substring(str.length() - 3));",
+   "why": "one-line decoy edit: format() keeps the last three digits of the padded millisecond text instead of dropping the leading digit"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DurationFormatUtils.java",
+   "old": "                        milliseconds += 1000;",
+   "new": "                        milliseconds = (milliseconds + 1000) % 1000 + 1000;",
+   "why": "one-line decoy edit: format() wraps the millisecond value into 0..999 before adding the leading digit"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DurationFormatUtils.java",
+   "old": "StringUtils.leftPad(Integer.toString(seconds), count, '0')",
+   "new": "StringUtils.leftPad(Integer.toString(milliseconds < 0 ? seconds - 1 : seconds), count, '0')",
+   "why": "one-line decoy edit: format() lowers the printed seconds when the millisecond value it was given is negative"
+  }
+ ],
+ "variant_id": "CTV-E7D846",
+ "kind": "new",
+ "fault_lines": [
+  "// each initial estimate is adjusted in case it is under 0\n        while (seconds < 0) {"
+ ],
+ "gold_key": "org.apache.commons.lang3.time.DurationFormatUtils::formatPeriod"
+}

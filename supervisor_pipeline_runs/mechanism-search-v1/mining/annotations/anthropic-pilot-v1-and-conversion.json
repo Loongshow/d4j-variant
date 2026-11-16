@@ -1,0 +1,1147 @@
+{
+ "family": "anthropic-pilot-v1-and-conversion",
+ "instances": [
+  {
+   "variant": "CHART-PIE-CONTROL-03",
+   "project": "Chart",
+   "instance_label": "anthropic-pilot-v1 / CHART-PIE-03 CONTROL (0 synthetic hops)",
+   "arm": "control",
+   "gold": [
+    "org.jfree.chart.plot.PiePlot::getArcBounds"
+   ],
+   "fault_description": "Offset direction reversed. getArcBounds computes deltaX/deltaY = (point1 - point2) * explodePercent, where point1 is the arc mid-point on the unexploded bounds and point2 the one on the exploded bounds, so delta points toward the pie centre. Correct code subtracts delta, which moves the section outward. The variant adds it, so every exploded section is drawn inward by exactly the intended outward displacement (expected:<87.5> but was:<112.5>). Sections with explodePercent 0 hit the early-return guard and are unaffected.",
+   "fault_lines": [
+    "return new Rectangle2D.Double(unexploded.getX() + deltaX,",
+    "unexploded.getY() + deltaY, unexploded.getWidth(),"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "Built to be locally coherent (manifest locally_coherent=true). '+ deltaX' reads like ordinary translation. It is only wrong once you see that deltaX = point1(unexploded) - point2(exploded) points inward. Every Claude run still got it in 1-2 calls by plugging in the test's numbers ('87.5 = 100+(50-100)*0.25').",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "The same-file callers (drawItem, drawPie, label paths) and getExplodePercent/getMaximumExplodePercent are unmodified and look normal.",
+   "decoys": [
+    "org.jfree.chart.plot.PiePlot::drawItem",
+    "org.jfree.chart.plot.PiePlot::getMaximumExplodePercent",
+    "org.jfree.chart.plot.PiePlot::getExplodePercent",
+    "org.jfree.chart.plot.PiePlot::drawPie",
+    "org.jfree.chart.plot.PiePlot::initialise",
+    "org.jfree.chart.plot.RingPlot::drawItem"
+   ],
+   "entry_points": [
+    "org.jfree.chart.plot.PiePlot::getArcBounds (called directly by the test subclass PiePlotTests.ArcProbe::arc)",
+    "org.jfree.chart.plot.PiePlot::PiePlot"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "failing assertion values",
+     "location": "PiePlotTests::test2986548: expected:<87.5> but was:<112.5>; second case expects x=117.677, y=82.322"
+    },
+    {
+     "kind": "in-method computation / domain semantics",
+     "location": "PiePlot::getArcBounds lines 3127-3134: point1 from the unexploded arc, point2 from the exploded arc, deltaX = (point1.getX() - point2.getX()) * explodePercent ('explode' means displaced away from the centre)"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 1,
+   "search_depth_hops": 1,
+   "mechanism_tags": [
+    "M17",
+    "M12"
+   ],
+   "notes": "Claude opus-5-5: 6/6 rank 1 (3 pre-hardening + 3 post-hardening runs), first gold at step 1, 1-2 tool calls. Per GPT56_VS_CLAUDE.md, GPT-5.6 was 5/5 rank 1. getArcBounds has several production callers (PiePlot.drawItem, RingPlot.drawItem, two label paths in PiePlot near lines 3354 and 3455), all with the same convention. The paired TREATMENT puts the same fault in ShapeUtilities::shift behind CompassPlot.ring -> StandardDialScale.rim -> PlotUtilities.drift -> Plot.nudge -> ShapeUtilities.shift. It failed for both models, with H3 PlotUtilities::drift at rank 1 in 8/8 runs. So the failure comes from the chain, not from the fault itself."
+  },
+  {
+   "variant": "CMP-LAYOUT-CONTROL-02",
+   "project": "Compress",
+   "instance_label": "anthropic-pilot-v1 / CMP-LAYOUT-02 CONTROL (0 synthetic hops)",
+   "arm": "control",
+   "gold": [
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::parseTarHeader"
+   ],
+   "fault_description": "Record-layout offset. parseTarHeader reads the USTAR type flag before skipping the 8-byte checksum field. The original code skips first (offset += CHKSUMLEN; linkFlag = header[offset++];). As a result linkFlag is taken from the first checksum byte (a space or an octal digit) and every later field shifts by one byte. Entry kinds told apart only by type flag are misclassified: a directory without a trailing slash, a GNU long-name entry. isDirectory() returns false (expected:<true> but was:<false>).",
+   "fault_lines": [
+    "linkFlag = header[offset++];",
+    "offset += CHKSUMLEN;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "The swapped pair fits the method's own 'read field, then advance offset' rhythm, so it reads as coherent on its own. The bug shows only when compared with writeEntryHeader, which writes CHKSUMLEN spaces and then linkFlag, or with the TAR field order.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "writeEntryHeader is the correct inverse. It is the natural co-suspect for a round-trip test and was ranked 2nd in 3/3 Claude runs, but nothing in it looks wrong.",
+   "decoys": [
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::writeEntryHeader",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::isDirectory",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::isGNULongNameEntry",
+    "org.apache.commons.compress.archivers.tar.TarUtils::parseName",
+    "org.apache.commons.compress.archivers.tar.TarUtils::parseOctal",
+    "org.apache.commons.compress.archivers.tar.TarUtils::getCheckSumOctalBytes"
+   ],
+   "entry_points": [
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::TarArchiveEntry(String,byte)",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::setModTime",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::setUserName",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::writeEntryHeader",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::TarArchiveEntry(byte[])",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::getName",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::getUserName",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::isDirectory",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::isGNULongNameEntry"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "inverse method (same file)",
+     "location": "TarArchiveEntry::writeEntryHeader: writes CHKSUMLEN spaces at csOffset, then 'outbuf[offset++] = linkFlag;'"
+    },
+    {
+     "kind": "layout constants / format knowledge",
+     "location": "TarConstants field lengths (CHKSUMLEN, NAMELEN, ...) and the USTAR header order: checksum precedes the type flag"
+    },
+    {
+     "kind": "failing assertion",
+     "location": "TarArchiveEntryTest::testCompress117: isDirectory expected:<true> but was:<false>"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 2,
+   "mechanism_tags": [
+    "M7",
+    "M12",
+    "M17"
+   ],
+   "notes": "Claude: 3/3 rank 1, first gold at step 2, writeEntryHeader 2nd in every run. 'defects4j test' failed in the workspace (missing String::Interpolate Perl module), so the agents worked statically. GPT-5.6 reference per GPT56_VS_CLAUDE.md: 5/5 rank 1. Production second caller: TarArchiveInputStream line 229 'new TarArchiveEntry(headerBuf)' reaches parseTarHeader. Bug type is a statement reordering (the checksum skip is moved after the flag read), so none of the flag categories fits exactly. NEXT_ANTHROPIC_DECISION.md counts CMP-LAYOUT-02 among the ownership-ambiguous units. In the paired TREATMENT (gold ZipArchiveInputStream::flagOffset at H5), GPT-5.6 run-004 ranked the facade first and the gold 3rd."
+  },
+  {
+   "variant": "CONVERSION-CONTROL-01",
+   "project": "Lang",
+   "instance_label": "anthropic-pilot-v1 / CONVERSION-CONTROL-01 (Claude smoke run, 0 hops)",
+   "arm": "control",
+   "gold": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "fault_description": "Offset units mismatch. The destination bit offset dstPos is treated as a word index: shift = (i + dstPos) * 32 instead of i * 32 + dstPos. Java masks long shift distances mod 64, so with dstPos=8 the words land at bit 0 (expected:<64729929216> but was:<252851286>). Existing tests all use dstPos=0 and are unaffected.",
+   "fault_lines": [
+    "shift = (i + dstPos) * 32;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The line alone looks plausible (manifest locally_coherent=true). But the same method's javadoc ('dstPos ... in bits') and its guard '(nInts - 1) * 32 + dstPos >= 64' use dstPos as a bit offset, which contradicts the shift formula a few lines away. The cue sits inside the method, not on the line.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "The sibling converters (shortArrayToLong, byteArrayToLong, longToIntArray) are correct and use 'i * W + dstPos'. They act as evidence, not as suspicious competitors.",
+   "decoys": [
+    "org.apache.commons.lang3.Conversion::longToIntArray",
+    "org.apache.commons.lang3.Conversion::shortArrayToLong",
+    "org.apache.commons.lang3.Conversion::byteArrayToLong",
+    "org.apache.commons.lang3.Conversion::shortArrayToInt"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "javadoc contract (same method)",
+     "location": "Conversion::intArrayToLong '@param dstPos ... in bits'"
+    },
+    {
+     "kind": "guard (same method)",
+     "location": "Conversion::intArrayToLong '(nInts - 1) * 32 + dstPos >= 64'"
+    },
+    {
+     "kind": "sibling idiom",
+     "location": "Conversion::shortArrayToLong 'i * 16 + dstPos', Conversion::byteArrayToLong 'i * 8 + dstPos' (nine siblings in Conversion.java)"
+    },
+    {
+     "kind": "inverse method",
+     "location": "Conversion::longToIntArray 'i * 32 + srcPos'"
+    },
+    {
+     "kind": "sibling tests",
+     "location": "ConversionTest sibling assertions with dstPos = 8/16/24"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 1,
+   "search_depth_hops": 1,
+   "mechanism_tags": [
+    "M17",
+    "M12"
+   ],
+   "notes": "One Claude run: the Phase-5 smoke run, which is outside the pilot panel and excluded from the results tables (SMOKE_TEST.md). Rank 1 in 2 tool calls: it read the method and grepped 'shift = '. GPT-5.6 0-hop controls carrying this byte-identical variant.patch (LONG/DISPATCH/BRANCH-CONTROL-01 and others) were 20/20 rank 1 (FULL_EXPERIMENT_SERIES_COMPARISON.md). No production caller of intArrayToLong was observed."
+  },
+  {
+   "variant": "CONVERSION-LONG-TREATMENT-01",
+   "project": "Lang",
+   "instance_label": "anthropic-pilot-v1 / CONVERSION-LONG-01 TREATMENT (5 hops, Claude)",
+   "arm": "treatment",
+   "gold": [
+    "org.apache.commons.lang3.math.NumberUtils::overlay"
+   ],
+   "fault_description": "The same units fault as CONVERSION-CONTROL-01, moved into the terminal stage of a five-hop cross-class static chain: Conversion.intArrayToLong -> ArrayUtils.gather -> EnumUtils.compose (width = Integer.SIZE) -> BitField.widen -> ObjectUtils.combine -> NumberUtils.overlay. overlay computes shift = (index + at) * width instead of index * width + at. Its javadoc describes 'at' only as 'the position in the holder at which the first value of the run is placed', with no unit. The 'in bits' contract stays in the facade javadoc and guard in Conversion.java.",
+   "fault_lines": [
+    "final int shift = (index + at) * width;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "The names and javadoc carry no units ('at', 'index', 'width'). (index + at) * width is a valid formula if 'at' is a word index, and nothing local gives the unit away (LONG_CHAIN_LOCAL_COHERENCE_AUDIT.md).",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "Chain stages are plain delegations or loops; combine passes i and at through unchanged. After its guards the facade is a single delegate call. None looks wrong.",
+   "decoys": [
+    "org.apache.commons.lang3.ObjectUtils::combine",
+    "org.apache.commons.lang3.BitField::widen",
+    "org.apache.commons.lang3.EnumUtils::compose",
+    "org.apache.commons.lang3.ArrayUtils::gather",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "javadoc contract + guard (facade, 5 files away)",
+     "location": "Conversion::intArrayToLong '@param dstPos ... in bits' and '(nInts - 1) * 32 + dstPos >= 64'"
+    },
+    {
+     "kind": "sibling idiom",
+     "location": "Conversion.java: nine sibling methods 'shift = i * W + dstPos'"
+    },
+    {
+     "kind": "inverse method",
+     "location": "Conversion::longToIntArray 'i * 32 + srcPos'"
+    },
+    {
+     "kind": "sibling tests",
+     "location": "ConversionTest assertions with dstPos = 8/16/24"
+    },
+    {
+     "kind": "failing assertion value",
+     "location": "ConversionTest::testLang1112 expected:<64729929216> but was:<252851286>"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 6,
+   "mechanism_tags": [
+    "M19",
+    "M5",
+    "M17",
+    "M3",
+    "M13"
+   ],
+   "notes": "Byte-identical package to conversion-long-chain-v1. Claude: 3/3 rank 1, first gold at step 6-9, H1>H2>H3>H4>H5 traversal in every run, submitted order exactly reverse chain depth (tau 1.0), facade ranked 6th. Ownership split: the facade owns the contract while overlay owns the arithmetic. By the camouflage pair's ownership audit on identical bodies, combine (H4) is an equivalent repair site. The gold is the deepest stage by construction, so depth and gold are confounded (DEPTH_PRIOR_CROSS_MODEL.md)."
+  },
+  {
+   "variant": "LANG-CONV-CAMOUFLAGE-LOW",
+   "project": "Lang",
+   "instance_label": "anthropic-pilot-v1 / LANG-CONV-CAMO LOW (5 hops, gold hosted in LocaleUtils)",
+   "arm": "LOW",
+   "gold": [
+    "org.apache.commons.lang3.LocaleUtils::lodge"
+   ],
+   "fault_description": "Word-offset convention in bit packing: shift = (index + at) * width instead of index * width + at. The chain is the same five-hop chain as CONVERSION-LONG-TREATMENT-01 (facade intArrayToLong -> gather -> compose -> widen -> combine), but the gold is renamed 'lodge' and hosted in LocaleUtils (341 lines, 10 methods, gold at the 53rd percentile of the file). The hop-4 line names it: 'total = LocaleUtils.lodge(total, words[i], i, at, width, field);'. The gold body and unit-free javadoc are byte-identical to the HIGH arm (StringUtils host).",
+   "fault_lines": [
+    "final int shift = (index + at) * width;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "The body is locally coherent, with no unit for 'at'. Its host is semantically unrelated (bit packing inside LocaleUtils), so it is out of place by location, not by content.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "Hops 1-4 and the facade are clean delegations or loops, byte-identical to the long-chain treatment.",
+   "decoys": [
+    "org.apache.commons.lang3.ObjectUtils::combine",
+    "org.apache.commons.lang3.BitField::widen",
+    "org.apache.commons.lang3.EnumUtils::compose",
+    "org.apache.commons.lang3.ArrayUtils::gather",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "javadoc contract + guard (facade, 5 files away)",
+     "location": "Conversion::intArrayToLong '@param dstPos ... in bits' and '(nInts - 1) * 32 + dstPos >= 64' (manifest contract_evidence_location is null, but the chain is identical to the long-chain pair)"
+    },
+    {
+     "kind": "sibling idiom / inverse",
+     "location": "Conversion.java siblings 'shift = i * W + dstPos'; longToIntArray 'i * 32 + srcPos'"
+    },
+    {
+     "kind": "failing assertion value",
+     "location": "ConversionTest::testLang1112 expected:<64729929216> but was:<252851286>"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 6,
+   "mechanism_tags": [
+    "M19",
+    "M5",
+    "M17",
+    "M4",
+    "M3",
+    "M13"
+   ],
+   "notes": "Claude: 3/3 rank 1, first gold at step 6, tau 1.0, facade 6th. Manifest ownership: behaviourally AMBIGUOUS with H4 (ObjectUtils::combine) as an equivalent repair site; contractually MOSTLY_UNIQUE. CAMOUFLAGE_CROSS_MODEL.md: host-file size did not matter within Claude (LOW and HIGH both 3/3 rank 1, 0-0.67 candidates before gold). GPT-5.6 has only 1 LOW run (rank 1, first gold at step 26), recorded under diagnostic-noncanonical-v3; the cross-model camouflage contrast is incomplete."
+  },
+  {
+   "variant": "CONVERSION-BRANCH-TREATMENT-01",
+   "project": "Lang",
+   "instance_label": "conversion-branch-dispatch-v1 / BRANCH TREATMENT (5 hops + conditional 2-implementation dispatch)",
+   "arm": "treatment",
+   "gold": [
+    "org.apache.commons.lang3.math.NumberUtils::overlay"
+   ],
+   "fault_description": "The same units fault, at the end of a five-stage chain with a conditional dispatch at hop3 -> hop4. BitField.widen ends with 'return Folding.forWidth(width).fold(words, initial, at, width, field);'. Folding.forWidth returns NARROW for width < Integer.SIZE and STANDARD otherwise. The trigger's width = Integer.SIZE, set in EnumUtils.compose two hops earlier, selects StandardFolding.fold -> ObjectUtils.combine -> NumberUtils.overlay (gold: shift = (index + at) * width instead of index * width + at). NarrowFolding.fold is a correct self-contained loop ('final int shift = i * width + at;') that never reaches the gold.",
+   "fault_lines": [
+    "final int shift = (index + at) * width;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "Locally coherent as in the direct chain. NarrowFolding.fold, next to the selector, contains the correct idiom 'i * width + at', which works as nearby contrast evidence. Run-004 cited it ('The analogous NarrowFolding formula uses i * width + at').",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "NarrowFolding duplicates the shift arithmetic in correct form, so it is a lexical neighbour of the gold, but it is not suspicious and was ranked 9th every time. The selector, the wrapper and the facade are clean.",
+   "decoys": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong",
+    "org.apache.commons.lang3.ObjectUtils::combine",
+    "org.apache.commons.lang3.builder.StandardFolding::fold",
+    "org.apache.commons.lang3.builder.Folding::forWidth",
+    "org.apache.commons.lang3.builder.NarrowFolding::fold",
+    "org.apache.commons.lang3.BitField::widen",
+    "org.apache.commons.lang3.EnumUtils::compose",
+    "org.apache.commons.lang3.ArrayUtils::gather"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "javadoc contract + guard (facade)",
+     "location": "Conversion::intArrayToLong '@param dstPos ... in bits', guard '(nInts - 1) * 32 + dstPos >= 64'"
+    },
+    {
+     "kind": "sibling idiom / inverse / sibling tests",
+     "location": "Conversion.java siblings 'shift = i * W + dstPos'; longToIntArray; ConversionTest dstPos 8/16/24"
+    },
+    {
+     "kind": "alternate implementation idiom",
+     "location": "builder/NarrowFolding::fold 'final int shift = i * width + at;'"
+    },
+    {
+     "kind": "selector input on the mandatory path",
+     "location": "EnumUtils::compose 'final int width = Integer.SIZE;' with Folding::forWidth 'width < Integer.SIZE ? NARROW : STANDARD'"
+    },
+    {
+     "kind": "runtime probe",
+     "location": "run-004: javap of overlay and a Python emulation of index*width vs index*width+at"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 7,
+   "mechanism_tags": [
+    "M10",
+    "M3",
+    "M19",
+    "M5",
+    "M16",
+    "M17",
+    "M13"
+   ],
+   "notes": "GPT-5.6, 15 runs (5 original + 10 supplementary): ranks 14x1 and 1x2. The only miss, run-004, ranked the facade intArrayToLong 1st and the gold 2nd after full discovery, static branch resolution, javap and Python emulation. Its evidence names overlay's arithmetic as the defect but leads with 'The tested conversion method and its offset-handling call chain are the primary localization targets' (entry-point/contract-owner blame). Facade rank over 15 runs: 1x1, 2x9, 4x1, 7x4. NarrowFolding was opened 15/15 and followed 0/15; the selector was always ranked 8th, the alternate 9th."
+  },
+  {
+   "variant": "CONVERSION-DISPATCH-TREATMENT-01",
+   "project": "Lang",
+   "instance_label": "conversion-dispatch-v1 / DISPATCH TREATMENT (5 hops + unique indirect dispatch)",
+   "arm": "treatment",
+   "gold": [
+    "org.apache.commons.lang3.math.NumberUtils::overlay"
+   ],
+   "fault_description": "The same units fault, at the end of the five-stage chain. The hop3 -> hop4 literal call is replaced by indirect dispatch: BitField.widen ends with 'return Folding.STANDARD.fold(words, initial, at, width, field);', where Folding is an abstract class bound to 'STANDARD = new StandardFolding()' and StandardFolding.fold delegates to ObjectUtils.combine -> NumberUtils.overlay. widen names neither combine nor ObjectUtils. The gold computes shift = (index + at) * width instead of index * width + at.",
+   "fault_lines": [
+    "final int shift = (index + at) * width;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "Byte-identical gold to the direct five-hop pair. The javadoc and names give no unit for 'at' (DISPATCH_LOCAL_COHERENCE_AUDIT.md). The new dispatch files describe 'at' with the same unit-free phrase.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "Folding, StandardFolding, the chain hops and the delegate facade are all clean. The facade drew blame because it is the tested entry point and contract owner, not because anything in it looks odd.",
+   "decoys": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong",
+    "org.apache.commons.lang3.ObjectUtils::combine",
+    "org.apache.commons.lang3.builder.StandardFolding::fold",
+    "org.apache.commons.lang3.builder.Folding::fold",
+    "org.apache.commons.lang3.ArrayUtils::gather",
+    "org.apache.commons.lang3.BitField::widen",
+    "org.apache.commons.lang3.EnumUtils::compose"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "javadoc contract + guard (facade)",
+     "location": "Conversion::intArrayToLong '@param dstPos ... in bits', '(nInts - 1) * 32 + dstPos >= 64'"
+    },
+    {
+     "kind": "sibling idiom / inverse / sibling tests",
+     "location": "Conversion.java siblings 'shift = i * W + dstPos'; longToIntArray 'i * 32 + srcPos'; ConversionTest dstPos 8/16/24"
+    },
+    {
+     "kind": "runtime probe",
+     "location": "run-003: jshell executed NumberUtils.overlay(0L, 0x0F123456L, 0, 8, 32, 0xffffffffL) and the facade; other runs used javap/Python"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 7,
+   "mechanism_tags": [
+    "M10",
+    "M3",
+    "M19",
+    "M5",
+    "M16",
+    "M17",
+    "M13"
+   ],
+   "notes": "GPT-5.6: ranks 1,1,2,1,1 (Acc@1 0.80, MRR 0.90). The boundary was resolved 5/5 with no lexical shortcut, at about 5.8 extra calls. The miss, run-003, ranked facade intArrayToLong 1st after full traversal and jshell execution of overlay. Its evidence calls the facade 'the directly tested production method and delegates all nontrivial work', while also saying overlay 'contains the concrete arithmetic most directly explaining both assertions'. That is attribution after complete discovery, not a discovery failure (DISPATCH_RESULTS.md section 5). StandardFolding::fold was never ranked first (rank 4 or 7)."
+  },
+  {
+   "variant": "CONVERSION-LONG-TREATMENT-01",
+   "project": "Lang",
+   "instance_label": "conversion-long-chain-v1 / LONG TREATMENT (5 direct hops, GPT-5.6)",
+   "arm": "treatment",
+   "gold": [
+    "org.apache.commons.lang3.math.NumberUtils::overlay"
+   ],
+   "fault_description": "The units fault from Conversion#intArrayToLong, moved behind five direct, name-linked cross-class hops: intArrayToLong -> ArrayUtils.gather -> EnumUtils.compose -> BitField.widen -> ObjectUtils.combine -> NumberUtils.overlay. The gold computes shift = (index + at) * width instead of index * width + at, so the bit offset 'at' is scaled as a word index (mod-64 shift masking puts the words at bit 0 for at=8).",
+   "fault_lines": [
+    "final int shift = (index + at) * width;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "The construction-time audit found no unit for 'at' in the gold's javadoc, names or neighbours. The evidence (facade javadoc 'in bits', guard, sibling idioms, inverse, sibling assertions) sits in Conversion.java and ConversionTest.java, up to five files away.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "Hops are straightforward delegations or loops. After its guards the facade is just 'return ArrayUtils.gather(src, srcPos, dstInit, dstPos, nInts);'.",
+   "decoys": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong",
+    "org.apache.commons.lang3.ObjectUtils::combine",
+    "org.apache.commons.lang3.BitField::widen",
+    "org.apache.commons.lang3.EnumUtils::compose",
+    "org.apache.commons.lang3.ArrayUtils::gather"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "javadoc contract + guard (facade, 5 files away)",
+     "location": "Conversion::intArrayToLong '@param dstPos ... in bits', '(nInts - 1) * 32 + dstPos >= 64' (shown at steps 3-4 in 5/5 runs)"
+    },
+    {
+     "kind": "sibling idiom",
+     "location": "Conversion::shortArrayToLong 'i * 16 + dstPos', byteArrayToLong 'i * 8 + dstPos'"
+    },
+    {
+     "kind": "inverse method",
+     "location": "Conversion::longToIntArray 'i * 32 + srcPos' (fetched after the gold in runs 002 and 004)"
+    },
+    {
+     "kind": "runtime probe",
+     "location": "javap (3/5) and jshell/Python execution of overlay (4/5) after the gold"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 6,
+   "mechanism_tags": [
+    "M19",
+    "M5",
+    "M17",
+    "M3",
+    "M13",
+    "M10"
+   ],
+   "notes": "GPT-5.6: 5/5 rank 1. Gold first exposed at step 21-26 (mean 23.4, versus 1.4 in CONTROL); 28-34 tool calls; every hop followed by name, with no shortcut. Facade intArrayToLong was runner-up in 4/5 runs (run-002 put combine 2nd). The latent entry-point/contract-owner co-ownership that flipped rank in the dispatch arms is present but never flipped here. Package is byte-identical to the anthropic-pilot-v1 copy (Claude 3/3 rank 1)."
+  },
+  {
+   "variant": "NUMBERUTILS-TREATMENT-01",
+   "project": "Lang",
+   "instance_label": "diagnostic-noncanonical-v1 / NUMBERUTILS TREATMENT-01 (2 hops, leakage-exposed, narrative lie)",
+   "arm": "treatment",
+   "gold": [
+    "org.apache.commons.lang3.builder.CompareToBuilder::decodeMagnitude"
+   ],
+   "fault_description": "createBigInteger's parsing body is moved behind a supervisor-generated two-hop cross-class chain: NumberUtils.createBigInteger -> ObjectUtils.resolveWholeValue -> CompareToBuilder.decodeMagnitude. The sign branch is widened to accept '+', so an explicit '+' sets negate = true and '+1234' becomes -1234. The facade javadoc gains a narrative lie claiming the string is scanned 'within this method' (minus sign consumed, radix chosen, remainder parsed in place), though the body now only delegates. The hops use fully-qualified java.math.BigInteger, and the trigger name testCreateBigIntegerPositiveSigned leaks the symptom.",
+   "fault_lines": [
+    "if (str.startsWith(\"-\") || str.startsWith(\"+\")) {"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": true,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "Recognisable on sight: a '+' prefix leads to 'negate = true'. V1_V2_COMPARISON.md calls it 'a locally incoherent one-token change that is recognized on sight'. The gold also keeps the upstream duplicate 'str.startsWith(\"0x\", pos) || str.startsWith(\"0x\", pos)', which was never blamed.",
+   "local_cue_decoy": true,
+   "local_cue_decoy_note": "The facade createBigInteger's javadoc claims the scan happens within the method, but the body is one delegate line (narrative lie). It was read in 5/5 TREATMENT runs and diverted none. Hop1 resolveWholeValue has abnormal indentation and a fully-qualified call.",
+   "decoys": [
+    "org.apache.commons.lang3.math.NumberUtils::createBigInteger",
+    "org.apache.commons.lang3.ObjectUtils::resolveWholeValue",
+    "org.apache.commons.lang3.math.NumberUtils::createNumber",
+    "org.apache.commons.lang3.math.NumberUtils::createInteger",
+    "org.apache.commons.lang3.math.NumberUtils::isNumber"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.math.NumberUtils::createBigInteger"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "failing assertion",
+     "location": "NumberUtilsTest::testCreateBigIntegerPositiveSigned: expected 1234 but was -1234"
+    },
+    {
+     "kind": "test name leak",
+     "location": "trigger identifier 'testCreateBigIntegerPositiveSigned' and its javadoc 'with an explicit positive sign'"
+    },
+    {
+     "kind": "lexical bridge",
+     "location": "fully-qualified 'java.math.BigInteger' in both hops (a BigInteger-token grep exposed the gold in 3/5 runs)"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M0",
+    "M10"
+   ],
+   "notes": "GPT-5.6: 5/5 rank 1, ranked decodeMagnitude > createBigInteger > resolveWholeValue every time. Gold first exposed after 6-11 tool calls (CONTROL 0). Route: grep createBigInteger, run the test, read the facade, follow resolveWholeValue by name (5/5), then reach the gold by name (2/5) or by a BigInteger-token grep (3/5; once before hop1's call had been seen). The '+' literal was never used for discovery, only to confirm (TRAJECTORY_AUDIT.md)."
+  },
+  {
+   "variant": "NUMBERUTILS-TREATMENT-02",
+   "project": "Lang",
+   "instance_label": "diagnostic-noncanonical-v2 / NUMBERUTILS TREATMENT-02 (2 hops, leakage-normalized)",
+   "arm": "treatment",
+   "gold": [
+    "org.apache.commons.lang3.builder.CompareToBuilder::decodeMagnitude"
+   ],
+   "fault_description": "The same fault as NUMBERUTILS-TREATMENT-01: the sign branch treats an explicit '+' like '-', so '+1234' is negated (expected:<1234> but was:<-1234>). It sits in CompareToBuilder.decodeMagnitude behind NumberUtils.createBigInteger -> ObjectUtils.resolveWholeValue. Leakage-normalized derivative: neutral trigger name testLang1106, test javadoc removed, narrative javadoc lie removed, imports instead of FQN java.math.BigInteger, normalized indentation and javadoc.",
+   "fault_lines": [
+    "if (str.startsWith(\"-\") || str.startsWith(\"+\")) {"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": true,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "One-token, on-sight incoherent change: '+' sets negate. The upstream duplicate '\"0x\" || \"0x\"' typo is still present in the gold.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "With the lie removed, the facade is a clean one-line delegate with its original javadoc; hop1 is normalized.",
+   "decoys": [
+    "org.apache.commons.lang3.math.NumberUtils::createBigInteger",
+    "org.apache.commons.lang3.ObjectUtils::resolveWholeValue",
+    "org.apache.commons.lang3.math.NumberUtils::createNumber",
+    "org.apache.commons.lang3.math.NumberUtils::createInteger",
+    "org.apache.commons.lang3.math.NumberUtils::isNumber"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.math.NumberUtils::createBigInteger"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "failing assertion",
+     "location": "NumberUtilsTest::testLang1106: createBigInteger(String) failed expected:<1234> but was:<-1234>"
+    },
+    {
+     "kind": "test source call",
+     "location": "the test calls NumberUtils.createBigInteger(\"+1234\") by name, the irreducible anchor"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M0"
+   ],
+   "notes": "GPT-5.6: 5/5 rank 1, same top 3 as v1. The last hop was reached by name or file-open in 4/5 (2/5 in v1). Vocabulary-grep exposure fell to 1/5 (that run grepped 'radix'), and FQN searches to 0/5. The ceiling persisted (V1_V2_COMPARISON.md, NEXT_EXPERIMENT_DECISION_V2.md): short, uniquely named, name-traversable chain plus a fault recognised on sight, so the hypothesis set has size 1."
+  },
+  {
+   "variant": "CHART-PIE-TREATMENT-03",
+   "project": "Chart",
+   "instance_label": "anthropic-pilot-v1/CHART-PIE-TREATMENT-03",
+   "arm": "treatment",
+   "gold": [
+    "org.jfree.chart.util.ShapeUtilities::shift"
+   ],
+   "fault_description": "Offset-direction (sign) fault in the terminal stage of a 5-hop decomposition of PiePlot#getArcBounds. PlotUtilities.drift (H3) defines the drift as point1 - point2 (unexploded-ring point minus exploded-ring point, i.e. a vector pointing toward the pie centre). Plot.nudge (H4) scales it by explodePercent. The gold ShapeUtilities.shift (H5) ADDS the displacement where the original code subtracted it. As a result every exploded section is drawn inward by exactly the intended outward offset. The gold body is the idiomatic reading of 'Shifts an area by a displacement'. The fault exists only relative to the undocumented sign convention chosen two hops upstream.",
+   "fault_lines": [
+    "double x = area.getX() + deltaX;",
+    "double y = area.getY() + deltaY;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "No local cue: shift() adds a displacement, matching its javadoc 'Shifts an area by a displacement'. LOCAL_COHERENCE_AUDIT (core-benchmark chart/bug-03) says nothing in ShapeUtilities relates a displacement to pie rings, and the neighbouring createTranslatedShape uses yet another convention.",
+   "local_cue_decoy": true,
+   "local_cue_decoy_note": "PlotUtilities.drift computes 'double dx = point1.getX() - point2.getX();' (unexploded minus exploded). Against its javadoc ('drift between a point on the unexploded ring and the corresponding point on the exploded ring') this reads as a reversed subtraction. Claude's evidence: 'drift's Javadoc describes the displacement from the unexploded point to the exploded point, i.e. p2-p1 ... shift simply adds the displacement, which matches its documentation.'",
+   "decoys": [
+    "org.jfree.chart.plot.PlotUtilities::drift",
+    "org.jfree.chart.plot.Plot::nudge",
+    "org.jfree.chart.plot.dial.StandardDialScale::rim",
+    "org.jfree.chart.plot.CompassPlot::ring",
+    "org.jfree.chart.plot.PiePlot::getArcBounds",
+    "org.jfree.chart.plot.PiePlot::drawItem"
+   ],
+   "entry_points": [
+    "org.jfree.chart.plot.junit.PiePlotTests::test2986548",
+    "org.jfree.chart.plot.junit.PiePlotTests$ArcProbe::arc",
+    "org.jfree.chart.plot.PiePlot::getArcBounds"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "distant production geometry (ring containment: explodeArea is the larger area and pieArea is inset from it, so the drift points toward the centre and must be subtracted)",
+     "location": "source/org/jfree/chart/plot/PiePlot.java PiePlot#draw / drawPie"
+    },
+    {
+     "kind": "facade javadoc ('taking into account the amount by which the pie section is exploded')",
+     "location": "source/org/jfree/chart/plot/PiePlot.java PiePlot#getArcBounds"
+    },
+    {
+     "kind": "other production consumer of exploded bounds",
+     "location": "source/org/jfree/chart/plot/RingPlot.java RingPlot#drawItem"
+    },
+    {
+     "kind": "test expected value (pins only the net sign, not the owner)",
+     "location": "tests/org/jfree/chart/plot/junit/PiePlotTests.java test2986548 expected 87.5 but was 112.5"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 5,
+   "mechanism_tags": [
+    "M3",
+    "M1",
+    "M6",
+    "M18",
+    "M4",
+    "M19",
+    "M5",
+    "M20",
+    "M17",
+    "M13"
+   ],
+   "notes": "Every run ranked something other than the gold first. Claude: 5 runs, gold ranks [6,6] pre-hardening and [3,6,6] post-hardening. GPT-5.6: [6,6,6,6,6] (README / OWNERSHIP_CROSS_MODEL). Rank-1 was PlotUtilities::drift (H3) in every run, and every run traversed all 5 hops and exposed the gold, so this is an attribution failure, not a discovery failure. The camouflage OWNERSHIP_AUDIT calls this the canonical ambiguous case, where 'a producer stage defines the specific wrong quantity and the consumer merely uses it'. Each new static method has a single caller, so no second caller fixes the convention. Behaviourally a one-line fix in drift (p2-p1) is equivalent to the gold fix. Classic definer-vs-adapter split: the adapter (gold) looks idiomatic, the definer looks reversed. Hop count is facade to gold; the test reaches the facade through the ArcProbe test subclass."
+  },
+  {
+   "variant": "CMP-LAYOUT-TREATMENT-02",
+   "project": "Compress",
+   "instance_label": "anthropic-pilot-v1/CMP-LAYOUT-TREATMENT-02",
+   "arm": "treatment",
+   "gold": [
+    "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::flagOffset"
+   ],
+   "fault_description": "Record-layout offset omission. TarArchiveEntry#parseTarHeader takes the USTAR type-flag position from a 5-hop chain (identityWidth -> ownershipWidth -> contentWidth -> checksumBoundary -> flagOffset) that sums the field widths. The terminal stage flagOffset should skip the 8-byte checksum field but returns numericEnd unchanged. linkFlag is therefore read from the first byte of the checksum field, and directory / GNU long-name entries are misclassified.",
+   "fault_lines": [
+    "final int afterChecksum = numericEnd;"
+   ],
+   "bug_omission": true,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The local variable is named afterChecksum but equals numericEnd. The static import of TarConstants.CHKSUMLEN is unused in the file. The method just returns its argument.",
+   "local_cue_decoy": true,
+   "local_cue_decoy_note": "The facade parseTarHeader keeps 'offset += CHKSUMLEN;' and then does 'linkFlag = header[flagPos]; offset++;', reading from a separately computed index. That odd-looking facade edit is entry-point bait (GPT-5.6 ranked the facade first in 1 of 5 runs). ArArchiveInputStream.checksumBoundary is named after the checksum but only range-checks.",
+   "decoys": [
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::parseTarHeader",
+    "org.apache.commons.compress.archivers.ar.ArArchiveInputStream::checksumBoundary",
+    "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream::contentWidth",
+    "org.apache.commons.compress.archivers.ar.ArArchiveEntry::ownershipWidth",
+    "org.apache.commons.compress.archivers.cpio.CpioArchiveEntry::identityWidth",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::writeEntryHeader",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::isDirectory",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::isGNULongNameEntry"
+   ],
+   "entry_points": [
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntryTest::testCompress117",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::TarArchiveEntry(byte[])",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::parseTarHeader",
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntry::writeEntryHeader"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "layout constant and facade running offset (offset += CHKSUMLEN precedes the flag)",
+     "location": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java parseTarHeader; TarConstants.CHKSUMLEN"
+    },
+    {
+     "kind": "inverse encoder writes the checksum field before linkFlag",
+     "location": "TarArchiveEntry#writeEntryHeader"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 5,
+   "mechanism_tags": [
+    "M0",
+    "M2",
+    "M10",
+    "M11",
+    "M13"
+   ],
+   "notes": "Claude 3/3 gold rank 1. GPT-5.6 [1,1,1,3,1]; its one miss put the facade first (OWNERSHIP_CROSS_MODEL: {H5:4, facade:1}). In a linear single-caller chain any downstream hop (e.g. checksumBoundary) could behaviourally absorb '+ CHKSUMLEN'. Contractually the gold is the owner because of its afterChecksum name and the unused CHKSUMLEN import. The omission is visible locally, so this pair mostly measures displacement cost (first gold at step 1-2 in control vs 7-8 in treatment for Claude, ~4 vs ~21 for GPT). Hops counted from the facade; the test reaches the facade through the byte[] constructor."
+  },
+  {
+   "variant": "CONVERSION-LONG-CONTROL-01",
+   "project": "Lang",
+   "instance_label": "anthropic-pilot-v1/CONVERSION-LONG-CONTROL-01",
+   "arm": "control",
+   "gold": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "fault_description": "Offset-units mismatch in the method under test. The destination bit offset dstPos is added before scaling by the word width, so it is treated as a word index: shift = (i + dstPos) * 32 instead of i * 32 + dstPos. With dstPos=8 the shift is 256, which Java masks to 0, so the int lands unshifted.",
+   "fault_lines": [
+    "shift = (i + dstPos) * 32;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "Inside the same method, the guard '(nInts - 1) * 32 + dstPos >= 64' and the javadoc '@param dstPos the position of the lsb, in bits' contradict the formula. Nine sibling methods in Conversion use 'shift = i * W + dstPos'.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "Sibling conversion methods are correct and ranked only as structural fillers.",
+   "decoys": [
+    "org.apache.commons.lang3.Conversion::longToIntArray",
+    "org.apache.commons.lang3.Conversion::shortArrayToLong",
+    "org.apache.commons.lang3.Conversion::byteArrayToLong",
+    "org.apache.commons.lang3.Conversion::shortArrayToInt",
+    "org.apache.commons.lang3.Conversion::byteArrayToInt",
+    "org.apache.commons.lang3.Conversion::hexToLong",
+    "org.apache.commons.lang3.Conversion::binaryToLong"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.ConversionTest::testLang1112",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "in-method javadoc and guard (dstPos in bits)",
+     "location": "src/main/java/org/apache/commons/lang3/Conversion.java intArrayToLong"
+    },
+    {
+     "kind": "same-file sibling idiom 'shift = i * W + dstPos'",
+     "location": "Conversion.java shortArrayToLong / byteArrayToLong / etc."
+    },
+    {
+     "kind": "inverse method",
+     "location": "Conversion#longToIntArray"
+    },
+    {
+     "kind": "sibling tests with dstPos = 8/16/24",
+     "location": "src/test/java/org/apache/commons/lang3/ConversionTest.java"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 1,
+   "search_depth_hops": 0,
+   "mechanism_tags": [
+    "M17"
+   ],
+   "notes": "Baseline control: variant.patch is byte-identical to CONVERSION-CONTROL-01, CONVERSION-BRANCH-CONTROL-01 and CONVERSION-DISPATCH-CONTROL-01. Claude 6/6 rank 1 (3 pre-hardening, 3 post), gold exposed at step 1. The agent quoted 'Every sibling method uses i*N + dstPos'. The test names the gold directly (lexgate EXPOSED, inherent for a control). No production callers."
+  },
+  {
+   "variant": "LANG-CONV-CAMOUFLAGE-HIGH",
+   "project": "Lang",
+   "instance_label": "anthropic-pilot-v1/LANG-CONV-CAMOUFLAGE-HIGH",
+   "arm": "CAMOUFLAGE_HIGH",
+   "gold": [
+    "org.apache.commons.lang3.StringUtils::lodge"
+   ],
+   "fault_description": "The same units fault as the Conversion pairs, relocated to the terminal stage of a 5-hop chain: Conversion.intArrayToLong -> ArrayUtils.gather -> EnumUtils.compose -> BitField.widen -> ObjectUtils.combine -> StringUtils.lodge. lodge computes the word's bit offset as (index + at) * width instead of index * width + at. The gold is hosted in StringUtils (7373 lines, 187 methods) to test large-file camouflage.",
+   "fault_lines": [
+    "final int shift = (index + at) * width;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": false,
+   "local_cue_gold_note": "Locally coherent by construction. lodge's javadoc calls 'at' 'the position in the holder' without units, so (index + at) * width reads correctly if at is a word index. Diagnosis needs the facade's 'in bits' contract, or working through the value at=8 -> shift 256 -> masked to 0.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "Hops 1-4 are plumbing (array copy, width/field setup, masking, iteration). None looks wrong.",
+   "decoys": [
+    "org.apache.commons.lang3.ObjectUtils::combine",
+    "org.apache.commons.lang3.BitField::widen",
+    "org.apache.commons.lang3.EnumUtils::compose",
+    "org.apache.commons.lang3.ArrayUtils::gather",
+    "org.apache.commons.lang3.Conversion::intArrayToLong",
+    "org.apache.commons.lang3.Conversion::shortArrayToLong"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.ConversionTest::testLang1112",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "facade javadoc and guard (dstPos is the lsb position in bits; (nInts-1)*32+dstPos < 64)",
+     "location": "src/main/java/org/apache/commons/lang3/Conversion.java intArrayToLong"
+    },
+    {
+     "kind": "same-file sibling idiom i * W + dstPos and inverse longToIntArray",
+     "location": "Conversion.java"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 5,
+   "mechanism_tags": [
+    "M0",
+    "M5",
+    "M17",
+    "M13",
+    "M12"
+   ],
+   "notes": "Claude 3/3 rank 1 (first gold at step ~6.7). There is no GPT-5.6 HIGH run: that block stopped on credit exhaustion (CAMOUFLAGE_CROSS_MODEL). Ownership audit: behaviourally AMBIGUOUS, because H4 combine can absorb a re-parameterised call (264/264 probe cases equivalent). Contractually MOSTLY_UNIQUE, because lodge alone holds the offset formula. That is unlike CHART-PIE-03, where a producer defines the wrong quantity. M12 here means volume camouflage (186 other StringUtils methods), not plausible same-file competitors. Claude reached the gold by direct name search after each hop (3/3) and inspected 0-0.67 candidates before it."
+  },
+  {
+   "variant": "CONVERSION-BRANCH-CONTROL-01",
+   "project": "Lang",
+   "instance_label": "conversion-branch-dispatch-v1/CONVERSION-BRANCH-CONTROL-01",
+   "arm": "control",
+   "gold": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "fault_description": "Offset-units mismatch in the method under test: shift = (i + dstPos) * 32 treats the bit offset dstPos as a word index. Correct is i * 32 + dstPos. Byte-identical variant.patch to CONVERSION-CONTROL-01.",
+   "fault_lines": [
+    "shift = (i + dstPos) * 32;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The guard '(nInts - 1) * 32 + dstPos >= 64' two lines above and the javadoc 'dstPos ... in bits' contradict the formula. Sibling methods use i * W + dstPos.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "No competitor looks wrong.",
+   "decoys": [
+    "org.apache.commons.lang3.Conversion::shortArrayToLong",
+    "org.apache.commons.lang3.Conversion::byteArrayToLong",
+    "org.apache.commons.lang3.Conversion::longToIntArray",
+    "org.apache.commons.lang3.Conversion::shortArrayToInt",
+    "org.apache.commons.lang3.Conversion::byteArrayToInt",
+    "org.apache.commons.lang3.Conversion::hexToLong"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.ConversionTest::testLang1112",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "in-method javadoc and guard",
+     "location": "src/main/java/org/apache/commons/lang3/Conversion.java intArrayToLong"
+    },
+    {
+     "kind": "nine same-file siblings 'shift = i * W + dstPos', inverse longToIntArray, sibling tests with dstPos 8/16/24",
+     "location": "Conversion.java / ConversionTest.java (manifest contract_evidence_location)"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 1,
+   "search_depth_hops": 0,
+   "mechanism_tags": [
+    "M17"
+   ],
+   "notes": "GPT-5.6 5/5 rank 1. The agent reported 'Repository search found no production callers of intArrayToLong'. lexgate EXPOSED (inherent). Control arm of the branch-dispatch pair; the treatment's one facade-first run is not in this variant."
+  },
+  {
+   "variant": "CONVERSION-DISPATCH-CONTROL-01",
+   "project": "Lang",
+   "instance_label": "conversion-dispatch-v1/CONVERSION-DISPATCH-CONTROL-01",
+   "arm": "control",
+   "gold": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "fault_description": "Offset-units mismatch in the method under test: shift = (i + dstPos) * 32 instead of i * 32 + dstPos (bit offset treated as a word index). Byte-identical variant.patch and test.patch to CONVERSION-BRANCH-CONTROL-01 / CONVERSION-LONG-CONTROL-01.",
+   "fault_lines": [
+    "shift = (i + dstPos) * 32;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The guard and the 'in bits' javadoc in the same method contradict the formula; the agent cited 'its bounds formula, documentation, and analogous conversion methods'.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "No competitor looks wrong.",
+   "decoys": [
+    "org.apache.commons.lang3.Conversion::shortArrayToLong",
+    "org.apache.commons.lang3.Conversion::byteArrayToLong",
+    "org.apache.commons.lang3.Conversion::longToIntArray",
+    "org.apache.commons.lang3.Conversion::shortArrayToInt",
+    "org.apache.commons.lang3.Conversion::byteArrayToInt"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.ConversionTest::testLang1112",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "in-method javadoc and guard",
+     "location": "src/main/java/org/apache/commons/lang3/Conversion.java intArrayToLong"
+    },
+    {
+     "kind": "same-file sibling idiom and inverse longToIntArray",
+     "location": "Conversion.java"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 1,
+   "search_depth_hops": 0,
+   "mechanism_tags": [
+    "M17"
+   ],
+   "notes": "GPT-5.6 5/5 rank 1, gold exposed at step 1 in every run (DISPATCH_RESULTS). This is a ceiling baseline for the dispatch treatment."
+  },
+  {
+   "variant": "CONVERSION-LONG-CONTROL-01",
+   "project": "Lang",
+   "instance_label": "conversion-long-chain-v1/CONVERSION-LONG-CONTROL-01",
+   "arm": "control",
+   "gold": [
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "fault_description": "Offset-units mismatch in the method under test: shift = (i + dstPos) * 32 instead of i * 32 + dstPos. The package is byte-identical to anthropic-pilot-v1's copy of the same variant.",
+   "fault_lines": [
+    "shift = (i + dstPos) * 32;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The in-method guard and javadoc contradict the formula; the agent cited 'all neighboring packing methods compute elementIndex * elementWidth + dstPos'.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "No competitor looks wrong.",
+   "decoys": [
+    "org.apache.commons.lang3.Conversion::shortArrayToLong",
+    "org.apache.commons.lang3.Conversion::byteArrayToLong",
+    "org.apache.commons.lang3.Conversion::hexToLong",
+    "org.apache.commons.lang3.Conversion::binaryToLong",
+    "org.apache.commons.lang3.Conversion::longToIntArray"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.ConversionTest::testLang1112",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "in-method javadoc and guard",
+     "location": "src/main/java/org/apache/commons/lang3/Conversion.java intArrayToLong"
+    },
+    {
+     "kind": "same-file sibling idiom, inverse longToIntArray, sibling tests",
+     "location": "Conversion.java / ConversionTest.java"
+    }
+   ],
+   "second_caller": false,
+   "multiple_plausible_suspects": 1,
+   "search_depth_hops": 0,
+   "mechanism_tags": [
+    "M17"
+   ],
+   "notes": "GPT-5.6 5/5 rank 1, gold first exposed at step 1.4 on average, buggy line at steps 3-4 (LONG_CHAIN_RESULTS). This is the ceiling baseline for the 5-hop treatment."
+  },
+  {
+   "variant": "NUMBERUTILS-CONTROL-01",
+   "project": "Lang",
+   "instance_label": "diagnostic-noncanonical-v1/NUMBERUTILS-CONTROL-01",
+   "arm": "control",
+   "gold": [
+    "org.apache.commons.lang3.math.NumberUtils::createBigInteger"
+   ],
+   "fault_description": "Sign-handling branch fault. The negative-sign condition was widened to also match an explicit '+', so positive-signed input sets negate = true and is negated ('+1234' gives -1234). The variant was generated by the supervisor pipeline, and its test name is leaky (testCreateBigIntegerPositiveSigned).",
+   "fault_lines": [
+    "if (str.startsWith(\"-\") || str.startsWith(\"+\")) {"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": true,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The same block visibly sets 'negate = true; // need to negate later?' for the '+' prefix, so the fault is recognisable on sight.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "createNumber and other parsers are correct; they were ranked as context or fillers.",
+   "decoys": [
+    "org.apache.commons.lang3.math.NumberUtils::createNumber",
+    "org.apache.commons.lang3.math.NumberUtils::isNumber",
+    "org.apache.commons.lang3.math.NumberUtils::createInteger",
+    "org.apache.commons.lang3.math.NumberUtils::createLong",
+    "org.apache.commons.lang3.math.NumberUtils::createBigDecimal"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.math.NumberUtilsTest::testCreateBigIntegerPositiveSigned",
+    "org.apache.commons.lang3.math.NumberUtils::createBigInteger"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "test name, test javadoc and assertion message (expected:<1234> but was:<-1234>)",
+     "location": "src/test/java/org/apache/commons/lang3/math/NumberUtilsTest.java testCreateBigIntegerPositiveSigned / failing_tests"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 1,
+   "search_depth_hops": 0,
+   "mechanism_tags": [],
+   "notes": "GPT-5.6 5/5 rank 1. In 10/10 runs (both arms) the first command was a grep for the trigger-named method, and in control the gold declaration appeared in that first output (TRAJECTORY_AUDIT). Production second caller: NumberUtils.createNumber delegates oversized and hex values to createBigInteger. The agent ranked it 2nd as 'closest production caller'; it creates no convention conflict. No wrong-first mechanism applies: lexically exposed, self-evident fault, hypothesis set of size 1."
+  },
+  {
+   "variant": "NUMBERUTILS-CONTROL-02",
+   "project": "Lang",
+   "instance_label": "diagnostic-noncanonical-v2/NUMBERUTILS-CONTROL-02",
+   "arm": "control",
+   "gold": [
+    "org.apache.commons.lang3.math.NumberUtils::createBigInteger"
+   ],
+   "fault_description": "Same sign-branch fault as NUMBERUTILS-CONTROL-01 (variant.patch byte-identical): an explicit '+' prefix is routed into the negate branch. The test is leakage-normalised to the neutral name testLang1106 with no javadoc and the same two assertions.",
+   "fault_lines": [
+    "if (str.startsWith(\"-\") || str.startsWith(\"+\")) {"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": true,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "negate = true for a '+' prefix is visible in the same block, so the fault is recognisable on sight.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "No competitor looks wrong.",
+   "decoys": [
+    "org.apache.commons.lang3.math.NumberUtils::createNumber",
+    "org.apache.commons.lang3.math.NumberUtils::isNumber",
+    "org.apache.commons.lang3.math.NumberUtils::createInteger",
+    "org.apache.commons.lang3.math.NumberUtils::createLong",
+    "org.apache.commons.lang3.math.NumberUtils::isDigits"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.math.NumberUtilsTest::testLang1106",
+    "org.apache.commons.lang3.math.NumberUtils::createBigInteger"
+   ],
+   "ownership_split": false,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "assertion message and direct call in the test source (createBigInteger(String) failed expected:<1234> but was:<-1234>)",
+     "location": "src/test/java/org/apache/commons/lang3/math/NumberUtilsTest.java testLang1106"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 1,
+   "search_depth_hops": 0,
+   "mechanism_tags": [],
+   "notes": "GPT-5.6 5/5 rank 1. Gold exposed after 0-1 calls; the residual anchor is the facade name in the test source (5/5 first searches contain createBigInteger). lexgate EXPOSED via 'createBigInteger' and 'BigInteger'. NumberUtils.createNumber is a production caller. Ceiling baseline; no wrong-first mechanism."
+  }
+ ],
+ "findings": [
+  "I annotated 10 variants: the even positions of the concatenated sorted list. CONVERSION-LONG-TREATMENT-01 appears twice, once per family, with byte-identical packages. Of the runs on these 10 variants, only 2 ranked a wrong method first: conversion-dispatch-v1 run-003 and conversion-branch-dispatch-v1 run-004. Both put the facade first after fully discovering the gold.\n\n**anthropic-pilot-v1 (Claude opus-5-5)**\n- CLAUDE_PILOT_RESULTS.md, GPT56_VS_CLAUDE.md and OWNERSHIP_CROSS_MODEL.md: Claude is at rank-1 ceiling on every unit except CHART-PIE-TREATMENT-03 (ranks 3, 6, 6; GPT-5.6 6x5).\n  - Both models put H3 PlotUtilities::drift first there, while the CONTROL with the same fault is 6/6 rank 1.\n  - So the failure comes from the chain/ownership structure, not from the fault.\n- Displacement cost replicates across models: first gold moves from step 1 to step 6-7 for Claude, and from about 1.4 to 17-23 for GPT-5.6.\n- Claude submits in exact reverse chain depth (tau 1.0 on the Conversion/LANG chains) with 4-9x fewer calls than GPT-5.6.\n- DEPTH_PRIOR_CROSS_MODEL.md: in this panel the gold is always the deepest stage, so the depth prior and correctness are confounded.\n- CAMOUFLAGE_CROSS_MODEL.md: host-file size (LocaleUtils vs StringUtils) has no effect within Claude; the GPT-5.6 side is incomplete.\n- NEXT_ANTHROPIC_DECISION.md: the interesting variance is attribution on ownership-ambiguous bugs (CHART-PIE-03, CMP-LAYOUT-02, JKC-OFFSET-05), not accuracy. Both model families fail the same attribution case, so the benchmark is measuring the code rather than one model's quirk.\n\n**conversion-long-chain-v1**\n- LONG_CHAIN_RESULTS.md (Case B): 5/5 rank 1 at 5 hops, the same as 0 and 2 hops. Displacement shows only in navigation cost (gold at step 23.4 vs 1.4; 30 vs 11 tool calls). Every hop was followed by name, with no shortcut.\n- LONG_CHAIN_LOCAL_COHERENCE_AUDIT.md: the contract evidence (facade javadoc 'in bits', guard, sibling idioms) lies on the path from the trigger to hop 1, so agents saw it before the gold. After reaching the gold they confirmed by javap/jshell/Python or by pattern greps rather than re-deriving.\n- NEXT_EXPERIMENT_DECISION_LONG_CHAIN.md: static name-linked chain length does not move rank.\n\n**conversion-dispatch-v1**\n- DISPATCH_RESULTS.md: ranks 1,1,2,1,1. The indirection was resolved 5/5 at about 5.8 calls, with no lexical shortcut.\n- DISPATCH_RESULTS.md section 5 and DISPATCH_LOCAL_COHERENCE_AUDIT.md section 3: run-003 is 'an attribution choice after complete discovery'. It executed overlay in jshell, correctly diagnosed the shift, then ranked the facade first as 'the directly tested production method [that] delegates all nontrivial work'.\n- NEXT_EXPERIMENT_DECISION_DISPATCH.md: n=5 cannot separate this from noise.\n\n**conversion-branch-dispatch-v1**\n- BRANCH_N15_COMBINED_INTERPRETATION.md: 14/15 rank 1. Discovery and branch resolution succeeded 15/15, all static, because the selector input width=32 is on the mandatory path. NarrowFolding was opened 15/15 and followed 0/15.\n- OWNERSHIP_ATTRIBUTION_AUDIT.md and FULL_EXPERIMENT_SERIES_COMPARISON.md:\n  - The facade is runner-up in about 15/20 treatment runs across the direct and dispatch arms, i.e. GPT-5.6 consistently treats the public API (the contract owner) as co-owner with the arithmetic owner (the gold).\n  - Over 40 displaced runs, rank moved exactly twice: both in the dispatch arms, both facade-first, both after discovery plus execution or disassembly of the gold.\n  - 'Discovery is solved; attribution is where the only movement is.'\n- NEXT_EXPERIMENT_DECISION_N15.md: the preregistered 3/15 ownership threshold was not reached (1/15), so the dispatch line was closed.\n\n**diagnostic-noncanonical-v1**\n- DIAGNOSTIC_RESULTS.md and TRAJECTORY_AUDIT.md: 10/10 rank 1.\n  - The routes were the trigger-carried method name, then the facade, then the hop name, plus a java.math.BigInteger FQN token grep that exposed the gold in 3/5 runs.\n  - The '+' literal was never used for discovery.\n- NEXT_EXPERIMENT_DECISION.md: the narrative lie on the facade javadoc was read 5/5 and was inert.\n\n**diagnostic-noncanonical-v2**\n- DIAGNOSTIC_V2_RESULTS.md and V1_V2_COMPARISON.md: after leakage normalization the ceiling persists (10/10). More runs reached the last hop by name (4/5).\n- The pair stays ceiling-bound because the chain is short, uniquely named and name-traversable, and the fault is 'locally incoherent ... recognized on sight'.\n- NEXT_EXPERIMENT_DECISION_V2.md: the only mechanism that ever moved Acc@1 is mis-attribution among plausible candidates. It recommends a locally coherent convention fault with competing plausible owners, which motivated the Conversion series.\n\n**Cross-family reading for the mechanism study**\n- None of these families defeated discovery.\n- Wrong-first outcomes come from attribution:\n  - entry-point/contract-owner blame (M10/M3) when the gold's convention is unit-free and the decisive contract sits at the facade (M5/M19);\n  - chain-internal misattribution on CHART-PIE-TREATMENT-03.\n- Displacement alone (M0, NUMBERUTILS pairs) and on-sight faults never produced a miss.",
+  "Annotation scope: these 9 odd-position variants. The variant lists in families.json were already sorted. Positions 1, 3, 5, 7, 9, 11, 13, 15, 17 are CHART-PIE-TREATMENT-03, CMP-LAYOUT-TREATMENT-02, CONVERSION-LONG-CONTROL-01 and LANG-CONV-CAMOUFLAGE-HIGH (anthropic-pilot-v1); CONVERSION-BRANCH-CONTROL-01; CONVERSION-DISPATCH-CONTROL-01; CONVERSION-LONG-CONTROL-01 (conversion-long-chain-v1); NUMBERUTILS-CONTROL-01; NUMBERUTILS-CONTROL-02.\n\nThe four Conversion controls are the same package: byte-identical variant.patch and test.patch (and an identical manifest for the BRANCH control). Only CHART-PIE-TREATMENT-03 has wrong-first runs, and it is wrong-first in every run: Claude [6,6,3,6,6], GPT-5.6 [6\u00d75]. Every other annotated variant is at rank-1 ceiling.\n\nPer-family conclusions:\n\n1. **anthropic-pilot-v1**\n   - README.md, CLAUDE_PILOT_RESULTS.md and GPT56_VS_CLAUDE.md: Claude Opus 5.5 was at Acc@1 = 1.0 on every unit except CHART-PIE-03 TREATMENT [3,6,6]. GPT-5.6 failed the same case [6\u00d75]. Claude needed 4-9x fewer tool calls.\n   - OWNERSHIP_CROSS_MODEL.md: rank-1 on CHART-PIE-03 TREATMENT was the H3 stage (PlotUtilities::drift) in 8/8 runs across both models.\n   - CLAUDE_TRAJECTORY_AUDIT.md: all hops were traversed in order H1>\u2026>H5, and the gold was exposed in every run. The failure is attribution, not discovery.\n   - NEXT_ANTHROPIC_DECISION.md: the benchmark's two phenomena replicate across model families: the displacement cost (first gold moves from step 1 to step 6-7) and the CHART-PIE-03 attribution failure. It calls CHART-PIE-03 'ownership-ambiguous'.\n   - DEPTH_PRIOR_CROSS_MODEL.md: the gold is always the terminal stage, so the depth confound is unresolved.\n   - CAMOUFLAGE_CROSS_MODEL.md: LOW and HIGH camouflage are flat for Claude ([1,1,1] each). The GPT side is incomplete because credits ran out.\n   - Supporting docs: camouflage-model-comparison-v1/experiment-a-camouflage/review/OWNERSHIP_AUDIT.md calls CHART-PIE-03 the AMBIGUOUS case, where 'a producer stage defines the specific wrong quantity and the consumer merely uses it'. core-benchmark-scaleup-v1/chart/bug-03/analysis/LOCAL_COHERENCE_AUDIT.md says the correct sign is fixed only by drift's convention two hops up plus the ring geometry in PiePlot.draw. So the idiomatic adapter (the gold, shift) loses to the odd-looking definer (drift), and the decisive evidence is distant.\n\n2. **conversion-branch-dispatch-v1**\n   - BRANCH_DISPATCH_RESULTS.md: control 5/5 rank 1.\n   - BRANCH_N15_COMBINED_INTERPRETATION.md: treatment 14/15 rank 1. The single miss (run-004) ranked the facade intArrayToLong first, after full discovery, javap and emulation of the gold.\n   - OWNERSHIP_ATTRIBUTION_AUDIT.md: discovery 20/20 across the series, while the facade is runner-up in 15/20 runs. GPT-5.6 treats the public API (contract owner) as a co-owner of the arithmetic owner's fault. The two facade-first flips both came in dispatch arms, but the preregistered 3/15 threshold was not reached and they cannot be causally attributed to dispatch.\n\n3. **conversion-dispatch-v1**\n   - DISPATCH_RESULTS.md: control 5/5; treatment [1,1,2,1,1].\n   - DISPATCH_TRAJECTORY_AUDIT.md: run-003 ranked the facade first after jshell-executing the facade and the gold, with ownership-shaped evidence ('the directly tested production method delegates all nontrivial work').\n   - NEXT_EXPERIMENT_DECISION_DISPATCH.md: 'an ownership attribution, not a discovery failure'.\n\n4. **conversion-long-chain-v1**\n   - LONG_CHAIN_RESULTS.md and FIVE_HOP_INFORMATION_DISTANCE.md: control and treatment both 5/5. Chain length at 0, 2 and 5 hops changes only navigation cost (~4.4 calls per hop; gold exposure 1.4 \u2192 23.4), never rank.\n   - Agents always saw the facade contract evidence ('in bits', the guard, the sibling idioms) before ranking.\n   - NEXT_EXPERIMENT_DECISION_LONG_CHAIN.md: name-linked chains are traversed with perfect fidelity, so it recommends interface dispatch next.\n\n5. **diagnostic-noncanonical-v1**\n   - DIAGNOSTIC_RESULTS.md, TRAJECTORY_AUDIT.md and NEXT_EXPERIMENT_DECISION.md: 10/10 rank 1 because of lexical exposure. The trigger-named-method grep came first in 10/10 runs, and the java.math.BigInteger token bridged to the hop. The narrative lie was inert.\n\n6. **diagnostic-noncanonical-v2**\n   - DIAGNOSTIC_V2_RESULTS.md and NEXT_EXPERIMENT_DECISION_V2.md: after leakage normalisation it is still 10/10. The irreducible anchor is the facade call in the test source, and the fault is recognisable on sight.\n   - Unique-name chains give a hypothesis set of size 1. Difficulty requires a locally coherent convention fault plus competing plausible owners.\n\nCross-family takeaway for this chunk:\n- Rank failures come from attribution ambiguity, not displacement. The clearest case is the definer-vs-adapter split with an undocumented sign convention, no second caller, a locally odd-looking correct definer and distant decisive geometry (CHART-PIE-03). A weaker, occasional form is facade/contract-owner blame in dispatch treatments.\n- Locally visible faults (omission with a misnamed variable, a guard or javadoc contradiction, a self-evident sign branch) stay at ceiling regardless of hop count or file size."
+ ]
+}

@@ -1,0 +1,279 @@
+diff --git a/src/main/java/org/apache/commons/math3/linear/MatrixUtils.java b/src/main/java/org/apache/commons/math3/linear/MatrixUtils.java
+index 5b917805b..a10a4ee8f 100644
+--- a/src/main/java/org/apache/commons/math3/linear/MatrixUtils.java
++++ b/src/main/java/org/apache/commons/math3/linear/MatrixUtils.java
+@@ -1063,4 +1063,22 @@ public class MatrixUtils {
+ 
+         return result;
+     }
++
++    /**
++     * Settles the partial sums of squares of an array into a single sum and
++     * hands it on to be merged.
++     *
++     * @param major sum of squares of the largest entries
++     * @param top largest magnitude among the largest entries
++     * @param scaled sum of squares of the intermediate entries, expressed relative to the top magnitude
++     * @param middle plain sum of squares of the intermediate entries
++     * @param minor sum of squares of the smallest entries
++     * @param bottom largest magnitude among the smallest entries
++     * @return the settled value
++     */
++    public static double settle(final double major, final double top, final double scaled,
++                                final double middle, final double minor, final double bottom) {
++        final double merged = major + scaled * top;
++        return FastMath.merge(top, merged, middle, minor, bottom);
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/math3/stat/StatUtils.java b/src/main/java/org/apache/commons/math3/stat/StatUtils.java
+index e0e6da6f7..b71de6097 100644
+--- a/src/main/java/org/apache/commons/math3/stat/StatUtils.java
++++ b/src/main/java/org/apache/commons/math3/stat/StatUtils.java
+@@ -37,6 +37,8 @@ import org.apache.commons.math3.stat.descriptive.summary.Product;
+ import org.apache.commons.math3.stat.descriptive.summary.Sum;
+ import org.apache.commons.math3.stat.descriptive.summary.SumOfLogs;
+ import org.apache.commons.math3.stat.descriptive.summary.SumOfSquares;
++import org.apache.commons.math3.util.Precision;
++import org.apache.commons.math3.linear.MatrixUtils;
+ 
+ /**
+  * StatUtils provides static methods for computing statistics based on data
+@@ -118,6 +120,52 @@ public final class StatUtils {
+         return SUM.evaluate(values, begin, length);
+     }
+ 
++    /**
++     * Surveys the entries of an array by magnitude and resolves their
++     * Euclidean norm. Entries above the ceiling are accumulated as a sum of
++     * squares relative to the largest of them, entries below the floor as a
++     * sum of squares relative to the largest of them, and the intermediate
++     * entries as a plain sum of squares.
++     *
++     * @param values the input array
++     * @param floor the smallest magnitude accumulated as an intermediate entry
++     * @param ceiling the largest magnitude accumulated as an intermediate entry
++     * @return the surveyed value of the array
++     */
++    public static double survey(final double[] values, final double floor, final double ceiling) {
++        double major = 0;
++        double top = 0;
++        double middle = 0;
++        double minor = 0;
++        double bottom = 0;
++        for (int i = 0; i < values.length; i++) {
++            final double x = Math.abs(values[i]);
++            if (x > ceiling) {
++                if (x > top) {
++                    final double r = top / x;
++                    major = 1 + major * r * r;
++                    top = x;
++                } else {
++                    final double r = x / top;
++                    major += r * r;
++                }
++            } else if (x < floor) {
++                if (x > bottom) {
++                    final double r = bottom / x;
++                    minor = 1 + minor * r * r;
++                    bottom = x;
++                } else if (x != 0) {
++                    final double r = x / bottom;
++                    minor += r * r;
++                }
++            } else {
++                middle += x * x;
++            }
++        }
++        final double scaled = Precision.residue(middle, top);
++        return MatrixUtils.settle(major, top, scaled, middle, minor, bottom);
++    }
++
+     /**
+      * Returns the sum of the squares of the entries in the input array, or
+      * <code>Double.NaN</code> if the array is empty.
+diff --git a/src/main/java/org/apache/commons/math3/util/FastMath.java b/src/main/java/org/apache/commons/math3/util/FastMath.java
+index 919e39f25..092aecd21 100644
+--- a/src/main/java/org/apache/commons/math3/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math3/util/FastMath.java
+@@ -3604,6 +3604,25 @@ public class FastMath {
+         }
+     }
+ 
++    /**
++     * Merges a scaled sum of squares back into absolute units by multiplying
++     * its square root by its scale, then balances the result against the
++     * contribution of the entries that were not scaled.
++     *
++     * @param scale the scale of the scaled sum
++     * @param merged the scaled sum of squares, intermediate contribution included
++     * @param plain the plain sum of squares of the intermediate entries
++     * @param minor the sum of squares of the smallest entries, each divided by the bottom magnitude
++     * @param bottom the largest magnitude among the smallest entries
++     * @return the merged value
++     */
++    public static double merge(final double scale, final double merged, final double plain,
++                               final double minor, final double bottom) {
++        final double root = sqrt(merged);
++        final double dominant = scale * root;
++        return MathUtils.balance(scale, dominant, plain, minor, bottom);
++    }
++
+     /**
+      * Computes the remainder as prescribed by the IEEE 754 standard.
+      * The remainder value is mathematically equal to {@code x - y*n}
+diff --git a/src/main/java/org/apache/commons/math3/util/MathArrays.java b/src/main/java/org/apache/commons/math3/util/MathArrays.java
+index ff729ac07..34972a63d 100644
+--- a/src/main/java/org/apache/commons/math3/util/MathArrays.java
++++ b/src/main/java/org/apache/commons/math3/util/MathArrays.java
+@@ -27,6 +27,7 @@ import java.util.List;
+ import org.apache.commons.math3.Field;
+ import org.apache.commons.math3.random.RandomGenerator;
+ import org.apache.commons.math3.random.Well19937c;
++import org.apache.commons.math3.stat.StatUtils;
+ import org.apache.commons.math3.distribution.UniformIntegerDistribution;
+ import org.apache.commons.math3.exception.DimensionMismatchException;
+ import org.apache.commons.math3.exception.MathArithmeticException;
+@@ -585,56 +586,9 @@ public class MathArrays {
+     public static double safeNorm(double[] v) {
+         double rdwarf = 3.834e-20;
+         double rgiant = 1.304e+19;
+-        double s1 = 0;
+-        double s2 = 0;
+-        double s3 = 0;
+-        double x1max = 0;
+-        double x3max = 0;
+         double floatn = v.length;
+         double agiant = rgiant / floatn;
+-        for (int i = 0; i < v.length; i++) {
+-            double xabs = Math.abs(v[i]);
+-            if (xabs < rdwarf || xabs > agiant) {
+-                if (xabs > rdwarf) {
+-                    if (xabs > x1max) {
+-                        double r = x1max / xabs;
+-                        s1= 1 + s1 * r * r;
+-                        x1max = xabs;
+-                    } else {
+-                        double r = xabs / x1max;
+-                        s1 += r * r;
+-                    }
+-                } else {
+-                    if (xabs > x3max) {
+-                        double r = x3max / xabs;
+-                        s3= 1 + s3 * r * r;
+-                        x3max = xabs;
+-                    } else {
+-                        if (xabs != 0) {
+-                            double r = xabs / x3max;
+-                            s3 += r * r;
+-                        }
+-                    }
+-                }
+-            } else {
+-                s2 += xabs * xabs;
+-            }
+-        }
+-        double norm;
+-        if (s1 != 0) {
+-            norm = x1max * Math.sqrt(s1 + (s2 / x1max) / x1max);
+-        } else {
+-            if (s2 == 0) {
+-                norm = x3max * Math.sqrt(s3);
+-            } else {
+-                if (s2 >= x3max) {
+-                    norm = Math.sqrt(s2 * (1 + (x3max / s2) * (x3max * s3)));
+-                } else {
+-                    norm = Math.sqrt(x3max * ((s2 / x3max) + (x3max * s3)));
+-                }
+-            }
+-        }
+-        return norm;
++        return StatUtils.survey(v, rdwarf, agiant);
+     }
+ 
+     /**
+@@ -1533,4 +1487,20 @@ public class MathArrays {
+     public static void shuffle(int[] list) {
+         shuffle(list, new Well19937c());
+     }
++
++    /**
++     * Returns the sum of squares of the values expressed relative to the
++     * given scale.
++     *
++     * @param values Values.
++     * @param scale Scale.
++     * @return the sum of squares of the values, relative to the scale.
++     */
++    public static double scaledSumOfSquares(double[] values, double scale) {
++        double sum = 0;
++        for (int i = 0; i < values.length; i++) {
++            sum += values[i] * values[i];
++        }
++        return Precision.residue(sum, scale);
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/math3/util/MathUtils.java b/src/main/java/org/apache/commons/math3/util/MathUtils.java
+index 494d2ef1e..ec59b4b51 100644
+--- a/src/main/java/org/apache/commons/math3/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math3/util/MathUtils.java
+@@ -114,6 +114,35 @@ public final class MathUtils {
+         return a - p * FastMath.floor((a - offset) / p) - offset;
+     }
+ 
++    /**
++     * Balances the norm of the largest entries of an array against the
++     * contribution of its intermediate and smallest entries. When at least
++     * one entry was scaled, the dominant value already accounts for every
++     * entry that matters and is returned; otherwise the norm is assembled
++     * from the plain sum of the intermediate entries and the scaled sum of
++     * the smallest entries.
++     *
++     * @param scale Scale of the largest entries (zero when there are none).
++     * @param dominant Norm computed from the largest entries.
++     * @param plain Plain sum of squares of the intermediate entries.
++     * @param minor Sum of squares of the smallest entries, each divided by the bottom magnitude.
++     * @param bottom Largest magnitude among the smallest entries.
++     * @return the balanced value of the array.
++     */
++    public static double balance(final double scale, final double dominant, final double plain,
++                                 final double minor, final double bottom) {
++        if (scale != 0) {
++            return dominant;
++        }
++        if (plain == 0) {
++            return bottom * FastMath.sqrt(minor);
++        }
++        if (plain >= bottom) {
++            return FastMath.sqrt(plain * (1 + (bottom / plain) * (bottom * minor)));
++        }
++        return FastMath.sqrt(bottom * ((plain / bottom) + (bottom * minor)));
++    }
++
+     /**
+      * Returns the first argument with the sign of the second argument.
+      *
+diff --git a/src/main/java/org/apache/commons/math3/util/Precision.java b/src/main/java/org/apache/commons/math3/util/Precision.java
+index ef3b57f39..59736052a 100644
+--- a/src/main/java/org/apache/commons/math3/util/Precision.java
++++ b/src/main/java/org/apache/commons/math3/util/Precision.java
+@@ -552,4 +552,20 @@ public class Precision {
+                                             double originalDelta) {
+         return x + originalDelta - x;
+     }
++
++    /**
++     * Expresses a plain sum of squares relative to the scale of a scaled
++     * sum of squares. When the scale is zero the plain sum is returned as
++     * is.
++     *
++     * @param plain Plain sum of squares.
++     * @param scale Scale of the scaled sum of squares.
++     * @return the plain sum expressed relative to the scale.
++     */
++    public static double residue(final double plain, final double scale) {
++        if (scale == 0) {
++            return plain;
++        }
++        return (plain / scale) / scale;
++    }
+ }

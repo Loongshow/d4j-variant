@@ -1,0 +1,1236 @@
+{
+ "family": "ocflb-v1",
+ "instances": [
+  {
+   "variant": "OCFLB-CHART-01-ADAPTER",
+   "project": "Chart",
+   "instance_label": "OCFLB-CHART-01-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "org.jfree.chart.plot.Plot::nudge"
+   ],
+   "fault_description": "Sign/direction fault at H3. Plot.nudge gets a correct drift from PlotUtilities.drift (exploded point minus unexploded point, as drift's javadoc states). It negates the drift before scaling it by explodePercent, so StandardDialScale.rim adds a displacement that points toward the pie centre instead of away from it (x = 112.5 instead of 87.5).",
+   "fault_lines": [
+    "double deltaX = -drift.getX() * explodePercent;",
+    "double deltaY = -drift.getY() * explodePercent;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The added unary minus contradicts nudge's own javadoc ('displaces the section bounds along the scaled drift') and drift's documented direction.",
+   "local_cue_decoy": true,
+   "local_cue_decoy_note": "Upstream JFreeChart computes (point1 - point2) * pct and SUBTRACTS it. Against that prior, rim's 'area.getX() + deltaX' and drift's 'point2 - point1' both look reversed. Opus run-002 ranked rim first and wrote that 'nudge's delta matches the usual (p1-p2)*pct definition, so the addition in rim is what looks wrong'.",
+   "decoys": [
+    "org.jfree.chart.plot.dial.StandardDialScale::rim",
+    "org.jfree.chart.plot.PlotUtilities::drift",
+    "org.jfree.chart.plot.CompassPlot::ring",
+    "org.jfree.chart.plot.PiePlot::getArcBounds",
+    "org.jfree.chart.util.ShapeUtilities::shift"
+   ],
+   "entry_points": [
+    "org.jfree.chart.plot.junit.PiePlotTests::test2986548",
+    "org.jfree.chart.plot.PiePlot::getArcBounds"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc stating convention (drift = exploded - unexploded)",
+     "location": "source/org/jfree/chart/plot/PlotUtilities.java drift()"
+    },
+    {
+     "kind": "consumer javadoc (deltaX is an x-displacement that is added)",
+     "location": "source/org/jfree/chart/plot/dial/StandardDialScale.java rim()"
+    },
+    {
+     "kind": "pin unit test on definer (passes on this arm)",
+     "location": "tests/org/jfree/chart/plot/junit/PlotUtilitiesTests.java::testDrift"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 4,
+   "mechanism_tags": [
+    "M3",
+    "M1",
+    "M6",
+    "M7",
+    "M13",
+    "M17",
+    "M20"
+   ],
+   "notes": "Chain: test -> ArcProbe.arc -> PiePlot.getArcBounds (facade) -> CompassPlot.ring (H1) -> {PlotUtilities.drift (H2), Plot.nudge (H3)} -> StandardDialScale.rim (H4) -> ShapeUtilities.shift (H5). Outcomes: Sonnet ranked the gold first in 5/5 valid runs (run-004 was a provider stall and is excluded); Opus did so in 4/5. The one real misranking in this chunk is opus run-002: rim first, nudge second, drift third. FAILURE_TAXONOMY.md labels it DEPTH_PRIOR, but the submitted evidence_chain shows the cause was the upstream-convention prior (sign inverse pair: negation in nudge vs addition in rim). The pin is a test-only second caller of H2 (manifest second_caller is null, so there is no production second caller), and no adapter-arm run opened it. Ownership is PINNED_UNIQUE between H2 and H3 only. A sign flip in rim would also fix the trigger without touching the pin, so H4 is an unpinned alternative owner that only the javadocs settle."
+  },
+  {
+   "variant": "OCFLB-CHART-02-ADAPTER",
+   "project": "Chart",
+   "instance_label": "OCFLB-CHART-02-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "org.jfree.chart.util.RectangleAnchor::place"
+   ],
+   "fault_description": "Count x offset fault at H3. Range.pad correctly returns a padding Range whose lower bound is the accumulated gap before cell k (k * gap) and whose length is one boundary gap. RectangleAnchor.place uses the range's length (a single gap) instead of its lower bound. Every category start is therefore shifted by exactly one gap (category 0 starts at 56.67 instead of 30.0).",
+   "fault_lines": [
+    "double gaps = padding.getLength();"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": true,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "place's own javadoc says it takes 'the accumulated padding that precedes the cell (the lower bound of its padding range)', but the body calls getLength().",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "Range.pad packs a gap pair into a Range, which is unusual but valid and matches its javadoc. No correct hop reads as wrong.",
+   "decoys": [
+    "org.jfree.data.Range::pad",
+    "org.jfree.chart.util.RectangleEdge::locate",
+    "org.jfree.chart.axis.CategoryAxis::getCategoryStart",
+    "org.jfree.chart.util.RectangleInsets::inset",
+    "org.jfree.chart.axis.AxisSpace::cell"
+   ],
+   "entry_points": [
+    "org.jfree.chart.axis.junit.CategoryAxisTests::test2064767",
+    "org.jfree.chart.axis.CategoryAxis::getCategoryStart"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc stating convention (lower bound = index*gap, length = one gap)",
+     "location": "source/org/jfree/data/Range.java pad()"
+    },
+    {
+     "kind": "adapter's own javadoc naming the lower bound",
+     "location": "source/org/jfree/chart/util/RectangleAnchor.java place()"
+    },
+    {
+     "kind": "pin unit test on definer",
+     "location": "tests/org/jfree/data/junit/RangeTests.java::testPad"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M17",
+    "M13"
+   ],
+   "notes": "Chain: test -> CategoryAxis.getCategoryStart (facade) -> RectangleEdge.locate (H1) -> {Range.pad (H2), RectangleAnchor.place (H3)} -> RectangleInsets.inset (H4) -> AxisSpace.cell (H5). Sonnet only: 4/4 valid runs ranked the gold first; run-004 was a provider stall, which all_runs.json counts as 'wrong'. The H2 rank was 3 to 6 and the pin was never opened. The test-only pin is the second caller."
+  },
+  {
+   "variant": "OCFLB-COMPRESS-07-ADAPTER",
+   "project": "Compress",
+   "instance_label": "OCFLB-COMPRESS-07-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "org.apache.commons.compress.archivers.zip.ExtraFieldUtils::widen"
+   ],
+   "fault_description": "Signed vs unsigned byte fault at H3. AsiExtraField.magnitudeOf correctly returns the unsigned magnitude (low 7 bits + top bit weighted +128). ExtraFieldUtils.widen splits the magnitude into low and top, then subtracts the top term instead of adding it. That gives the top bit sign-bit weight, so the tar checksum of {0xC3, 0xA9, 'a', 0} is -51 instead of 461.",
+   "fault_lines": [
+    "final long widened = low - top;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "widen's javadoc says 'the top-bit term is added with the weight the magnitude gives it' and 'keeps the magnitude as it is', but the body subtracts.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "magnitudeOf hand-rolls (raw & 0x7f) + (raw & 0x80) instead of raw & 0xff. That is non-idiomatic but correct and documented.",
+   "decoys": [
+    "org.apache.commons.compress.archivers.zip.AsiExtraField::magnitudeOf",
+    "org.apache.commons.compress.archivers.tar.TarBuffer::tally",
+    "org.apache.commons.compress.archivers.tar.TarUtils::computeCheckSum",
+    "org.apache.commons.compress.archivers.zip.ZipLong::byteValue",
+    "org.apache.commons.compress.utils.IOUtils::sumPair"
+   ],
+   "entry_points": [
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntryTest::testCompress194",
+    "org.apache.commons.compress.archivers.tar.TarUtils::computeCheckSum"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc stating unsigned-magnitude convention",
+     "location": "src/main/java/org/apache/commons/compress/archivers/zip/AsiExtraField.java magnitudeOf()"
+    },
+    {
+     "kind": "adapter's own javadoc",
+     "location": "src/main/java/org/apache/commons/compress/archivers/zip/ExtraFieldUtils.java widen()"
+    },
+    {
+     "kind": "pin unit test on definer",
+     "location": "src/test/java/org/apache/commons/compress/archivers/zip/AsiExtraFieldTest.java::testMagnitudeOf"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M17",
+    "M18",
+    "M13"
+   ],
+   "notes": "Chain: test -> TarUtils.computeCheckSum (facade) -> TarBuffer.tally (H1) -> {AsiExtraField.magnitudeOf (H2), ExtraFieldUtils.widen (H3)} -> ZipLong.byteValue (H4) -> IOUtils.sumPair (H5). Sonnet 5/5 and Opus 5/5 ranked the gold first, and no run opened the pin. TARGET_SELECTION.md planned a '(byte) m' cast for the adapter fault. The built variant uses 'low - top' instead."
+  },
+  {
+   "variant": "OCFLB-COMPRESS-08-ADAPTER",
+   "project": "Compress",
+   "instance_label": "OCFLB-COMPRESS-08-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "org.apache.commons.compress.archivers.zip.ZipArchiveEntry::padCount"
+   ],
+   "fault_description": "Alignment parity fault at H3. CpioArchiveOutputStream.padNeeded correctly returns true for odd member lengths. ZipArchiveEntry.padCount swaps the ternary arms and emits one pad byte when the flag is false and none when it is true. The next ar header starts one byte early (byte 71 is 'e' = 101 instead of '\\n' = 10).",
+   "fault_lines": [
+    "final int count = padNeeded ? 0 : 1;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": true,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "padCount's javadoc says 'one pad byte when a pad is needed, none otherwise', but the ternary arms are swapped (equivalent to a negated flag).",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "Hop names inherited from the seed (remainder, alignmentBoundary) do not match their bodies, but the bodies are correct and documented.",
+   "decoys": [
+    "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream::padNeeded",
+    "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::memberEnd",
+    "org.apache.commons.compress.archivers.ar.ArArchiveOutputStream::closeArchiveEntry",
+    "org.apache.commons.compress.archivers.tar.TarArchiveInputStream::remainder",
+    "org.apache.commons.compress.archivers.jar.JarArchiveOutputStream::alignmentBoundary"
+   ],
+   "entry_points": [
+    "org.apache.commons.compress.archivers.ArTestCase::testCompress145",
+    "org.apache.commons.compress.archivers.ar.ArArchiveOutputStream::closeArchiveEntry",
+    "org.apache.commons.compress.archivers.ar.ArArchiveOutputStream::putArchiveEntry"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc (true exactly when length is odd)",
+     "location": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStream.java padNeeded()"
+    },
+    {
+     "kind": "adapter's own javadoc",
+     "location": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java padCount()"
+    },
+    {
+     "kind": "pin unit test on definer",
+     "location": "src/test/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStreamTest.java::testPadNeeded"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M7",
+    "M13",
+    "M17"
+   ],
+   "notes": "Chain: test -> ArArchiveOutputStream.closeArchiveEntry (facade, also reached through putArchiveEntry) -> ZipArchiveOutputStream.memberEnd (H1) -> {CpioArchiveOutputStream.padNeeded (H2), ZipArchiveEntry.padCount (H3)} -> TarArchiveInputStream.remainder (H4) -> JarArchiveOutputStream.alignmentBoundary (H5). Sonnet 5/5 ranked the gold first. The pin was opened in 3/5 runs, all of them correct (OWNERSHIP_ANALYSIS.md). The definer arm inverts the same boolean predicate, which makes this an inverse-pair pairing."
+  },
+  {
+   "variant": "OCFLB-JACKSONCORE-09-ADAPTER",
+   "project": "JacksonCore",
+   "instance_label": "OCFLB-JACKSONCORE-09-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "com.fasterxml.jackson.core.io.JsonStringEncoder::weight"
+   ],
+   "fault_description": "Unit-conversion fault at H3. TextBuffer.highSurrogateWeight correctly returns hiOffset << 10, the high-surrogate contribution in code-point units. JsonStringEncoder.weight shifts that contribution left by one more bit, counting it twice. U+1F600 becomes U+2EA00, and the second UTF-8 byte is 174 instead of 159.",
+   "fault_lines": [
+    "final int offset = (high << 1) + loOffset;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "weight's javadoc and @param say high is 'already in code point units', yet the body shifts it again.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "highSurrogateWeight uses the textbook << 10 with range checks, so nothing looks wrong.",
+   "decoys": [
+    "com.fasterxml.jackson.core.util.TextBuffer::highSurrogateWeight",
+    "com.fasterxml.jackson.core.io.CharTypes::codePointOf",
+    "com.fasterxml.jackson.core.io.UTF8Writer::convertSurrogate",
+    "com.fasterxml.jackson.core.io.NumberOutput::assemble",
+    "com.fasterxml.jackson.core.io.NumberInput::plane",
+    "com.fasterxml.jackson.core.io.UTF8Writer::write"
+   ],
+   "entry_points": [
+    "com.fasterxml.jackson.core.io.TestUTF8Writer::testJackson417",
+    "com.fasterxml.jackson.core.io.UTF8Writer::write"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc (<< 10, code point units)",
+     "location": "src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java highSurrogateWeight()"
+    },
+    {
+     "kind": "adapter's own javadoc",
+     "location": "src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java weight()"
+    },
+    {
+     "kind": "pin unit test on definer",
+     "location": "src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java::testHighSurrogateWeight"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 4,
+   "mechanism_tags": [
+    "M3",
+    "M17",
+    "M13"
+   ],
+   "notes": "Chain: test -> UTF8Writer.write -> UTF8Writer.convertSurrogate (facade) -> CharTypes.codePointOf (H1) -> {TextBuffer.highSurrogateWeight (H2), JsonStringEncoder.weight (H3)} -> NumberOutput.assemble (H4) -> NumberInput.plane (H5). Sonnet 5/5 ranked the gold first, H2 rank was 3 to 5, and the pin was never opened. THREATS_TO_VALIDITY.md notes that critics found 'high << 1' visibly synthetic."
+  },
+  {
+   "variant": "OCFLB-JACKSONCORE-10-ADAPTER",
+   "project": "JacksonCore",
+   "instance_label": "OCFLB-JACKSONCORE-10-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "com.fasterxml.jackson.core.json.JsonReadContext::lastProcessed"
+   ],
+   "fault_description": "Index-convention (off-by-one) fault at H3. SerializedString.positionOf correctly returns processed + ptr, the position of the NEXT unread character. JsonReadContext.lastProcessed should step back one to the last processed character but uses back = 0. getCurrentLocation().getCharOffset() after START_OBJECT is 1 instead of 0.",
+   "fault_lines": [
+    "final int back = 0;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "'nextPosition - back' with back = 0 is a visible no-op that contradicts the javadoc ('the character just before the next one').",
+   "local_cue_decoy": true,
+   "local_cue_decoy_note": "Downstream InternCache.zeroBased has the same shape, 'final int origin = 0; last - origin', which is a correct no-op step. MergedStream.streamOffset has a -1 sentinel fallback. Both look as odd as the gold.",
+   "decoys": [
+    "com.fasterxml.jackson.core.io.SerializedString::positionOf",
+    "com.fasterxml.jackson.core.util.InternCache::zeroBased",
+    "com.fasterxml.jackson.core.io.IOContext::charOffset",
+    "com.fasterxml.jackson.core.base.ParserBase::getCurrentLocation",
+    "com.fasterxml.jackson.core.io.MergedStream::streamOffset",
+    "com.fasterxml.jackson.core.base.ParserBase::getTokenLocation",
+    "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::nextToken"
+   ],
+   "entry_points": [
+    "com.fasterxml.jackson.core.json.TestJsonParser::testJackson488",
+    "com.fasterxml.jackson.core.base.ParserBase::getCurrentLocation",
+    "com.fasterxml.jackson.core.base.ParserBase::getTokenLocation",
+    "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::nextToken"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc (next unread position, worked examples)",
+     "location": "src/main/java/com/fasterxml/jackson/core/io/SerializedString.java positionOf()"
+    },
+    {
+     "kind": "pin unit test on definer (opened in 3/5 runs)",
+     "location": "src/test/java/com/fasterxml/jackson/core/util/TestSerializedString.java::testPositionOf"
+    },
+    {
+     "kind": "parser-internal _inputPtr advancement needed to check the four expected offsets",
+     "location": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java (nextToken/_skipWS/_nextAfterName/_matchToken)"
+    },
+    {
+     "kind": "removed original formula '_currInputProcessed + _inputPtr - 1' (only in history, not exposed)",
+     "location": "src/main/java/com/fasterxml/jackson/core/base/ParserBase.java getCurrentLocation"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 4,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M5",
+    "M9",
+    "M1",
+    "M12",
+    "M13",
+    "M14",
+    "M17"
+   ],
+   "notes": "Chain: test -> ParserBase.getCurrentLocation (facade) -> IOContext.charOffset (H1) -> {SerializedString.positionOf (H2), JsonReadContext.lastProcessed (H3)} -> InternCache.zeroBased (H4) -> MergedStream.streamOffset (H5). Sonnet produced no answer in 5/5 valid runs: 3 timeouts and 2 runs that hit the 50-call budget. Every run exposed the gold (steps 9-20), and 3 opened the pin. In the trajectories, after reading all hops the agents traced ReaderBasedJsonParser's token-location bookkeeping (_tokenInputTotal, _skipWS, _nextAfterName), wrote Python/Java scripts to recompute the expected offsets of {\"a\":1,\"bb\":true}, and tried mvn/ant/junit runners and git log. No rank-1 misattribution was recorded. The failure is non-commitment, driven by distant test-evidence verification. The definer arm also failed on 4/5 runs."
+  },
+  {
+   "variant": "OCFLB-LANG-03-ADAPTER",
+   "project": "Lang",
+   "instance_label": "OCFLB-LANG-03-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "org.apache.commons.lang3.BitField::widen"
+   ],
+   "fault_description": "Offset-units fault at H3. EnumUtils.compose correctly returns the origin as a bit position (equal to 'at'). BitField.widen treats it as a byte offset and multiplies it by Byte.SIZE when computing each word's shift. intArrayToLong(src, 1, 0L, 8, 1) puts the word at bit 64 (which wraps to bit 0) instead of bit 8, giving 252851286 instead of 0xF12345600.",
+   "fault_lines": [
+    "shifts[i] = i * width + origin * Byte.SIZE;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "A spurious Byte.SIZE factor on 'origin', documented as 'the position in the result of the first value', sits next to bit-unit i * width.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "compose returns 'at' unchanged, an identity that could look like a missing conversion, but its javadoc says explicitly that 'at' is already a bit position.",
+   "decoys": [
+    "org.apache.commons.lang3.EnumUtils::compose",
+    "org.apache.commons.lang3.ArrayUtils::gather",
+    "org.apache.commons.lang3.Conversion::intArrayToLong",
+    "org.apache.commons.lang3.ObjectUtils::combine",
+    "org.apache.commons.lang3.math.NumberUtils::overlay"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.ConversionTest::testLang1112",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc ('at' is already a bit position, origin = at)",
+     "location": "src/main/java/org/apache/commons/lang3/EnumUtils.java compose()"
+    },
+    {
+     "kind": "pin unit test on definer",
+     "location": "src/test/java/org/apache/commons/lang3/EnumUtilsTest.java::testCompose"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M17",
+    "M13"
+   ],
+   "notes": "Chain: test -> Conversion.intArrayToLong (facade) -> ArrayUtils.gather (H1) -> {EnumUtils.compose (H2), BitField.widen (H3)} -> ObjectUtils.combine (H4) -> NumberUtils.overlay (H5). Sonnet 5/5 and Opus 5/5 ranked the gold first, and no run opened the pin. The seed was refined during construction (TARGET_SELECTION.md): the unit factor is Byte.SIZE because a 32-bit factor could not be pinned."
+  },
+  {
+   "variant": "OCFLB-LANG-04-ADAPTER",
+   "project": "Lang",
+   "instance_label": "OCFLB-LANG-04-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "org.apache.commons.lang3.CharSetUtils::smalls"
+   ],
+   "fault_description": "Case-folding threshold fault at H3. CharSet.akin correctly returns the number of agreeing case forms (0, 1 or 2), and its javadoc says a pair fold-equals whenever the count is positive. CharSetUtils.smalls requires the count to exceed 1. LONG S vs 's' and KELVIN vs 'K' therefore do not match on the CharSequence path, and equalsIgnoreCase(StringBuilder, String) returns false while the String path returns true.",
+   "fault_lines": [
+    "final boolean folded = agreeing > 1;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "'> 1' (both forms must agree) contradicts akin's javadoc rule ('as soon as at least one of their case forms agrees'). smalls' own javadoc does not restate the threshold.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "CharUtils.pair and CharRange.capitals are straightforward. Seed-inherited names (smalls, capitals) are misleading but apply equally to the gold.",
+   "decoys": [
+    "org.apache.commons.lang3.CharSet::akin",
+    "org.apache.commons.lang3.text.StrMatcher::sweep",
+    "org.apache.commons.lang3.CharSequenceUtils::regionMatches",
+    "org.apache.commons.lang3.CharUtils::pair",
+    "org.apache.commons.lang3.CharRange::capitals",
+    "org.apache.commons.lang3.StringUtils::equalsIgnoreCase"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testLang1149",
+    "org.apache.commons.lang3.StringUtils::equalsIgnoreCase",
+    "org.apache.commons.lang3.CharSequenceUtils::regionMatches"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc (count 0..2, fold-equal when positive, String.regionMatches rule)",
+     "location": "src/main/java/org/apache/commons/lang3/CharSet.java akin()"
+    },
+    {
+     "kind": "differential test oracle (String path vs CharSequence path)",
+     "location": "src/test/java/org/apache/commons/lang3/StringUtilsEqualsIndexOfTest.java::testLang1149"
+    },
+    {
+     "kind": "pin unit test on definer",
+     "location": "src/test/java/org/apache/commons/lang3/CharSetTest.java::testAkin"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 4,
+   "mechanism_tags": [
+    "M3",
+    "M17",
+    "M13"
+   ],
+   "notes": "Chain: test -> StringUtils.equalsIgnoreCase -> CharSequenceUtils.regionMatches (facade) -> StrMatcher.sweep (H1) -> {CharSet.akin (H2), CharSetUtils.smalls (H3)} -> CharUtils.pair (H4) -> CharRange.capitals (H5). Sonnet 5/5 and Opus 5/5 ranked the gold first, and Opus always put akin second. The seed was refined during construction from a mask to a count (TARGET_SELECTION.md)."
+  },
+  {
+   "variant": "OCFLB-MATH-05-ADAPTER",
+   "project": "Math",
+   "instance_label": "OCFLB-MATH-05-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "org.apache.commons.math3.linear.MatrixUtils::settle"
+   ],
+   "fault_description": "Scale-units fault at H3. Precision.residue correctly returns the plain sum of squares in the doubly scaled domain (plain / scale^2). MatrixUtils.settle multiplies it by the top magnitude again before adding it to the scaled sum, which inflates the intermediate entries' weight by the scale. safeNorm({2e19, 1e10}) returns 4.9e19 instead of 2.0e19.",
+   "fault_lines": [
+    "final double merged = major + scaled * top;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "settle's @param says 'scaled' is already 'expressed in the doubly scaled domain of major', yet the body multiplies it by top.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "StatUtils.survey (copied safeNorm accumulation loop) and MathUtils.balance carry dense branching, but both are correct. survey was consistently ranked second by Sonnet.",
+   "decoys": [
+    "org.apache.commons.math3.util.Precision::residue",
+    "org.apache.commons.math3.stat.StatUtils::survey",
+    "org.apache.commons.math3.util.MathArrays::safeNorm",
+    "org.apache.commons.math3.util.FastMath::merge",
+    "org.apache.commons.math3.util.MathUtils::balance"
+   ],
+   "entry_points": [
+    "org.apache.commons.math3.util.MathArraysTest::testMath1142",
+    "org.apache.commons.math3.util.MathArrays::safeNorm"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc (plain / (scale*scale), directly addable)",
+     "location": "src/main/java/org/apache/commons/math3/util/Precision.java residue()"
+    },
+    {
+     "kind": "adapter's own @param doc",
+     "location": "src/main/java/org/apache/commons/math3/linear/MatrixUtils.java settle()"
+    },
+    {
+     "kind": "pin unit test on definer",
+     "location": "src/test/java/org/apache/commons/math3/util/PrecisionTest.java::testResidue"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M17",
+    "M13"
+   ],
+   "notes": "Chain: test -> MathArrays.safeNorm (facade) -> StatUtils.survey (H1) -> {Precision.residue (H2), MatrixUtils.settle (H3)} -> FastMath.merge (H4) -> MathUtils.balance (H5). Sonnet 5/5 and Opus 5/5 ranked the gold first. The pin was opened in 1 Sonnet run."
+  },
+  {
+   "variant": "OCFLB-MATH-06-ADAPTER",
+   "project": "Math",
+   "instance_label": "OCFLB-MATH-06-ADAPTER",
+   "arm": "ADAPTER_FAULT",
+   "gold": [
+    "org.apache.commons.math3.analysis.polynomials.PolynomialsUtils::rise"
+   ],
+   "fault_description": "Derivative scale-factor fault at H3. FunctionUtils.slope correctly returns the central-difference denominators (x-span * y-span, each span already covering two grid steps). PolynomialsUtils.rise applies the two-step factor a second time and divides by 4 * span. Every mixed partial at the knots is a quarter of its value (partialDerivativeXY(1,1) = 0.25 instead of 1.0).",
+   "fault_lines": [
+    "d2FdXdY[i][j] = diff / (4 * span[i][j]);"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "rise's javadoc says the difference is 'divided by the central-difference denominator of that knot', and slope's javadoc says 'without any further factor'. The literal 4 contradicts both, though it resembles the textbook 1/(4hk) form.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "slope's lack of a 1/4 factor could look wrong under the textbook prior, but its javadoc addresses that directly. The unmodified downstream BicubicSplineInterpolatingFunction (coefficient matrix algebra) is a heavy rabbit hole rather than a locally wrong-looking method.",
+   "decoys": [
+    "org.apache.commons.math3.analysis.FunctionUtils::slope",
+    "org.apache.commons.math3.analysis.interpolation.SplineInterpolator::lace",
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolator::interpolate",
+    "org.apache.commons.math3.analysis.interpolation.DividedDifferenceInterpolator::warp",
+    "org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction::weave",
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolatingFunction::partialDerivativeXY"
+   ],
+   "entry_points": [
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolatorTest::testMath1181",
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolator::interpolate",
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolatingFunction::partialDerivativeXY"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "definer javadoc (spans already cover two steps; no further factor)",
+     "location": "src/main/java/org/apache/commons/math3/analysis/FunctionUtils.java slope()"
+    },
+    {
+     "kind": "pin unit test on definer",
+     "location": "src/test/java/org/apache/commons/math3/analysis/FunctionUtilsTest.java::testSlope"
+    },
+    {
+     "kind": "downstream consumer whose output the test asserts (bicubic coefficient algebra)",
+     "location": "src/main/java/org/apache/commons/math3/analysis/interpolation/BicubicSplineInterpolatingFunction.java partialDerivativeXY"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M5",
+    "M10",
+    "M13",
+    "M17"
+   ],
+   "notes": "Chain: test -> BicubicSplineInterpolator.interpolate (facade) -> SplineInterpolator.lace (H1) -> {FunctionUtils.slope (H2), PolynomialsUtils.rise (H3)} -> DividedDifferenceInterpolator.warp (H4) -> PolynomialSplineFunction.weave (H5). Only one valid Sonnet attempt exists because the credit ran out; the second attempt was a provider stall. That run-001 timed out after 36 tool calls with the gold exposed at step 8. It had grepped the '4 * span' line, then spent its budget re-deriving the bicubic coefficients (an AINV matrix) in self-written Java programs, plus BicubicSplineInterpolatingFunction.partialDerivativeXY. No ranking was submitted, and the definer arm failed in 3/5 runs the same way."
+  },
+  {
+   "variant": "OCFLB-CHART-01-DEFINER",
+   "project": "Chart",
+   "instance_label": "ocflb-v1/OCFLB-CHART-01-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "org.jfree.chart.plot.PlotUtilities::drift"
+   ],
+   "fault_description": "H2 drift returns point1 - point2 (unexploded minus exploded). The javadoc says drift is the displacement from the unexploded point to the exploded point (point2 - point1), so the exploded pie section moves toward the centre instead of away from it. test2986548 expects x 87.5 and gets 112.5.",
+   "fault_lines": [
+    "double dx = point1.getX() - point2.getX();",
+    "double dy = point1.getY() - point2.getY();"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": true,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "Operand order contradicts drift's own javadoc ('adding the drift to the unexploded point gives the exploded point').",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "H3 Plot.nudge (drift * explodePercent) and H4 rim (area + delta) read as plainly correct.",
+   "decoys": [
+    "org.jfree.chart.plot.Plot::nudge",
+    "org.jfree.chart.plot.CompassPlot::ring",
+    "org.jfree.chart.plot.dial.StandardDialScale::rim",
+    "org.jfree.chart.plot.PiePlot::getArcBounds",
+    "org.jfree.chart.util.ShapeUtilities::shift"
+   ],
+   "entry_points": [
+    "org.jfree.chart.plot.junit.PiePlotTests::test2986548",
+    "org.jfree.chart.plot.PiePlot::getArcBounds"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "tests/org/jfree/chart/plot/junit/PlotUtilitiesTests.java::testDrift"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "source/org/jfree/chart/plot/PlotUtilities.java#drift javadoc"
+    },
+    {
+     "kind": "trigger assertion",
+     "location": "tests/org/jfree/chart/plot/junit/PiePlotTests.java::test2986548 (expected 87.5, was 112.5)"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M0",
+    "M3",
+    "M4",
+    "M13",
+    "M14",
+    "M17"
+   ],
+   "notes": "10/10 runs rank 1 (Sonnet 5, Opus 5). H3 nudge ranked 3-4. Sonnet put H1 ring 2nd in 5/5; Opus put H4 rim 2nd in 3/5. Pin opened 0/10. The second caller is the test-only pin; there is no production second caller. This is the documented-convention counterpart of the adversarial-break-v1 drift pair."
+  },
+  {
+   "variant": "OCFLB-CHART-02-DEFINER",
+   "project": "Chart",
+   "instance_label": "ocflb-v1/OCFLB-CHART-02-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "org.jfree.data.Range::pad"
+   ],
+   "fault_description": "H2 Range.pad sets the lower bound of the padding range to one gap instead of the accumulated index * gap, so every category start is shifted by exactly one gap. Category 0 starts at 56.67 instead of 30.0.",
+   "fault_lines": [
+    "return new Range(gap, (index + 1) * gap);"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": true,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "Visibly asymmetric bounds (gap vs (index+1)*gap) that contradict pad's javadoc ('lower bound ... the index times the gap').",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "H3 RectangleAnchor.place just reads padding.getLowerBound(); nothing looks odd.",
+   "decoys": [
+    "org.jfree.chart.util.RectangleAnchor::place",
+    "org.jfree.chart.util.RectangleEdge::locate",
+    "org.jfree.chart.axis.CategoryAxis::getCategoryStart",
+    "org.jfree.chart.util.RectangleInsets::inset",
+    "org.jfree.chart.axis.AxisSpace::cell"
+   ],
+   "entry_points": [
+    "org.jfree.chart.axis.junit.CategoryAxisTests::test2064767",
+    "org.jfree.chart.axis.CategoryAxis::getCategoryStart"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "tests/org/jfree/data/junit/RangeTests.java::testPad"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "source/org/jfree/data/Range.java#pad javadoc"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M0",
+    "M3",
+    "M4",
+    "M13",
+    "M14",
+    "M17"
+   ],
+   "notes": "5/5 Sonnet rank 1 (not in the Opus subset). H1 locate always 2nd, H3 place 3rd. H1 calls both pad and place. Second caller is the test-only pin."
+  },
+  {
+   "variant": "OCFLB-COMPRESS-07-DEFINER",
+   "project": "Compress",
+   "instance_label": "ocflb-v1/OCFLB-COMPRESS-07-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "org.apache.commons.compress.archivers.zip.AsiExtraField::magnitudeOf"
+   ],
+   "fault_description": "H2 magnitudeOf subtracts the top-bit term (low - top), which reconstructs the signed byte value instead of the documented unsigned magnitude 0..255. The tar header checksum becomes -51 instead of 461.",
+   "fault_lines": [
+    "return low - top;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The javadoc says the top bit is a magnitude bit with weight +128 and never a sign bit; the body subtracts it.",
+   "local_cue_decoy": true,
+   "local_cue_decoy_note": "Mild: H3 ExtraFieldUtils.widen recomputes the magnitude as low + (magnitude - low). This is a valid identity but non-idiomatic. Opus ranked widen 2nd in 5/5.",
+   "decoys": [
+    "org.apache.commons.compress.archivers.zip.ExtraFieldUtils::widen",
+    "org.apache.commons.compress.archivers.tar.TarBuffer::tally",
+    "org.apache.commons.compress.archivers.tar.TarUtils::computeCheckSum",
+    "org.apache.commons.compress.archivers.zip.ZipLong::byteValue",
+    "org.apache.commons.compress.utils.IOUtils::sumPair"
+   ],
+   "entry_points": [
+    "org.apache.commons.compress.archivers.tar.TarArchiveEntryTest::testCompress194",
+    "org.apache.commons.compress.archivers.tar.TarUtils::computeCheckSum"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "src/test/java/org/apache/commons/compress/archivers/zip/AsiExtraFieldTest.java::testMagnitudeOf"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "src/main/java/org/apache/commons/compress/archivers/zip/AsiExtraField.java#magnitudeOf javadoc"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M0",
+    "M3",
+    "M4",
+    "M13",
+    "M14",
+    "M17",
+    "M18"
+   ],
+   "notes": "9/10 rank 1. The one miss is Sonnet run-005, a no-answer: 50-call budget used up after the gold was exposed at step 8. Sonnet put H1 tally 2nd; Opus put H3 widen 2nd. Second caller is the test-only pin."
+  },
+  {
+   "variant": "OCFLB-COMPRESS-08-DEFINER",
+   "project": "Compress",
+   "instance_label": "ocflb-v1/OCFLB-COMPRESS-08-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream::padNeeded"
+   ],
+   "fault_description": "H2 padNeeded returns true for even member lengths instead of odd ones. The odd member gets no pad byte, the next ar header starts one byte early, and archive[71] is 'e' (101) instead of '\\n' (10).",
+   "fault_lines": [
+    "final boolean needed = (memberLength % 2) == 0;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": true,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The javadoc says 'true when the member length is odd'; the body tests == 0.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "H3 padCount (padNeeded ? 1 : 0) and H1 memberEnd are plainly correct. The ar logic sits in cpio/zip/tar/jar classes, which is odd placement but no cue for any one hop.",
+   "decoys": [
+    "org.apache.commons.compress.archivers.zip.ZipArchiveEntry::padCount",
+    "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::memberEnd",
+    "org.apache.commons.compress.archivers.ar.ArArchiveOutputStream::closeArchiveEntry",
+    "org.apache.commons.compress.archivers.tar.TarArchiveInputStream::remainder",
+    "org.apache.commons.compress.archivers.jar.JarArchiveOutputStream::alignmentBoundary"
+   ],
+   "entry_points": [
+    "org.apache.commons.compress.archivers.ArTestCase::testCompress145",
+    "org.apache.commons.compress.archivers.ar.ArArchiveOutputStream::closeArchiveEntry",
+    "org.apache.commons.compress.archivers.ar.ArArchiveOutputStream::putArchiveEntry"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "src/test/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStreamTest.java::testPadNeeded"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveOutputStream.java#padNeeded javadoc"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M0",
+    "M3",
+    "M4",
+    "M13",
+    "M14"
+   ],
+   "notes": "4/5 Sonnet rank 1. The miss is run-001, a no-answer at the 50-call limit; its last ~10 calls re-read the hop methods and grepped class declarations. Pin opened in 4/5, the highest rate in the family. H1 memberEnd 2nd, H3 padCount 4th. Second caller is the test-only pin."
+  },
+  {
+   "variant": "OCFLB-JACKSONCORE-09-DEFINER",
+   "project": "JacksonCore",
+   "instance_label": "ocflb-v1/OCFLB-JACKSONCORE-09-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "com.fasterxml.jackson.core.util.TextBuffer::highSurrogateWeight"
+   ],
+   "fault_description": "H2 highSurrogateWeight shifts the high-surrogate offset by 11 bits instead of 10, which doubles the high contribution. U+1F600 becomes U+2EA00 and the second UTF-8 byte is 174 instead of 159.",
+   "fault_lines": [
+    "final int bits = 11;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The javadoc says 'shifted left by the ten bits that the low surrogate occupies'; the constant is 11. The well-known surrogate formula uses << 10.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "H3 JsonStringEncoder.weight (high + loOffset) is plainly correct.",
+   "decoys": [
+    "com.fasterxml.jackson.core.io.JsonStringEncoder::weight",
+    "com.fasterxml.jackson.core.io.CharTypes::codePointOf",
+    "com.fasterxml.jackson.core.io.UTF8Writer::convertSurrogate",
+    "com.fasterxml.jackson.core.io.UTF8Writer::write",
+    "com.fasterxml.jackson.core.io.NumberOutput::assemble",
+    "com.fasterxml.jackson.core.io.NumberInput::plane"
+   ],
+   "entry_points": [
+    "com.fasterxml.jackson.core.io.TestUTF8Writer::testJackson417",
+    "com.fasterxml.jackson.core.io.UTF8Writer::write",
+    "com.fasterxml.jackson.core.io.UTF8Writer::convertSurrogate"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java::testHighSurrogateWeight"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java#highSurrogateWeight javadoc"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 5,
+   "mechanism_tags": [
+    "M0",
+    "M3",
+    "M4",
+    "M13",
+    "M14",
+    "M17"
+   ],
+   "notes": "5/5 Sonnet rank 1. H1 codePointOf 2nd; H3 weight ranked 3-5. Path: test -> write(String) -> write(String,int,int) -> convertSurrogate -> codePointOf -> highSurrogateWeight. Second caller is the test-only pin."
+  },
+  {
+   "variant": "OCFLB-JACKSONCORE-10-DEFINER",
+   "project": "JacksonCore",
+   "instance_label": "ocflb-v1/OCFLB-JACKSONCORE-10-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "com.fasterxml.jackson.core.io.SerializedString::positionOf"
+   ],
+   "fault_description": "H2 positionOf returns processed + ptr + 1 instead of the documented next-unread position processed + ptr. After H3 converts it to last-processed (next - 1), the reported char offset is one too large: 1 instead of 0 after START_OBJECT.",
+   "fault_lines": [
+    "final long position = processed + ptr + 1;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The javadoc says the value is the earlier characters plus the pointer, with worked examples (ptr 1 -> 1, 4000+5 -> 4005); the body adds an extra + 1.",
+   "local_cue_decoy": true,
+   "local_cue_decoy_note": "Mild. InternCache.zeroBased subtracts a constant origin 0 (a no-op), and the -1 that real Jackson keeps in ParserBase (_currInputProcessed + _inputPtr - 1) has moved into H3 lastProcessed (back = 1). This invites checking parser _inputPtr semantics.",
+   "decoys": [
+    "com.fasterxml.jackson.core.json.JsonReadContext::lastProcessed",
+    "com.fasterxml.jackson.core.io.IOContext::charOffset",
+    "com.fasterxml.jackson.core.base.ParserBase::getCurrentLocation",
+    "com.fasterxml.jackson.core.util.InternCache::zeroBased",
+    "com.fasterxml.jackson.core.io.MergedStream::streamOffset",
+    "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::nextToken",
+    "com.fasterxml.jackson.core.base.ParserBase::getTokenLocation"
+   ],
+   "entry_points": [
+    "com.fasterxml.jackson.core.json.TestJsonParser::testJackson488",
+    "com.fasterxml.jackson.core.base.ParserBase::getCurrentLocation",
+    "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::nextToken"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "src/test/java/com/fasterxml/jackson/core/util/TestSerializedString.java::testPositionOf"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "src/main/java/com/fasterxml/jackson/core/io/SerializedString.java#positionOf javadoc"
+    },
+    {
+     "kind": "parser state semantics (_inputPtr names next char)",
+     "location": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java nextToken/_skipWSOrEnd"
+    },
+    {
+     "kind": "multi-assert trigger (offsets 0,5,15,16 plus getTokenLocation)",
+     "location": "src/test/java/com/fasterxml/jackson/core/json/TestJsonParser.java::testJackson488"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M4",
+    "M9",
+    "M13",
+    "M14",
+    "M17",
+    "M18"
+   ],
+   "notes": "Only 1/5 Sonnet runs answered (run-004, rank 1, 45 calls). The 4 no-answers are 3 runs at the 50-call limit and 1 timeout, with the gold exposed at steps 11-17. Run-001 tool calls: read the chain correctly by step 25, then tried git log, read ReaderBasedJsonParser.nextToken/_skipWSOrEnd and JsonLocation, tried mvn and a self-written ProbeJackson488, and ended with LimitsExceeded. The adapter arm was also 0/5 answered, so the difficulty is pair-level (large code base, index arithmetic, multi-assert verification), not attribution. Pin opened 3/5. Not in the Opus subset. Second caller is the test-only pin."
+  },
+  {
+   "variant": "OCFLB-LANG-03-DEFINER",
+   "project": "Lang",
+   "instance_label": "ocflb-v1/OCFLB-LANG-03-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "org.apache.commons.lang3.EnumUtils::compose"
+   ],
+   "fault_description": "H2 compose returns at * Byte.SIZE, treating the destination bit offset as a byte offset, instead of returning at. The first word lands at bit 64 (0 after shift reduction) instead of bit 8, giving 252851286 instead of 0xF12345600.",
+   "fault_lines": [
+    "return at * Byte.SIZE;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The javadoc says 'at is already a bit position, so the origin equals at'; the body applies a spurious Byte.SIZE unit factor.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "H3 BitField.widen (shifts[i] = i * width + origin) is plainly correct.",
+   "decoys": [
+    "org.apache.commons.lang3.BitField::widen",
+    "org.apache.commons.lang3.ArrayUtils::gather",
+    "org.apache.commons.lang3.Conversion::intArrayToLong",
+    "org.apache.commons.lang3.ObjectUtils::combine",
+    "org.apache.commons.lang3.math.NumberUtils::overlay"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.ConversionTest::testLang1112",
+    "org.apache.commons.lang3.Conversion::intArrayToLong"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "src/test/java/org/apache/commons/lang3/EnumUtilsTest.java::testCompose"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "src/main/java/org/apache/commons/lang3/EnumUtils.java#compose javadoc"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M0",
+    "M3",
+    "M4",
+    "M13",
+    "M14",
+    "M17"
+   ],
+   "notes": "10/10 rank 1 (Sonnet 5, Opus 5; one Opus provider stall excluded and replaced). H1 gather always 2nd. TARGET_SELECTION.md mentioned a BitField.setValue production second caller, but TARGET_SPEC says production second caller: none. Second caller is the test-only pin."
+  },
+  {
+   "variant": "OCFLB-LANG-04-DEFINER",
+   "project": "Lang",
+   "instance_label": "ocflb-v1/OCFLB-LANG-04-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "org.apache.commons.lang3.CharSet::akin"
+   ],
+   "fault_description": "H2 akin scores a non-agreeing case form as -1 instead of 0, so a pair whose upper or lower forms agree, but not both, nets 0. Such a pair is judged not fold-equal, and equalsIgnoreCase(StringBuilder, String) returns false for LONG S vs s and KELVIN vs K.",
+   "fault_lines": [
+    "final int upper = u1 == u2 ? 1 : -1;",
+    "final int lower = l1 == l2 ? 1 : -1;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The javadoc says it is a count of agreeing forms, 0, 1 or 2; the body nets +1/-1.",
+   "local_cue_decoy": true,
+   "local_cue_decoy_note": "Naming only. H3 CharSetUtils.smalls and H5 CharRange.capitals are seed-inherited names that do not describe their bodies (THREATS_TO_VALIDITY). smalls holds the decision agreeing > 0, which is the compensating site. Both models ranked smalls 2nd in 10/10.",
+   "decoys": [
+    "org.apache.commons.lang3.CharSetUtils::smalls",
+    "org.apache.commons.lang3.text.StrMatcher::sweep",
+    "org.apache.commons.lang3.CharSequenceUtils::regionMatches",
+    "org.apache.commons.lang3.CharUtils::pair",
+    "org.apache.commons.lang3.CharRange::capitals",
+    "org.apache.commons.lang3.StringUtils::equalsIgnoreCase"
+   ],
+   "entry_points": [
+    "org.apache.commons.lang3.StringUtilsEqualsIndexOfTest::testLang1149",
+    "org.apache.commons.lang3.StringUtils::equalsIgnoreCase",
+    "org.apache.commons.lang3.CharSequenceUtils::regionMatches"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "src/test/java/org/apache/commons/lang3/CharSetTest.java::testAkin"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "src/main/java/org/apache/commons/lang3/CharSet.java#akin javadoc"
+    },
+    {
+     "kind": "String-vs-CharSequence differential in trigger",
+     "location": "src/test/java/org/apache/commons/lang3/StringUtilsEqualsIndexOfTest.java::testLang1149"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 4,
+   "mechanism_tags": [
+    "M0",
+    "M3",
+    "M4",
+    "M13",
+    "M14",
+    "M18"
+   ],
+   "notes": "10/10 rank 1 (Sonnet 5, Opus 5). This is the only pair where the definer and adapter take ranks 1 and 2 every time. The pair was refined during construction (count instead of mask) so that it could be pinned. Second caller is the test-only pin."
+  },
+  {
+   "variant": "OCFLB-MATH-05-DEFINER",
+   "project": "Math",
+   "instance_label": "ocflb-v1/OCFLB-MATH-05-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "org.apache.commons.math3.util.Precision::residue"
+   ],
+   "fault_description": "H2 residue divides the plain sum of squares by the scale once instead of twice, so the intermediate entries are merged into the doubly scaled sum with weight inflated by the scale. safeNorm gives 4.899E19 instead of 2.0E19.",
+   "fault_lines": [
+    "return plain / scale;"
+   ],
+   "bug_omission": true,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": false,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The javadoc spells out 'divided by the scale twice: plain / (scale * scale)'; the body divides once, with the second division missing.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "H3 MatrixUtils.settle (major + scaled) is plainly correct.",
+   "decoys": [
+    "org.apache.commons.math3.linear.MatrixUtils::settle",
+    "org.apache.commons.math3.stat.StatUtils::survey",
+    "org.apache.commons.math3.util.MathArrays::safeNorm",
+    "org.apache.commons.math3.util.FastMath::merge",
+    "org.apache.commons.math3.util.MathUtils::balance"
+   ],
+   "entry_points": [
+    "org.apache.commons.math3.util.MathArraysTest::testMath1142",
+    "org.apache.commons.math3.util.MathArrays::safeNorm"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": false,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "src/test/java/org/apache/commons/math3/util/PrecisionTest.java::testResidue"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "src/main/java/org/apache/commons/math3/util/Precision.java#residue javadoc"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 2,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M0",
+    "M2",
+    "M3",
+    "M4",
+    "M13",
+    "M14",
+    "M17"
+   ],
+   "notes": "10/10 rank 1 (Sonnet 5, Opus 5). H1 survey 2nd; H3 settle 3rd for Opus and 4th for Sonnet. Pin opened 2/5 by Sonnet. The omission fault is still caught locally because the javadoc states the full formula. Second caller is the test-only pin."
+  },
+  {
+   "variant": "OCFLB-MATH-06-DEFINER",
+   "project": "Math",
+   "instance_label": "ocflb-v1/OCFLB-MATH-06-DEFINER",
+   "arm": "DEFINER_FAULT",
+   "gold": [
+    "org.apache.commons.math3.analysis.FunctionUtils::slope"
+   ],
+   "fault_description": "H2 slope multiplies the central-difference denominator by 4 even though each span already covers two grid steps. Every mixed partial derivative at the knots is quartered: partialDerivativeXY(1,1) = 0.25 instead of 1.0 for f = x*y.",
+   "fault_lines": [
+    "span[i][j] = 4 * dx * dy;"
+   ],
+   "bug_omission": false,
+   "bug_wrong_operator": false,
+   "bug_wrong_constant": true,
+   "bug_wrong_variable": false,
+   "bug_missing_negation": false,
+   "bug_wrong_branch": false,
+   "local_cue_gold": true,
+   "local_cue_gold_note": "The javadoc says 'the product is returned as is, without any further factor'. However, the factor 4 matches the textbook central-difference denominator (2h)(2k), so domain priors make the line look plausible.",
+   "local_cue_decoy": false,
+   "local_cue_decoy_note": "H3 PolynomialsUtils.rise (diff / span[i][j]) is plainly correct.",
+   "decoys": [
+    "org.apache.commons.math3.analysis.polynomials.PolynomialsUtils::rise",
+    "org.apache.commons.math3.analysis.interpolation.SplineInterpolator::lace",
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolator::interpolate",
+    "org.apache.commons.math3.analysis.interpolation.DividedDifferenceInterpolator::warp",
+    "org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction::weave",
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolatingFunction::partialDerivativeXY"
+   ],
+   "entry_points": [
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolatorTest::testMath1181",
+    "org.apache.commons.math3.analysis.interpolation.BicubicSplineInterpolator::interpolate"
+   ],
+   "ownership_split": true,
+   "semantic_convention_ambiguity": true,
+   "external_evidence": [
+    {
+     "kind": "pin unit test (fails on this arm)",
+     "location": "src/test/java/org/apache/commons/math3/analysis/FunctionUtilsTest.java::testSlope"
+    },
+    {
+     "kind": "javadoc contract (local to gold)",
+     "location": "src/main/java/org/apache/commons/math3/analysis/FunctionUtils.java#slope javadoc"
+    },
+    {
+     "kind": "downstream coefficient algebra needed to verify trigger values",
+     "location": "src/main/java/org/apache/commons/math3/analysis/interpolation/BicubicSplineInterpolatingFunction.java computePartialDerivatives"
+    }
+   ],
+   "second_caller": true,
+   "multiple_plausible_suspects": 3,
+   "search_depth_hops": 3,
+   "mechanism_tags": [
+    "M3",
+    "M4",
+    "M9",
+    "M13",
+    "M14",
+    "M17"
+   ],
+   "notes": "Only 2/5 Sonnet runs answered (both rank 1, 43-47 calls). 3 runs hit the 300 s timeout with the gold exposed at steps 7-8. Run-003 tool calls: found slope and rise by step 11; tried defects4j and mvn, wrote its own TestRunner, searched for junit jars, re-derived the central-difference formula '(2*dx * 2*dy)' in echoed notes, and read BicubicSplineInterpolatingFunction before the SIGTERM timeout. Pin never opened (0/5). H3 rise was 2nd in both answered runs. The adapter arm had 1 valid run (no-answer) after credits ran out. Not in the Opus subset. Second caller is the test-only pin."
+  }
+ ],
+ "findings": [
+  "I annotated chunk 1/2 of ocflb-v1. The variants at even positions are the 10 ADAPTER arms: CHART-01, CHART-02, COMPRESS-07, COMPRESS-08, JACKSONCORE-09, JACKSONCORE-10, LANG-03, LANG-04, MATH-05 and MATH-06.\n\nHow the family is built (README.md, TARGET_SELECTION.md, review/PAIR_OVERVIEW.md):\n- Each pair re-cuts a real fault into the chain Facade -> H1 -> {H2 definer, H3 adapter} -> H4 -> H5. H1 calls H2 and H3 directly, so the gold H3 sits 3 calls below the test (4 when the test goes through a helper or wrapper).\n- The definer's javadoc states the convention, and the adapter's faulty body contradicts its own javadoc in both arms (projects/*/analysis/LOCAL_COHERENCE.md).\n- Every adapter fault is something written into the code (sign flip, swapped ternary, wrong accessor, extra factor, wrong constant). None is an omission.\n- Ownership is PINNED_UNIQUE through a test-only pin, which is a unit test calling H2. There is no production second caller (manifest second_caller is null).\n\nWhat the reports concluded:\n- **No definer bias** (results/FINAL_THESIS_INTERPRETATION.md, results/OCFLB_RESULTS.md, results/OWNERSHIP_ANALYSIS.md):\n  - Every answered Sonnet run ranked the gold first (40/40 definer, 40/40 adapter).\n  - Opus ranked it first in 49 of 50.\n  - The mean attribution gap is 0.02, and no answered run misattributed between definer and adapter.\n- **Why agents succeeded:** with the convention documented, a faulty hop that visibly contradicts its own documentation, and no omission faults, ownership is settled locally before any witness is checked.\n  - The pin was opened in 18 of 95 valid Sonnet runs and in no Opus run, and it never changed an outcome.\n  - The reports contrast this with adversarial-break-v1, where an undocumented convention plus an omission fault produced systematic blame on the definer.\n- **The only answered miss** is OCFLB-CHART-01-ADAPTER, Opus run-002 (results/FAILURE_TAXONOMY.md, results/OPUS_REPLICATION.md).\n  - Opus put the consumer hop StandardDialScale::rim first, nudge second and drift third. The taxonomy calls this DEPTH_PRIOR.\n  - The run's own evidence_chain points to a different cause. It says nudge \"matches the usual (p1-p2)*pct definition\", which is the upstream JFreeChart convention, \"so the addition in rim is what looks wrong\".\n  - So the miss came from a prior-convention conflict (a sign inverse pair across H3/H4), not from depth alone. rim is also an unpinned alternative repair site.\n- **Every other failure is a non-answer** (results/SONNET_RESULTS.md, results/FAILURE_TAXONOMY.md).\n  - 15 Sonnet runs ran out of tool calls or time, always after the gold was exposed, and almost all are on JACKSONCORE-10 and MATH-06.\n  - In my chunk that is all 5 JACKSONCORE-10-ADAPTER runs and MATH-06-ADAPTER run-001.\n  - The trajectories show the agents verifying distant evidence (ReaderBasedJsonParser _inputPtr bookkeeping; the bicubic coefficient algebra) with self-written scripts instead of committing.\n- **Caveats** (results/THREATS_TO_VALIDITY.md):\n  - Attribution is at ceiling, so the benchmark mainly measures completion under budget.\n  - Some adapter faults look synthetic (`high << 1`, `back = 0`).\n  - Some hop names are inherited from the seeds and no longer describe their bodies.\n  - The pin fails only on the definer arm, so it is a signal that differs between arms.\n  - MATH-06-ADAPTER has n=1 valid run because the Anthropic credit ran out.\n\nMining caveats:\n- all_runs.json marks provider stalls and no-answers as \"wrong\" (CHART-01-ADAPTER sonnet run-004, CHART-02-ADAPTER run-004 and MATH-06-ADAPTER run-002 are stalls). In this chunk only CHART-01-ADAPTER opus run-002 actually ranks a wrong method first.\n- TARGET_SELECTION.md planned some adapter faults differently from what was built: Compress-07 planned a '(byte) m' cast and got 'low - top'; JKC-10 planned 'returns next' and got 'back = 0'. The annotations follow the built variant.patch.",
+  "Chunk 2/2 of ocflb-v1 is the ten odd-position variants of the sorted 20-variant list. These are exactly the ten DEFINER_FAULT arms: CHART-01, CHART-02, COMPRESS-07, COMPRESS-08, JACKSONCORE-09, JACKSONCORE-10, LANG-03, LANG-04, MATH-05 and MATH-06.\n\n**Shared structure.** Every pair re-cuts one real Defects4J semantic fault into a fixed chain: Facade -> H1 -> H2 (definer) -> H3 (adapter) -> H4 -> H5. In practice H1 calls both H2 and H3. In these arms the gold is always H2. Its javadoc states the convention, and its body contradicts that javadoc.\n- A compensating edit at H3 would also fix the trigger, but it breaks the pin test, so ownership is PINNED_UNIQUE.\n- The pin is a unit test of H2. It fails on the definer arm.\n- There is no production second caller in any pair. Every TARGET_SPEC.md says \"Production second caller: none (unit-test pin only)\". This holds even for LANG-03, where TARGET_SELECTION.md had suggested a BitField.setValue path.\n\n**Outcomes on these 75 runs** (from mining/all_runs.json and results/RUN_LEVEL_RESULTS.csv):\n- 66 runs ranked the gold first. No run ranked a wrong method first.\n- All 9 misses are Sonnet no-answers: COMPRESS-07 1, COMPRESS-08 1, JACKSONCORE-10 4, MATH-06 3.\n- In all 9 misses the agent had already read the gold (steps 7-20). The runs then ran out of the 50-tool-call budget or hit the 300 s deadline.\n- Where the gold was ranked first, the usual second place was H1 (the method that calls both H2 and H3). The exceptions:\n  - LANG-04: both models put H3 `smalls` second in 10/10 runs.\n  - COMPRESS-07: Opus put H3 `widen` second in 5/5.\n  - MATH-06: Sonnet put H3 `rise` second.\n  - CHART-01: Opus put H4 `rim` second in 3/5.\n\n**What the family reports concluded:**\n- **No definer bias when the contract is explicit.** Under explicit, pinned contracts neither model prefers the definer. All 40 answered Sonnet definer-arm runs and all 25 Opus definer-arm runs ranked the gold first. Mean attribution gap 0.02, zero misattributions in 130 answered runs (README.md, results/OCFLB_RESULTS.md, results/FINAL_THESIS_INTERPRETATION.md).\n- **Why agents succeeded.** Agents settle ownership locally, before looking at any witness. The H2 javadoc states the convention and the faulty hop visibly contradicts its own documentation in both arms. The pin was opened in only 18/95 Sonnet runs and never by Opus, and opening it did not change outcomes (results/OWNERSHIP_ANALYSIS.md, results/OPUS_REPLICATION.md).\n- **Why agents failed.**\n  - The only Sonnet failure class is NO_ANSWER (exhaustion): 15 runs across both arms, gold discovered in all 15 (results/FAILURE_TAXONOMY.md, results/SONNET_RESULTS.md).\n  - The misses cluster on JacksonCore-10 (parser-location chain in a large code base) and Math-06 (bicubic derivative algebra, re-derived by hand and with self-written programs).\n  - The only misranking in the family is on an adapter arm, outside this chunk: one Opus DEPTH_PRIOR run on CHART-01-ADAPTER, with consumer hop `rim` first.\n- **What the trajectories show.** The tool calls I read match the reports. JKC-10-DEFINER run-001 read ReaderBasedJsonParser.nextToken/_skipWSOrEnd, then tried git history, mvn and a self-written probe, and ended with LimitsExceeded. MATH-06-DEFINER run-003 tried mvn and a self-written TestRunner, and wrote out the textbook central-difference formula \"(2*dx * 2*dy)\" in an echoed note. It was killed by the 300 s timeout.\n- **Contrast with adversarial-break-v1** (FINAL_THESIS_INTERPRETATION.md). That pair produced definer misattribution under three conditions: the definer convention was undocumented, the adapter fault was an omission, and the witness was found only by accident. OCFLB is therefore the control for that result. Its signal is completion under budget, not attribution: Sonnet averaged about 33 tool calls, Opus about 5.5 and never ran a test.\n- **Threats** (results/THREATS_TO_VALIDITY.md):\n  - Chains are synthetic. Seed-inherited names such as `smalls`, `capitals`, `weight` and `byteValue` no longer describe their bodies.\n  - Detecting the fault from javadoc-versus-body is symmetric across arms by design.\n  - The pin fails only on the definer arm, so an agent that runs it gets an arm-specific signal; few did.\n  - Attribution is at ceiling, so the study is a null result for definer bias.\n  - Per-pair analysis docs (projects/*/bug-XX/analysis/LOCAL_COHERENCE.md, OWNERSHIP_PROOF.md, LEAKAGE_AUDIT.md) confirm identical documentation across arms and no leak beyond the pin.\n\n**Hop counting.** I counted call edges from the test method to the gold through production code, counting test->facade as 1. The CHART-01 test-local ArcProbe wrapper is ignored."
+ ]
+}

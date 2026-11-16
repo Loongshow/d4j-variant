@@ -1,0 +1,96 @@
+{
+ "iid": "NEW-R3-M3",
+ "project": "Math",
+ "group": "NEW-R3",
+ "mechanism": "M3",
+ "tags": [
+  "M3",
+  "M2",
+  "M5"
+ ],
+ "tier": "EXPLORATORY",
+ "src_root": "src/main/java",
+ "test_root": "src/test/java",
+ "gold": {
+  "class": "org.apache.commons.math3.distribution.SaddlePointExpansion",
+  "method": "logBinomialProbability",
+  "file": "src/main/java/org/apache/commons/math3/distribution/SaddlePointExpansion.java",
+  "edits": [
+   {
+    "old": "                ret = -getDeviancePart(n, n * p) - n * q;",
+    "new": "                ret = -getDeviancePart(n, n * p);"
+   }
+  ]
+ },
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/distribution/SaddlePointExpansion.java",
+   "old": "     * A part of the deviance portion of the saddle point approximation.\n",
+   "new": "     * A part of the deviance portion of the saddle point approximation:\n     * the returned value is {@code x * log(x / mu) + mu - x}. When {@code x}\n     * is close to {@code mu} it is evaluated with a series expansion.\n",
+   "purpose": "javadoc only: states the value convention of the definer getDeviancePart (behaviour-preserving)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math3.distribution.SaddlePointExpansion",
+   "method": "getDeviancePart",
+   "file": "src/main/java/org/apache/commons/math3/distribution/SaddlePointExpansion.java"
+  },
+  {
+   "class": "org.apache.commons.math3.distribution.SaddlePointExpansion",
+   "method": "getStirlingError",
+   "file": "src/main/java/org/apache/commons/math3/distribution/SaddlePointExpansion.java"
+  }
+ ],
+ "entry_points": [
+  "org.apache.commons.math3.distribution.BinomialDistribution::probability"
+ ],
+ "evidence": [
+  "org.apache.commons.math3.distribution.SaddlePointExpansion::getDeviancePart",
+  "org.apache.commons.math3.distribution.PoissonDistribution::probability",
+  "org.apache.commons.math3.distribution.PoissonDistributionTest::testDevianceTermValues",
+  "org.apache.commons.math3.distribution.PoissonDistributionTest::testDensities"
+ ],
+ "ownership_reason": "SaddlePointExpansion.getDeviancePart (the definer) returns the deviance term x*log(x/mu) + mu - x, not x*log(x/mu): this is stated in its javadoc, pinned by the passing unit test PoissonDistributionTest::testDevianceTermValues, and relied on by its second production caller PoissonDistribution.probability (Poisson pmf = exp(-stirlingError(x) - getDeviancePart(x, mean)) / sqrt(2*pi*x), checked by PoissonDistributionTest::testDensities). The adapter logBinomialProbability must therefore remove the mu - x part in its boundary branches: in the x == 0, p < 0.1 branch it does (-getDeviancePart(n, n*q) - n*p == n*log(q), the value of the p >= 0.1 fallback), and the x == n fallback returns n*log(p). In the x == n, q < 0.1 branch the variant returns -getDeviancePart(n, n*p) == n*log(p) + n*q, so P(X = n) is multiplied by exp(n*q) (Binomial(20, 0.95): 0.95^20 * e). Restoring '- n * q' in logBinomialProbability fixes the trigger and keeps the full suite green. Changing the definer to drop mu - x would make the trigger pass but breaks the Poisson pmf and the definer's unit test (declared compensating edit, G9), and within logBinomialProbability getStirlingError is used only by the general branch, which the trigger's first assertion (P(X = 19)) shows to be correct, so neither competitor owns the fault.",
+ "ownership_tests": [
+  "org.apache.commons.math3.distribution.PoissonDistributionTest::testDevianceTermValues",
+  "org.apache.commons.math3.distribution.PoissonDistributionTest::testDensities"
+ ],
+ "trigger": {
+  "test_file": "src/test/java/org/apache/commons/math3/distribution/BinomialDistributionTest.java",
+  "test_class": "org.apache.commons.math3.distribution.BinomialDistributionTest",
+  "test_method": "testAllTrialsSucceedingAtHighRate",
+  "imports": [
+   "import org.apache.commons.math3.util.FastMath;"
+  ],
+  "code": "    @Test\n    public void testAllTrialsSucceedingAtHighRate() {\n        BinomialDistribution dist = new BinomialDistribution(20, 0.95);\n        Assert.assertEquals(20 * FastMath.pow(0.95, 19) * 0.05, dist.probability(19), 1e-12);\n        Assert.assertEquals(FastMath.pow(0.95, 20), dist.probability(20), 1e-12);\n    }\n"
+ },
+ "extra_tests": [
+  {
+   "test_file": "src/test/java/org/apache/commons/math3/distribution/PoissonDistributionTest.java",
+   "imports": [],
+   "code": "    @Test\n    public void testDevianceTermValues() {\n        Assert.assertEquals(10 * FastMath.log(2.0) - 5, SaddlePointExpansion.getDeviancePart(10, 5), 1e-12);\n        Assert.assertEquals(20 * FastMath.log(20.0 / 19.0) - 1, SaddlePointExpansion.getDeviancePart(20, 19), 1e-12);\n    }\n"
+  }
+ ],
+ "expected_signature": "expected:<0.3584859224085419> but was:<0.9744657686415196>",
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/distribution/SaddlePointExpansion.java",
+   "old": "            ret = s1;",
+   "new": "            ret = s1 + x - mu;",
+   "why": "one-line definer edit: getDeviancePart returns x*log(x/mu) (without mu - x) in its series branch, the branch the trigger reaches"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/distribution/SaddlePointExpansion.java",
+   "old": "            ret = x * FastMath.log(x / mu) + mu - x;",
+   "new": "            ret = x * FastMath.log(x / mu);",
+   "why": "one-line definer edit: getDeviancePart returns x*log(x/mu) (without mu - x) in its closed-form branch"
+  }
+ ],
+ "variant_id": "CTV-8C7B4D",
+ "kind": "new",
+ "fault_lines": [
+  "ret = -getDeviancePart(n, n * p);"
+ ],
+ "gold_key": "org.apache.commons.math3.distribution.SaddlePointExpansion::logBinomialProbability"
+}

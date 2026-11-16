@@ -1,0 +1,147 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/ArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/ArchiveInputStream.java
+index 58bbb342..f3170db1 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveInputStream.java
+@@ -21,6 +21,8 @@ package org.apache.commons.compress.archivers;
+ import java.io.IOException;
+ import java.io.InputStream;
+ 
++import org.apache.commons.compress.utils.IOUtils;
++
+ public abstract class ArchiveInputStream extends InputStream {
+ 
+     /**
+@@ -30,4 +32,18 @@ public abstract class ArchiveInputStream extends InputStream {
+      */
+     public abstract ArchiveEntry getNextEntry() throws IOException;
+ 
++    /**
++     * Converts the outcome of a one-byte bulk read into the value that
++     * read() returns. A count of -1 means that the bulk read reached the
++     * end of the stream; any other count means that the byte was read.
++     * The octet is passed on unchanged.
++     *
++     * @param count the number the bulk read returned
++     * @param octet the byte the bulk read stored, as an int
++     * @return the value IOUtils.readValue gives for (count == -1) and octet
++     */
++    public static int toReadValue(int count, int octet) {
++        return IOUtils.readValue(count == -1, octet);
++    }
++
+ }
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java
+index 82b40db1..1ac07f8a 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java
+@@ -40,7 +40,6 @@ public class TarArchiveInputStream extends ArchiveInputStream {
+     private static final int SMALL_BUFFER_SIZE = 256;
+     private static final int BUFFER_SIZE = 8 * 1024;
+     private static final int LARGE_BUFFER_SIZE = 32 * 1024;
+-    private static final int BYTE_MASK = 0xFF;
+ 
+     private boolean debug;
+     private boolean hasHitEOF;
+@@ -272,14 +271,14 @@ public class TarArchiveInputStream extends ArchiveInputStream {
+     /**
+      * Reads a byte from the current tar archive entry.
+      *
+-     * This method simply calls read( byte[], int, int ).
++     * This method reads through read( byte[], int, int ) by returning
++     * TarBuffer.readOne for this stream and its one-byte buffer.
+      *
+-     * @return The byte read, or -1 at EOF.
++     * @return The byte read, or -1 at EOF, as TarBuffer.readOne gives it.
+      * @throws IOException on error
+      */
+     public int read() throws IOException {
+-        int num = read(oneBuf, 0, 1);
+-        return num == -1 ? -1 : oneBuf[0] & BYTE_MASK;
++        return TarBuffer.readOne(this, oneBuf);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java
+index fd16aedf..141cc7b0 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java
+@@ -23,6 +23,8 @@ import java.io.InputStream;
+ import java.io.OutputStream;
+ import java.util.Arrays;
+ 
++import org.apache.commons.compress.archivers.ArchiveInputStream;
++
+ /**
+  * The TarBuffer class implements the tar archive concept
+  * of a buffered input stream. This concept goes back to the
+@@ -149,6 +151,22 @@ public class TarBuffer {
+         return this.recordSize;
+     }
+ 
++    /**
++     * Read a single byte from a stream through a one-byte bulk read.
++     * Calls in.read(single, 0, 1), then returns ArchiveInputStream.toReadValue
++     * for the count that call returned and the octet that TarUtils.octetAt
++     * gives for single[0].
++     *
++     * @param in The stream to read from.
++     * @param single A buffer of at least one byte; its first byte is overwritten.
++     * @return The value ArchiveInputStream.toReadValue gives.
++     * @throws IOException on error
++     */
++    public static int readOne(InputStream in, byte[] single) throws IOException {
++        int count = in.read(single, 0, 1);
++        return ArchiveInputStream.toReadValue(count, TarUtils.octetAt(single, 0));
++    }
++
+     /**
+      * Set the debugging flag for the buffer.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 05faa644..1a34d094 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -198,4 +198,17 @@ public class TarUtils {
+ 
+         return sum;
+     }
++
++    /**
++     * Get one byte of a buffer as an unsigned octet value.
++     *
++     * @param buf The buffer holding the byte.
++     * @param index The index of the byte in the buffer.
++     * @return The byte as an int from 0 to 255: bytes 0x80 to 0xFF give
++     * 128 to 255, never a negative value.
++     */
++    public static int octetAt(byte[] buf, int index) {
++        int octet = buf[index];
++        return octet;
++    }
+ }
+diff --git a/src/main/java/org/apache/commons/compress/utils/IOUtils.java b/src/main/java/org/apache/commons/compress/utils/IOUtils.java
+index fe242110..fb98ced5 100644
+--- a/src/main/java/org/apache/commons/compress/utils/IOUtils.java
++++ b/src/main/java/org/apache/commons/compress/utils/IOUtils.java
+@@ -58,4 +58,21 @@ public final class IOUtils {
+             output.write(buffer, 0, n);
+         }
+     }
++
++    /**
++     * Gives the value that InputStream.read() returns for one byte:
++     * -1 at the end of the stream, otherwise the byte itself.
++     * <p>
++     * The octet must already be an unsigned byte value from 0 to 255, so
++     * that it cannot be taken for the end marker -1; it is returned as given.
++     *
++     * @param atEnd
++     *            whether the end of the stream was reached
++     * @param octet
++     *            the byte, as a value from 0 to 255
++     * @return -1 if atEnd is true, otherwise octet
++     */
++    public static int readValue(final boolean atEnd, final int octet) {
++        return atEnd ? -1 : octet;
++    }
+ }
