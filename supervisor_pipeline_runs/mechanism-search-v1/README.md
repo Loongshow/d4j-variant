@@ -7,6 +7,10 @@ the tested manipulations** (stop rule B).
 
 Start with [`STABLE_ACCURACY_REDUCTION_SUMMARY.md`](STABLE_ACCURACY_REDUCTION_SUMMARY.md).
 
+This is an experiment archive. Read [`PUBLICATION_NOTES.md`](PUBLICATION_NOTES.md)
+for reproduction requirements and a known integrity-check defect in the frozen
+driver before reusing its scripts.
+
 ## Question
 
 The cue-trust-v3 pilot (`../cue-trust-v3`, 27/27 gold at rank 1) was null. This study asks the broader question: which

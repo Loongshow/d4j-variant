@@ -1,5 +1,10 @@
 # cue-trust-v3 (NON-CANONICAL RESEARCH BENCHMARK)
 
+This is an experiment archive. Read the companion
+[`PUBLICATION_NOTES.md`](../mechanism-search-v1/PUBLICATION_NOTES.md) for
+reproduction requirements and a known integrity-check defect in the frozen
+driver before reusing its scripts.
+
 Do misleading identifier names and comments change which method a repository-level LLM fault-localization agent blames, when the
 code's behaviour is unchanged? Design: `/Users/shawnli/Desktop/Honours/thesis_writeup/EXPERIMENT_REDESIGN_v3.md`.
 Pre-registration (frozen before any run): `PREREGISTRATION.md`.
