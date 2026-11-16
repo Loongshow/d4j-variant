@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { discoverBenchmarkRunRecords, parseBenchmarkDurationMs } from "./benchmarkStore.mjs";
 import { exists } from "./variantLibrary.mjs";
+import { DEFAULT_COHORT_ID, cohortFamilies, getCohort } from "./cohorts.mjs";
 
 export const ACCURACY_SCHEMA_VERSION = "d4j-accuracy-analysis/v1";
 export const CANONICAL_RESULT_SCHEMA_VERSION = "d4j-canonical-localization-result/v1";
@@ -34,6 +35,10 @@ const batchPrecedence = ["multi-family-l10-l30-l50-v1", "seven-family-l10-l90-v1
 
 function familyId(project, bugId) {
   return `${project}-${bugId}`;
+}
+
+function familyIdsForCohortLocal(families) {
+  return families.map((family) => familyId(family.project, family.bug_id));
 }
 
 function cellKey(project, bugId, depth) {
@@ -415,14 +420,24 @@ export function selectAccuracyMetric(analysis, metric = "at1") {
   };
 }
 
-export async function buildAccuracyAnalysis({ benchmarkRoot, repoRoot, targetRuns = DEFAULT_TARGET_RUNS }) {
+export async function buildAccuracyAnalysis({
+  benchmarkRoot,
+  repoRoot,
+  targetRuns = DEFAULT_TARGET_RUNS,
+  cohortId = DEFAULT_COHORT_ID,
+}) {
+  // Issue F-9: the cohort is now an explicit, named, documented population rather than
+  // an implicit module-level constant. getCohort() throws on an unknown id, so a typo
+  // cannot silently fall back to "whatever ACCURACY_FAMILIES happens to contain".
+  const cohort = getCohort(cohortId);
+  const families = cohortFamilies(cohortId);
   const [batchManifests, discovered] = await Promise.all([
     readBatchManifests(benchmarkRoot),
     discoverBenchmarkRunRecords(benchmarkRoot, repoRoot),
   ]);
-  const registry = buildAccuracyTaskRegistry(batchManifests);
-  const runLevelResults = discovered.map((record) => canonicalRun(record, registry));
-  const aggregated = aggregateCanonicalResults(runLevelResults, registry, { targetRuns });
+  const registry = buildAccuracyTaskRegistry(batchManifests, families);
+  const runLevelResults = discovered.map((record) => canonicalRun(record, registry, families));
+  const aggregated = aggregateCanonicalResults(runLevelResults, registry, { targetRuns, families });
   const pilotManifests = batchManifests.filter((manifest) => manifest.batch_id === "seven-family-l10-l90-v1");
   const pilotRegistry = buildAccuracyTaskRegistry(pilotManifests, SEVEN_FAMILY_PILOT_FAMILIES);
   const pilotRunLevelResults = discovered.map((record) => canonicalRun(record, pilotRegistry, SEVEN_FAMILY_PILOT_FAMILIES));
@@ -430,7 +445,7 @@ export async function buildAccuracyAnalysis({ benchmarkRoot, repoRoot, targetRun
     targetRuns,
     families: SEVEN_FAMILY_PILOT_FAMILIES,
   });
-  const rows = ACCURACY_FAMILIES.map((family) => {
+  const rows = families.map((family) => {
     const familyName = familyId(family.project, family.bug_id);
     return {
       family: familyName,
@@ -460,6 +475,17 @@ export async function buildAccuracyAnalysis({ benchmarkRoot, repoRoot, targetRun
   const generatedAt = new Date().toISOString();
   return {
     schema_version: ACCURACY_SCHEMA_VERSION,
+    // Explicit cohort provenance. Any consumer can now tell which population produced
+    // these numbers and whether they may be used for a strict-depth claim.
+    cohort: {
+      cohort_id: cohort.cohort_id,
+      label: cohort.label,
+      depth_basis: cohort.depth_basis,
+      families: familyIdsForCohortLocal(families),
+      excluded_families: cohort.excluded_families,
+      supports_strict_depth_claims: cohort.supports_strict_depth_claims,
+      notes: cohort.notes,
+    },
     experiment_config: {
       agent_id: "mini-swe-gpt56",
       agent: "mini-swe-agent",
@@ -487,6 +513,10 @@ export async function buildAccuracyAnalysis({ benchmarkRoot, repoRoot, targetRun
     cohort_summaries: {
       seven_family_pilot: {
         cohort_id: "seven-family-l10-l90-v1",
+        depth_basis: getCohort("seven-family-l10-l90-v1").depth_basis,
+        supports_strict_depth_claims: getCohort("seven-family-l10-l90-v1").supports_strict_depth_claims,
+        not_combinable_with:
+          "historical-default-v1 (different family set and overlapping run directories); strict-chart-closure-l10-l30-v1 (different depth basis)",
         families: SEVEN_FAMILY_PILOT_FAMILIES.map((family) => familyId(family.project, family.bug_id)),
         original: statisticalRow({ depth: "Original", ...aggregateAcrossCells(pilotAggregated.originals) }),
         depths: pilotAggregated.depthSummary.map(statisticalRow),

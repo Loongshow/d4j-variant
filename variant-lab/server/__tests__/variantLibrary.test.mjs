@@ -13,8 +13,12 @@ import {
   ensureChartSecondaryVariant,
   groupVariantRecords,
   hasCanonicalValidatedBugVariant,
+  normalizeExperimentNamespace,
+  normalizeProject,
   readVariantRecord,
+  recordToSummary,
   safeArtifactPath,
+  safeResolve,
   sanitizeVariantId,
   summarizeVariantRecords,
   validationGatePasses,
@@ -44,6 +48,88 @@ async function writeJson(filePath, data) {
 async function writeFile(filePath, content) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, content);
+}
+
+function acceptedValidation(variantId) {
+  return {
+    schema_version: "d4j-validation/v1",
+    variant_id: variantId,
+    status: "accepted",
+    gate: {
+      baseline_compile: { status: "pass" },
+      baseline_trigger: { status: "pass" },
+      variant_compile: { status: "pass" },
+      variant_trigger_runs: [
+        { status: "expected_fail" },
+        { status: "expected_fail" },
+        { status: "expected_fail" },
+      ],
+      deterministic: { status: "pass" },
+      production_fault: { status: "pass" },
+      gold_method_known: { status: "pass" },
+    },
+  };
+}
+
+function canonicalManifest({ variantId, level, namespace = null, benchmarkEligible = true }) {
+  const currentMethod = namespace ? "reconcileInternalState" : `locateFault${level}`;
+  const manifest = {
+    schema_version: "d4j-variant-manifest/v1",
+    variant_id: variantId,
+    source: {
+      defects4j_project: "Closure",
+      defects4j_bug_id: 1,
+      fixed_revision: "1f",
+      artifact_path: `new_bug_variants/Closure/bug-1/${namespace ?? level}/${variantId}/`,
+    },
+    status: "validated",
+    benchmark_eligible: benchmarkEligible,
+    reproducibility: { status: "passed" },
+    reasoning: {
+      level,
+      unit_count: Number(level.slice(1)),
+      changed_node: `Validated ${level} semantic dependency`,
+    },
+    fault: {
+      locations: [
+        {
+          class: "com.google.javascript.jscomp.RemoveUnusedVars",
+          method: currentMethod,
+          file: "src/com/google/javascript/jscomp/RemoveUnusedVars.java",
+          production: true,
+        },
+      ],
+      gold: {
+        faulty_class: "com.google.javascript.jscomp.RemoveUnusedVars",
+        faulty_method: currentMethod,
+      },
+    },
+    trigger: {
+      test_id: `com.google.javascript.jscomp.IntegrationTest::test${level}Variant`,
+    },
+    artifacts: artifactMapFor(variantId),
+  };
+  if (namespace) {
+    Object.assign(manifest, {
+      experiment_type: "lexical_name_ablation",
+      base_variant_id: `CLOSURE-1-${level}-001`,
+      depth: level,
+      original_method_name: "removeUnreferencedFunctionArgs",
+      ablated_method_name: "reconcileInternalState",
+    });
+  }
+  return manifest;
+}
+
+async function writeVariantFixture({ variantsRoot, variantId, level, namespace = null, benchmarkEligible = true }) {
+  const variantDir = path.join(variantsRoot, "Closure", "bug-1", namespace ?? level, variantId);
+  await fs.mkdir(variantDir, { recursive: true });
+  await writeJson(
+    path.join(variantDir, "variant_manifest.json"),
+    canonicalManifest({ variantId, level, namespace, benchmarkEligible }),
+  );
+  await writeJson(path.join(variantDir, "validation.json"), acceptedValidation(variantId));
+  return variantDir;
 }
 
 test("migrates Chart secondary variant into canonical layout without failing the accepted gate", async () => {
@@ -78,6 +164,150 @@ test("discovers canonical L50 variants", async () => {
 
     const records = await discoverVariantRecords(variantsRoot);
     assert.equal(records.some((record) => record.variantId === "CHART-1-L50-001" && record.level === "L50"), true);
+  });
+});
+
+test("discovers normal L10, L30, and L50 variants with canonical metadata and eligibility", async () => {
+  await withTempRepo(async ({ variantsRoot }) => {
+    for (const level of ["L10", "L30", "L50"]) {
+      await writeVariantFixture({ variantsRoot, variantId: `CLOSURE-1-${level}-001`, level });
+    }
+
+    const records = await discoverVariantRecords(variantsRoot);
+    assert.deepEqual(records.map((record) => record.variantId), [
+      "CLOSURE-1-L10-001",
+      "CLOSURE-1-L30-001",
+      "CLOSURE-1-L50-001",
+    ]);
+    for (const record of records) {
+      const summary = recordToSummary(record);
+      assert.equal(record.project, "Closure");
+      assert.equal(record.bugId, "1");
+      assert.equal(summary.depth, record.level);
+      assert.equal(summary.experiment_type, null);
+      assert.equal(summary.experiment_namespace, null);
+      assert.equal(summary.benchmark_eligible, true);
+    }
+  });
+});
+
+test("discovers name-ablation L10, L30, and L50 variants with lexical metadata", async () => {
+  await withTempRepo(async ({ variantsRoot }) => {
+    for (const level of ["L10", "L30", "L50"]) {
+      await writeVariantFixture({
+        variantsRoot,
+        variantId: `CLOSURE-1-NAME-${level}-001`,
+        level,
+        namespace: "name-ablation",
+      });
+    }
+
+    const records = await discoverVariantRecords(variantsRoot);
+    assert.equal(records.length, 3);
+    for (const record of records) {
+      const summary = recordToSummary(record);
+      assert.equal(summary.experiment_namespace, "name-ablation");
+      assert.equal(summary.experiment_type, "lexical_name_ablation");
+      assert.equal(summary.depth, record.level);
+      assert.equal(summary.base_variant_id, `CLOSURE-1-${record.level}-001`);
+      assert.equal(summary.original_method_name, "removeUnreferencedFunctionArgs");
+      assert.equal(summary.ablated_method_name, "reconcileInternalState");
+      assert.equal(summary.faulty_method, "reconcileInternalState");
+      assert.notEqual(summary.faulty_method, summary.original_method_name);
+      assert.equal(summary.benchmark_eligible, true);
+    }
+  });
+});
+
+test("discovers the same variants from absolute and relative discovery roots", async () => {
+  await withTempRepo(async ({ variantsRoot }) => {
+    await writeVariantFixture({ variantsRoot, variantId: "CLOSURE-1-NAME-L10-001", level: "L10", namespace: "name-ablation" });
+    const relativeRoot = path.relative(process.cwd(), variantsRoot);
+
+    const absoluteRecords = await discoverVariantRecords(variantsRoot);
+    const relativeRecords = await discoverVariantRecords(relativeRoot);
+
+    assert.deepEqual(relativeRecords.map((record) => record.variantId), absoluteRecords.map((record) => record.variantId));
+    assert.equal(relativeRecords[0].variantId, "CLOSURE-1-NAME-L10-001");
+  });
+});
+
+test("ignores malformed namespaces, unsupported namespaces, and invalid variant ids", async () => {
+  await withTempRepo(async ({ variantsRoot }) => {
+    await writeVariantFixture({ variantsRoot, variantId: "CLOSURE-1-NAME-L10-001", level: "L10", namespace: "name-ablation" });
+    await writeVariantFixture({ variantsRoot, variantId: "CLOSURE-1-NAME-L30-001", level: "L30", namespace: "name_ablation" });
+    await writeVariantFixture({ variantsRoot, variantId: "CLOSURE-1-NAME-L50-001", level: "L50", namespace: "private" });
+
+    const invalidIdDir = path.join(variantsRoot, "Closure", "bug-1", "name-ablation", "INVALID..ID");
+    await fs.mkdir(invalidIdDir, { recursive: true });
+    await writeJson(
+      path.join(invalidIdDir, "variant_manifest.json"),
+      canonicalManifest({ variantId: "../escape", level: "L10", namespace: "name-ablation" }),
+    );
+
+    const records = await discoverVariantRecords(variantsRoot);
+    assert.deepEqual(records.map((record) => record.variantId), ["CLOSURE-1-NAME-L10-001"]);
+  });
+});
+
+test("preserves traversal protection for roots, ids, projects, and experiment namespaces", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "d4j-discovery-path-"));
+  const variantsRoot = path.join(root, "new_bug_variants");
+  const outside = path.join(root, "outside");
+  await fs.mkdir(variantsRoot, { recursive: true });
+  await fs.mkdir(outside, { recursive: true });
+  try {
+    assert.throws(() => safeResolve(variantsRoot, "../../outside"), /Rejected path traversal/);
+    assert.throws(
+      () => safeResolve(variantsRoot, path.relative(variantsRoot, outside)),
+      /Rejected path traversal/,
+    );
+    assert.throws(() => sanitizeVariantId("../CLOSURE-1-L10-001"), /Invalid variant id/);
+    assert.throws(() => normalizeProject("../Closure"), /Invalid project id/);
+    assert.throws(() => normalizeExperimentNamespace("../name-ablation"), /Invalid experiment namespace/);
+    assert.throws(() => normalizeExperimentNamespace("private"), /Unsupported experiment namespace/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("does not discover generated, private, VCS, or backup artifacts as variants", async () => {
+  await withTempRepo(async ({ variantsRoot }) => {
+    const validDir = await writeVariantFixture({
+      variantsRoot,
+      variantId: "CLOSURE-1-NAME-L10-001",
+      level: "L10",
+      namespace: "name-ablation",
+    });
+    await writeFile(path.join(validDir, "private_benchmark_metadata.json"), '{"gold":"private"}\n');
+    await writeFile(path.join(validDir, "generation_report.md"), "private generation notes\n");
+    await writeFile(path.join(validDir, "variant.patch.orig"), "backup\n");
+    await writeFile(path.join(validDir, "variant.patch.rej"), "rejected patch\n");
+    await writeFile(path.join(validDir, "variant.patch.bak"), "backup\n");
+    await fs.mkdir(path.join(validDir, ".git"), { recursive: true });
+    await fs.mkdir(path.join(validDir, ".svn"), { recursive: true });
+
+    for (const namespace of ["benchmark_runs", "private", "generation-reports"]) {
+      await writeVariantFixture({
+        variantsRoot,
+        variantId: `CLOSURE-1-${namespace.replaceAll(/[^A-Za-z0-9]/g, "-").toUpperCase()}-L10-001`,
+        level: "L10",
+        namespace,
+      });
+    }
+    for (const suffix of ["orig", "rej", "bak"]) {
+      await writeVariantFixture({
+        variantsRoot,
+        variantId: `CLOSURE-1-NAME-L10-002.${suffix}`,
+        level: "L10",
+        namespace: "name-ablation",
+      });
+    }
+
+    const records = await discoverVariantRecords(variantsRoot);
+    const summaries = records.map(recordToSummary);
+    assert.deepEqual(summaries.map((summary) => summary.variant_id), ["CLOSURE-1-NAME-L10-001"]);
+    assert.doesNotMatch(JSON.stringify(summaries), /private_benchmark_metadata|generation_report|\.orig|\.rej|\.bak|\.git|\.svn/);
   });
 });
 
@@ -246,7 +476,13 @@ test("artifact consistency accepts plot-owned fault evidence without renderer in
     const consistency = await variantArtifactConsistency(record);
 
     assert.equal(consistency.ok, true);
-    assert.equal(consistency.checks.find((check) => check.id === "fault:test-patch-owner").status, "pass");
+    // The former hard check `fault:test-patch-owner` conflated correctness with lexical
+    // leakage (issue F-3) and is replaced by an informational exposure covariate. The
+    // original intent of this assertion - that a plot-owned fault names its owner in the
+    // trigger - is preserved, now as an explicit `exposed` covariate.
+    const ownerExposure = consistency.checks.find((check) => check.id === "lexical:test-patch-names-owner");
+    assert.equal(ownerExposure.status, "info");
+    assert.equal(ownerExposure.exposed, true);
     assert.equal(consistency.checks.find((check) => check.id === "fault:report-owner").status, "pass");
     assert.equal(
       consistency.checks.some((check) => check.id.startsWith("call-path:renderer-")),

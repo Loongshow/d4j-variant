@@ -9,6 +9,15 @@ import { resolveProviderConfig } from "./agents/providerConfig.mjs";
 import { exists, readJsonIfExists, safeResolve, sanitizeVariantId } from "./variantLibrary.mjs";
 import { buildReasoningWorkflow } from "./reasoningWorkflow.mjs";
 
+import {
+  EVIDENCE_POLICY_VERSION,
+  LEGACY_EVIDENCE_POLICY_VERSION,
+  evidencePolicyCompliance,
+  failureEvidencePolicy,
+} from "./evidencePolicy.mjs";
+
+export { EVIDENCE_POLICY_VERSION, LEGACY_EVIDENCE_POLICY_VERSION };
+
 export const AGENT_PROFILE_SCHEMA_VERSION = "d4j-agent-profile/v1";
 export const BENCHMARK_RUN_SCHEMA_VERSION = "d4j-benchmark-run/v1";
 export const AGENT_TASK_SCHEMA_VERSION = "d4j-agent-visible-task/v1";
@@ -667,6 +676,24 @@ export async function createBenchmarkRun({ benchmarkRoot, repoRoot, agent, taskB
     repeats: { repeat_index },
     protocol: benchmarkProtocol,
     prompt: prompt?.metadata ?? null,
+    // Frozen agent-visible failure-evidence policy (issue F-2). Historical runs written
+    // before this field existed are reported as LEGACY_EVIDENCE_POLICY_VERSION by
+    // downstream readers; they are never rewritten.
+    evidence: prepared?.failure_evidence
+      ? {
+          ...prepared.failure_evidence,
+          policy: failureEvidencePolicy,
+          compliance: evidencePolicyCompliance(prepared.failure_evidence),
+        }
+      : {
+          schema_version: failureEvidencePolicy.schema_version,
+          evidence_policy_version: EVIDENCE_POLICY_VERSION,
+          provenance: "unavailable",
+          text: "",
+          policy: failureEvidencePolicy,
+          compliance: { ok: false, reasons: ["Run was not prepared, so no failure evidence was produced"] },
+        },
+    evidence_policy_version: EVIDENCE_POLICY_VERSION,
     provider_config: execution.provider_config ?? null,
     adapter: execution.adapter ?? null,
     timeouts: {

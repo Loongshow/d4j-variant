@@ -17,6 +17,7 @@ import {
   trajectoryJsonl,
 } from "./agentAdapter.mjs";
 import { buildProviderEnvironment, resolveProviderConfig } from "./providerConfig.mjs";
+import { buildFailureEvidence, failureEvidencePolicy } from "../evidencePolicy.mjs";
 
 const CHART_SECONDARY_VARIANT_ID = "CHART-1-L10-SECONDARY-02";
 const installRequirement = "python -m pip install mini-swe-agent==2.4.6";
@@ -566,12 +567,16 @@ function extractSubmissionFromTrajectory(trajectory) {
 }
 
 export class MiniSweAgentAdapter extends AgentAdapter {
-  constructor({ repoRoot, checkoutRoot, variantsRoot, env = process.env } = {}) {
+  constructor({ repoRoot, checkoutRoot, variantsRoot, env = process.env, captureFailureEvidence = null } = {}) {
     super();
     this.repoRoot = repoRoot ?? process.cwd();
     this.checkoutRoot = checkoutRoot ?? path.join(this.repoRoot, "workspaces", "defects4j");
     this.variantsRoot = variantsRoot ?? path.join(this.repoRoot, "new_bug_variants");
     this.env = env;
+    // Injected so that the adapter stays importable and unit-testable without a
+    // Defects4J installation. When absent, failure evidence falls back to the
+    // manifest-recorded machine output and the frozen policy records that fact.
+    this.captureFailureEvidence = typeof captureFailureEvidence === "function" ? captureFailureEvidence : null;
   }
 
   async inspectAvailability(env = this.env) {
@@ -672,12 +677,43 @@ export class MiniSweAgentAdapter extends AgentAdapter {
     const methodCatalogEntries = await buildJavaMethodCatalogEntries(workspaceRepo);
     const methodCatalog = new Set(methodCatalogEntries.map((entry) => entry.qualified));
     const methodCatalogPath = await writeMethodCatalog(runDir, methodCatalogEntries);
-    const failingTestSource =
-      taskBundle.agent_visible_task.failing_test_source ||
-      (await extractFailingTestSource(workspaceRepo, taskBundle.agent_visible_task.failing_test_identifier));
+    // Failure evidence is produced mechanically from the prepared workspace under the
+    // frozen policy, so that every condition (Original, L10, L30, ...) is shown the
+    // same kind and the same budget of evidence. See evidencePolicy.mjs / issue F-2.
+    const failingTestIdentifier = taskBundle.agent_visible_task.failing_test_identifier;
+    const allowedTestCommand = taskBundle.agent_visible_task.allowed_test_command ?? "";
+    const workspaceExtractedSource = await extractFailingTestSource(workspaceRepo, failingTestIdentifier);
+    const failingTestSource = workspaceExtractedSource || taskBundle.agent_visible_task.failing_test_source || "";
+    let capturedFailureText = "";
+    let captureError = null;
+    if (this.captureFailureEvidence && failingTestIdentifier) {
+      try {
+        capturedFailureText = String(
+          (await this.captureFailureEvidence({
+            workspaceRepo,
+            failingTestIdentifier,
+            taskType: taskBundle.task_type,
+          })) ?? "",
+        );
+      } catch (error) {
+        captureError = error instanceof Error ? error.message : "failure-evidence capture failed";
+      }
+    } else if (!this.captureFailureEvidence) {
+      captureError = "No mechanical capture hook was supplied to the adapter";
+    }
+    const failureEvidence = buildFailureEvidence({
+      capturedText: capturedFailureText,
+      manifestText: taskBundle.agent_visible_task.stack_trace ?? "",
+      failingTestIdentifier,
+      allowedTestCommand,
+      workspaceRoot: workspaceRoot,
+      repoRoot: this.repoRoot,
+      captureError,
+    });
     const agentVisibleTask = {
       ...taskBundle.agent_visible_task,
       failing_test_source: failingTestSource,
+      stack_trace: failureEvidence.text,
       read_only_buggy_repository_path: workspaceRepo,
     };
     const workspaceManifest = {
@@ -701,6 +737,8 @@ export class MiniSweAgentAdapter extends AgentAdapter {
       method_catalog_size: methodCatalog.size,
       method_catalog_path: path.relative(this.repoRoot, methodCatalogPath),
       source_hash_file_count: sourceHashes.file_count,
+      evidence_policy_version: failureEvidencePolicy.policy_version,
+      failure_evidence: failureEvidence,
       prepared_at: new Date().toISOString(),
     };
 
@@ -712,6 +750,7 @@ export class MiniSweAgentAdapter extends AgentAdapter {
       workspace_repo: workspaceRepo,
       agent_visible_task: agentVisibleTask,
       workspace_manifest: workspaceManifest,
+      failure_evidence: failureEvidence,
       source_hashes_before: sourceHashes,
       method_catalog: methodCatalog,
       method_catalog_path: methodCatalogPath,

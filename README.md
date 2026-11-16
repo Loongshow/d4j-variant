@@ -1,3 +1,12 @@
+# Defects4J variant research code
+
+For the project-specific source, test commands and experiment entry points,
+start with [the research code review guide](REVIEW_GUIDE.md).
+
+The upstream Defects4J documentation follows below.
+
+---
+
 Defects4J -- version 3.0.1 [![.github/workflows/ci.yml](https://github.com/rjust/defects4j/actions/workflows/ci.yml/badge.svg)](https://github.com/rjust/defects4j/actions/workflows/ci.yml)
 ================
 Defects4J is a collection of reproducible bugs and a supporting infrastructure

@@ -19,6 +19,10 @@ export const canonicalArtifactFiles = [
 
 export const chartSecondaryVariantId = "CHART-1-L10-SECONDARY-02";
 
+const experimentTypesByNamespace = Object.freeze({
+  "name-ablation": "lexical_name_ablation",
+});
+
 export function normalizeProject(value) {
   const project = String(value ?? "").trim();
   if (!/^[A-Za-z][A-Za-z0-9]*$/.test(project)) {
@@ -41,6 +45,17 @@ export function normalizeLevel(value) {
     throw new Error("Invalid variant level");
   }
   return level;
+}
+
+export function normalizeExperimentNamespace(value) {
+  const namespace = String(value ?? "").trim();
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(namespace)) {
+    throw new Error("Invalid experiment namespace");
+  }
+  if (!Object.hasOwn(experimentTypesByNamespace, namespace)) {
+    throw new Error("Unsupported experiment namespace");
+  }
+  return namespace;
 }
 
 export function sanitizeVariantId(value) {
@@ -256,10 +271,194 @@ async function readArtifactText(record, artifactName) {
   return fs.readFile(artifactPath, "utf8");
 }
 
+/* ------------------------------------------------------------------------------
+ * Structural patch analysis (issue F-3).
+ *
+ * The previous `fault:variant-patch-method` check asked whether the literal method
+ * name appeared in the patch text. That is a property of diff CONTEXT, not of the
+ * patch, and it produced false failures on exactly the patches the benchmark most
+ * wants: minimal one-line edits whose hunk context never reaches the enclosing
+ * method signature. `CLOSURE-1-L10-001` is such a case - its single hunk edits line
+ * 376, and `removeUnreferencedFunctionArgs` is declared at line 369, so the
+ * association is correct and the checker was wrong.
+ *
+ * The replacement is strictly stronger, not weaker:
+ *   - `fault:variant-patch-file` HARD-fails a patch that edits a file other than the
+ *     declared fault file (a genuinely incorrect association the old check missed);
+ *   - `fault:variant-patch-method` resolves the enclosing method's real line span
+ *     from the checked-out source and HARD-fails hunks that fall outside it;
+ *   - only when no checkout is available does it fall back, and then it reports
+ *     `unverified` rather than inventing a verdict. `unverified` is surfaced and
+ *     blocks strict-cohort readiness; it is not silently treated as a pass.
+ * ---------------------------------------------------------------------------- */
+
+export function parseUnifiedDiffTargets(patchText) {
+  const files = [];
+  let current = null;
+  let hunk = null;
+  let oldLine = 0;
+
+  const closeHunk = () => {
+    hunk = null;
+  };
+
+  for (const rawLine of String(patchText ?? "").split("\n")) {
+    const plusMatch = /^\+\+\+\s+(?:b\/)?(\S+)/.exec(rawLine);
+    if (plusMatch) {
+      closeHunk();
+      const file = plusMatch[1] === "/dev/null" ? null : plusMatch[1].replace(/^b\//, "");
+      current = file ? { file, hunks: [] } : null;
+      if (current) files.push(current);
+      continue;
+    }
+    if (/^---\s/.test(rawLine) || /^diff --git /.test(rawLine) || /^index /.test(rawLine)) {
+      closeHunk();
+      continue;
+    }
+    const hunkMatch = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@(.*)$/.exec(rawLine);
+    if (hunkMatch && current) {
+      const oldStart = Number(hunkMatch[1]);
+      const oldCount = hunkMatch[2] === undefined ? 1 : Number(hunkMatch[2]);
+      const newStart = Number(hunkMatch[3]);
+      const newCount = hunkMatch[4] === undefined ? 1 : Number(hunkMatch[4]);
+      hunk = {
+        old_start_line: oldStart,
+        old_line_count: oldCount,
+        old_end_line: oldStart + Math.max(0, oldCount - 1),
+        start_line: newStart,
+        line_count: newCount,
+        end_line: newStart + Math.max(0, newCount - 1),
+        section_heading: String(hunkMatch[5] ?? "").trim(),
+        // Line numbers IN THE PRE-PATCH FILE that the hunk actually removes.
+        removed_old_lines: [],
+        // Pre-patch positions at which the hunk inserts new content.
+        insertion_anchors: [],
+      };
+      current.hunks.push(hunk);
+      oldLine = oldStart;
+      continue;
+    }
+    if (!hunk) continue;
+    if (rawLine.startsWith("-")) {
+      hunk.removed_old_lines.push(oldLine);
+      oldLine += 1;
+    } else if (rawLine.startsWith("+")) {
+      hunk.insertion_anchors.push(oldLine);
+    } else if (rawLine.startsWith(" ") || rawLine === "") {
+      oldLine += 1;
+    } else if (rawLine.startsWith("\\")) {
+      // "\ No newline at end of file"
+    } else {
+      closeHunk();
+    }
+  }
+  return files;
+}
+
+/**
+ * The line numbers a hunk actually touches in the PRE-PATCH file. Context lines are
+ * deliberately excluded: a minimal edit is routinely surrounded by javadoc context
+ * that sits outside the enclosing method, and penalising that context was the root
+ * cause of the F-3 false failures.
+ */
+export function changedPrePatchLines(hunk) {
+  if (!hunk) return [];
+  if (hunk.removed_old_lines?.length) return [...hunk.removed_old_lines];
+  return [...(hunk.insertion_anchors ?? [])];
+}
+
+function matchingBraceIndex(source, openBraceIndex) {
+  let depth = 0;
+  let index = openBraceIndex;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let inString = null;
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (inLineComment) {
+      if (char === "\n") inLineComment = false;
+    } else if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        index += 1;
+      }
+    } else if (inString) {
+      if (char === "\\") index += 1;
+      else if (char === inString) inString = null;
+    } else if (char === "/" && next === "/") {
+      inLineComment = true;
+      index += 1;
+    } else if (char === "/" && next === "*") {
+      inBlockComment = true;
+      index += 1;
+    } else if (char === '"' || char === "'") {
+      inString = char;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+    index += 1;
+  }
+  return -1;
+}
+
+/**
+ * Returns every line span (1-indexed, inclusive) declared for `methodName` in a Java
+ * source file. Overloads produce multiple spans; a hunk inside any of them counts.
+ */
+export function findJavaMethodLineSpans(sourceText, methodName) {
+  const source = String(sourceText ?? "");
+  const name = String(methodName ?? "");
+  if (!source || !/^[A-Za-z_$][\w$]*$/.test(name)) return [];
+  const spans = [];
+  const declaration = new RegExp(
+    `(?:^|\\n)([ \\t]*)(?:(?:public|protected|private|static|final|abstract|synchronized|native|strictfp|default)\\s+)*` +
+      `(?:<[^>\\n]*>\\s*)?[\\w$.<>\\[\\],?\\s]*?\\b${escapeRegExp(name)}\\s*\\(`,
+    "g",
+  );
+  let match = declaration.exec(source);
+  while (match) {
+    const signatureStart = match.index + (match[0].startsWith("\n") ? 1 : 0);
+    const openParen = source.indexOf("(", signatureStart);
+    const bodyStart = source.indexOf("{", openParen);
+    const semicolon = source.indexOf(";", openParen);
+    if (bodyStart !== -1 && (semicolon === -1 || bodyStart < semicolon)) {
+      const bodyEnd = matchingBraceIndex(source, bodyStart);
+      if (bodyEnd !== -1) {
+        const startLine = source.slice(0, signatureStart).split("\n").length;
+        const endLine = source.slice(0, bodyEnd).split("\n").length;
+        spans.push({ start_line: startLine, end_line: endLine });
+      }
+    }
+    match = declaration.exec(source);
+  }
+  return spans;
+}
+
+export function resolveCheckoutBase(checkoutRoot, project, bugId, version = "fixed") {
+  if (!checkoutRoot) return null;
+  const candidates = [
+    path.join(checkoutRoot, `${project}-${bugId}`, version),
+    path.join(checkoutRoot, `${project}-${bugId}`),
+    checkoutRoot,
+  ];
+  return candidates.find((candidate) => fsSync.existsSync(candidate)) ?? null;
+}
+
 export async function variantArtifactConsistency(record, options = {}) {
   const checks = [];
   const add = (id, ok, message, extra = {}) => {
     checks.push({ id, status: ok ? "pass" : "fail", message, ...extra });
+  };
+  // Three-state / informational verdicts. Only "fail" makes the artifact inconsistent;
+  // "unverified" records that a check could not be evaluated in this environment and
+  // "info" records an observation (such as lexical exposure) that is a covariate rather
+  // than a correctness property.
+  const addStatus = (id, status, message, extra = {}) => {
+    checks.push({ id, status, message, ...extra });
   };
 
   if (!record) {
@@ -312,9 +511,92 @@ export async function variantArtifactConsistency(record, options = {}) {
     add("trigger:renderer-report", report.includes(rendererShort), `variant_report.md mentions ${rendererShort}`);
   }
 
+  const variantPatchTargets = parseUnifiedDiffTargets(variantPatch);
+  const testPatchTargets = parseUnifiedDiffTargets(testPatch);
+  const declaredFaultFiles = (record.manifest?.fault?.locations ?? [])
+    .map((location) => String(location.file ?? ""))
+    .filter(Boolean);
+
+  // HARD: a patch that edits a file other than the declared fault file is a genuinely
+  // incorrect fault association, and is rejected regardless of environment.
+  if (declaredFaultFiles.length && variantPatchTargets.length) {
+    const patchedFiles = variantPatchTargets.map((target) => target.file);
+    const unexpected = patchedFiles.filter((file) => !declaredFaultFiles.includes(file));
+    const missing = declaredFaultFiles.filter((file) => !patchedFiles.includes(file));
+    add(
+      "fault:variant-patch-file",
+      unexpected.length === 0 && missing.length === 0,
+      unexpected.length || missing.length
+        ? `variant.patch file set disagrees with the manifest (unexpected: ${unexpected.join(", ") || "none"}; missing: ${missing.join(", ") || "none"})`
+        : `variant.patch edits exactly the declared fault file(s): ${declaredFaultFiles.join(", ")}`,
+      { patched_files: patchedFiles, declared_files: declaredFaultFiles },
+    );
+  }
+
+  let methodVerificationMode = "unverified";
   if (fault.method) {
-    const methodPattern = new RegExp(`\\b${escapeRegExp(fault.method)}\\s*\\(`);
-    add("fault:variant-patch-method", methodPattern.test(variantPatch), `variant.patch mentions ${fault.method}`);
+    const faultFile = String(fault.file ?? "");
+    const target = variantPatchTargets.find((candidate) => candidate.file === faultFile) ?? variantPatchTargets[0] ?? null;
+    const checkoutBase = resolveCheckoutBase(options.checkoutRoot, record.project, record.bugId, "fixed");
+    const sourcePath = checkoutBase && faultFile ? path.join(checkoutBase, faultFile) : null;
+    let spans = [];
+    if (sourcePath && fsSync.existsSync(sourcePath)) {
+      spans = findJavaMethodLineSpans(await fs.readFile(sourcePath, "utf8"), fault.method);
+    }
+
+    const changedLines = (target?.hunks ?? []).flatMap((hunk) => changedPrePatchLines(hunk));
+    if (spans.length && changedLines.length) {
+      // STRUCTURAL: every line the patch actually changes must lie inside a declared
+      // span of the named method. Context lines are ignored; changed lines are not.
+      methodVerificationMode = "structural_checkout";
+      const insideSpan = (line) => spans.some((span) => line >= span.start_line && line <= span.end_line);
+      const outside = changedLines.filter((line) => !insideSpan(line));
+      const spanText = spans.map((span) => `${span.start_line}-${span.end_line}`).join(", ");
+      add(
+        "fault:variant-patch-method",
+        outside.length === 0,
+        outside.length === 0
+          ? `all ${changedLines.length} changed line(s) lie inside ${fault.method} (lines ${spanText})`
+          : `variant.patch changes line(s) ${[...new Set(outside)].join(", ")}, which fall outside ${fault.method} (lines ${spanText})`,
+        {
+          verification_mode: methodVerificationMode,
+          method_spans: spans,
+          changed_pre_patch_lines: [...new Set(changedLines)].sort((a, b) => a - b),
+          outside_lines: [...new Set(outside)].sort((a, b) => a - b),
+        },
+      );
+    } else {
+      // LEXICAL FALLBACK: accept an explicit mention in the patch body or the hunk
+      // section heading; otherwise report unverified rather than guessing.
+      const methodPattern = new RegExp(`\\b${escapeRegExp(fault.method)}\\s*\\(`);
+      const inBody = methodPattern.test(variantPatch);
+      const inHeading = (target?.hunks ?? []).some((hunk) => methodPattern.test(hunk.section_heading));
+      if (inBody || inHeading) {
+        methodVerificationMode = "lexical_fallback";
+        add("fault:variant-patch-method", true, `variant.patch names ${fault.method}`, {
+          verification_mode: methodVerificationMode,
+        });
+      } else {
+        addStatus(
+          "fault:variant-patch-method",
+          "unverified",
+          `Could not resolve the enclosing method for ${fault.method}: no checkout under options.checkoutRoot and the patch context does not name it. This is NOT a pass; strict-cohort readiness requires structural verification.`,
+          { verification_mode: "unverified" },
+        );
+      }
+    }
+  }
+
+  if (trigger.file) {
+    const testFiles = testPatchTargets.map((target) => target.file);
+    add(
+      "trigger:test-patch-file",
+      testFiles.length === 0 || testFiles.includes(String(trigger.file)),
+      testFiles.length === 0
+        ? "test.patch declares no target file"
+        : `test.patch edits the declared trigger file ${trigger.file}`,
+      { patched_files: testFiles },
+    );
   }
   if (fault.line_hint) {
     add("fault:line-hint", variantPatch.includes(fault.line_hint), "variant.patch contains the manifest line hint");
@@ -325,7 +607,27 @@ export async function variantArtifactConsistency(record, options = {}) {
 
   if (fault.class && fault.method && !isRendererOwnedFault(fault.class)) {
     const faultShort = shortClassName(fault.class);
-    add("fault:test-patch-owner", testPatch.includes(faultShort), `test.patch mentions ${faultShort}`);
+    // The old `fault:test-patch-owner` HARD check required the agent-visible test patch
+    // to name the private gold owner class. That conflated correctness with LEAKAGE: a
+    // leakage-controlled trigger deliberately omits the owner name and was penalised for
+    // it (CLOSURE-1-L30-STRICT-001). Correctness is now carried by the structural
+    // fault:variant-patch-file / fault:variant-patch-method / trigger:test-patch-file
+    // checks, and owner-name presence is recorded as a lexical-exposure covariate.
+    // Word-boundary matching, not substring matching. A test class named `WidgetTest`
+    // or a legacy test method named `testRemoveUnusedVars2` does NOT constitute an
+    // exposure of the owner class `Widget` / `RemoveUnusedVars`; treating it as one
+    // inflates the leakage covariate with false positives.
+    const ownerInTestPatch = new RegExp(`\\b${escapeRegExp(faultShort)}\\b`).test(testPatch);
+    addStatus(
+      "lexical:test-patch-names-owner",
+      "info",
+      ownerInTestPatch
+        ? `test.patch names the gold owner class ${faultShort} (lexical exposure covariate)`
+        : `test.patch does not name the gold owner class ${faultShort} (leakage-controlled trigger)`,
+      { owner_class: faultShort, exposed: ownerInTestPatch },
+    );
+    // variant_report.md is a PRIVATE artifact, so naming the owner there is documentation
+    // quality, not leakage. This stays a hard check.
     add("fault:report-owner", report.includes(faultShort), `variant_report.md mentions ${faultShort}`);
   }
 
@@ -351,7 +653,14 @@ export async function variantArtifactConsistency(record, options = {}) {
     }
   }
 
-  return { ok: checks.every((check) => check.status !== "fail"), checks };
+  return {
+    ok: checks.every((check) => check.status !== "fail"),
+    fully_verified: checks.every((check) => check.status !== "fail" && check.status !== "unverified"),
+    unverified: checks.filter((check) => check.status === "unverified").map((check) => check.id),
+    lexical_exposures: checks.filter((check) => check.status === "info" && check.exposed === true).map((check) => check.id),
+    method_verification_mode: methodVerificationMode,
+    checks,
+  };
 }
 
 export function validateManifestShape(manifest, validation = null) {
@@ -442,33 +751,81 @@ export async function readVariantRecord(variantDir) {
   };
 }
 
-export async function discoverVariantRecords(variantsRoot) {
-  if (!(await exists(variantsRoot))) return [];
+function hasValidExperimentMetadata(record, experimentNamespace) {
+  const manifest = record.manifest;
+  try {
+    if (manifest.experiment_type !== experimentTypesByNamespace[experimentNamespace]) return false;
+    sanitizeVariantId(manifest.base_variant_id);
+    if (normalizeLevel(manifest.depth) !== record.level) return false;
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(String(manifest.original_method_name ?? ""))) return false;
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(String(manifest.ablated_method_name ?? ""))) return false;
+    return typeof manifest.benchmark_eligible === "boolean";
+  } catch {
+    return false;
+  }
+}
+
+async function discoverRecordsInNamespace(namespaceRoot, context) {
   const records = [];
-  const projectEntries = await fs.readdir(variantsRoot, { withFileTypes: true });
+  const variantEntries = await fs.readdir(namespaceRoot, { withFileTypes: true }).catch(() => []);
+  for (const variantEntry of variantEntries) {
+    if (!variantEntry.isDirectory()) continue;
+    if (/\.(?:orig|rej|bak)$/i.test(variantEntry.name)) continue;
+    try {
+      const variantId = sanitizeVariantId(variantEntry.name);
+      const variantDir = safeResolve(namespaceRoot, variantId);
+      const record = await readVariantRecord(variantDir);
+      if (!record || record.project !== context.project || record.bugId !== context.bugId) continue;
+      if (context.level && record.level !== context.level) continue;
+      if (context.experimentNamespace && !hasValidExperimentMetadata(record, context.experimentNamespace)) continue;
+      records.push({
+        ...record,
+        experimentNamespace: context.experimentNamespace ?? null,
+      });
+    } catch {
+      // Ignore non-canonical or unsafe directories.
+    }
+  }
+  return records;
+}
+
+export async function discoverVariantRecords(variantsRoot) {
+  if (typeof variantsRoot !== "string" || !variantsRoot.trim()) {
+    throw new Error("Invalid variants root");
+  }
+  const discoveryRoot = path.resolve(variantsRoot);
+  if (!(await exists(discoveryRoot))) return [];
+  const records = [];
+  const projectEntries = await fs.readdir(discoveryRoot, { withFileTypes: true });
   for (const projectEntry of projectEntries) {
     if (!projectEntry.isDirectory()) continue;
     if (!/^[A-Za-z][A-Za-z0-9]*$/.test(projectEntry.name)) continue;
-    const projectRoot = path.join(variantsRoot, projectEntry.name);
+    const projectRoot = path.join(discoveryRoot, projectEntry.name);
     const bugEntries = await fs.readdir(projectRoot, { withFileTypes: true }).catch(() => []);
     for (const bugEntry of bugEntries) {
       if (!bugEntry.isDirectory() || !/^bug-\d+$/.test(bugEntry.name)) continue;
       const bugRoot = path.join(projectRoot, bugEntry.name);
-      const levelEntries = await fs.readdir(bugRoot, { withFileTypes: true }).catch(() => []);
-      for (const levelEntry of levelEntries) {
-        if (!levelEntry.isDirectory() || !/^L(?:10|20|30|50|70|90)$/.test(levelEntry.name)) continue;
-        const levelRoot = path.join(bugRoot, levelEntry.name);
-        const variantEntries = await fs.readdir(levelRoot, { withFileTypes: true }).catch(() => []);
-        for (const variantEntry of variantEntries) {
-          if (!variantEntry.isDirectory()) continue;
+      const namespaceEntries = await fs.readdir(bugRoot, { withFileTypes: true }).catch(() => []);
+      for (const namespaceEntry of namespaceEntries) {
+        if (!namespaceEntry.isDirectory()) continue;
+        const level = /^L(?:10|20|30|50|70|90)$/.test(namespaceEntry.name) ? namespaceEntry.name : null;
+        let experimentNamespace = null;
+        if (!level) {
           try {
-            sanitizeVariantId(variantEntry.name);
-            const record = await readVariantRecord(path.join(levelRoot, variantEntry.name));
-            if (record) records.push(record);
+            experimentNamespace = normalizeExperimentNamespace(namespaceEntry.name);
           } catch {
-            // Ignore non-canonical or unsafe directories.
+            continue;
           }
         }
+        const namespaceRoot = safeResolve(bugRoot, namespaceEntry.name);
+        records.push(
+          ...(await discoverRecordsInNamespace(namespaceRoot, {
+            project: projectEntry.name,
+            bugId: bugEntry.name.slice("bug-".length),
+            level,
+            experimentNamespace,
+          })),
+        );
       }
     }
   }
@@ -541,6 +898,12 @@ export function recordToSummary(record) {
     project: record.project,
     bug_id: Number(record.bugId),
     level: record.level,
+    depth: manifest.depth ?? record.level,
+    experiment_type: manifest.experiment_type ?? null,
+    experiment_namespace: record.experimentNamespace ?? null,
+    base_variant_id: manifest.base_variant_id ?? null,
+    original_method_name: manifest.original_method_name ?? null,
+    ablated_method_name: manifest.ablated_method_name ?? null,
     status: record.status,
     transformation_dimensions: manifest.transformation_dimensions ?? [],
     changed_reasoning_node: manifest.reasoning?.changed_node ?? "",

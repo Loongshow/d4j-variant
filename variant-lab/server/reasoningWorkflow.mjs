@@ -2,6 +2,46 @@ export const REASONING_WORKFLOW_SCHEMA_VERSION = "d4j-reasoning-workflow/v1";
 
 export const reasoningWorkflowSourceTypes = new Set(["observed", "agent_reported", "derived"]);
 
+/**
+ * Explicit epistemic scope (issue: observable workflow vs private chain-of-thought).
+ *
+ * This structure is a record of OBSERVABLE BEHAVIOUR. It is emitted with every workflow
+ * document so that no downstream reader - human or tool - can mistake it for a record of
+ * the model's reasoning.
+ */
+export const REASONING_WORKFLOW_EPISTEMIC_SCOPE = Object.freeze({
+  represents: [
+    "tool calls issued by the agent",
+    "repository searches",
+    "file reads",
+    "test executions",
+    "the structured final submission",
+    "the observable order of those events",
+    "concise evidence the agent chose to report through submit_fault_localization",
+  ],
+  does_not_represent: [
+    "private chain-of-thought",
+    "hidden internal reasoning",
+    "model beliefs, intentions or confidence",
+    "why an action was taken",
+    "any inference the agent did not explicitly report",
+  ],
+  source_types: {
+    observed: "derived by the harness from the agent process; the agent cannot author these",
+    agent_reported:
+      "supplied by the agent through the structured submission tool; self-reported, unverified, and NOT evidence of hidden cognition",
+    derived: "computed by the harness from observed events; contains no new information",
+  },
+  edge_semantics:
+    "edges with relation 'next' encode TEMPORAL ORDER ONLY. They are not inference dependencies and must not be read as a reasoning chain.",
+  interpretation_rules: [
+    "A search for the gold method name may be a consequence of having already found it; it is not proof of prior lexical leakage.",
+    "The absence of a search does not prove the absence of lexical use.",
+    "An accepted agent_reported evidence chain is a claim by the agent, not a verified account of its reasoning.",
+    "A rejected or absent evidence chain says nothing about localization quality; transport and evidence are decoupled.",
+  ],
+});
+
 const eventKindMap = {
   test_run: "test_run",
   search: "search",
@@ -162,11 +202,29 @@ export function buildReasoningWorkflow({ runId, trajectory = [], structuredSubmi
     to: node.id,
     relation: "next",
   }));
+  // The third declared source type is now actually emitted, so that "derived" is a real
+  // category rather than an unused label. These carry no information beyond the observed
+  // nodes they summarise.
+  const observedNodes = nodes.filter((node) => node.source_type === "observed");
+  const agentReportedNodes = nodes.filter((node) => node.source_type === "agent_reported");
+  const derivedMetrics = {
+    source_type: "derived",
+    observed_node_count: observedNodes.length,
+    agent_reported_node_count: agentReportedNodes.length,
+    search_count: observedNodes.filter((node) => node.kind === "search").length,
+    file_read_count: observedNodes.filter((node) => node.kind === "file_read").length,
+    unique_files_read: new Set(observedNodes.filter((node) => node.file).map((node) => node.file)).size,
+    test_run_count: observedNodes.filter((node) => node.kind === "test_run").length,
+    submitted: observedNodes.some((node) => node.kind === "final_submission"),
+  };
+
   return {
     schema_version: REASONING_WORKFLOW_SCHEMA_VERSION,
     run_id: runId,
+    epistemic_scope: REASONING_WORKFLOW_EPISTEMIC_SCOPE,
     nodes,
     edges,
+    derived_metrics: derivedMetrics,
     agent_reported_chain_status: chainValidation.ok ? "accepted" : "rejected",
     agent_reported_chain_errors: chainValidation.errors,
     generated_at: new Date().toISOString(),

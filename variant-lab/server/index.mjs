@@ -73,7 +73,26 @@ const runsRoot = path.join(repoRoot, "runs");
 const variantsRoot = path.join(repoRoot, "new_bug_variants");
 const benchmarkRoot = path.join(repoRoot, "benchmark_runs");
 const port = Number(process.env.D4J_API_PORT ?? 8787);
-const miniSweAgentAdapter = new MiniSweAgentAdapter({ repoRoot, checkoutRoot, variantsRoot, env: process.env });
+/**
+ * Mechanical failure-evidence capture (frozen evidence policy, issue F-2).
+ *
+ * Runs the single allowed failing-test command inside the PREPARED agent workspace,
+ * so that Original / L10 / L30 / L50 conditions all receive evidence of the same
+ * provenance instead of whatever a manifest author happened to write down. The raw
+ * text is normalised, truncated and screened by evidencePolicy.mjs.
+ */
+async function captureWorkspaceFailureEvidence({ workspaceRepo, failingTestIdentifier }) {
+  if (!workspaceRepo || !failingTestIdentifier) return "";
+  return captureFailingTestOutput(workspaceRepo, failingTestIdentifier);
+}
+
+const miniSweAgentAdapter = new MiniSweAgentAdapter({
+  repoRoot,
+  checkoutRoot,
+  variantsRoot,
+  env: process.env,
+  captureFailureEvidence: captureWorkspaceFailureEvidence,
+});
 
 const artifactPlan = [
   {
