@@ -1,0 +1,231 @@
+diff --git a/source/org/jfree/chart/axis/DateAxis.java b/source/org/jfree/chart/axis/DateAxis.java
+index 2e5ce97..6c5643a 100644
+--- a/source/org/jfree/chart/axis/DateAxis.java
++++ b/source/org/jfree/chart/axis/DateAxis.java
+@@ -150,6 +150,8 @@ import org.jfree.data.time.DateRange;
+ import org.jfree.data.time.Month;
+ import org.jfree.data.time.RegularTimePeriod;
+ import org.jfree.data.time.Year;
++import org.jfree.data.time.TimeSeries;
++import org.jfree.data.time.TimeSeriesDataItem;
+ 
+ /**
+  * The base class for axes that display dates.  You will find it easier to 
+@@ -795,6 +797,33 @@ public class DateAxis extends ValueAxis implements Cloneable, Serializable {
+         return this.timeline.toMillisecond((long) result); 
+     }
+ 
++    /**
++     * Removes the data items at the start of a list whose time periods lie
++     * more than a number of periods before a reference period.
++     *
++     * @param series  the series that holds the items (<code>null</code> not
++     *                permitted).
++     * @param items  the data items of the series, in ascending order of time
++     *               period (<code>null</code> not permitted).
++     * @param latest  the serial index of the reference period.
++     * @param maximumAge  the maximum age of an item, in time periods.
++     * @param notify  notify the listeners of the series?
++     */
++    public static void removeEarlyPeriods(TimeSeries series, List items,
++            long latest, long maximumAge, boolean notify) {
++        int count = items.size();
++        int aged = 0;
++        while (aged < count && latest - ((TimeSeriesDataItem) items.get(
++                aged)).getPeriod().getSerialIndex() > maximumAge) {
++            aged++;
++        }
++        items.subList(0, aged).clear();
++        if (aged > 0 && notify) {
++            series.fireSeriesChanged();
++        }
++    }
++
++
+     /**
+      * Calculates the value of the lowest visible tick on the axis.
+      *
+diff --git a/source/org/jfree/chart/plot/SpiderWebPlot.java b/source/org/jfree/chart/plot/SpiderWebPlot.java
+index 4b3aae2..5493347 100644
+--- a/source/org/jfree/chart/plot/SpiderWebPlot.java
++++ b/source/org/jfree/chart/plot/SpiderWebPlot.java
+@@ -114,6 +114,8 @@ import org.jfree.chart.util.TableOrder;
+ import org.jfree.data.category.CategoryDataset;
+ import org.jfree.data.general.DatasetChangeEvent;
+ import org.jfree.data.general.DatasetUtilities;
++import org.jfree.chart.renderer.xy.AbstractXYItemRenderer;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * A plot that displays data from a {@link CategoryDataset} in the form of a 
+@@ -1040,6 +1042,24 @@ public class SpiderWebPlot extends Plot implements Cloneable, Serializable {
+         this.toolTipGenerator = generator;
+         this.notifyListeners(new PlotChangeEvent(this));
+     }
++
++    /**
++     * Removes the data items of a time series whose time periods lie more than
++     * a maximum age before a reference period.
++     *
++     * @param series  the series (<code>null</code> not permitted).
++     * @param items  the data items of the series (<code>null</code> not
++     *               permitted).
++     * @param latest  the serial index of the reference period.
++     * @param maximumAge  the maximum age, in time periods.
++     * @param notify  notify the listeners of the series?
++     */
++    public static void pruneOlderPeriods(TimeSeries series, List items,
++            long latest, long maximumAge, boolean notify) {
++        AbstractXYItemRenderer.pruneOlderItems(series, items, latest,
++                maximumAge, notify);
++    }
++
+     
+     /**
+      * Returns the URL generator for the plot.
+diff --git a/source/org/jfree/chart/plot/ThermometerPlot.java b/source/org/jfree/chart/plot/ThermometerPlot.java
+index d280b6c..cdc3363 100644
+--- a/source/org/jfree/chart/plot/ThermometerPlot.java
++++ b/source/org/jfree/chart/plot/ThermometerPlot.java
+@@ -128,6 +128,8 @@ import org.jfree.data.Range;
+ import org.jfree.data.general.DatasetChangeEvent;
+ import org.jfree.data.general.DefaultValueDataset;
+ import org.jfree.data.general.ValueDataset;
++import java.util.List;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * A plot that displays a single value (from a {@link ValueDataset}) in a 
+@@ -1702,6 +1704,26 @@ public class ThermometerPlot extends Plot implements ValueAxisPlot,
+                               PlotRenderingInfo state, Point2D source) {
+         this.rangeAxis.zoomRange(lowerPercent, upperPercent);
+     }
++
++    /**
++     * Removes the data items of a time series whose time periods lie more than
++     * a maximum age before the period of the last item.
++     *
++     * @param series  the series, with at least one item (<code>null</code> not
++     *                permitted).
++     * @param items  the data items of the series (<code>null</code> not
++     *               permitted).
++     * @param maximumAge  the maximum age, in time periods.
++     * @param notify  notify the listeners of the series?
++     */
++    public static void pruneFromLatest(TimeSeries series, List items,
++            long maximumAge, boolean notify) {
++        long latest = series.getTimePeriod(
++                series.getItemCount() - 1).getSerialIndex();
++        SpiderWebPlot.pruneOlderPeriods(series, items, latest, maximumAge,
++                notify);
++    }
++
+   
+     /**
+      * Returns <code>false</code>.
+diff --git a/source/org/jfree/chart/renderer/AbstractRenderer.java b/source/org/jfree/chart/renderer/AbstractRenderer.java
+index 7899734..802bc95 100644
+--- a/source/org/jfree/chart/renderer/AbstractRenderer.java
++++ b/source/org/jfree/chart/renderer/AbstractRenderer.java
+@@ -119,6 +119,8 @@ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.chart.util.ShapeList;
+ import org.jfree.chart.util.ShapeUtilities;
+ import org.jfree.chart.util.StrokeList;
++import org.jfree.chart.plot.ThermometerPlot;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * Base class providing common services for renderers.  Most methods that update
+@@ -417,6 +419,25 @@ public abstract class AbstractRenderer implements Cloneable, Serializable {
+     public Boolean getSeriesVisible(int series) {
+         return this.seriesVisibleList.getBoolean(series);
+     }
++
++    /**
++     * Removes the oldest data items from a time series, so that the time
++     * periods of the remaining items lie within a maximum age of the period of
++     * the last item.
++     *
++     * @param series  the series (<code>null</code> not permitted).
++     * @param items  the data items of the series (<code>null</code> not
++     *               permitted).
++     * @param maximumAge  the maximum age, in time periods.
++     * @param notify  notify the listeners of the series?
++     */
++    public static void pruneHistory(TimeSeries series, List items,
++            long maximumAge, boolean notify) {
++        if (series.getItemCount() > 1) {
++            ThermometerPlot.pruneFromLatest(series, items, maximumAge, notify);
++        }
++    }
++
+     
+     /**
+      * Sets the flag that controls whether a series is visible and sends a 
+diff --git a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+index 6580225..c60f97d 100644
+--- a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
++++ b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+@@ -158,6 +158,8 @@ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.data.Range;
+ import org.jfree.data.general.DatasetUtilities;
+ import org.jfree.data.xy.XYDataset;
++import org.jfree.chart.axis.DateAxis;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * A base class that can be used to create new {@link XYItemRenderer}
+@@ -525,6 +527,23 @@ public abstract class AbstractXYItemRenderer extends AbstractRenderer
+         }
+         return generator;
+     }
++
++    /**
++     * Removes the data items of a time series whose time periods lie more than
++     * a maximum age before a reference period.
++     *
++     * @param series  the series (<code>null</code> not permitted).
++     * @param items  the data items of the series (<code>null</code> not
++     *               permitted).
++     * @param latest  the serial index of the reference period.
++     * @param maximumAge  the maximum age, in time periods.
++     * @param notify  notify the listeners of the series?
++     */
++    public static void pruneOlderItems(TimeSeries series, List items,
++            long latest, long maximumAge, boolean notify) {
++        DateAxis.removeEarlyPeriods(series, items, latest, maximumAge, notify);
++    }
++
+     
+     /**
+      * Returns the URL generator for the specified series, if one is defined.
+diff --git a/source/org/jfree/data/time/TimeSeries.java b/source/org/jfree/data/time/TimeSeries.java
+index 907fc20..bdadb65 100644
+--- a/source/org/jfree/data/time/TimeSeries.java
++++ b/source/org/jfree/data/time/TimeSeries.java
+@@ -731,22 +731,11 @@ public class TimeSeries extends Series implements Cloneable, Serializable {
+      * 
+      * @param notify  controls whether or not a {@link SeriesChangeEvent} is 
+      *                sent to registered listeners IF any items are removed.
++       The first item to keep is located by a binary search over the serial indices of the time periods.
+      */
+     public void removeAgedItems(boolean notify) {
+-        // check if there are any values earlier than specified by the history 
+-        // count...
+-        if (getItemCount() > 1) {
+-            long latest = getTimePeriod(getItemCount() - 1).getSerialIndex();
+-            boolean removed = false;
+-            while ((latest - getTimePeriod(0).getSerialIndex()) 
+-                    > this.maximumItemAge) {
+-                this.data.remove(0);
+-                removed = true;
+-            }
+-            if (removed && notify) {
+-                fireSeriesChanged();
+-            }
+-        }
++        org.jfree.chart.renderer.AbstractRenderer.pruneHistory(this, this.data,
++                this.maximumItemAge, notify);
+     }
+ 
+     /**

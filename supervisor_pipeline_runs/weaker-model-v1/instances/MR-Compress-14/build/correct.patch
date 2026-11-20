@@ -1,0 +1,215 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index 836f2121..13e497b6 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -254,6 +254,33 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         }
+     }
+ 
++    /**
++     * Compute the value of a binary number in a byte buffer, given the
++     * value of its first byte.
++     *
++     * @param buffer The buffer from which to parse.
++     * @param offset The offset into the buffer from which to parse.
++     * @param length The number of bytes to parse.
++     * @param lead The value of the first byte of the number.
++     * @return The long value of the binary number.
++     * @throws IllegalArgumentException if the binary number would exceed
++     * the size of a signed long 64-bit integer.
++     */
++    public static long binaryValueOf(final byte[] buffer, final int offset,
++                                     final int length, final long lead) {
++        long val = lead;
++        for (int i = 1; i < length; i++) {
++            if ((val >>> (63 - 8)) != 0) {
++                throw new IllegalArgumentException(
++                    "At offset " + offset + ", " + length + " byte " +
++                    "binary number exceeds maximum signed long value");
++            }
++            val = (val << 8) + (buffer[offset + i] & 0xff);
++        }
++        return val;
++    }
++
++
+     /**
+      * Construct an entry for a file. File is set to file, and the
+      * header is constructed from information from the file.
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index d989b8a7..044d5487 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -120,24 +120,11 @@ public class TarUtils {
+      * if a binary number would exceed the size of a signed long
+      * 64-bit integer.
+      * @since Apache Commons Compress 1.4
++       The binary form is decoded by wrapping the buffer in a java.nio.ByteBuffer and reading the number with a single getLong call.
+      */
+     public static long parseOctalOrBinary(final byte[] buffer, final int offset,
+                                           final int length) {
+-
+-        if ((buffer[offset] & 0x80) == 0) {
+-            return parseOctal(buffer, offset, length);
+-        }
+-
+-        long val = buffer[offset] & 0x7f;
+-        for (int i = 1; i < length; i++) {
+-            if (val >= (1L << (63 - 8))) {
+-                throw new IllegalArgumentException(
+-                    "At offset " + offset + ", " + length + " byte " +
+-                    "binary number exceeds maximum signed long value");
+-            }
+-            val = (val << 8) + (buffer[offset + i] & 0xff);
+-        }
+-        return val;
++        return org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream.valueOfNumber(buffer, offset, length);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index c0aeec9c..1cbc3d40 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -42,6 +42,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -729,6 +730,23 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         this.method = method;
+     }
+ 
++    /**
++     * Compute the value of a binary number in a byte buffer.  The most
++     * significant bit of the first byte marks the binary form and is
++     * ignored; the remaining seven bits are the value of the first byte.
++     *
++     * @param buffer The buffer from which to parse.
++     * @param offset The offset into the buffer from which to parse.
++     * @param length The number of bytes to parse.
++     * @return The long value of the binary number.
++     */
++    public static long binaryNumberValue(final byte[] buffer, final int offset,
++                                         final int length) {
++        return BZip2CompressorInputStream.valueOfBinary(buffer, offset, length,
++                                                        buffer[offset] & 0x7f);
++    }
++
++
+     /**
+      * Whether this stream is able to write the given entry.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index 32cd670b..8d6c231e 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -38,6 +38,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Replacement for <code>java.util.ZipFile</code>.
+@@ -284,6 +285,22 @@ public class ZipFile {
+         return Collections.enumeration(Arrays.asList(allEntries));
+     }
+ 
++    /**
++     * Compute the value of a binary number in a byte buffer, given the
++     * value of its first byte.
++     *
++     * @param buffer The buffer from which to parse.
++     * @param offset The offset into the buffer from which to parse.
++     * @param length The number of bytes to parse.
++     * @param lead The value of the first byte of the number.
++     * @return The long value of the binary number.
++     */
++    public static long binaryValue(final byte[] buffer, final int offset,
++                                   final int length, final long lead) {
++        return TarArchiveEntry.binaryValueOf(buffer, offset, length, lead);
++    }
++
++
+     /**
+      * Returns a named entry - or <code>null</code> if no entry by
+      * that name exists.
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
+index 3879bef8..40c64393 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
+@@ -28,6 +28,7 @@ import java.io.IOException;
+ import java.io.InputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorInputStream;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * An input stream that decompresses from the BZip2 format to be read as any other stream.
+@@ -373,6 +374,22 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
+         }
+     }
+ 
++    /**
++     * Compute the value of a binary number in a byte buffer, given the
++     * value of its first byte.
++     *
++     * @param buffer The buffer from which to parse.
++     * @param offset The offset into the buffer from which to parse.
++     * @param length The number of bytes to parse.
++     * @param lead The value of the first byte of the number.
++     * @return The long value of the binary number.
++     */
++    public static long valueOfBinary(final byte[] buffer, final int offset,
++                                     final int length, final long lead) {
++        return ZipFile.binaryValue(buffer, offset, length, lead);
++    }
++
++
+     private int bsR(final int n) throws IOException {
+         int bsLiveShadow = this.bsLive;
+         int bsBuffShadow = this.bsBuff;
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index a78dbbe7..c39e9832 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,8 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.tar.TarUtils;
++import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -643,6 +645,26 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         return this.blockSize100k;
+     }
+ 
++    /**
++     * Compute the value contained in a byte buffer.  If the most
++     * significant bit of the first byte in the buffer is set, the
++     * buffer holds a binary number.  Otherwise it holds an octal
++     * number, which is parsed by {@link TarUtils#parseOctal}.
++     *
++     * @param buffer The buffer from which to parse.
++     * @param offset The offset into the buffer from which to parse.
++     * @param length The maximum number of bytes to parse.
++     * @return The long value of the octal or binary string.
++     */
++    public static long valueOfNumber(final byte[] buffer, final int offset,
++                                     final int length) {
++        if ((buffer[offset] & 0x80) == 0) {
++            return TarUtils.parseOctal(buffer, offset, length);
++        }
++        return ZipArchiveOutputStream.binaryNumberValue(buffer, offset, length);
++    }
++
++
+     @Override
+     public void write(final byte[] buf, int offs, final int len)
+         throws IOException {

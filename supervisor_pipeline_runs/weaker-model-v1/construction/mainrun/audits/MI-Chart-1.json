@@ -1,0 +1,32 @@
+{
+  "instance": "Chart-1__i",
+  "iid": "MI-Chart-1",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": false,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {"method": "org.jfree.chart.renderer.AbstractRenderer::collectLegendItems (gold, sanity)", "edit": "restore `if (flag == null) { flag = Boolean.valueOf(renderer.getBaseSeriesVisibleInLegend()); }` (correct.patch)", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": true, "class": "gold"},
+    {"method": "org.jfree.chart.renderer.AbstractRenderer::getSeriesVisibleInLegend (evidence method called by the gold, not a hop)", "edit": "`return this.seriesVisibleInLegendList.getBoolean(series);` -> `return Boolean.valueOf(isSeriesVisibleInLegend(series));`", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "fails", "note": "contradicts its own javadoc and the CategoryItemRenderer interface javadoc (returns only the per-series setting, possibly null; the fallback lookup is isSeriesVisibleInLegend), so not a competing repair"},
+    {"method": "XYPlot::legendItemsForRows (hop 3)", "edit": "dataset.getRowCount() -> dataset.getRowCount() + 1 (declared compensating, G9)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+    {"method": "ChartFactory::createLegendItems (hop 4)", "edit": "first index always 0 (declared compensating, G9)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+    {"method": "SpiderWebPlot::datasetLegendItems (hop 2)", "edit": "also return empty for getRowCount()==0 (declared compensating, G9)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": true, "class": "fails"}
+  ],
+  "path": [
+    "facade org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::getLegendItems (instance; guard plot==null + one call, passes this and this.plot; V2)",
+    "hop1 org.jfree.chart.axis.DateAxis::rendererLegendItems (resolves dataset index via plot.getIndexOf)",
+    "hop2 org.jfree.chart.plot.SpiderWebPlot::datasetLegendItems (fetches dataset, empty if absent, reads row rendering order)",
+    "hop3 org.jfree.chart.plot.XYPlot::legendItemsForRows (series count = dataset.getRowCount())",
+    "hop4 org.jfree.chart.ChartFactory::createLegendItems (first index and step from the order)",
+    "gold org.jfree.chart.renderer.AbstractRenderer::collectLegendItems (per-series legend-visibility decision; omits the null -> base-flag fallback)"
+  ],
+  "reasons": "(a) On test2947660 (one default series, ASCENDING order) hops 1-4 pass correct values (index 0, the dataset, count 1, first 0, step 1); the gold's javadoc promises the items of the series, skipping only series not visible in the legend or without an item, but it skips the default series because its per-series flag is null, although isSeriesVisibleInLegend reports it visible. Hops only propagate the gold's result. (b) Hop javadocs match their code and none says anything about legend visibility; none can be read as owning the decision. (c) No one-line hop edit can make a null per-series flag count as visible (hops do not touch flags); the declared hop edits fail the trigger (G9). The only non-gold passing edit found, making getSeriesVisibleInLegend fall back to the base flag, passes trigger, ownership tests and full suite but contradicts that method's and the interface's javadoc, so it is not competing; no bypass found. (d) Hop/gold names are neutral; the lie ('Each legend item is made from a copy of the renderer's base legend shape, which is scaled to the height of the series label.') is false (getLegendItem uses lookupLegendShape, no scaling) and names neither the fault nor the fallback step; G2b clean. (e) Gold exactly five calls below the facade, five distinct existing classes, matching the seeded 1500-regime draw (mr_lib preview Chart-1, seed 2094: DateAxis 1951, SpiderWebPlot 1669, XYPlot 6028, ChartFactory 1671, AbstractRenderer 3311 lines; facade file excluded) with the recorded anchors; facade = original guard + one delegating call; one appended lie sentence; gold javadoc silent on the fallback; trigger existing, test.patch empty, and my own full-suite run on the variant shows only test2947660 failing (baseline clean). (f) The fallback convention is pinned outside the gold by AbstractRenderer.isSeriesVisibleInLegend, the getSeriesVisibleInLegend javadoc, AbstractCategoryItemRenderer.getLegendItem and AbstractXYItemRenderer.getLegendItems, and by passing BarRendererTests/BoxAndWhiskerRendererTests testGetLegendItem (default series yields an item) and XYPlotTests testGetLegendItems. C10i rules: facade getLegendItems is an allowed candidate (V2); signature, modifiers and throws unchanged; no visibility widened, no new type, no reflection, no test edits.",
+  "notes": "Compiled and ran trigger on the variant (fails expected:<1> but was:<0>). Lie line is appended after the @see tag without a leading '*', which is the recipe's rewrite_facade format (same in other instances). The facade call uses a fully qualified DateAxis name. Gold reads Boolean flag + Boolean.TRUE.equals(flag); trace-level questions are left to the trace checker. Ant timestamp caveat: copied build dirs must be removed before recompiling an edited copy."
+}

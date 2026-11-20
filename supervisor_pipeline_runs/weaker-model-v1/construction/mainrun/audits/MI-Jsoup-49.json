@@ -1,0 +1,52 @@
+{
+ "instance": "Jsoup-49__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.jsoup.helper.HttpConnection::absoluteUrl (hop 2)",
+   "edit": "return Evaluator.CssNthEvaluator.absoluteUrlFor(baseUri, link.startsWith(\"?\") ? baseUri.replaceFirst(\"[?#].*$\", \"\") + link : link);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.jsoup.parser.HtmlTreeBuilder::absoluteHref (hop 4)",
+   "edit": "return Whitelist.absoluteLink(baseUri, link.startsWith(\"?\") ? baseUri.replaceFirst(\"^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*\", \"\").replaceFirst(\"[?#].*$\", \"\") + link : link);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.jsoup.parser.HtmlTreeBuilder::absoluteHref (hop 4)",
+   "edit": "return org.jsoup.helper.StringUtil.resolve(baseUri, link);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.jsoup.nodes.Node::absUrl (instance, V2: passes this)",
+  "hop1 org.jsoup.nodes.Element::absoluteAttr",
+  "hop2 org.jsoup.helper.HttpConnection::absoluteUrl",
+  "hop3 org.jsoup.select.Evaluator.CssNthEvaluator::absoluteUrlFor",
+  "hop4 org.jsoup.parser.HtmlTreeBuilder::absoluteHref",
+  "gold org.jsoup.safety.Whitelist::absoluteLink"
+ ],
+ "reasons": "(a) Hops 1-4 are pure pass-throughs (hop 1 adds only the missing-attribute guard); only the gold parses the base and resolves, and it returns http://jsoup.org/path/?foo for ?foo against http://jsoup.org/path/file?bar, violating its promise to read the link relative to the base URI (RFC 3986 / codebase convention). (b) Hop javadocs describe their delegated result and their callees' @param link reads 'the link, as written in the attribute', so upstream rewriting is doc-inconsistent. (c) Two upstream string rewrites (hops 2 and 4) and a StringUtil.resolve substitution at hop 4 all pass trigger, ownership tests and full suite, but each feeds a pre-resolved link where the callee documents the raw attribute value, or makes the gold dead: bypasses, not competing repairs. (d) Neutral absolute* names, no fault vocabulary; the lie (percent-decoding, slash-splitting) names neither queries nor the omitted step. (e) Gold is 5 calls below facade; hosts are exactly hosts_hop_order (Element, HttpConnection, Evaluator[nested CssNthEvaluator], HtmlTreeBuilder, Whitelist); facade = Validate.notEmpty guard + one call; gold javadoc silent on the query step; trigger NodeTest::absHandlesRelativeQuery is existing and the only new failure (verified locally). (f) StringUtil.resolve(URL,String) does the identical step with an explicit comment saying java.net.URL's directory result is not desired; HttpConnection.Response.execute uses it for redirects. C10i rules: no modifier/visibility change, no new type, no reflection, facade signature unchanged, test.patch empty; Node.absUrl is the sole allowed candidate.",
+ "notes": "The gold is a near-verbatim inline of StringUtil.resolve(String,String)+resolve(URL,String) with the '?' workaround removed while the '.' workaround is kept; that is the intended external pin but makes the omission findable by comparison. StringUtilTest::resolvesRelativeUrls pins only the '.' adjustment, not the '?' case (the spec slightly overclaims); the '?' convention is pinned by production code/comment, and the trigger is the only test of it. The lie line is placed after the @see tags without a leading '*', so rendered javadoc attaches it to the @see entry (recipe-tool formatting). Node.absUrl's existing '@see java.net.URL#URL(java.net.URL, String)' could be read as endorsing plain java.net.URL semantics; the original body (StringUtil.resolve) and Node javadoc 'relative to the element's baseUri' outweigh it. Hop 3 indentation differs from the tab-indented nested class (cosmetic)."
+}

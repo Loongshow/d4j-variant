@@ -1,0 +1,51 @@
+{
+ "instance": "Closure-174",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing::accessPathOf (hop 4)",
+   "edit": "Node node = SymbolTable.Symbol.qualifiedNameFrom(convention, parts, count); if (count > 1 && \"this\".equals(parts[0])) { Node root = NodeUtil.getRootOfQualifiedName(node); root.getParent().replaceChild(root, IR.thisNode()); } return node;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "hops 1-3 (Compiler$CodeBuilder::qualifiedNameTree, JSTypeRegistry::createDottedName, JSDocInfo$Marker::dottedNameOf), analysed, not run separately",
+   "edit": "Same search-and-replaceChild of the root after the delegating call, or rebuilding GETPROP(THIS, ...) in the hop itself. No change to the parts string or count reaches a THIS root, because the gold always calls IR.name(parts[0]).",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "spec compensating edits at hops 1, 2 and 4 (one-line \"this\" special cases)",
+   "edit": "As declared in spec.compensating; G9 shows each compiles and the trigger still fails",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade com.google.javascript.jscomp.NodeUtil::newQualifiedNameNode(CodingConvention, String) - one delegating call, no guard (the original had none)",
+  "hop1 com.google.javascript.jscomp.Compiler$CodeBuilder::qualifiedNameTree - name.split(\"\\\\.\", -1)",
+  "hop2 com.google.javascript.rhino.jstype.JSTypeRegistry::createDottedName - count = parts.length",
+  "hop3 com.google.javascript.rhino.JSDocInfo$Marker::dottedNameOf - pass-through",
+  "hop4 com.google.javascript.jscomp.CompilerOptions$TweakProcessing::accessPathOf - pass-through",
+  "gold com.google.javascript.jscomp.SymbolTable$Symbol::qualifiedNameFrom - builds the root as IR.name(parts[0]), then the GETPROP chain"
+ ],
+ "reasons": "(a) On \"this.prop\" every hop passes correct data: hop 1 splits the name into [this, prop] and hop 2 sets count to 2. The gold is the only method that creates nodes. It roots the tree at IR.name(\"this\"). The Closure AST never has a NAME node called \"this\": the keyword is a THIS token. The result also breaks the documented contract of Node.isUnscopedQualifiedName, which says it is false for this.a, because that method treats NAME roots as unscoped. So the gold's contract (a node representing the qualified name, with the first part as its root) is violated at its source. The hops are wrong only because they pass the gold's tree on. (b) Each hop's javadoc is the generic 'creates a node representing the qualified name ...' and matches its code. None mentions this/THIS, so none is implicated more than the gold. (c) No hop can change the root type: no part string or count makes the gold produce THIS. The only passing non-gold repair takes the root of the gold's finished tree and replaces it by search plus replaceChild. I applied it at hop 4: the trigger, the 3 ownership tests and the full suite (0 failures) all pass. But it throws away the root the gold built and leaves the gold violating its contract for every caller, so it is a bypass, not a competing repair. The spec's declared one-line compensations do not absorb the fault (G9). (d) The hop and gold names are neutral and there is no fault vocabulary. The gold's javadoc says nothing about this/THIS. The lie (a backward scan with a prefix-node cache) names neither the fault nor the omitted step. (e) Facade -> 4 hops -> gold is exactly 5 calls, in 5 different pre-existing classes (Compiler$CodeBuilder, JSTypeRegistry, JSDocInfo$Marker, CompilerOptions$TweakProcessing, SymbolTable$Symbol). The facade body is one delegating call. The facade javadoc has one added procedural sentence the code does not do. The gold is quiet. The trigger NodeUtilTest::testNewQualifiedNameNode2 already exists and test.patch is empty. My full-suite run of the variant shows only the trigger failing, which matches G5. (f) The convention is pinned outside the gold. In passing tests, NodeTest.testQualifiedName expects GETPROP(THIS, b) to read \"this.b\" and NodeTest.testIsQualifiedName asserts GETPROP(THIS, b) is a qualified name. In evidence code, Node.getQualifiedName handles a THIS root, Node.isQualifiedName names this.a with a THIS root, Node.isUnscopedQualifiedName excludes this.a, and NodeUtil.getRootOfQualifiedName requires a NAME or THIS root.",
+ "notes": "Bypass recorded: hop 4 accessPathOf, replacing the root after the gold returns (exact edit above). It is about as large as the gold repair (3 lines against about 4), so the gold's ownership rests on the competing/bypass distinction and not on size. Caveats: (1) getQualifiedName and testQualifiedName read \"this.b\" from both a THIS root and a NAME this root. The positive pin is that THIS is the representation; the negative pin (NAME this is wrong) comes from isUnscopedQualifiedName's javadoc and from the parser never producing NAME this. (2) The correct gold keeps the original behaviour, where a bare \"this\" (count == 1) still becomes NAME this. That case is not exercised, and the variant gold contains no count>1 text. (3) Recipe formatting artifacts: the lie line has no leading '*' and is placed after @return, the facade body and the hop 2 javadoc are oddly indented, and the gold carries an added import. These affect every hop or the facade, not the gold specifically. Executed: variant compile OK; trigger fails with Subtree1: THIS / Subtree2: NAME this; variant full suite failing = [testNewQualifiedNameNode2] only; hop 4 bypass: trigger, ownership tests and full suite all pass (0 failures). Scratch dirs deleted."
+}

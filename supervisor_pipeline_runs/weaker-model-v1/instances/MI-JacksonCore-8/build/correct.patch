@@ -1,0 +1,178 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+index de5e88be..e3d53cfa 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.AtomicLong;
+ import com.fasterxml.jackson.core.JsonParser.NumberType;
+ import com.fasterxml.jackson.core.io.CharacterEscapes;
+ import com.fasterxml.jackson.core.util.VersionUtil;
++import java.util.Arrays;
++import com.fasterxml.jackson.core.json.UTF8StreamJsonParser;
+ 
+ /**
+  * Base class that defines public API for writing JSON content.
+@@ -578,6 +580,21 @@ public abstract class JsonGenerator
+      * @since 2.3
+      */
+     public boolean canWriteBinaryNatively() { return false; }
++
++    /**
++     * Helper method that copies the contents of a character buffer into a
++     * new array, of the length to which a buffer of that length grows.
++     *
++     * @param buffer Buffer to copy; not modified
++     * @param limit Length up to which a buffer grows by half of its length
++     *
++     * @return New array with the contents of the given buffer at its start
++     */
++    public static char[] copyIntoLargerBuffer(char[] buffer, int limit)
++    {
++        return Arrays.copyOf(buffer, UTF8StreamJsonParser.largerBufferLength(buffer.length, limit));
++    }
++
+     
+     /**
+      * Introspection method to call to check whether it is ok to omit
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonParser.java b/src/main/java/com/fasterxml/jackson/core/JsonParser.java
+index 745bd5de..b4fc5784 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonParser.java
+@@ -11,6 +11,7 @@ import java.math.BigInteger;
+ import java.util.Iterator;
+ 
+ import com.fasterxml.jackson.core.type.TypeReference;
++import com.fasterxml.jackson.core.json.ReaderBasedJsonParser;
+ 
+ /**
+  * Base class that defines public API for reading JSON content.
+@@ -1223,6 +1224,21 @@ public abstract class JsonParser
+     public int getValueAsInt() throws IOException {
+         return getValueAsInt(0);
+     }
++
++    /**
++     * Helper method that returns the length to which a buffer of the given
++     * length grows, when it needs room for more characters.
++     *
++     * @param length Current length of the buffer
++     * @param limit Length up to which a buffer grows by half of its length
++     *
++     * @return Length of the grown buffer
++     */
++    public static int nextBufferLength(int length, int limit)
++    {
++        return ReaderBasedJsonParser.grownBufferLength(length, limit);
++    }
++
+     
+     /**
+      * Method that will try to convert value of current token to a
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+index b5b0051c..e16b1389 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+@@ -368,6 +368,27 @@ public class ReaderBasedJsonParser // final in 2.3, earlier
+         return 0;
+     }
+ 
++    /**
++     * Helper method that returns the length to which a buffer of the given
++     * length grows, when it needs room for more characters.
++     *<p>
++     * A buffer grows by half of its length while that keeps it within
++     * the limit.
++     *
++     * @param length Current length of the buffer
++     * @param limit Length up to which a buffer grows by half of its length
++     *
++     * @return Length of the grown buffer
++     */
++    public static int grownBufferLength(int length, int limit)
++    {
++        int byHalf = length + (length >> 1);
++        int grown = Math.min(byHalf, limit);
++        if (grown < byHalf) grown = length + (length >> 2);
++        return grown;
++    }
++
++
+     @Override
+     public byte[] getBinaryValue(Base64Variant b64variant) throws IOException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+index 8063425b..0555f5dc 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+@@ -504,6 +504,21 @@ public class UTF8JsonGenerator
+         }
+         _outputBuffer[_outputTail++] = BYTE_QUOTE;
+     }
++
++    /**
++     * Helper method that returns a copy of the given character buffer,
++     * enlarged to have room for more characters.
++     *
++     * @param buffer Buffer to enlarge; not modified
++     * @param limit Length up to which a buffer grows by half of its length
++     *
++     * @return New, larger buffer with the contents of the given buffer
++     */
++    public static char[] enlargedCharBuffer(char[] buffer, int limit)
++    {
++        return JsonGenerator.copyIntoLargerBuffer(buffer, limit);
++    }
++
+     
+     @Override
+     public void writeRawUTF8String(byte[] text, int offset, int length) throws IOException
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+index d25ae636..6893cc7a 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+@@ -472,6 +472,21 @@ public class UTF8StreamJsonParser
+         }
+     }
+ 
++    /**
++     * Helper method that returns the length to which a buffer of the given
++     * length grows, when it needs room for more characters.
++     *
++     * @param length Current length of the buffer
++     * @param limit Length up to which a buffer grows by half of its length
++     *
++     * @return Length of the grown buffer
++     */
++    public static int largerBufferLength(int length, int limit)
++    {
++        return JsonParser.nextBufferLength(length, limit);
++    }
++
++
+     protected int _readBinary(Base64Variant b64variant, OutputStream out,
+                               byte[] buffer) throws IOException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java
+index c67f3257..6b852263 100644
+--- a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java
+@@ -592,18 +592,11 @@ public final class TextBuffer
+      * Method called to expand size of the current segment, to
+      * accommodate for more contiguous content. Usually only
+      * used when parsing tokens like names if even then.
++       The expanded segment is allocated from the buffer recycler, and the previous segment is released back to it.
+      */
+     public char[] expandCurrentSegment()
+     {
+-        final char[] curr = _currentSegment;
+-        // Let's grow by 50% by default
+-        final int len = curr.length;
+-        int newLen = len + (len >> 1);
+-        // but above intended maximum, slow to increase by 25%
+-        if (newLen > MAX_SEGMENT_LEN) {
+-            newLen = len + (len >> 2);
+-        }
+-        return (_currentSegment = Arrays.copyOf(curr, newLen));
++        return (_currentSegment = com.fasterxml.jackson.core.json.UTF8JsonGenerator.enlargedCharBuffer(_currentSegment, MAX_SEGMENT_LEN));
+     }
+ 
+     /**

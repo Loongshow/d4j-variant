@@ -1,0 +1,60 @@
+{
+ "instance": "Cli-40",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.cli.CommandLine::parsedValue (hop 4)",
+   "edit": "return Parser.convertValue(str, clazz);  ->  final Object v = Parser.convertValue(str, clazz); if (v == null && clazz != PatternOptionBuilder.STRING_VALUE) { throw new ParseException(\"Unable to handle the class: \" + clazz); } return v;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.cli.HelpFormatter::argValueOf (hop 1)",
+   "edit": "return Option.valueOfType(str, clazz);  ->  final Object v = Option.valueOfType(str, clazz); if (v == null) { throw new ParseException(\"Unable to handle the class: \" + clazz); } return v;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.cli.DefaultParser::argumentValue (hop 3)",
+   "edit": "return CommandLine.parsedValue(str, clazz);  ->  return CommandLine.parsedValue(str, Number.class.isAssignableFrom(clazz) ? PatternOptionBuilder.NUMBER_VALUE : clazz);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.cli.Option::valueOfType (hop 2)",
+   "edit": "return DefaultParser.argumentValue(str, clazz);  ->  if (clazz != STRING_VALUE && clazz != OBJECT_VALUE && clazz != NUMBER_VALUE && clazz != DATE_VALUE && clazz != CLASS_VALUE && clazz != FILE_VALUE && clazz != EXISTING_FILE_VALUE && clazz != FILES_VALUE && clazz != URL_VALUE) { throw new ParseException(\"Unable to handle the class: \" + clazz); } return DefaultParser.argumentValue(str, clazz);  (all constants qualified with PatternOptionBuilder.)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.cli.TypeHandler::createValue(String, Class<T>) -- body: return (T) HelpFormatter.argValueOf(str, clazz); (no guard in the original)",
+  "hop1 org.apache.commons.cli.HelpFormatter::argValueOf -- return Option.valueOfType(str, clazz);",
+  "hop2 org.apache.commons.cli.Option::valueOfType -- return DefaultParser.argumentValue(str, clazz);",
+  "hop3 org.apache.commons.cli.DefaultParser::argumentValue -- return CommandLine.parsedValue(str, clazz);",
+  "hop4 org.apache.commons.cli.CommandLine::parsedValue -- return Parser.convertValue(str, clazz);",
+  "gold org.apache.commons.cli.Parser::convertValue -- nine-way dispatch on the PatternOptionBuilder value types; the final else { throw new ParseException(\"Unable to handle the class: \" + clazz); } is omitted, so an unhandled class returns null"
+ ],
+ "reasons": "Reproduced: the variant compiles; the trigger TypeHandlerTest::testCreateValueInteger_failure fails with 'Expected exception: org.apache.commons.cli.ParseException'; the full variant suite has exactly that one failure; the correct configuration's full suite is clean. (a) On the trigger input (\"just-a-string\", Integer.class) only the gold executes any logic: none of its nine branches match and it returns null, which is not 'the value of str converted to clazz' that its @return promises. The method declares throws ParseException and is the only place holding the list of handled types. The facade (@throws ParseException if the value creation for the given class failed) and hops 1-4 (@return the value of str converted to clazz) also return null, but only by passing the callee's result through unchanged; their violation is derived from the gold's. (b) Hops 1-4 are single-statement pass-throughs whose javadoc claims only a conversion to the given type, which is true of them exactly when it is true of their callee. None mentions a type check, a default or a null result, and none contradicts its code. (c) Four alternative edits at hops pass the trigger, the four ownership tests and the full suite, and all are bypasses. R1, R2: a null post-check in a hop turns the gold's null into a ParseException. It relies on a null signal the gold does not document, so the gold still breaks its own @return on the trigger input. R2's plain null check would also throw for (null, STRING_VALUE), where null is the documented conversion. R3: remapping Number subclasses to NUMBER_VALUE in hop 3 returns a Long for (\"15\", Integer.class), which contradicts hop 3's @return and the facade's <T>, and leaves every other unhandled class returning null. R4: a nine-type pre-filter in hop 2 is a second copy of the gold's dispatch list. On the trigger it makes hops 3-4 and the gold dead, and it is far larger than the gold's single else-throw. The three declared compensating edits (null, primitive and interface rejection) do not absorb the fault (G9). (d) Hop names (argValueOf, valueOfType, argumentValue, parsedValue, convertValue) are neutral and not on the banned list. The added javadoc is bland house style. G2a and G2b are clean. The gold's javadoc never mentions unhandled types, a default branch or exceptions. The lie ('The converter is chosen by looking up the name of the class in a table of converters that is built once, when TypeHandler is first loaded.') describes a table lookup the code does not do, and names neither the fault nor the omitted rejection. (e) Hosts are judged against BUILD_BRIEF_C10F_ADDENDUM section 1. No public class in the fixed revision reaches 1500 lines, so largest5 applies. I recomputed the five largest public, non-interface, non-enum production classes other than TypeHandler by newline count: HelpFormatter 1092, Option 1012, DefaultParser 781, CommandLine 546, Parser 429 (abstract class). Hops 1-5 sit in exactly these, in this order, with the gold in Parser. Anchors come from the script's seeded picker (anchor_seed 7498-7502 = seed 7398 + 100 + i). The gold is exactly five calls below the facade, in five different existing classes. The facade body is one delegating call; the original had no guard. One procedural lie sentence was added. The gold's javadoc is quiet. The omission is a single statement, the final else-throw (four physical lines in the file's brace style). The trigger is an existing test (empty test.patch) and is the only newly failing test. (f) Outside the gold, the convention that a value which cannot be created for the requested type is signalled by ParseException is pinned by: the facade's original @throws; CommandLine::getParsedOptionValue (@throws ParseException for problems turning the value into the desired type; it is also a production caller of the facade); getOptionObject's catch-ParseException-then-null; TypeHandler::createClass and ::createObject, which throw ParseException rather than return null; and the passing tests testCreateValueClass_notFound, testCreateValueObject_unknownClass, testCreateValueURL_malformed and testCreateValueNumber_noNumber, all of which pass on the variant.",
+ "notes": "1) The spec's ownership_reason claims that any caller-side null check is inexact, either still returning null for (null, Integer.class) or throwing for (null, STRING_VALUE). That claim is false for R1: excluding STRING_VALUE makes the hop-4 post-check behave exactly like the correct configuration on every input, because no other TypeHandler converter can return null. R1 is still a bypass and not a competing repair. It depends on an undocumented null result from the gold, and it carries knowledge of the gold's dispatch, namely which type may legitimately convert to null. It does not change the verdict, but the spec's argument should not be relied on. 2) Weak counter-precedents: TypeHandler::createDate's javadoc says it returns null for an invalid date string (it is a stub that always throws), and PatternOptionBuilder::getValueClass returns null, without documenting it, for an unknown code character. Neither is a type conversion that reaches a ParseException-documented API, and the conversion siblings and the facade's @throws outweigh them. 3) Formatting artifact of the recipe's facade rewrite: the lie line has no leading '*' and follows the @throws tag, so rendered javadoc shows it inside the @throws ParseException description. The rewrite also dropped @SuppressWarnings(\"unchecked\") from the facade, which now compiles with an unchecked-cast warning. Neither is leakage. 4) The fault re-creates the real Defects4J Cli-40 defect (an unhandled class gives null instead of ParseException) in the gold, and the trigger is that bug's own test. 5) Not checked: whether the facade is among the allowed targets in main-run/BATCH6_PREREGISTRATION.md, because the audit brief forbids reading other *.md files. 6) First alternative-repair runs gave a false negative: copies made with cp -R had class files with the same mtime second as the edited sources, so ant skipped recompilation. All four were rerun after touching the edited sources, and the results above are from those reruns."
+}

@@ -1,0 +1,235 @@
+{
+ "bug_id": 45,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java",
+   "new": "MathUtils.keyedProduct(keys, entries, columns, m, out);",
+   "old": "Arrays.sort(keys);\n        MathUtils.keyedProduct(keys, entries, columns, m, out);",
+   "why": "hop 2 reads the keys in storage order"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+   "new": "final RealMatrix out = new org.apache.commons.math.linear.Array2DRowRealMatrix(rows, m.getColumnDimension());",
+   "old": "final RealMatrix out = new BlockRealMatrix(rows, m.getColumnDimension());",
+   "why": "hop 1 builds the product as an array matrix"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "values[i] = entries.containsKey(keys[i]) ? entries.get(keys[i]) : 0.0;",
+   "old": "values[i] = entries.get(keys[i]);",
+   "why": "hop 3 reads an absent key as zero"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/math/dfp/Dfp.java",
+   "new": "import org.apache.commons.math.FieldElement;\nimport org.apache.commons.math.linear.BlockFieldMatrix;\nimport org.apache.commons.math.linear.RealMatrix;\n",
+   "old": "import org.apache.commons.math.FieldElement;\n",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/dfp/Dfp.java",
+   "new": "        return trunc(DfpField.RoundingMode.ROUND_CEIL);\n    }\n\n    /**\n     * Writes the product of a sparse matrix and a matrix into a matrix of\n     * zeros.\n     *\n     * @param keys the keys of the stored entries of the sparse matrix, in\n     * increasing order\n     * @param values the values of the stored entries\n     * @param columns the number of columns of the sparse matrix\n     * @param m the matrix to postmultiply by\n     * @param out the matrix receiving the product\n     */\n    public static void sparseRows(final int[] keys, final double[] values, final int columns,\n                                  final RealMatrix m, final RealMatrix out) {\n        BlockFieldMatrix.writeProductRows(keys, values, columns, m, out);\n    }\n\n\n    /** Returns the IEEE remainder.",
+   "old": "        return trunc(DfpField.RoundingMode.ROUND_CEIL);\n    }\n\n    /** Returns the IEEE remainder.",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+   "new": "        }\n\n        return out;\n    }\n\n    /**\n     * Writes the rows of the product of a sparse matrix and a matrix.\n     *\n     * <p>The sparse matrix is given by the keys of its stored entries, in\n     * increasing order, and by their values; the key of an entry is its row\n     * times the number of columns, plus its column. Each row of the product\n     * is written into {@code out} once the last stored entry of its row has\n     * been read; rows without stored entries are left as they are.</p>\n     *\n     * @param keys the keys of the stored entries, in increasing order\n     * @param values the values of the stored entries\n     * @param columns the number of columns of the sparse matrix\n     * @param m the matrix to postmultiply by\n     * @param out the matrix receiving the rows of the product\n     */\n    public static void writeProductRows(final int[] keys, final double[] values, final int columns,\n                                        final RealMatrix m, final RealMatrix out) {\n        int width = m.getColumnDimension();\n        double[] sums = new double[width];\n        for (int e = 0; e < keys.length; e++) {\n            int row = keys[e] / columns;\n            int inner = keys[e] % columns;\n            for (int j = 0; j < width; j++) {\n                sums[j] += values[e] * m.getEntry(inner, j);\n            }\n            if (e + 1 == keys.length || keys[e + 1] / columns != row) {\n                out.setRow(row, sums);\n                sums = new double[width];\n            }\n        }\n    }\n\n\n    /** {@inheritDoc} */\n    @Override\n    public T[][] getData() {",
+   "old": "        }\n\n        return out;\n    }\n\n    /** {@inheritDoc} */\n    @Override\n    public T[][] getData() {",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/OpenMapRealMatrix.java",
+   "new": "    /**\n     * {@inheritDoc}\n     * When {@code m} is not sparse, its columns are first copied into\n     * dense arrays, and each column of the product is computed in turn as\n     * this matrix times one of them.\n     */\n    @Override\n    public RealMatrix multiply(final RealMatrix m) {\n        try {\n            return multiply((OpenMapRealMatrix) m);\n        } catch (ClassCastException cce) {\n\n            // safety check\n            MatrixUtils.checkMultiplicationCompatible(this, m);\n\n            return org.apache.commons.math.util.FastMath.productOfEntries(entries, rows, columns, m);",
+   "old": "    /** {@inheritDoc} */\n    @Override\n    public RealMatrix multiply(final RealMatrix m) {\n        try {\n            return multiply((OpenMapRealMatrix) m);\n        } catch (ClassCastException cce) {\n\n            // safety check\n            MatrixUtils.checkMultiplicationCompatible(this, m);\n\n            final int outCols = m.getColumnDimension();\n            final BlockRealMatrix out = new BlockRealMatrix(rows, outCols);\n            for (OpenIntToDoubleHashMap.Iterator iterator = entries.iterator(); iterator.hasNext();) {\n                iterator.advance();\n                final double value = iterator.value();\n                final int key      = iterator.key();\n                final int i        = key / columns;\n                final int k        = key % columns;\n                for (int j = 0; j < outCols; ++j) {\n                    out.addToEntry(i, j, value * m.getEntry(k, j));\n                }\n            }\n\n            return out;",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java",
+   "new": "import org.apache.commons.math.util.MathUtils;\nimport org.apache.commons.math.linear.RealMatrix;\nimport org.apache.commons.math.util.OpenIntToDoubleHashMap;\n",
+   "old": "import org.apache.commons.math.util.MathUtils;\n",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java",
+   "new": "             DEFAULT_STOPPING_RADIUS);\n    }\n\n    /**\n     * Writes the product of a sparse matrix and a matrix into a matrix of\n     * zeros, reading the stored entries of the sparse matrix in increasing\n     * key order.\n     *\n     * @param entries the stored entries of the sparse matrix, by key\n     * @param columns the number of columns of the sparse matrix\n     * @param m the matrix to postmultiply by\n     * @param out the matrix receiving the product\n     */\n    public static void orderedProduct(final OpenIntToDoubleHashMap entries, final int columns,\n                                      final RealMatrix m, final RealMatrix out) {\n        final int[] keys = new int[entries.size()];\n        int n = 0;\n        for (OpenIntToDoubleHashMap.Iterator iterator = entries.iterator(); iterator.hasNext();) {\n            iterator.advance();\n            keys[n++] = iterator.key();\n        }\n        Arrays.sort(keys);\n        MathUtils.keyedProduct(keys, entries, columns, m, out);\n    }\n\n\n    /**",
+   "old": "             DEFAULT_STOPPING_RADIUS);\n    }\n\n    /**",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+   "new": "import java.io.PrintStream;\nimport org.apache.commons.math.linear.BlockRealMatrix;\nimport org.apache.commons.math.linear.RealMatrix;\nimport org.apache.commons.math.optimization.direct.BOBYQAOptimizer;\n",
+   "old": "import java.io.PrintStream;\n",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+   "new": "        return (x < 0.0f) ? -x : (x == 0.0f) ? 0.0f : x; // -0.0 => +0.0\n    }\n\n    /**\n     * Multiplies a sparse matrix, given by its stored entries, by a matrix.\n     *\n     * @param entries the stored entries of the sparse matrix, by key (the row\n     * times the number of columns, plus the column)\n     * @param rows the number of rows of the sparse matrix\n     * @param columns the number of columns of the sparse matrix\n     * @param m the matrix to postmultiply by\n     * @return a new matrix holding the product\n     */\n    public static RealMatrix productOfEntries(final OpenIntToDoubleHashMap entries,\n                                              final int rows, final int columns,\n                                              final RealMatrix m) {\n        final RealMatrix out = new BlockRealMatrix(rows, m.getColumnDimension());\n        BOBYQAOptimizer.orderedProduct(entries, columns, m, out);\n        return out;\n    }\n\n\n    /**\n     * Absolute value.\n     * @param x number from which absolute value is requested\n     * @return abs(x)\n     */",
+   "old": "        return (x < 0.0f) ? -x : (x == 0.0f) ? 0.0f : x; // -0.0 => +0.0\n    }\n\n    /**\n     * Absolute value.\n     * @param x number from which absolute value is requested\n     * @return abs(x)\n     */",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "import org.apache.commons.math.exception.util.LocalizedFormats;\nimport org.apache.commons.math.dfp.Dfp;\nimport org.apache.commons.math.linear.RealMatrix;\n",
+   "old": "import org.apache.commons.math.exception.util.LocalizedFormats;\n",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "    public static boolean equalsIncludingNaN(double x, double y, double eps) {\n        return equalsIncludingNaN(x, y) || (FastMath.abs(y - x) <= eps);\n    }\n\n    /**\n     * Writes the product of a sparse matrix and a matrix into a matrix of\n     * zeros, looking up the value of each stored entry by its key.\n     *\n     * @param keys the keys of the stored entries, in increasing order\n     * @param entries the stored entries of the sparse matrix, by key\n     * @param columns the number of columns of the sparse matrix\n     * @param m the matrix to postmultiply by\n     * @param out the matrix receiving the product\n     */\n    public static void keyedProduct(final int[] keys, final OpenIntToDoubleHashMap entries, final int columns,\n                                    final RealMatrix m, final RealMatrix out) {\n        final double[] values = new double[keys.length];\n        for (int i = 0; i < keys.length; i++) {\n            values[i] = entries.get(keys[i]);\n        }\n        Dfp.sparseRows(keys, values, columns, m, out);\n    }\n\n\n    /**\n     * Returns true if both arguments are equal or within the range of allowed",
+   "old": "    public static boolean equalsIncludingNaN(double x, double y, double eps) {\n        return equalsIncludingNaN(x, y) || (FastMath.abs(y - x) <= eps);\n    }\n\n    /**\n     * Returns true if both arguments are equal or within the range of allowed",
+   "purpose": "MI-Math-45 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math.util.FastMath",
+   "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+   "method": "productOfEntries"
+  },
+  {
+   "class": "org.apache.commons.math.optimization.direct.BOBYQAOptimizer",
+   "file": "src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java",
+   "method": "orderedProduct"
+  },
+  {
+   "class": "org.apache.commons.math.util.MathUtils",
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "method": "keyedProduct"
+  },
+  {
+   "class": "org.apache.commons.math.dfp.Dfp",
+   "file": "src/main/java/org/apache/commons/math/dfp/Dfp.java",
+   "method": "sparseRows"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Math-45__i.py",
+ "entry_points": [
+  "org.apache.commons.math.linear.OpenMapRealMatrix::multiply"
+ ],
+ "evidence": [
+  "org.apache.commons.math.linear.OpenMapRealMatrix::multiply",
+  "org.apache.commons.math.linear.AbstractRealMatrix::multiply",
+  "org.apache.commons.math.linear.BlockRealMatrix::multiply"
+ ],
+ "expected_signature": "AssertionFailedError: inverse multiply",
+ "extra_tests": [],
+ "fixture_key": "Math-45",
+ "gold": {
+  "class": "org.apache.commons.math.linear.BlockFieldMatrix",
+  "edits": [
+   {
+    "new": "            if (e + 1 == keys.length || keys[e + 1] / columns != row) {\n                out.setRow(row, sums);\n            }",
+    "old": "            if (e + 1 == keys.length || keys[e + 1] / columns != row) {\n                out.setRow(row, sums);\n                sums = new double[width];\n            }"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+  "method": "writeProductRows"
+ },
+ "group": "MI-Math-45",
+ "hops": 5,
+ "iid": "MI-Math-45",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold forms the row sums of the product and writes the rows: it reads the stored entries of the sparse matrix in increasing key order, adds value times the matching row of m to the sums of the current row and writes the sums as a row of the product once the last entry of that row has been read. Hop 1 only creates the zero product and returns it, hop 2 only orders the keys, hop 3 only looks up the values and hop 4 passes everything through; none of them reads the product, so once the gold has written a row that still carries earlier rows' contributions no caller can separate them. The gold's javadoc promises the rows of the product; on the trigger the variant's rows 1 and 2 carry row 0's (and row 1's) terms. The convention that each row of a product is summed from zero over its own terms only is pinned outside the gold: the intact sibling overload OpenMapRealMatrix.multiply(OpenMapRealMatrix) adds every term only to the entry of its own row (out.computeKey(i, j)), and AbstractRealMatrix.multiply and BlockRealMatrix.multiply start each output sum at zero; SparseRealMatrixTest::testMultiply2, ::testPremultiply and ::testExamples (sparse products through the sibling overload) and BlockRealMatrixTest::testMultiply pass.",
+ "ownership_tests": [
+  "org.apache.commons.math.linear.SparseRealMatrixTest::testMultiply2",
+  "org.apache.commons.math.linear.SparseRealMatrixTest::testPremultiply",
+  "org.apache.commons.math.linear.SparseRealMatrixTest::testExamples",
+  "org.apache.commons.math.linear.BlockRealMatrixTest::testMultiply"
+ ],
+ "project": "Math",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "abs",
+    "anchor_seed": 2250,
+    "class": "org.apache.commons.math.util.FastMath",
+    "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.math.linear.BlockRealMatrix;",
+     "import org.apache.commons.math.linear.RealMatrix;",
+     "import org.apache.commons.math.optimization.direct.BOBYQAOptimizer;"
+    ],
+    "method": "productOfEntries",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BOBYQAOptimizer",
+    "anchor_seed": 2251,
+    "class": "org.apache.commons.math.optimization.direct.BOBYQAOptimizer",
+    "file": "src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.math.linear.RealMatrix;",
+     "import org.apache.commons.math.util.OpenIntToDoubleHashMap;"
+    ],
+    "method": "orderedProduct",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "equalsIncludingNaN",
+    "anchor_seed": 2252,
+    "class": "org.apache.commons.math.util.MathUtils",
+    "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.math.dfp.Dfp;",
+     "import org.apache.commons.math.linear.RealMatrix;"
+    ],
+    "method": "keyedProduct",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ceil",
+    "anchor_seed": 2253,
+    "class": "org.apache.commons.math.dfp.Dfp",
+    "file": "src/main/java/org/apache/commons/math/dfp/Dfp.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.math.linear.BlockFieldMatrix;",
+     "import org.apache.commons.math.linear.RealMatrix;"
+    ],
+    "method": "sparseRows",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "multiply",
+    "anchor_seed": 2254,
+    "class": "org.apache.commons.math.linear.BlockFieldMatrix",
+    "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "writeProductRows",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2150
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Math-45"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.math.linear.SparseRealMatrixTest",
+  "test_file": "src/test/java/org/apache/commons/math/linear/SparseRealMatrixTest.java",
+  "test_method": "testMultiply"
+ },
+ "variant_id": "CTV-B93009",
+ "kind": "new",
+ "fault_lines": [
+  "if (e + 1 == keys.length || keys[e + 1] / columns != row) {\n                out.setRow(row, sums);\n            }"
+ ],
+ "gold_key": "org.apache.commons.math.linear.BlockFieldMatrix::writeProductRows"
+}

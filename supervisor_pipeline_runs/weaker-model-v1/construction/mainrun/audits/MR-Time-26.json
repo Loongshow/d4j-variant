@@ -1,0 +1,96 @@
+{
+  "instance": "Time-26",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.joda.time.format.DateTimeFormatterBuilder::zoneForTimeZone (hop 1)",
+      "edit": "if (zone.getID().equals(\"UTC\")) {  ->  if (zone.getID().equals(\"UTC\") || zone.getID().equals(\"GMT\")) {   (spec compensating edit)",
+      "trigger_passes": false,
+      "ownership_tests_pass": "not run (trigger still fails; G9 confirms)",
+      "full_suite_clean": false,
+      "doc_consistent": true,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.format.DateTimeFormatterBuilder::zoneForTimeZone (hop 1)",
+      "edit": "if (zone.getID().equals(\"UTC\")) {  ->  if (zone.getID().equals(\"UTC\") || (zone.getRawOffset() == 0 && !zone.useDaylightTime())) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.tz.DateTimeZoneBuilder::fromTimeZone (hop 2)",
+      "edit": "return Period.zoneFromProvider(DateTimeZone.getProvider(), zone);  ->  return DateTimeZone.forID(Period.zoneFromProvider(DateTimeZone.getProvider(), zone).getID());",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.joda.time.Period::zoneFromProvider (hop 3)",
+      "edit": "dtz = provider.getZone(id);  ->  dtz = provider.getZone(id.startsWith(\"GMT\") ? \"Etc/\" + id : id);   (spec compensating edit)",
+      "trigger_passes": false,
+      "ownership_tests_pass": "not run (trigger still fails; G9 confirms)",
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.Period::zoneFromProvider (hop 3)",
+      "edit": "return ISODateTimeFormat.offsetZoneOf(zone);  ->  return zone.getRawOffset() == 0 ? DateTimeZone.UTC : ISODateTimeFormat.offsetZoneOf(zone);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.format.ISODateTimeFormat::offsetZoneOf (hop 4)",
+      "edit": "final String name = zone.getDisplayName();  ->  final String name = zone.getID();   (spec compensating edit)",
+      "trigger_passes": false,
+      "ownership_tests_pass": "not run (trigger still fails; G9 confirms)",
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.format.ISODateTimeFormat::offsetZoneOf (hop 4)",
+      "edit": "return PeriodFormatterBuilder.zoneForOffset(name.substring(3));  ->  return DateTimeZone.forID(name.substring(3));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "org.joda.time.format.ISODateTimeFormat::offsetZoneOf (hop 4)",
+      "edit": "insert as first line of the GMT+/GMT- branch:  if (zone.getRawOffset() == 0) return DateTimeZone.UTC;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.joda.time.DateTimeZone::forTimeZone(TimeZone) - null guard + one call to hop 1",
+    "hop1 org.joda.time.format.DateTimeFormatterBuilder::zoneForTimeZone(TimeZone) - ID UTC gives UTC, else delegates (ID is GMT+00:00, not UTC)",
+    "hop2 org.joda.time.tz.DateTimeZoneBuilder::fromTimeZone(TimeZone) - places DateTimeZone.getProvider()",
+    "hop3 org.joda.time.Period::zoneFromProvider(Provider, TimeZone) - no old style ID, provider has no GMT+00:00, delegates to display-name conversion",
+    "hop4 org.joda.time.format.ISODateTimeFormat::offsetZoneOf(TimeZone) - display name GMT+00:00 matches GMT offset format, passes \"+00:00\"",
+    "gold org.joda.time.format.PeriodFormatterBuilder::zoneForOffset(String) - parses offset 0, returns new FixedDateTimeZone(\"+00:00\", ...) instead of DateTimeZone.UTC"
+  ],
+  "reasons": "(a) On the trigger input TimeZone GMT+00:00 every hop behaves exactly as its javadoc says on the input it receives: hop 1 only promises UTC for the ID UTC, hop 3 looks the ID up (none, no old style ID) and converts from the display name, hop 4 hands the offset text \"+00:00\" (a valid input) to the gold. The gold promises 'the DateTimeZone object for the offset', the identical wording of DateTimeZone.forOffsetMillis, and the house convention (forOffsetMillis, forID, forOffsetHoursMinutes, fixedOffsetZone) is that the zone object for a zero offset is DateTimeZone.UTC; the gold returns a fresh FixedDateTimeZone with ID +00:00, which is neither same nor equal to UTC. Hop 4 and the facade fail only by propagating the gold's output. (b) All four hop javadocs match their code; none promises zero-offset handling, and the only method on the path that turns an offset into a zone object is the gold. (c) The variant gold never returns DateTimeZone.UTC for any input, so no change to what hops 1-4 pass it can make assertSame(UTC, ...) pass; I verified the three declared compensating edits all still fail the trigger. Every edit that passes the trigger, ownership tests and full suite (hop 2 re-resolving via forID, hop 4 calling forID instead of the gold, hop 4 returning UTC itself for a zero raw offset) produces UTC outside the gold or replaces the gold's result, i.e. a bypass that leaves zoneForOffset(\"+00:00\") still inconsistent with forOffsetMillis(0). Broader zero-offset shortcuts at hops 1 and 3 break TestCalendarConverter::testGetChronology_Object_nullChronology (unknown zero-offset zone must not become UTC). No competing repair found. (d) Hop and gold names are neutral; the lie talks about matching raw offset and DST rules against provider zones and does not mention UTC, zero offsets or the omitted check; the gold reads as an ordinary parse-and-construct routine. (e) Gold is exactly five calls below the facade; hops are in five different existing classes (DateTimeFormatterBuilder, DateTimeZoneBuilder, Period, ISODateTimeFormat, PeriodFormatterBuilder); facade body is the original null guard plus one delegating call; facade javadoc has one added procedural sentence the code does not perform; gold javadoc is silent on zero-offset handling; test.patch is empty, the variant compiles, and in my full-suite run only TestDateTimeZone::testForTimeZone_TimeZone fails (signature 'expected same:<UTC> was not:<+00:00>'), while correct.patch gives 0 failures. (f) The convention is pinned outside the gold by DateTimeZone.forID (+00:00 and +00 give UTC), forOffsetMillis(0) (assertSame UTC) and forOffsetHoursMinutes(0,0), with passing tests testForID_String, testForOffsetMillis_int, testForOffsetHoursMinutes_int_int; testTimeZoneConversion pins the non-zero GMT display-name path. All four ownership tests pass on the variant.",
+  "notes": "Recorded bypasses (all pass trigger, ownership tests and full suite): (1) DateTimeZoneBuilder.fromTimeZone: return DateTimeZone.forID(Period.zoneFromProvider(DateTimeZone.getProvider(), zone).getID()); re-resolves the chain's result. (2) ISODateTimeFormat.offsetZoneOf: return DateTimeZone.forID(name.substring(3)); makes the gold dead. (3) ISODateTimeFormat.offsetZoneOf: insert 'if (zone.getRawOffset() == 0) return DateTimeZone.UTC;' in the GMT branch; produces UTC itself and skips the gold for the zero case. Minor observations, not grounds for rejection: the lie sentence is inserted after the @throws tag without a leading '*', so rendered javadoc would attach it to the @throws description (recipe rewrite_facade artefact); the context edit widens DateTimeZone.getConvertedId from private to package-private for hop 3 (behaviour-preserving, G11 passes); the correct gold creates an uncached FixedDateTimeZone with the display text as ID for non-zero offsets, unlike forID's printOffset/fixedOffsetZone, but no test or trigger input distinguishes this. Scratch work in /private/tmp/mxb-wrDabh, deleted after the audit."
+}

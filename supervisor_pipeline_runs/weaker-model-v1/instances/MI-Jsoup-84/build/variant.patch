@@ -1,0 +1,249 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 9f56a291..f00f2f9f 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -43,6 +43,13 @@ import java.util.zip.InflaterInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import java.util.HashMap;
++import org.jsoup.nodes.Comment;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.nodes.Element;
++import org.jsoup.nodes.Node;
++import org.jsoup.nodes.TextNode;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -167,6 +174,38 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Appends the W3C form of a jsoup node, and of all its descendants, to a
++     * W3C node.
++     *
++     * <p>An element is appended as a new W3C element, made with a copy of the
++     * namespace scope it inherits, and its child nodes are then appended to it
++     * in order, with that copy as their scope. Text is appended as a text node,
++     * data as a text node of its whole data, and a comment as a comment; other
++     * nodes are not appended.</p>
++     *
++     * @param source the jsoup node
++     * @param owner the W3C document that creates the new nodes
++     * @param parent the W3C node to append to
++     * @param inherited the namespace URIs declared by the node's ancestors, by prefix
++     */
++    public static void appendW3cNode(Node source, org.w3c.dom.Document owner, org.w3c.dom.Node parent, Map<String, String> inherited) {
++        if (source instanceof Element) {
++            Map<String, String> scope = new HashMap<>(inherited);
++            org.w3c.dom.Element made = Evaluator.IsNthChild.w3cElementOf((Element) source, owner, scope);
++            parent.appendChild(made);
++            for (Node child : source.childNodes())
++                appendW3cNode(child, owner, made, scope);
++        } else if (source instanceof TextNode) {
++            parent.appendChild(owner.createTextNode(((TextNode) source).getWholeText()));
++        } else if (source instanceof DataNode) {
++            parent.appendChild(owner.createTextNode(((DataNode) source).getWholeData()));
++        } else if (source instanceof Comment) {
++            parent.appendChild(owner.createComment(((Comment) source).getData()));
++        }
++    }
++
++
+     public Connection method(Method method) {
+         req.method(method);
+         return this;
+diff --git a/src/main/java/org/jsoup/helper/W3CDom.java b/src/main/java/org/jsoup/helper/W3CDom.java
+index 68475747..f73064c9 100644
+--- a/src/main/java/org/jsoup/helper/W3CDom.java
++++ b/src/main/java/org/jsoup/helper/W3CDom.java
+@@ -32,20 +32,11 @@ public class W3CDom {
+      * Convert a jsoup Document to a W3C Document.
+      * @param in jsoup doc
+      * @return w3c doc
++       The jsoup document is first written out as XML text, which a namespace-aware builder then parses into the W3C document.
+      */
+     public Document fromJsoup(org.jsoup.nodes.Document in) {
+         Validate.notNull(in);
+-        DocumentBuilder builder;
+-        try {
+-        	//set the factory to be namespace-aware
+-        	factory.setNamespaceAware(true);
+-            builder = factory.newDocumentBuilder();
+-            Document out = builder.newDocument();
+-            convert(in, out);
+-            return out;
+-        } catch (ParserConfigurationException e) {
+-            throw new IllegalStateException(e);
+-        }
++        return org.jsoup.nodes.Element.toW3cDocument(in, factory);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index a966b600..52ec84d7 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -27,6 +27,10 @@ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
+ 
+ import static org.jsoup.internal.Normalizer.normalize;
++import javax.xml.parsers.DocumentBuilderFactory;
++import javax.xml.parsers.ParserConfigurationException;
++import java.util.HashMap;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -525,6 +529,31 @@ public class Element extends Node {
+         prependChild(node);
+         return this;
+     }
++
++    /**
++     * Converts a jsoup document to a new W3C document.
++     *
++     * <p>The W3C document is created by a namespace-aware builder of the given
++     * factory, takes the location of the jsoup document as its URI if it has
++     * one, and receives the W3C form of the first element of the document.</p>
++     *
++     * @param in the jsoup document
++     * @param factory the factory of the document builder
++     * @return the new W3C document
++     */
++    public static org.w3c.dom.Document toW3cDocument(Document in, DocumentBuilderFactory factory) {
++        try {
++            factory.setNamespaceAware(true);
++            org.w3c.dom.Document out = factory.newDocumentBuilder().newDocument();
++            if (!StringUtil.isBlank(in.location()))
++                out.setDocumentURI(in.location());
++            HttpConnection.appendW3cNode(in.child(0), out, out, new HashMap<String, String>());
++            return out;
++        } catch (ParserConfigurationException e) {
++            throw new IllegalStateException(e);
++        }
++    }
++
+     
+     /**
+      * Add inner HTML to this element. The supplied HTML will be parsed, and each node appended to the end of the children.
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index 67d9496b..d86507e9 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -269,6 +269,37 @@ public abstract class Node implements Cloneable {
+         return (root instanceof Document) ? (Document) root : null;
+     }
+ 
++    /**
++     * Creates the W3C element for an element, in the namespace bound to the
++     * prefix of its tag name.
++     *
++     * <p>The namespace declarations of the element, its {@code xmlns} and
++     * {@code xmlns:}<i>prefix</i> attributes, are first added to the scope. The
++     * prefix of a tag name is its part before the first colon, or the empty
++     * prefix if it has none; the new element keeps the tag name as its
++     * qualified name.</p>
++     *
++     * @param source the element
++     * @param owner the W3C document that creates the element
++     * @param scope the namespace URIs declared by the element's ancestors, by
++     *            prefix; the element's own declarations are added to it
++     * @return the new W3C element, without attributes or children
++     */
++    public static org.w3c.dom.Element newW3cElement(Element source, org.w3c.dom.Document owner, Map<String, String> scope) {
++        for (Attribute attribute : source.attributes()) {
++            String key = attribute.getKey();
++            if (key.equals("xmlns"))
++                scope.put("", attribute.getValue());
++            else if (key.startsWith("xmlns:"))
++                scope.put(key.substring("xmlns:".length()), attribute.getValue());
++        }
++        String tagName = source.tagName();
++        int colon = tagName.indexOf(':');
++        String namespace = scope.get(colon > 0 ? tagName.substring(0, colon) : "");
++        return owner.createElementNS(namespace, tagName);
++    }
++
++
+     /**
+      * Remove (delete) this node from the DOM tree. If this node has children, they are also removed.
+      */
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index 23d37083..5531ff92 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -18,6 +18,7 @@ import java.util.ArrayList;
+ import java.util.List;
+ 
+ import static org.jsoup.helper.StringUtil.inSorted;
++import java.util.Map;
+ 
+ /**
+  * HTML Tree Builder; creates a DOM from Tokens.
+@@ -349,6 +350,20 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         }
+     }
+ 
++    /**
++     * Creates the W3C element for an element, without its attributes.
++     *
++     * @param source the element
++     * @param owner the W3C document that creates the element
++     * @param scope the namespace URIs declared by the element's ancestors, by
++     *            prefix; the element's own declarations are added to it
++     * @return the new W3C element
++     */
++    public static org.w3c.dom.Element createW3cElement(Element source, org.w3c.dom.Document owner, Map<String, String> scope) {
++        return Node.newW3cElement(source, owner, scope);
++    }
++
++
+     void popStackToBefore(String elName) {
+         for (int pos = stack.size() -1; pos >= 0; pos--) {
+             Element next = stack.get(pos);
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 735606f2..50eb887f 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
+ import static org.jsoup.internal.Normalizer.normalize;
++import java.util.Map;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -476,6 +478,29 @@ public abstract class Evaluator {
+     		super(a,b);
+ 		}
+ 
++    /**
++     * Creates the W3C element for an element, with its attributes.
++     *
++     * <p>An attribute is copied when its key, kept to the characters that an
++     * XML name may contain, begins as an XML name may.</p>
++     *
++     * @param source the element
++     * @param owner the W3C document that creates the element
++     * @param scope the namespace URIs declared by the element's ancestors, by
++     *            prefix; the element's own declarations are added to it
++     * @return the new W3C element, with its attributes
++     */
++    public static org.w3c.dom.Element w3cElementOf(Element source, org.w3c.dom.Document owner, Map<String, String> scope) {
++        org.w3c.dom.Element made = HtmlTreeBuilder.createW3cElement(source, owner, scope);
++        for (org.jsoup.nodes.Attribute attribute : source.attributes()) {
++            String key = attribute.getKey().replaceAll("[^-a-zA-Z0-9_:.]", "");
++            if (key.length() > 0 && "-.0123456789".indexOf(key.charAt(0)) < 0)
++                made.setAttribute(key, attribute.getValue());
++        }
++        return made;
++    }
++
++
+ 		protected int calculatePosition(Element root, Element element) {
+ 			return element.elementSiblingIndex()+1;
+ 		}

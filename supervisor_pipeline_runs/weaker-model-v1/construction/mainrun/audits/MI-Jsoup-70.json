@@ -1,0 +1,21 @@
+{"instance": "MI-Jsoup-70", "task_key": "Jsoup-70__i", "cell": "C10i", "auditor": "independent agent", "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true, "b_hop_doc_issue": false, "c_competing_repair": false, "c_bypass": true,
+ "d_leakage": false, "e_recipe_conformity": true, "f_external_pin": true, "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.jsoup.parser.HtmlTreeBuilder::dataNodesIn (hop 3)",
+   "edit": "return Node.dataNodesAmong(nodes);  ->  List<Node> padded = new ArrayList<>(nodes); padded.add(new org.jsoup.nodes.TextNode(\"\")); return Node.dataNodesAmong(padded);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": "hop docs stay literally true, but the gold still violates its own documented contract on every list that ends in a data node; the edit only steers input around the gold's defect",
+   "class": "bypass"},
+  {"method": "org.jsoup.nodes.Node::dataNodesAmong (hop 4)",
+   "edit": "for (List<DataNode> run : Whitelist.dataNodeRuns(nodes)) dataNodes.addAll(run);  ->  for (Node node : nodes) if (node instanceof DataNode) dataNodes.add((DataNode) node);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass"}
+ ],
+ "path": ["facade org.jsoup.nodes.Element::dataNodes (instance, V1: passes childNodes)",
+          "hop1 org.jsoup.helper.HttpConnection::unmodifiableDataNodes",
+          "hop2 org.jsoup.select.Evaluator.IsNthLastChild::dataNodesOf",
+          "hop3 org.jsoup.parser.HtmlTreeBuilder::dataNodesIn",
+          "hop4 org.jsoup.nodes.Node::dataNodesAmong",
+          "gold org.jsoup.safety.Whitelist::dataNodeRuns"],
+ "reasons": "Variant compiles; trigger ElementTest::testGetDataNodes fails (expected:<1> but was:<0>) and is the only failure in the full suite. (a) Gold promises the runs of adjacent data nodes the list holds; for a script whose only child is a DataNode it returns no run (trailing run never flushed). Hops 1-3 are pure delegations, hop 4 joins exactly the runs it receives, so no other method's code contradicts its documentation. (b) Hop javadocs match their code. (c) Only bypasses found: a sentinel-padding workaround at hop 3 (passes everything but leaves the gold's contract violation in place and relies on the gold's internals) and a re-filter at hop 4 that makes the gold's output dead and contradicts hop 4's 'joining the runs' javadoc. (d) No fault vocabulary or markers; lie ('child nodes are first sorted by node name...') is a wrong algorithm description and does not name the omitted step. (e) Gold five calls below facade; five distinct existing classes in hosts_hop_order (largest5: HttpConnection 1249, Evaluator 753, HtmlTreeBuilder 734, Node 725, Whitelist 646); facade body is one delegating call with state (childNodes) as parameter; one added lie sentence; gold javadoc silent on the final flush; existing trigger, empty test.patch. C10i: no visibility widening, no new type, no reflection, facade signature/modifiers unchanged, no test edit. (f) Element.data() collects every DataNode child including the last/only one (HtmlParserTest handlesDataOnlyTags, preservesSpaceInScript pass); sibling Element.textNodes keeps the trailing child (ElementTest testGetTextNodes passes).",
+ "notes": "The lie is appended after the '@see #data()' tag with odd indentation, so rendered javadoc attaches it to @see; cosmetic only. Hop 2 sits in the public nested class Evaluator.IsNthLastChild (seeded anchor). Stale target/classes copied with cp -R are not recompiled by defects4j compile; clean target before testing edits in copies. Missing-final-flush shape of the gold is for the trace checker to judge; not assessed here."}

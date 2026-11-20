@@ -1,0 +1,186 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 5ed758a37..ebdd5a295 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,8 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import java.math.BigInteger;
++import org.apache.commons.math.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -1937,6 +1939,16 @@ public class Dfp implements FieldElement<Dfp> {
+ 
+     }
+ 
++    /** Convert a fraction to a float.
++     * @param numerator numerator of the fraction
++     * @param denominator denominator of the fraction, not zero
++     * @return the value of the fraction as a float
++     */
++    public static float floatOfRatio(final BigInteger numerator, final BigInteger denominator) {
++        return BOBYQAOptimizer.floatQuotient(numerator, denominator);
++    }
++
++
+     /** {@inheritDoc} */
+     public Dfp reciprocal() {
+         return field.getOne().divide(this);
+diff --git a/src/main/java/org/apache/commons/math/fraction/BigFraction.java b/src/main/java/org/apache/commons/math/fraction/BigFraction.java
+index a6672e426..ef1476d33 100644
+--- a/src/main/java/org/apache/commons/math/fraction/BigFraction.java
++++ b/src/main/java/org/apache/commons/math/fraction/BigFraction.java
+@@ -732,19 +732,11 @@ public class BigFraction
+      *
+      * @return the fraction as a <tt>float</tt>.
+      * @see java.lang.Number#floatValue()
++       The numerator and the denominator are first converted to {@code BigDecimal} values and divided to eight significant digits, and that decimal quotient is then narrowed to a {@code float}.
+      */
+     @Override
+     public float floatValue() {
+-        float result = numerator.floatValue() / denominator.floatValue();
+-        if (Double.isNaN(result)) {
+-            // Numerator and/or denominator must be out of range:
+-            // Calculate how far to shift them to put them in range.
+-            int shift = Math.max(numerator.bitLength(),
+-                                 denominator.bitLength()) - Float.MAX_EXPONENT;
+-            result = numerator.shiftRight(shift).floatValue() /
+-                denominator.shiftRight(shift).floatValue();
+-        }
+-        return result;
++        return org.apache.commons.math.linear.BlockRealMatrix.ratioToFloat(numerator, denominator);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 8e9378317..e25630a61 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -26,6 +26,8 @@ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
+ import org.apache.commons.math.util.MathUtils;
++import java.math.BigInteger;
++import org.apache.commons.math.dfp.Dfp;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -471,6 +473,18 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Get the value of a fraction as a float.
++     *
++     * @param numerator  the numerator of the fraction
++     * @param denominator  the denominator of the fraction, not zero
++     * @return the value of the fraction as a float
++     */
++    public static float ratioAsFloat(final BigInteger numerator, final BigInteger denominator) {
++        return Dfp.floatOfRatio(numerator, denominator);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public FieldMatrix<T> multiply(final FieldMatrix<T> m) {
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index b466fb6bd..cf3e0a188 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -26,6 +26,7 @@ import org.apache.commons.math.exception.NullArgumentException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
+ import org.apache.commons.math.util.MathUtils;
++import java.math.BigInteger;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -1219,6 +1220,18 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return columns;
+     }
+ 
++    /**
++     * Get the value of a fraction as a float.
++     *
++     * @param numerator  the numerator of the fraction
++     * @param denominator  the denominator of the fraction, not zero
++     * @return the value of the fraction as a float
++     */
++    public static float ratioToFloat(final BigInteger numerator, final BigInteger denominator) {
++        return FastMath.floatRatio(numerator, denominator);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public double[] operate(final double[] v) {
+diff --git a/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
+index 7964149cf..6de153bfe 100644
+--- a/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
+@@ -30,6 +30,7 @@ import org.apache.commons.math.linear.RealVector;
+ import org.apache.commons.math.optimization.GoalType;
+ import org.apache.commons.math.optimization.PointValuePair;
+ import org.apache.commons.math.optimization.MultivariateOptimizer;
++import java.math.BigInteger;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -229,6 +230,23 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Computes the value of a fraction as a {@code float}.
++     *
++     * @param numerator Numerator of the fraction.
++     * @param denominator Denominator of the fraction (not zero).
++     * @return the value of the fraction, as a {@code float}.
++     */
++    public static float floatQuotient(final BigInteger numerator, final BigInteger denominator) {
++        float quotient = numerator.floatValue() / denominator.floatValue();
++        if (Float.isNaN(quotient)) {
++            final int excess = Math.max(numerator.bitLength(), denominator.bitLength()) - Float.MAX_EXPONENT;
++            quotient = numerator.shiftRight(excess).floatValue() / denominator.shiftRight(excess).floatValue();
++        }
++        return quotient;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index 5fb5bdc94..1ba58b1ec 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -17,6 +17,8 @@
+ package org.apache.commons.math.util;
+ 
+ import java.io.PrintStream;
++import java.math.BigInteger;
++import org.apache.commons.math.linear.BlockFieldMatrix;
+ 
+ /**
+  * Faster, more accurate, portable alternative to {@link Math} and
+@@ -3130,6 +3132,17 @@ public class FastMath {
+ 
+     }
+ 
++    /**
++     * Compute the value of a fraction as a float.
++     * @param numerator numerator of the fraction
++     * @param denominator denominator of the fraction, not zero
++     * @return the value of the fraction as a float
++     */
++    public static float floatRatio(final BigInteger numerator, final BigInteger denominator) {
++        return BlockFieldMatrix.ratioAsFloat(numerator, denominator);
++    }
++
++
+     /**
+      * Multiply a float number by a power of 2.
+      * @param f number to multiply

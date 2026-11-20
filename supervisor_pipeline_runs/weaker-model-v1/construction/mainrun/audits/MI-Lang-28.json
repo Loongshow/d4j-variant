@@ -1,0 +1,55 @@
+{
+  "instance": "Lang-28__i",
+  "iid": "MI-Lang-28",
+  "cell": "C10i",
+  "batch": 8,
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.SystemUtils::writeCharacterNumber (hop 4)",
+      "edit": "return FastDateFormat.formatCharacterNumber(input, start, end, out);  ->  return FastDateFormat.formatCharacterNumber(input, start, end, new java.io.FilterWriter(out) { public void write(int c) throws IOException { out.write(Character.toChars(c)); } });",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang3.SystemUtils::writeCharacterNumber or StrBuilder::appendEntityCharacter (hops 4/3), not run",
+      "edit": "parse input.subSequence(start, end) in the hop and out.write(Character.toChars(value)) instead of calling down",
+      "trigger_passes": "not run (would pass by construction)",
+      "ownership_tests_pass": "not run",
+      "full_suite_clean": "not run",
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "declared compensating edits (hop 1 read+3, hop 3 end+1, hop 4 double call)",
+      "edit": "see spec compensating; G9 ran them",
+      "trigger_passes": false,
+      "ownership_tests_pass": "n/a",
+      "full_suite_clean": "n/a",
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.text.translate.NumericEntityUnescaper::translate(CharSequence,int,Writer) (instance, @Override, body = one call to hop 1; no fields, V0/V1-trivial)",
+    "hop1 org.apache.commons.lang3.StringUtils::unescapeNumericEntity (checks '&#', adds 2 to the count)",
+    "hop2 org.apache.commons.lang3.time.DateUtils::parseEntityNumber (pass-through)",
+    "hop3 org.apache.commons.lang3.text.StrBuilder::appendEntityCharacter (finds ';', converts boolean to count)",
+    "hop4 org.apache.commons.lang3.SystemUtils::writeCharacterNumber (pass-through)",
+    "gold org.apache.commons.lang3.time.FastDateFormat::formatCharacterNumber (parses dec/hex number, writes the character; supplementary branch omitted, out.write(value) truncates 68642 to U+0C22)"
+  ],
+  "reasons": "(a) Only the gold sees the parsed value; its javadoc promises to write 'the character with the number', and for &#68642; it writes U+0C22 (Writer.write(int) drops the high 16 bits). Hops 1-4 merely delegate; their 'writes the character' docs fail only through the gold. (b) Hop docs match their code: hop 1's return (read + 2) and hop 3's (end - start + 1, including 'x' and ';') equal the original count; hops 2 and 4 are pass-throughs; no hop is loose enough to own the truncation since none holds the value. (c) No competing repair: the hops cannot reach the value; the one passing non-gold one-liner (hop 4 wraps the Writer in an anonymous FilterWriter whose write(int) writes Character.toChars) passes trigger, ownership tests and the full suite, but it overrides Writer.write(int) against its documented single-char contract and replaces the gold's character write, so it is a bypass. Declared compensating edits fail (G9). (d) No leakage: neutral host-vocabulary names, the gold javadoc does not mention supplementary/surrogate/high code points, and the facade lie ('scanned backwards from its end for the last semicolon') is a wrong procedure that names neither the fault nor the omitted step. (e) Facade -> 5 hops in 5 distinct existing classes (StringUtils, DateUtils, StrBuilder, SystemUtils, FastDateFormat), gold exactly five calls down; hosts equal the 1500-regime seeded draw (mr_lib.py preview Lang-28 .../NumericEntityUnescaper.java, seed 7891, anchors 7991-7995 match spec); facade body is a single delegating call (original had no argument guard; its '&#' check moved to hop 1 as computation); one appended lie sentence; test.patch empty; trigger NumericEntityUnescaperTest::testSupplementaryUnescaping is existing and fails on my copy with the expected signature; G5 shows it is the only new failure. C10i not-allowed list: only new public static methods and imports are added; no existing member/type visibility changed, no new type, no reflection, facade signature/modifiers/@Override/throws unchanged, no test edits. (f) Pinned outside the gold: CharSequenceTranslator.translate(CharSequence,Writer) writes Character.toChars(codePointAt) for untranslated code points; NumericEntityEscaper.translate(int,Writer) writes the full code point (NumericEntityEscaperTest::testSupplementary passes); StringEscapeUtilsTest::testEscapeHtmlHighUnicode round-trips U+1D362; facade class javadoc says entities translate 'to the specific codepoint'.",
+  "notes": "Recorded bypass: hop-4 FilterWriter wrapper (exact edit above) passes trigger, the three ownership tests and the full suite (0 failures); not doc-consistent (redefines Writer.write(int)) and adds an anonymous type. The injected omission reproduces the real Defects4J Lang-28 defect (missing > 0xFFFF branch), now relocated into hop 5; reviewers may want to note possible memorisation of the original bug, though the location (FastDateFormat) differs from the real bug's class. Facade is the task's only allowed candidate (facade_planned_by null, no fields read/written)."
+}

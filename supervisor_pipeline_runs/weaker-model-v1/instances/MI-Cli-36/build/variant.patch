@@ -1,0 +1,216 @@
+diff --git a/src/main/java/org/apache/commons/cli/DefaultParser.java b/src/main/java/org/apache/commons/cli/DefaultParser.java
+index efd8b4a..41a8824 100644
+--- a/src/main/java/org/apache/commons/cli/DefaultParser.java
++++ b/src/main/java/org/apache/commons/cli/DefaultParser.java
+@@ -21,6 +21,7 @@ import java.util.ArrayList;
+ import java.util.Enumeration;
+ import java.util.List;
+ import java.util.Properties;
++import java.util.Collection;
+ 
+ /**
+  * Default parser.
+@@ -132,6 +133,20 @@ public class DefaultParser implements CommandLineParser
+         return cmd;
+     }
+ 
++    /**
++     * Returns a list of options as text, without enclosing brackets.
++     *
++     * @param options the options to list
++     * @return the text of the options
++     */
++    public static String optionListText(Collection<Option> options)
++    {
++        StringBuilder buff = new StringBuilder();
++        Parser.appendOptions(options, buff);
++        return buff.toString();
++    }
++
++
+     /**
+      * Sets the values of Options using the values in <code>properties</code>.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/HelpFormatter.java b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+index 4f45c12..7f33117 100644
+--- a/src/main/java/org/apache/commons/cli/HelpFormatter.java
++++ b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+@@ -423,6 +423,19 @@ public class HelpFormatter
+         printHelp(getWidth(), cmdLineSyntax, null, options, null, autoUsage);
+     }
+ 
++    /**
++     * Returns the text of an option group: its options within square
++     * brackets.
++     *
++     * @param group the group to describe
++     * @return the text of the group
++     */
++    public static String groupSummary(OptionGroup group)
++    {
++        return Option.bracketedList(group.getOptions());
++    }
++
++
+     /**
+      * Print the help for <code>options</code> with the specified
+      * command line syntax.  This method prints help information to
+diff --git a/src/main/java/org/apache/commons/cli/Option.java b/src/main/java/org/apache/commons/cli/Option.java
+index e59c0c5..344e93b 100644
+--- a/src/main/java/org/apache/commons/cli/Option.java
++++ b/src/main/java/org/apache/commons/cli/Option.java
+@@ -20,6 +20,7 @@ package org.apache.commons.cli;
+ import java.io.Serializable;
+ import java.util.ArrayList;
+ import java.util.List;
++import java.util.Collection;
+ 
+ /**
+  * Describes a single command-line option.  It maintains
+@@ -311,6 +312,18 @@ public class Option implements Cloneable, Serializable
+         this.description = description;
+     }
+ 
++    /**
++     * Returns a list of options as text within square brackets.
++     *
++     * @param options the options to list
++     * @return the bracketed list of the options
++     */
++    public static String bracketedList(Collection<Option> options)
++    {
++        return "[" + DefaultParser.optionListText(options) + "]";
++    }
++
++
+     /** 
+      * Query to see if this Option is mandatory
+      *
+diff --git a/src/main/java/org/apache/commons/cli/OptionBuilder.java b/src/main/java/org/apache/commons/cli/OptionBuilder.java
+index c0b0c69..c4b5461 100644
+--- a/src/main/java/org/apache/commons/cli/OptionBuilder.java
++++ b/src/main/java/org/apache/commons/cli/OptionBuilder.java
+@@ -101,6 +101,37 @@ public final class OptionBuilder
+         return INSTANCE;
+     }
+ 
++    /**
++     * Appends options to a buffer in their command-line form, separated by a
++     * comma and a space.
++     *
++     * <p>Each option is written by its short name or, if it has none, by its
++     * long name, followed by a space and its description if it has one.</p>
++     *
++     * @param options the options to append
++     * @param buff the buffer to append to
++     */
++    public static void listOptions(Iterable<Option> options, StringBuilder buff)
++    {
++        String separator = "";
++        for (Option option : options)
++        {
++            buff.append(separator).append('-');
++            String name = option.getOpt();
++            if (name == null)
++            {
++                name = option.getLongOpt();
++            }
++            buff.append(name);
++            if (option.getDescription() != null)
++            {
++                buff.append(' ').append(option.getDescription());
++            }
++            separator = ", ";
++        }
++    }
++
++
+     /**
+      * The next Option created will require an argument value.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/OptionGroup.java b/src/main/java/org/apache/commons/cli/OptionGroup.java
+index dc6d5db..bf692ac 100644
+--- a/src/main/java/org/apache/commons/cli/OptionGroup.java
++++ b/src/main/java/org/apache/commons/cli/OptionGroup.java
+@@ -133,47 +133,14 @@ public class OptionGroup implements Serializable
+ 
+     /**
+      * Returns the stringified version of this OptionGroup.
++     * The options are first sorted by their keys, so that the text does not
++     * depend on the order in which they were added.
+      * 
+      * @return the stringified representation of this group
+      */
+     @Override
+     public String toString()
+     {
+-        StringBuilder buff = new StringBuilder();
+-        
+-        Iterator<Option> iter = getOptions().iterator();
+-
+-        buff.append("[");
+-
+-        while (iter.hasNext())
+-        {
+-            Option option = iter.next();
+-
+-            if (option.getOpt() != null)
+-            {
+-                buff.append("-");
+-                buff.append(option.getOpt());
+-            }
+-            else
+-            {
+-                buff.append("--");
+-                buff.append(option.getLongOpt());
+-            }
+-            
+-            if (option.getDescription() != null)
+-            {
+-                buff.append(" ");
+-                buff.append(option.getDescription());
+-            }
+-            
+-            if (iter.hasNext())
+-            {
+-                buff.append(", ");
+-            }
+-        }
+-
+-        buff.append("]");
+-
+-        return buff.toString();
++        return HelpFormatter.groupSummary(this);
+     }
+ }
+diff --git a/src/main/java/org/apache/commons/cli/Parser.java b/src/main/java/org/apache/commons/cli/Parser.java
+index 62909e3..6c10114 100644
+--- a/src/main/java/org/apache/commons/cli/Parser.java
++++ b/src/main/java/org/apache/commons/cli/Parser.java
+@@ -23,6 +23,7 @@ import java.util.Enumeration;
+ import java.util.List;
+ import java.util.ListIterator;
+ import java.util.Properties;
++import java.util.Collection;
+ 
+ /**
+  * <code>Parser</code> creates {@link CommandLine}s.
+@@ -105,6 +106,18 @@ public abstract class Parser implements CommandLineParser
+         return parse(options, arguments, properties, false);
+     }
+ 
++    /**
++     * Appends a list of options to a buffer.
++     *
++     * @param options the options to append
++     * @param buff the buffer to append to
++     */
++    public static void appendOptions(Collection<Option> options, StringBuilder buff)
++    {
++        OptionBuilder.listOptions(options, buff);
++    }
++
++
+     /**
+      * Parses the specified <code>arguments</code>
+      * based on the specified {@link Options}.

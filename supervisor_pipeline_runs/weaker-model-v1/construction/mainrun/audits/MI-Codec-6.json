@@ -1,0 +1,42 @@
+{
+ "instance": "Codec-6__i",
+ "iid": "MI-Codec-6",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.apache.commons.codec.language.ColognePhonetic::nextCodeValue (hop 4)",
+   "edit": "return Metaphone.nextByteValue(source, holder);  ->  int v = Metaphone.nextByteValue(source, holder); return v < -1 ? v + 256 : v;",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "fails",
+   "why": "passes only because the tests cast read() to (byte); the data byte 0xFF still leaves the facade as -1 (EOF), contradicting Base64InputStream.read's '0 to 255, -1 if EOF' and hop 1's '-1 at the end of the stream'; it also presumes the gold returns a signed byte, against the gold's 'for a single-byte read()'. Partial, documentation-inconsistent; not competing."},
+  {"method": "org.apache.commons.codec.language.ColognePhonetic::nextCodeValue (hop 4)",
+   "edit": "holder[0] = 0; int v = Metaphone.nextByteValue(source, holder); return v < 0 && holder[0] == v ? v & 0xFF : v;",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "why": "multi-statement; pre-clears the holder and re-derives the value from holder[0] when the gold's result is negative, i.e. replaces the gold's result with its own conversion (only way to tell 0xFF from EOF after the gold). Recorded as bypass."},
+  {"method": "org.apache.commons.codec.language.DoubleMetaphone::nextStreamValue (hop 1)",
+   "edit": "return value < 0 ? -1 : value;  ->  return value;",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "fails",
+   "why": "facade then returns -128..-2 for data bytes (tests cast to byte so they pass); contradicts hop 1's own '@return ... from 0 to 255' and 'A negative result is reported as -1', and the facade contract. Not a repair under the documentation."}
+ ],
+ "path": [
+  "facade org.apache.commons.codec.binary.Base64InputStream::read() (instance; V2 receiver + V1 field singleByte passed as value)",
+  "hop1 org.apache.commons.codec.language.DoubleMetaphone::nextStreamValue (negative -> -1)",
+  "hop2 org.apache.commons.codec.binary.Base64::nextInputOctet (pass-through)",
+  "hop3 org.apache.commons.codec.digest.DigestUtils::nextDataByte (pass-through)",
+  "hop4 org.apache.commons.codec.language.ColognePhonetic::nextCodeValue (pass-through)",
+  "gold org.apache.commons.codec.language.Metaphone::nextByteValue (omits value &= 0xFF)"
+ ],
+ "reasons": "(a) Only the gold reads holder[0] and decides the returned value; its javadoc ties it to a single-byte read() (0..255) and it returns a byte >= 0x80 with its sign. Hops 2-4 are pure pass-throughs whose '@return the byte/octet/value read, or the count at its end' mirrors the gold; hop 1 does exactly what its javadoc says (negative -> -1, EOF), which is correct under the callee contract. After the gold, byte 0xFF and EOF are both -1, so no downstream one-line edit can restore the documented value. (b) No hop javadoc contradicts its code; hop 1's 'A negative result is reported as -1' is accurate and its 0..255 promise is conditional on its input contract. (c) Three non-gold edits pass trigger + full suite (the suite casts read() to byte and never distinguishes 0xFF from EOF), but two are documentation-inconsistent partial edits and the complete one pre-clears and re-reads the holder (bypass). No competing repair. (d) Neutral names (nextStreamValue/nextInputOctet/nextDataByte/nextCodeValue/nextByteValue); the gold's javadoc does not mention masking or the 0..255 range; the lie ('Each call refills the codec with exactly four bytes of the wrapped stream and returns the first byte the codec produces from them.') is procedural, false and does not name the fault. (e) Gold is five calls below the facade; hosts are exactly hosts_hop_order of batch9_tasks.json 'Codec-6__i' (largest5: DoubleMetaphone 1105, Base64 1071, DigestUtils 582, ColognePhonetic 492, Metaphone 407; facade file excluded), anchors from seed 4049 (+100+i) applied by the recipe script; facade body = state gathering (this, singleByte) + one call (original had no guard); lie appended to facade javadoc; test.patch empty; only testBase64InputStreamByteByByte newly fails ('Streaming base64 decode'), reproduced. (f) URLCodec.encodeUrl and QuotedPrintableCodec.encodeQuotedPrintable perform the same unsigned step (if (b < 0) b = 256 + b), used in production by URLCodec.encode/QCodec.doEncoding/QuotedPrintableCodec.encode; the four ownership tests pass on the variant. (g) C10i rules: facade is the allowed candidate Base64InputStream.read; signature 'public int read() throws IOException', modifiers and override unchanged; no visibility widened (private singleByte is passed as a value, hops use only public read(byte[],int,int)); no new type; no reflection; no test edit.",
+ "notes": "The builder's declared compensating edits (G9) are weak: all three break the trigger trivially, while untested test-passing hop edits exist (hop 4 'v < -1 ? v + 256 : v', hop 1 'return value;') because the test suite casts read() to (byte). Both are documentation-inconsistent, so ownership rests on documentation (gold's 'for a single-byte read()', hop 1's 0..255, facade's 0..255) rather than on tests; the external pin is a convention pin in different classes (URLCodec/QuotedPrintableCodec), not a sibling read(). The gold variant ends 'int value = holder[0]; return value;' (left to the trace checker). Audit hygiene: a cp -R scratch copy kept stale target/classes; reruns were done after deleting target/."
+}

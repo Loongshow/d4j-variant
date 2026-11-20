@@ -1,0 +1,94 @@
+{
+  "instance": "Collections-19",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.collections.bidimap.TreeBidiMap::populateSet (hop 1)",
+      "edit": "insert before `return ExtendedProperties.loadElements(list, set);`: `org.apache.commons.collections.CollectionUtils.filter(list, org.apache.commons.collections.PredicateUtils.<E>uniquePredicate());`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "equality pre-filter that pre-empts the gold's per-element decision with a separate equals/hashCode filter; the gold body still contradicts its own javadoc ('initialises an empty list and an empty set to the same elements') for any elements with duplicates, and the decision is not made by the set the hops are documented to fill (any Set; e.g. TreeSet(CASE_INSENSITIVE_ORDER) with [\"a\",\"A\"] still yields list [a,A] vs set {a}); unlike the evidence methods, which decide inside the fill loop by consulting the set"
+    },
+    {
+      "method": "org.apache.commons.collections.ExtendedProperties::loadElements (hop 2)",
+      "edit": "`final List<E> elements = new ArrayList<E>(list);` -> `final List<E> elements = new ArrayList<E>(new java.util.LinkedHashSet<E>(list));`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "same equality pre-filter; additionally breaks hop 2's documented move of the list's elements into the new list (duplicates are dropped, not moved); gold contract still violated by its own body"
+    },
+    {
+      "method": "org.apache.commons.collections.MapUtils::populateFrom (hop 3)",
+      "edit": "`return CollectionUtils.addAllElements(elements, list, set);` -> `return CollectionUtils.addAllElements(new java.util.LinkedHashSet<E>(elements), list, set);`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "equality pre-filter (decides by a LinkedHashSet, not by the given set); gold body still contradicts its javadoc"
+    },
+    {
+      "method": "org.apache.commons.collections.CollectionUtils::addAllElements (hop 4)",
+      "edit": "insert after `PatriciaTrie.fillFrom(elements, list, set);`: `filter(list, PredicateUtils.<E>uniquePredicate());`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "equality post-filter that rewrites the gold's list output; the gold's returned pair already violates its contract before hop 4 touches it, and the filter decides by equals rather than by the set"
+    },
+    {
+      "method": "org.apache.commons.collections.CollectionUtils::addAllElements (hop 4)",
+      "edit": "insert after `PatriciaTrie.fillFrom(elements, list, set);`: `list.clear(); list.addAll(set);`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "makes the gold's list output dead and replaces it with the set's iteration order; passes only because a HashSet of small Integers iterates ascending; loses the facade's first-indexed order and the gold's 'in iteration order' in general"
+    },
+    {
+      "method": "org.apache.commons.collections.MapUtils::populateFrom (hop 3)",
+      "edit": "`return CollectionUtils.addAllElements(elements, list, set);` -> `return CollectionUtils.addAllElements(CollectionUtils.select(elements, new Predicate<E>() { public boolean evaluate(final E e) { return set.add(e); } }), list, set);`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "set-consulting pre-filter: it does decide by the given set, but it fills the set itself and then calls hop 4 and the gold with a non-empty set, violating their documented precondition ('the set to add to, empty' / 'the set to initialise, empty'); it takes over the gold's per-element decision, and the gold body still contradicts its javadoc"
+    },
+    {
+      "method": "spec compensating edits (hop 1 containsAll guard; hop 3 subtract; hop 4 retainAll; hop 4 new HashSet(list))",
+      "edit": "as declared in spec.compensating",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": null,
+      "class": "fails",
+      "why": "reported by validation gate G9 (trigger still fails for all four); consistent with reasoning: the set is empty at hops 1-3 and retainAll/new HashSet(list) keep or ignore the duplicate"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.collections.list.SetUniqueList::setUniqueList (guard + return new SetUniqueList<E>(list, TreeBidiMap.populateSet(list, new HashSet<E>())))",
+    "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::populateSet (empty-list guard, delegates)",
+    "hop2 org.apache.commons.collections.ExtendedProperties::loadElements (copies list to a new list, clears list, delegates)",
+    "hop3 org.apache.commons.collections.MapUtils::populateFrom (pass-through)",
+    "hop4 org.apache.commons.collections.CollectionUtils::addAllElements (calls gold, returns set)",
+    "gold org.apache.commons.collections.trie.PatriciaTrie::fillFrom (per-element loop; variant drops `if (set.contains(e)) { continue; }`)"
+  ],
+  "reasons": "Variant compiles; trigger SetUniqueListTest::testFactory fails with 'Duplicate element was added. expected:<2> but was:<3>'; full suite (11788 tests) fails only the trigger; correct.patch differs from the variant only in the gold's 3-line skip and passes the trigger. (a) On [1,2,1] the gold leaves list [1,2,1] and set {1,2}, violating its javadoc 'Initialises an empty list and an empty set to the same elements' under the codebase's own convention for list/set pairs (SetUniqueList and ListOrderedSet constructors: 'The set and list must both be correctly initialised to the same elements', where the list mirrors the set without duplicates). Hops 1-4 are documented only as fill/move/pass-through steps ('Fills ...', 'Moves ...', 'Adds the given elements ...') and none promises duplicate removal, so no hop's contract is violated; the only other violated contract is the facade's ('duplicates are removed (first indexed one kept)'), which is the entry point. (b) Every hop's javadoc matches its code (hop 1 empty guard is documented; hop 2 copy/clear documented; hops 3-4 pass-through). Hop 4's 'Adds the given elements to an empty list and an empty set' literally fits the variant output, which shows hop 4 doing what it says rather than hop 4 being at fault. (c) Six one-line non-gold edits pass trigger, ownership tests and the full suite, but all are bypasses/workarounds: equality pre/post-filters at hops 1-4 (decide by equals/hashCode instead of by the set; gold body still contradicts its own javadoc; hop 2 variant also breaks the documented move), a rebuild of the list from the set at hop 4 (gold's list output made dead; order only correct by HashSet<Integer> accident), and a set-consulting select at hop 3 (calls hop 4 and the gold with a non-empty set against their documented 'empty' precondition). None is a competing repair. (d) Names (populateSet, loadElements, populateFrom, addAllElements, fillFrom) are neutral and not on the banned list; no fault vocabulary; the gold's javadoc states the pair contract and is silent on the skip step; the facade lie (copy into array, clear, refill by walking backwards inserting at head) is a false procedure that names neither duplicates, the skip, nor any hop. (e) Five calls facade->gold; five distinct existing classes; host_mode is largest5 (only TreeBidiMap 2138, ExtendedProperties 1761, MapUtils 1744 reach 1500 lines), and the hosts are exactly the five largest public non-interface non-enum classes other than SetUniqueList, in order (TreeBidiMap 2138, ExtendedProperties 1761, MapUtils 1744, CollectionUtils 1486, PatriciaTrie 1447) with hop 1 in the largest and the gold in the fifth, matching addendum section 1 and the task record; anchors come from the recipe's insert_hop with seeds 6798-6802 (= instance seed 6698 + 100 + i); facade body is the original null guard plus one delegating return; one added procedural lie sentence; facade is the pre-registered allowed target; trigger is an existing test (test.patch empty) and the only new failure. (f) Convention pinned outside the gold: SetUniqueList.addAll(int, Collection) (`if (set.add(e)) temp.add(e)`), ListOrderedSet.addAll(int, Collection) (`if (contains(e)) continue; ...`), SetUniqueList.add(int, E) (`if (set.contains(object) == false)`), and the two constructor javadocs; passing tests SetUniqueListTest::testAddAll, ::testIntCollectionAddAll and ListOrderedSetTest::testListAddIndexed assert that duplicates are not added.",
+  "notes": "Residual risk: 'the same elements' could in isolation be read as membership equality (a list [1,2,1] and a set {1,2} 'contain the same elements'); the CollectionUtils.isEqualCollection javadoc adds 'with exactly the same cardinalities' explicitly. I judge the one-to-one reading the established one because the gold's sentence echoes the SetUniqueList/ListOrderedSet constructor convention and the evidence methods implement the skip inside the same list+set fill idiom; under the membership reading no method below the facade would own the step and the gold would still be the only per-element location. Facade body wraps the hop-1 call in the SetUniqueList constructor; this is needed because the constructor is protected and the hops live in other packages, and I count it as one delegating call. The lie is appended after the @throws tag without a leading '*' (recipe rewrite_facade formatting). Not run: a hop-3 variant passing SetUniqueList.setUniqueList(list) as the list to hop 4 (same equals-based class as the pre-filters above). Inputs read: spec, variant/correct/test patches, validation.json, BUILD_BRIEF.md, BUILD_BRIEF_C10F_ADDENDUM.md, the Collections-19 host fields of main-run/batch6_tasks.json, the pristine checkout, and scripts/mr2_spec.py (anchor seeds). Designs, history, builder notes, the no-local-trace checklist and trace verdicts were not read. Scratch /private/tmp/mxb-9Xa5Vm deleted."
+}

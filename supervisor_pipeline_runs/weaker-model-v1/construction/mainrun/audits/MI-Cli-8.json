@@ -1,0 +1,53 @@
+{
+  "instance": "Cli-8__i",
+  "iid": "MI-Cli-8",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.cli.Parser::printOptionTable (hop 2)",
+      "edit": "OptionBuilder.printSortedOptions(formatter, pw, width, entries, leftPad, descPad, order);  ->  formatter.printOptions(pw, width, options, leftPad, descPad);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "hops 1-4 (leftPad / longOptPrefix / list manipulation)",
+      "edit": "reasoned, not applied: leftPad and the formatter's long-option prefix are single values shared by every entry, and test19383 mixes '-a,--aaa', '--bbb' and '-c' entries, so no one-line hop edit can indent only the long-only entry; hop 3's sort order does not affect the column; per-option calls from hop 4 would break the shared description column",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": null,
+      "class": "fails"
+    },
+    {
+      "method": "declared compensating edits (hop 1 header trim, hop 2 leading empty line, hop 3 reverse order)",
+      "edit": "as in spec; G9 records trigger still fails for each",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": null,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.cli.HelpFormatter::printHelp(PrintWriter,int,String,String,Options,int,int,String,boolean) [instance; guard + Option.printHelpSections(this, ..., new OptionComparator())]",
+    "hop1 org.apache.commons.cli.Option::printHelpSections (usage, header, table, footer via public formatter methods)",
+    "hop2 org.apache.commons.cli.Parser::printOptionTable (copies getOptions(); empty set prints an empty line)",
+    "hop3 org.apache.commons.cli.OptionBuilder::printSortedOptions (Collections.sort with the order)",
+    "hop4 org.apache.commons.cli.CommandLine::printOptionList (pass-through)",
+    "gold org.apache.commons.cli.PosixParser::printOptionLines (builds every entry column, widest column, description column; prints each entry via formatter.printWrapped)"
+  ],
+  "reasons": "Compiled the variant; BugsTest::test19383 fails (long-only '--bbb' written in the short-name column); full suite: only the trigger fails; ownership tests HelpFormatterTest::testPrintOptions and BugsTest::test21215 pass; correct.patch differs from variant.patch only by the gold line (adds \"   \" before the long prefix for getOpt()==null). (a) Only the gold builds the entry text; hops 1-4 sequence, list, sort and pass through; the violated convention (formatter options-table layout) is owned by the routine that composes the entry. (b) Every hop javadoc matches its code (hop 1 skips blank header/footer, hop 2 empty-line rule, hop 3 sorts in place, hop 4 pass-through); none describes entry layout loosely enough to own the indent. (c) No one-line hop edit can indent only long-only entries because leftPad and the long prefix are shared by all entries and the trigger mixes entry kinds; the only passing hop edit found is a bypass at hop 2 (calls formatter.printOptions, ignores the order parameter, makes hops 3-5 dead). (d) Names are neutral; the lie ('The help is first rendered into a single buffer, which is then written to the writer in one call.') describes buffering, not indentation; gold javadoc is silent on the long-only indent; G2b clean. (e) Gold is exactly five calls below the facade; hosts are exactly hosts_hop_order of batch9 task Cli-8__i (Option 680, Parser 417, OptionBuilder 372, CommandLine 320, PosixParser 311; largest5 regime, HelpFormatter excluded); all five hops are new public static methods; facade = original argument guard + one call (V2 receiver + a new instance of the existing private OptionComparator as state); one appended lie sentence; trigger is an existing test, test.patch empty. (f) Intact HelpFormatter.renderOptions (body of public printOptions) appends \"   \" + defaultLongOptPrefix for an option with no short name; testPrintOptions pins the rest of the table layout on that path. C10i rules: no visibility widened (OptionComparator stays private, used only inside HelpFormatter), no new type, no reflection, facade signature/modifiers/throws unchanged, no test edited.",
+  "notes": "Bypass recorded: Parser.printOptionTable -> formatter.printOptions(pw, width, options, leftPad, descPad) passes trigger and full suite but is doc-inconsistent (order ignored) and kills hops 3-5. Minor observations, not decisive: (1) the gold re-implements the protected renderOptions logic using only public formatter methods (createPadding replaced by a space loop, renderWrappedText via public printWrapped); this is a reconstruction of protected (not private) logic, allowed under V2/V4 as written. (2) In the correct configuration entries are terminated by pw.println (system line separator) rather than joined with the formatter's defaultNewLine, so output differs from the pristine code only when setNewLine is non-default; no test exercises this and it does not affect ownership. (3) The appended lie line lacks a leading '*' in the javadoc (mechanical rewrite artefact); it does not point at the fault. (4) testPrintOptions does not itself contain a long-only option, so the long-only indent is pinned by the evidence code renderOptions rather than by a passing test assertion."
+}

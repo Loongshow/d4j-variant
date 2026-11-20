@@ -1,0 +1,60 @@
+{
+  "instance": "Compress-31",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::blockChecksumHolds (hop 2)",
+      "edit": "historicSum += inChecksumField ? ' ' : header[i];  ->  historicSum += inChecksumField ? ' ' : 0xff & header[i];",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::blockChecksumHolds (hop 2)",
+      "edit": "historicSum += inChecksumField ? ' ' : header[i];  ->  historicSum += inChecksumField ? 0 : header[i];",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipFile::checksumAccepted (hop 3)",
+      "edit": "return ZipArchiveInputStream.acceptsChecksum(header, historicSum);  ->  return ZipArchiveInputStream.acceptsChecksum(header, Math.abs(historicSum));",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::acceptsChecksum (hop 4)",
+      "edit": "return TarArchiveEntry.storedChecksumHolds(header, historicSum);  ->  return TarArchiveEntry.storedChecksumHolds(header, historicSum) && historicSum >= 0;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.compress.archivers.tar.TarUtils::verifyCheckSum(byte[]) - body is one delegating call (the original had no guard)",
+    "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::headerChecksumHolds(byte[]) - pass-through",
+    "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::blockChecksumHolds(byte[]) - folds the signed (historic) sum, checksum field as spaces, hands it on",
+    "hop3 org.apache.commons.compress.archivers.zip.ZipFile::checksumAccepted(byte[], long) - pass-through",
+    "hop4 org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::acceptsChecksum(byte[], long) - pass-through",
+    "gold org.apache.commons.compress.archivers.tar.TarArchiveEntry::storedChecksumHolds(byte[], long) - parses the stored octal checksum, sums the block and returns storedSum >= sum || storedSum == historicValue; the variant drops '0xff &' so the block is summed as signed bytes"
+  ],
+  "reasons": "Reproduced in a scratch copy: the variant compiles; testCOMPRESS209 fails with 'created an input stream for a non-archive'; the full suite (545 tests) has only the trigger failing; all four ownership tests pass; the gold repair (sum += 0xff & b) gives a clean full suite. Trigger block (first 512 bytes of testCompress209.doc): checksum field is eight 0xff bytes, so the stored checksum is 0, the unsigned checksum is 111371 and the signed sum is -245. The gold's variant first disjunct 0 >= -245 accepts the block. (a) Only the gold violates its own documented logic: it accepts when the stored checksum is 'at least the checksum of the block'. That checksum is the tar checksum, documented as the unsigned sum in the facade's quoted spec, computed with BYTE_MASK in TarUtils.computeCheckSum and kept distinct from the separate historic (signed) value by the gold's own doc and hop 2's. Hops 1, 3 and 4 only delegate. Hop 2 correctly computes the signed historic sum it documents. The facade's result is wrong only through the chain. (b) Every hop's javadoc matches its code. The pass-through docs are general ('Checks the checksum stored in a tar header block'), but those hops do no computation that could hold the fault. (c) The declared hop edits (hop 2 unsigned historic sum, hop 2 checksum field as 0, hop 3 Math.abs) all leave the trigger failing, because the gold's 'storedSum >= sum' disjunct is computed only from the header inside the gold and decides the result whatever the historic value is. Hops above the gold get one boolean back and cannot recover the unsigned sum. The only passing non-gold edit I found is a post-filter at hop 4, '&& historicSum >= 0'. It overrides the gold's verdict with an undocumented rule and contradicts the facade's spec: on a constructed valid header with 355 0xff name/linkname/prefix bytes (unsigned 90781 = stored, signed -99) it rejects a block whose stored checksum equals its unsigned sum. So it is a bypass, not a competing repair. (d) Hop and gold names are neutral checksum names, with no fault vocabulary or markers. The lie ('The header is first copied into a scratch buffer whose checksum field is cleared to zeros, and the value of the eight spaces is added to each sum once that buffer has been summed.') describes a procedure the code does not perform. It does not name signedness, masking or any hop. (e) The gold is exactly five calls below the facade, and G6 confirms every hop executes. The hosts are five distinct existing classes and match host_mode=largest5 under addendum section 1. I checked them independently on the pristine checkout: ZipArchiveOutputStream 1613 (hop 1, the largest), BZip2CompressorOutputStream 1329, ZipFile 1121, ZipArchiveInputStream 1082, TarArchiveEntry 1073. BlockSort (1081) is package-private and correctly excluded, and only one other class reaches 1500 lines. The facade is a single delegating call carrying one appended procedural lie. The gold's javadoc ('the sum of its bytes') does not state the unsigned mask. The fault is a one-line omission. The trigger is existing and is the only new failure. The facade TarUtils.verifyCheckSum is the batch's allowed target. (f) The convention is pinned outside the gold: TarUtils.computeCheckSum sums BYTE_MASK & element; TarArchiveEntry.writeEntryHeader fills the checksum field with spaces and stores computeCheckSum through formatCheckSumOctalBytes. The passing test datePriorToEpochInGNUFormat (preepoch-star.tar, 12 high bytes) has a stored checksum 016001 octal = 7169 = its unsigned sum, while its signed sum is 4097.",
+  "notes": "Points for reviewers, none of which changes the verdict. (1) In the variant, the gold's signed 'sum' is identical to hop 2's historicSum (same fold, checksum field as spaces), so along the chain the gold's 'storedSum == historicValue' disjunct is subsumed by 'storedSum >= sum'. This cross-method redundancy is not a local trace, because historicValue is a free parameter of the gold, but a careful reader could use it as a hint. (2) The gold is the only host in the tar package. The other four tar-checksum hops sit in zip and bzip2 classes, a vocabulary mismatch the largest5 host draw forces, not the builder. (3) The lie is placed after '@since 1.5' without a leading asterisk. Other instances' variants have the same placement, so it is a recipe (rewrite_facade) artifact. (4) The ownership tests do not distinguish signed from unsigned in the gold on their own, since the variant is strictly more permissive and they pass on both. The convention pin rests on the evidence code (computeCheckSum and writeEntryHeader) and the facade's spec. The only discriminating test is the trigger. (5) Methodology: the first round of alternative edits restored files with cp -p, which left stale class files. I re-ran all edits with a clean target/classes before each compile, and the results above are from that clean re-run. Scratch directories were deleted."
+}

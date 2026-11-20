@@ -1,0 +1,87 @@
+{
+ "instance": "Lang-53",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.StringUtils::dateAtField (hop 1, declared compensating #1)",
+   "edit": "after ToStringStyle.calendarAtField(gval, field): if (field == MONTH || field == SEMI_MONTH || field == YEAR || field == ERA) { gval.set(Calendar.DATE, 1); }",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.StringUtils::dateAtField (hop 1, declared compensating #2)",
+   "edit": "after ToStringStyle.calendarAtField(gval, field): if ((field == MONTH || field == YEAR) && gval.get(Calendar.DATE) != 1) { gval.add(Calendar.DATE, 1); }",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.ArrayUtils::clearByGroups (hop 4, declared compensating #3)",
+   "edit": "day group {DATE, DAY_OF_MONTH, AM_PM} -> {DAY_OF_YEAR, DATE, DAY_OF_MONTH, AM_PM}",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.ArrayUtils::clearByGroups (hop 4)",
+   "edit": "after FastDateFormat.lowerBelowField(val, field, groups): if (field == MONTH || field == SEMI_MONTH || field == YEAR || field == ERA) { val.add(Calendar.DATE, 1); }",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.ArrayUtils::clearByGroups (hop 4)",
+   "edit": "after FastDateFormat.lowerBelowField(val, field, groups): if ((field == MONTH || field == SEMI_MONTH || field == YEAR || field == ERA) && val.get(Calendar.DATE) != 1) { val.add(Calendar.DATE, 1); if (field == YEAR || field == ERA) { val.set(Calendar.MONTH, 0); } }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang.StringUtils::dateAtField (hop 1)",
+   "edit": "after ToStringStyle.calendarAtField(gval, field): if (field == YEAR || field == ERA) { gval.set(Calendar.DATE, 1); } else if (field == MONTH || field == SEMI_MONTH) { gval.add(Calendar.DATE, 1); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::calendarAtField (hop 2)",
+   "edit": "StrBuilder.clearClockUnits(val, field);  ->  val.setTime(org.apache.commons.lang.time.DateUtils.truncate(val, field).getTime());",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.time.DateUtils::truncate(Date,int): null guard + return StringUtils.dateAtField(date, field)",
+  "hop1 org.apache.commons.lang.StringUtils::dateAtField: default-zone Calendar, setTime, delegate, getTime",
+  "hop2 org.apache.commons.lang.builder.ToStringStyle::calendarAtField: year > 280 million guard, delegate",
+  "hop3 org.apache.commons.lang.text.StrBuilder::clearClockUnits: take ms (and s, min below the field) off the time, delegate",
+  "hop4 org.apache.commons.lang.ArrayUtils::clearByGroups: place the field-group table (identical to DateUtils.fields), delegate",
+  "gold org.apache.commons.lang.time.FastDateFormat::lowerBelowField: per group below the field, offset = val.get(unit) (missing - getActualMinimum(unit)), SEMI_MONTH/AM_PM adjustments, set(unit, get - offset)"
+ ],
+ "reasons": "(a) Only the gold computes the value each field is lowered to; without the minimum it sets DATE to 0, which a lenient calendar reads as the previous month's last day (12 Feb 2002 YEAR -> 31 Jan 2002; MONTH -> 31 Jan; SEMI_MONTH 18 Nov -> 15 Nov). Hops 1-4 share the truncation summary sentence and fail it only by delegation; each hop's own step (calendar creation, year guard, clock-unit removal, group table identical to DateUtils.fields) is correct. (b) Each hop's javadoc matches its code exactly; none leaves room for the day-to-0 behaviour to be its doing. (c) The three declared compensators fail on clean rebuilds (semimonth-2, year-1, year-1). No one-line hop edit can work: the gold always sets DATE to val.get(DATE)-val.get(DATE)=0, so no pre-processing or group-table change helps, and single post-processing steps fix MONTH or YEAR but not both plus SEMI_MONTH. Two multi-branch post-hoc compensators (hop 1, hop 4) pass trigger, ownership tests and the full suite but are overfitted re-implementations of the day/month lowering: they give 1 Jan 2001 for YEAR from 15 Jan 2002, 29 Jan for YEAR from 1 Mar 2002, and 16 Mar for SEMI_MONTH from 15 Mar 2002, contradicting the facade contract and the evidence method truncate(Calendar,int)/modify on the same inputs, and they leave the gold's own contract violated; classified bypass, not competing. Re-routing hop 2 through DateUtils.truncate(Calendar,int) passes everything and makes hops 3-5 dead: bypass. (d) Neutral names (dateAtField, calendarAtField, clearClockUnits, clearByGroups, lowerBelowField); no comments in the gold; the lie ('fields below ... set back one at a time, from the largest of them down to the millisecond') is a false ordering claim and does not mention minima. (e) Gold is 5 calls below the facade; hops in StringUtils, ToStringStyle, StrBuilder, ArrayUtils, FastDateFormat (all pre-existing, all distinct); facade = guard + one delegation; one added lie sentence; gold javadoc ('lowered through its first field') is silent on the minimum; trigger testTruncate is existing, test.patch empty, full suite on the variant fails only testTruncate; ownership tests pass. (f) Convention pinned by DateUtils.modify ('Calculate the offset from the minimum allowed value', offset = value - getActualMinimum), still live via truncate(Calendar,int), round(Date/Calendar,int) and iterator (truncate(focus, MONTH) 'Set start to the first of the month'); testMonthIterator, testWeekIterator, testRound, testRoundLang346 pass on the variant; the facade javadoc example (MONTH: 28 Mar 2002 -> 1 Mar 2002) and the Calendar-overload assertions inside testTruncate also pin it. Gold fix restores the Calendar-overload result on all probed inputs.",
+ "notes": "Verified: variant compiles; trigger fails with 'truncate year-1 failed expected:<Tue Jan 01 ...2002> but was:<Thu Jan 31 ...2002>'; full suite on the variant fails only DateUtilsTest::testTruncate; the four ownership tests pass; gold fix passes the trigger. Probe (variant): 28 Mar 2002 MONTH -> 28 Feb 2002 vs Calendar overload 1 Mar 2002. Harness caution: copying a compiled checkout with cp -R and editing within the same second left ant's javac skipping recompilation (stale classes made every alternative look like it failed with the original signature); all alternatives above were re-run after deleting target/. The validator's G9 results for the declared compensators agree with the clean rebuilds here (all three fail). Minor observations, not verdict-relevant: the lie sentence was inserted after the @throws ArithmeticException tag without a leading '*', so rendered javadoc attaches it to that tag; inside the gold, 'val.set(unit, val.get(unit) - offset)' with offset = val.get(unit) reduces to set(unit, 0) on ordinary units and the SEMI_MONTH '>= 15' threshold assumes a zero-based offset - an in-gold tell that is for the trace checker, not an ownership issue. Uniqueness of the owner rests on: compensation above the gold requires multi-branch, input-overfitted day/month re-lowering that contradicts the pinned truncate(Calendar) behaviour."
+}

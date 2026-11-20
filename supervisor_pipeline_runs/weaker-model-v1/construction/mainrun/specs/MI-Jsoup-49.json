@@ -1,0 +1,239 @@
+{
+ "bug_id": 49,
+ "compensating": [
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "return HttpConnection.absoluteUrl(node.baseUri().replaceFirst(\"[?#].*$\", \"\"), node.attr(attributeKey));",
+   "old": "return HttpConnection.absoluteUrl(node.baseUri(), node.attr(attributeKey));",
+   "why": "hop 1 hands on the base URI without its query"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "return Evaluator.CssNthEvaluator.absoluteUrlFor(baseUri, link.startsWith(\"?\") ? baseUri + link : link);",
+   "old": "return Evaluator.CssNthEvaluator.absoluteUrlFor(baseUri, link);",
+   "why": "hop 2 prefixes a query-only link with the base URI"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "return Whitelist.absoluteLink(baseUri, link.startsWith(\"?\") ? \"./\" + link : link);",
+   "old": "return Whitelist.absoluteLink(baseUri, link);",
+   "why": "hop 4 reads a query-only link as a path relative to the current directory"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "import java.util.zip.GZIPInputStream;\nimport org.jsoup.select.Evaluator;\n",
+   "old": "import java.util.zip.GZIPInputStream;\n",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "        return this;\n    }\n\n    /**\n     * Make a link absolute against the base URI of the node it is on.\n     * @param baseUri the base URI of the node\n     * @param link the link, as written in the attribute\n     * @return the absolute URL, or an empty string if one could not be made\n     */\n    public static String absoluteUrl(String baseUri, String link) {\n        return Evaluator.CssNthEvaluator.absoluteUrlFor(baseUri, link);\n    }\n\n\n    public Document get() throws IOException {",
+   "old": "        return this;\n    }\n\n    public Document get() throws IOException {",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "import java.util.regex.PatternSyntaxException;\nimport org.jsoup.helper.HttpConnection;\n",
+   "old": "import java.util.regex.PatternSyntaxException;\n",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "        return new Elements(elements);\n    }\n\n    /**\n     * Get an absolute URL from a URL attribute of a node, which may be relative.\n     *\n     * @param node the node that holds the attribute\n     * @param attributeKey the attribute key\n     * @return an absolute URL, or an empty string if the attribute is missing or could not be made into a URL\n     */\n    public static String absoluteAttr(Node node, String attributeKey) {\n        if (!node.hasAttr(attributeKey)) {\n            return \"\";\n        }\n        return HttpConnection.absoluteUrl(node.baseUri(), node.attr(attributeKey));\n    }\n\n\n    /**",
+   "old": "        return new Elements(elements);\n    }\n\n    /**",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "       The attribute value is first percent-decoded and split at each slash, and the segments are then appended one by one to the directory of the base URI.\n     */\n    public String absUrl(String attributeKey) {\n        Validate.notEmpty(attributeKey);\n\n        return Element.absoluteAttr(this, attributeKey);",
+   "old": "     */\n    public String absUrl(String attributeKey) {\n        Validate.notEmpty(attributeKey);\n\n        if (!hasAttr(attributeKey)) {\n            return \"\"; // nothing to make absolute with\n        } else {\n            return StringUtil.resolve(baseUri, attr(attributeKey));\n        }",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "import java.util.List;\nimport org.jsoup.safety.Whitelist;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "\n    /**\n     * Gets the absolute form of a link, against the base URI of the document.\n     * @param baseUri the base URI\n     * @param link the link, as written in the attribute\n     * @return the absolute URL, or an empty string if one could not be made\n     */\n    public static String absoluteHref(String baseUri, String link) {\n        return Whitelist.absoluteLink(baseUri, link);\n    }\n\n\n    void removeFromActiveFormattingElements(Element el) {",
+   "old": "\n    void removeFromActiveFormattingElements(Element el) {",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+   "new": "import java.util.Set;\nimport java.net.MalformedURLException;\nimport java.net.URL;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+   "new": "    /**\n     * Makes a link absolute by reading it relative to a base URI. If the base URI is not itself a URL, the link is tried\n     * on its own.\n     *\n     * @param baseUri the base URI the link is read against\n     * @param link the link, as written in the attribute\n     * @return the absolute URL, or an empty string if one could not be made\n     */\n    public static String absoluteLink(String baseUri, String link) {\n        try {\n            URL base;\n            try {\n                base = new URL(baseUri);\n            } catch (MalformedURLException e) {\n                return new URL(link).toExternalForm();\n            }\n            if (link.startsWith(\"?\"))\n                link = base.getPath() + link;\n            if (link.indexOf('.') == 0 && base.getFile().indexOf('/') != 0)\n                base = new URL(base.getProtocol(), base.getHost(), base.getPort(), \"/\" + base.getFile());\n            return new URL(base, link).toExternalForm();\n        } catch (MalformedURLException e) {\n            return \"\";\n        }\n    }\n\n\n    /**\n     * Test if the supplied tag is allowed by this whitelist",
+   "old": "    /**\n     * Test if the supplied tag is allowed by this whitelist",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "import java.util.regex.Pattern;\nimport org.jsoup.parser.HtmlTreeBuilder;\n",
+   "old": "import java.util.regex.Pattern;\n",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "    \t\tthis(0,b);\n    \t}\n\n    /**\n     * Gets the absolute URL of a link, read against a base URI.\n     * @param baseUri the base URI\n     * @param link the link, as written in the attribute\n     * @return the absolute URL, or an empty string if one could not be made\n     */\n    public static String absoluteUrlFor(String baseUri, String link) {\n        return HtmlTreeBuilder.absoluteHref(baseUri, link);\n    }\n\n    \t\n    \t@Override",
+   "old": "    \t\tthis(0,b);\n    \t}\n    \t\n    \t@Override",
+   "purpose": "MI-Jsoup-49 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.jsoup.nodes.Element",
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "method": "absoluteAttr"
+  },
+  {
+   "class": "org.jsoup.helper.HttpConnection",
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "method": "absoluteUrl"
+  },
+  {
+   "class": "org.jsoup.select.Evaluator.CssNthEvaluator",
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "method": "absoluteUrlFor"
+  },
+  {
+   "class": "org.jsoup.parser.HtmlTreeBuilder",
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "method": "absoluteHref"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Jsoup-49__i.py",
+ "entry_points": [
+  "org.jsoup.nodes.Node::absUrl"
+ ],
+ "evidence": [
+  "org.jsoup.helper.StringUtil::resolve",
+  "org.jsoup.helper.HttpConnection.Response::execute",
+  "org.jsoup.nodes.Node::absUrl"
+ ],
+ "expected_signature": "jsoup.org/path/[file]?foo> but was:<...tp://jsoup.org/path/[]?foo>",
+ "extra_tests": [],
+ "fixture_key": "Jsoup-49",
+ "gold": {
+  "class": "org.jsoup.safety.Whitelist",
+  "edits": [
+   {
+    "new": "            if (link.indexOf('.') == 0 && base.getFile().indexOf('/') != 0)\n",
+    "old": "            if (link.startsWith(\"?\"))\n                link = base.getPath() + link;\n            if (link.indexOf('.') == 0 && base.getFile().indexOf('/') != 0)\n"
+   }
+  ],
+  "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+  "method": "absoluteLink"
+ },
+ "group": "MI-Jsoup-49",
+ "hops": 5,
+ "iid": "MI-Jsoup-49",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold parses the base URI and resolves the link; hop 1 answers a missing attribute with \"\" and hands on the node's base URI and the attribute value, and hops 2-4 pass them on as they stand (their javadoc: the link, as written in the attribute). The gold promises to make the link absolute by reading it relative to the base URI, which http://jsoup.org/path/?foo is not for the query-only link ?foo against http://jsoup.org/path/file?bar. The path of the base URL is known only inside the gold (parsing a URL throws a checked MalformedURLException that no plumbing hop declares or catches); stripping the base's query, prefixing the whole base URI or a \"./\" upstream all leave java.net.URL reading the link against the directory /path/. The convention is pinned outside the gold: StringUtil.resolve(URL, String) gives a link starting with \"?\" the base URL's path before java.net.URL reads it (its comment: java resolves '//path/file + ?foo' to '//path/?foo', not '//path/file?foo' as desired), StringUtil.resolve(String, String) is its String entry point and HttpConnection.Response.execute resolves redirect locations with it; Node.absUrl's javadoc says the value is treated as a URL relative to the element's baseUri and made absolute using that; StringUtilTest resolvesRelativeUrls pins the sibling resolver's adjustments of java.net.URL, and NodeTest absHandlesDotFromIndex, handlesBaseUri and ElementTest testRelativeUrls pass through the chain.",
+ "ownership_tests": [
+  "org.jsoup.helper.StringUtilTest::resolvesRelativeUrls",
+  "org.jsoup.nodes.NodeTest::absHandlesDotFromIndex",
+  "org.jsoup.nodes.NodeTest::handlesBaseUri",
+  "org.jsoup.nodes.ElementTest::testRelativeUrls"
+ ],
+ "project": "Jsoup",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "children",
+    "anchor_seed": 8733,
+    "class": "org.jsoup.nodes.Element",
+    "file": "src/main/java/org/jsoup/nodes/Element.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.jsoup.helper.HttpConnection;"
+    ],
+    "method": "absoluteAttr",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "parser",
+    "anchor_seed": 8734,
+    "class": "org.jsoup.helper.HttpConnection",
+    "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.jsoup.select.Evaluator;"
+    ],
+    "method": "absoluteUrl",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "CssNthEvaluator",
+    "anchor_seed": 8735,
+    "class": "org.jsoup.select.Evaluator.CssNthEvaluator",
+    "file": "src/main/java/org/jsoup/select/Evaluator.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.jsoup.parser.HtmlTreeBuilder;"
+    ],
+    "method": "absoluteUrlFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "clearFormattingElementsToLastMarker",
+    "anchor_seed": 8736,
+    "class": "org.jsoup.parser.HtmlTreeBuilder",
+    "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.jsoup.safety.Whitelist;"
+    ],
+    "method": "absoluteHref",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "removeProtocols",
+    "anchor_seed": 8737,
+    "class": "org.jsoup.safety.Whitelist",
+    "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.net.MalformedURLException;",
+     "import java.net.URL;"
+    ],
+    "method": "absoluteLink",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8633
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Jsoup-49"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.jsoup.nodes.NodeTest",
+  "test_file": "src/test/java/org/jsoup/nodes/NodeTest.java",
+  "test_method": "absHandlesRelativeQuery"
+ },
+ "variant_id": "CTV-42A1AD",
+ "kind": "new",
+ "fault_lines": [
+  "if (link.indexOf('.') == 0 && base.getFile().indexOf('/') != 0)"
+ ],
+ "gold_key": "org.jsoup.safety.Whitelist::absoluteLink"
+}

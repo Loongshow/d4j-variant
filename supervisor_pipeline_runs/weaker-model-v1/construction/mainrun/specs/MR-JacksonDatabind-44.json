@@ -1,0 +1,231 @@
+{
+ "bug_id": 44,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "        return (SimpleType) BasicDeserializerFactory.simpleTypeOf(cls).forcedNarrowBy(cls);",
+   "old": "        return BasicDeserializerFactory.simpleTypeOf(cls);",
+   "why": "hop 4 narrows the type it gets to the class itself"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "        return (SimpleType) TypeFactory.defaultInstance().constructSpecializedType(ObjectReader.simpleValueType(cls), cls);",
+   "old": "        return ObjectReader.simpleValueType(cls);",
+   "why": "hop 2 specializes the type to its class through the type factory"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "        return (SimpleType) TypeFactory.defaultInstance().moreSpecificType(TokenBuffer.simpleTypeFor(cls), TypeFactory.unknownType());",
+   "old": "        return TokenBuffer.simpleTypeFor(cls);",
+   "why": "hop 3 keeps the more specific of the type and the unknown type"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "        return _deserializationConfig.isEnabled(f, _jsonFactory);\n    }\n\n    /**\n     * Helper method for constructing the simple type of a raw class that is\n     * neither a Map nor a Collection type.\n     *\n     * @param cls Raw class to construct the type for\n     *\n     * @return Simple type of the class\n     */\n    public static SimpleType rawSimpleType(Class<?> cls) {\n        return ObjectReader.simpleValueType(cls);\n    }\n\n\n    /**",
+   "old": "        return _deserializationConfig.isEnabled(f, _jsonFactory);\n    }\n\n    /**",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "import com.fasterxml.jackson.databind.type.TypeFactory;\nimport com.fasterxml.jackson.databind.util.TokenBuffer;\n",
+   "old": "import com.fasterxml.jackson.databind.type.TypeFactory;\n",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "        return (T) forType(valueTypeRef).readValue(p);\n    }\n\n    /**\n     * Helper method for constructing the simple type of a raw class that is\n     * neither a Map nor a Collection type.\n     *\n     * @param cls Raw class to construct the type for\n     *\n     * @return Simple type of the class\n     *\n     * @throws IllegalArgumentException if the class is an array type\n     */\n    public static SimpleType simpleValueType(Class<?> cls) {\n        if (cls.isArray()) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for an array (class: \"+cls.getName()+\")\");\n        }\n        return TokenBuffer.simpleTypeFor(cls);\n    }\n\n\n    /**\n     * Convenience method that binds content read using given parser, using\n     * configuration of this reader, except that expected value type\n     * is specified with the call (instead of currently configured root type).\n     * Value return is either newly constructed, or root value that",
+   "old": "        return (T) forType(valueTypeRef).readValue(p);\n    }\n\n    /**\n     * Convenience method that binds content read using given parser, using\n     * configuration of this reader, except that expected value type\n     * is specified with the call (instead of currently configured root type).\n     * Value return is either newly constructed, or root value that",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "        return instantiator;\n    }\n\n    /**\n     * Helper method for constructing the simple type of a raw class.\n     *\n     * @param cls Raw class to construct the type for\n     *\n     * @return Simple type of the class\n     */\n    public static SimpleType simpleTypeOf(Class<?> cls) {\n        Class<?> base = cls.getSuperclass();\n        if (base == null) {\n            return SimpleType.constructUnsafe(cls);\n        }\n        while (base.getSuperclass() != null) {\n            base = base.getSuperclass();\n        }\n        return (SimpleType) SimpleType.constructUnsafe(base).forcedNarrowBy(cls);\n    }\n\n\n    private ValueInstantiator _findStdValueInstantiator(DeserializationConfig config,",
+   "old": "        return instantiator;\n    }\n\n    private ValueInstantiator _findStdValueInstantiator(DeserializationConfig config,",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "import com.fasterxml.jackson.databind.util.*;\nimport com.fasterxml.jackson.databind.type.SimpleType;\n",
+   "old": "import com.fasterxml.jackson.databind.util.*;\n",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "\n    /**\n     * Helper method for constructing the simple type of a raw class that is\n     * not a Map type.\n     *\n     * @param cls Raw class to construct the type for\n     *\n     * @return Simple type of the class\n     *\n     * @throws IllegalArgumentException if the class is a Collection type\n     */\n    public static SimpleType simpleBeanType(Class<?> cls) {\n        if (Collection.class.isAssignableFrom(cls)) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for a Collection (class: \"+cls.getName()+\")\");\n        }\n        return ObjectMapper.rawSimpleType(cls);\n    }\n\n\n    public SettableBeanProperty findProperty(PropertyName propertyName)",
+   "old": "\n    public SettableBeanProperty findProperty(PropertyName propertyName)",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+   "new": "       The type is first looked up in a cache of the types already constructed, keyed by class name, and a new instance is constructed and added to that cache only when the lookup finds none.\n     */\n    public @Deprecated static SimpleType construct(Class<?> cls)\n    {\n        if (Map.class.isAssignableFrom(cls)) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for a Map (class: \"+cls.getName()+\")\");\n        }\n        return com.fasterxml.jackson.databind.deser.BeanDeserializerBase.simpleBeanType(cls);",
+   "old": "     */\n    @Deprecated\n    public static SimpleType construct(Class<?> cls)\n    {\n        /* Let's add sanity checks, just to ensure no\n         * Map/Collection entries are constructed\n         */\n        if (Map.class.isAssignableFrom(cls)) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for a Map (class: \"+cls.getName()+\")\");\n        }\n        if (Collection.class.isAssignableFrom(cls)) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for a Collection (class: \"+cls.getName()+\")\");\n        }\n        // ... and while we are at it, not array types either\n        if (cls.isArray()) {\n            throw new IllegalArgumentException(\"Can not construct SimpleType for an array (class: \"+cls.getName()+\")\");\n        }\n        TypeBindings b = TypeBindings.emptyBindings();\n        return new SimpleType(cls, b,\n                _buildSuperClass(cls.getSuperclass(), b), null, null, null, false);",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java",
+   "new": "    ",
+   "old": "\n    /*\n    /**********************************************************\n    /* Internal methods\n    /**********************************************************\n     */\n\n    /**\n     * Helper method we need to recursively build skeletal representations\n     * of superclasses.\n     * \n     * @since 2.7 -- remove when not needed (2.8?)\n     */\n    private static JavaType _buildSuperClass(Class<?> superClass, TypeBindings b)\n    {\n        if (superClass == null) {\n            return null;\n        }\n        if (superClass == Object.class) {\n            return TypeFactory.unknownType();\n        }\n        JavaType superSuper = _buildSuperClass(superClass.getSuperclass(), b);\n        return new SimpleType(superClass, b,\n                superSuper, null, null, null, false);\n    }\n",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "import com.fasterxml.jackson.databind.*;\nimport com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;\nimport com.fasterxml.jackson.databind.type.SimpleType;\n",
+   "old": "import com.fasterxml.jackson.databind.*;\n",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "        writeEndObject();\n        return this;\n    }\n\n    /**\n     * Helper method for constructing the simple type of a raw class that is\n     * not a Map, Collection or array type.\n     *\n     * @param cls Raw class to construct the type for\n     *\n     * @return Simple type of the class\n     */\n    public static SimpleType simpleTypeFor(Class<?> cls) {\n        return BasicDeserializerFactory.simpleTypeOf(cls);\n    }\n\n\n    @Override\n    @SuppressWarnings(\"resource\")",
+   "old": "        writeEndObject();\n        return this;\n    }\n\n    @Override\n    @SuppressWarnings(\"resource\")",
+   "purpose": "MR-JacksonDatabind-44 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "method": "simpleBeanType"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectMapper",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "method": "rawSimpleType"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectReader",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "method": "simpleValueType"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "method": "simpleTypeFor"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonDatabind-44.py",
+ "entry_points": [
+  "com.fasterxml.jackson.databind.type.SimpleType::construct"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.databind.type.SimpleType::_narrow",
+  "com.fasterxml.jackson.databind.type.TypeFactory::_fromClass",
+  "com.fasterxml.jackson.databind.util.ClassUtil::findSuperTypes",
+  "com.fasterxml.jackson.databind.JavaType::getSuperClass"
+ ],
+ "expected_signature": "Unrecognized field \"x\"",
+ "extra_tests": [],
+ "fixture_key": "JacksonDatabind-44",
+ "gold": {
+  "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+  "edits": [
+   {
+    "new": "        }\n        return (SimpleType) SimpleType.constructUnsafe(base).forcedNarrowBy(cls);",
+    "old": "        }\n        while (base.getSuperclass() != null) {\n            base = base.getSuperclass();\n        }\n        return (SimpleType) SimpleType.constructUnsafe(base).forcedNarrowBy(cls);"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+  "method": "simpleTypeOf"
+ },
+ "group": "MR-JacksonDatabind-44",
+ "hops": 5,
+ "iid": "MR-JacksonDatabind-44",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold builds the type of the class: it walks the super-class chain to its root and narrows the root's bare type to the class, so that SimpleType._narrow links the type of every super-class; with the walk omitted it narrows from the bare type of the immediate super-class, whose type then has no super class of its own, and bean introspection (AnnotatedClass._findFields) skips the fields of a type without a super class. Hops 1 and 3 reject Collection and array classes, hops 2 and 4 pass the class along, and every hop returns the type it receives; once that type is built no caller can repair it with the gold's output (SimpleType has no public factory taking a super class, and narrowing a type to its own class returns it unchanged). The convention is pinned outside the gold: a JavaType's super class is the 'fully resolved parent class of this type, if it has one' (JavaType.getSuperClass), and Point has the parent Object; bean introspection finds inherited members only through getSuperClass (ClassUtil.findSuperTypes, used by AnnotatedClass.construct); SimpleType._narrow stitches the full super-class hierarchy of a narrowed SimpleType, and TestSubtypes testIssue1125WithDefault / testIssue1125NonDefault read the properties inherited from two levels up through such types (Default1125 narrowed from Base1125 through Interm1125, TypeDeserializerBase); TypeFactory._fromClass resolves the super class of every class type, recursively. The other DeprecatedTypeHandling1102Test methods use direct children of Object and pass. A one-line edit above the gold that narrows the callee's type of the super-class to the class passes the existing tests but leaves the chain wrong one level further up (C extends B extends A loses A's fields, as on the variant) and, unguarded, makes construct(Object.class) and every interface throw NullPointerException.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.databind.jsontype.TestSubtypes::testIssue1125WithDefault",
+  "com.fasterxml.jackson.databind.jsontype.TestSubtypes::testIssue1125NonDefault",
+  "com.fasterxml.jackson.databind.interop.DeprecatedTypeHandling1102Test::testSimplePOJOType",
+  "com.fasterxml.jackson.databind.interop.DeprecatedTypeHandling1102Test::testExplicitCollectionType",
+  "com.fasterxml.jackson.databind.interop.DeprecatedTypeHandling1102Test::testExplicitMapType"
+ ],
+ "project": "JacksonDatabind",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "creatorProperties",
+    "anchor_seed": 5233,
+    "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.type.SimpleType;"
+    ],
+    "method": "simpleBeanType",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isEnabled",
+    "anchor_seed": 5234,
+    "class": "com.fasterxml.jackson.databind.ObjectMapper",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "rawSimpleType",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "readValue",
+    "anchor_seed": 5235,
+    "class": "com.fasterxml.jackson.databind.ObjectReader",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.util.TokenBuffer;"
+    ],
+    "method": "simpleValueType",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "deserialize",
+    "anchor_seed": 5236,
+    "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+    "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;",
+     "import com.fasterxml.jackson.databind.type.SimpleType;"
+    ],
+    "method": "simpleTypeFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "findValueInstantiator",
+    "anchor_seed": 5237,
+    "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "simpleTypeOf",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 5133
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonDatabind-44"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.databind.interop.DeprecatedTypeHandling1102Test",
+  "test_file": "src/test/java/com/fasterxml/jackson/databind/interop/DeprecatedTypeHandling1102Test.java",
+  "test_method": "testPOJOSubType"
+ },
+ "variant_id": "CTV-11545D",
+ "kind": "new",
+ "fault_lines": [
+  "}\n        return (SimpleType) SimpleType.constructUnsafe(base).forcedNarrowBy(cls);"
+ ],
+ "gold_key": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::simpleTypeOf"
+}

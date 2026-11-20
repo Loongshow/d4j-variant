@@ -1,0 +1,233 @@
+{
+ "bug_id": 162,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "while (global.getParent() != null && global.getOwnSlot(name) == null) {",
+   "old": "while (global.getParent() != null) {",
+   "why": "hop 2 stops its climb at the first scope that declares the name"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "return TokenStream.declarationOfName(name, scope.getParent());",
+   "old": "return TokenStream.declarationOfName(name, scope);",
+   "why": "hop 3 starts the local search at the scope's parent"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "return scope.isLocal() ? TypeCheck.localDeclarationOf(name, scope) : null;",
+   "old": "return TypeCheck.localDeclarationOf(name, scope);",
+   "why": "hop 4 calls the local search only for a local scope"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "import java.util.regex.Matcher;\nimport com.google.javascript.rhino.TokenStream;\n",
+   "old": "import java.util.regex.Matcher;\n",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /**\n     * Returns the declaration of a name in the local scopes, starting from the\n     * given scope.\n     *\n     * @param name the name to look up\n     * @param scope the scope to start from\n     * @return the declaration, or null if no local scope declares the name\n     */\n    public static Var scopedVarDeclaration(String name, Scope scope) {\n      return TokenStream.declarationOfName(name, scope);\n    }\n\n\n    /** Returns the length of the text buffer. */",
+   "old": "\n    /** Returns the length of the text buffer. */",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Scope.java",
+   "new": "     Lookups are answered from a cache of the names visible in this scope, which is filled on the first lookup and kept until a variable is declared or undeclared.\n     */\n  public Var getVar(String name) {\n        return com.google.javascript.rhino.jstype.JSTypeRegistry.resolveVarName(name, vars, parent);\n    }",
+   "old": "   */\n  public Var getVar(String name) {\n    Var var = vars.get(name);\n    if (var != null) {\n      return var;\n    } else if (parent != null) { // Recurse up the parent Scope\n      return parent.getVar(name);\n    } else {\n      return null;\n    }\n  }",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "  }\n\n        /**\n     * Returns the declaration that a name refers to from inside a local scope,\n     * looking in that scope and in the local scopes that enclose it.\n     *\n     * @param name the name to look up\n     * @param scope the scope to start from, or null\n     * @return the declaration, or null if none of these local scopes declares\n     *     the name\n     */\n    public static Scope.Var localDeclarationOf(String name, Scope scope) {\n        Scope.Var found = null;\n        for (Scope s = scope; s != null && s.isLocal(); s = s.getParent()) {\n            Scope.Var declared = (Scope.Var) s.getOwnSlot(name);\n            if (declared != null) {\n                found = declared;\n                break;\n            }\n        }\n        return found;\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "import java.util.List;\nimport com.google.javascript.jscomp.Compiler;\nimport com.google.javascript.jscomp.Scope;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "        return parse();\n    }\n\n    /**\n     * Looks up a name in a scope and in the scopes that enclose it: in the local\n     * scopes, and then in the global scope.\n     *\n     * @param name the name to look up\n     * @param scope the scope to start from\n     * @return the declaration, or null if no scope declares the name\n     */\n    public static Scope.Var findVarInScopes(String name, Scope scope)\n    {\n        Scope.Var var = Compiler.CodeBuilder.scopedVarDeclaration(name, scope);\n        if (var != null) {\n            return var;\n        }\n        Scope global = scope;\n        while (global.getParent() != null) {\n            global = global.getParent();\n        }\n        return (Scope.Var) global.getOwnSlot(name);\n    }\n\n\n    private ScriptOrFnNode parse()",
+   "old": "        return parse();\n    }\n\n    private ScriptOrFnNode parse()",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "import java.io.Reader;\nimport com.google.javascript.jscomp.Scope;\nimport com.google.javascript.jscomp.TypeCheck;\n",
+   "old": "import java.io.Reader;\n",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "        return Token.EOF != stringToKeyword(s);\n    }\n\n    /**\n     * Returns the declaration of a name in the local scopes, from the given\n     * scope outwards.\n     *\n     * @param name the name to look up\n     * @param scope the scope to start from\n     * @return the declaration, or null if no local scope declares the name\n     */\n    public static Scope.Var declarationOfName(String name, Scope scope)\n    {\n        return TypeCheck.localDeclarationOf(name, scope);\n    }\n\n\n    private static int stringToKeyword(String name)",
+   "old": "        return Token.EOF != stringToKeyword(s);\n    }\n\n    private static int stringToKeyword(String name)",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.Scope;\nimport com.google.javascript.rhino.Parser;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  }\n\n        /**\n     * Looks up a name among the declarations of a scope and, if the scope does\n     * not declare it, in the scopes that enclose the scope.\n     *\n     * @param name the name to look up\n     * @param declared the declarations of the scope, by name\n     * @param enclosing the scope that encloses the scope, or null\n     * @return the declaration, or null if no scope declares the name\n     */\n    public static Scope.Var resolveVarName(String name,\n        Map<String, Scope.Var> declared, Scope enclosing) {\n      Scope.Var var = declared.get(name);\n      if (var != null) {\n        return var;\n      }\n      return enclosing == null ? null : Parser.findVarInScopes(name, enclosing);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MI-Closure-162 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "method": "resolveVarName"
+  },
+  {
+   "class": "com.google.javascript.rhino.Parser",
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "method": "findVarInScopes"
+  },
+  {
+   "class": "com.google.javascript.jscomp.Compiler.CodeBuilder",
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "method": "scopedVarDeclaration"
+  },
+  {
+   "class": "com.google.javascript.rhino.TokenStream",
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "method": "declarationOfName"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-162__i.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.Scope::getVar"
+ ],
+ "evidence": [
+  "com.google.javascript.jscomp.Scope::isDeclared",
+  "com.google.javascript.jscomp.SymbolTable.SymbolScope::getSlot",
+  "com.google.javascript.jscomp.LinkedFlowScope::getSlot"
+ ],
+ "expected_signature": "Result: var d=function(a){return function(){return function(){return function(){return function(){a};b};var c}",
+ "extra_tests": [],
+ "fixture_key": "Closure-162",
+ "gold": {
+  "class": "com.google.javascript.jscomp.TypeCheck",
+  "edits": [
+   {
+    "new": "                found = declared;",
+    "old": "                found = declared;\n                break;"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+  "method": "localDeclarationOf"
+ },
+ "group": "MI-Closure-162",
+ "hops": 5,
+ "iid": "MI-Closure-162",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold reads the declarations of the enclosing local scopes and decides which of them a name refers to: hop 1 reads only the scope's own declarations (the facade's private map) and otherwise hands the enclosing scope on; hop 2 reads only the global scope, and only when the gold returns null; hops 3 and 4 pass the name and the scope along unchanged. Once the gold has walked past the nearest declaring local scope and returned the outermost one, no caller sees the inner declaration unless it repeats the gold's per-scope step itself or replaces the chain. The gold's javadoc promises the declaration that the name refers to from inside the scope; under JavaScript's lexical scoping that is the nearest enclosing declaration, which the variant does not return when two enclosing local scopes declare the name. The convention is pinned outside the gold: Scope.isDeclared (own declarations, then the parent's, returning at the first), SymbolTable.SymbolScope.getSlot (own symbol first, then the parent's) and LinkedFlowScope.getSlot (the first slot with the name, walking outwards) do the same step in production; ShadowVariablesTest testShadowSimple2 and testOptimal (a function's own declaration shadows an outer one), ScopedAliasesTest testShadowedVar (through the chain: an enclosing function's declaration shadows the global one) and TypeCheckTest testScoping1 pass.",
+ "ownership_tests": [
+  "com.google.javascript.jscomp.ShadowVariablesTest::testShadowSimple2",
+  "com.google.javascript.jscomp.ShadowVariablesTest::testOptimal",
+  "com.google.javascript.jscomp.ScopedAliasesTest::testShadowedVar",
+  "com.google.javascript.jscomp.TypeCheckTest::testScoping1"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": null,
+    "anchor_seed": 5292,
+    "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+    "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.google.javascript.jscomp.Scope;",
+     "import com.google.javascript.rhino.Parser;"
+    ],
+    "method": "resolveVarName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "parse",
+    "anchor_seed": 5293,
+    "class": "com.google.javascript.rhino.Parser",
+    "file": "src/com/google/javascript/rhino/Parser.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.google.javascript.jscomp.Compiler;",
+     "import com.google.javascript.jscomp.Scope;"
+    ],
+    "method": "findVarInScopes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 5294,
+    "class": "com.google.javascript.jscomp.Compiler.CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.google.javascript.rhino.TokenStream;"
+    ],
+    "method": "scopedVarDeclaration",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isKeyword",
+    "anchor_seed": 5295,
+    "class": "com.google.javascript.rhino.TokenStream",
+    "file": "src/com/google/javascript/rhino/TokenStream.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.google.javascript.jscomp.Scope;",
+     "import com.google.javascript.jscomp.TypeCheck;"
+    ],
+    "method": "declarationOfName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 5296,
+    "class": "com.google.javascript.jscomp.TypeCheck",
+    "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "localDeclarationOf",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 5192
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-162"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.ShadowVariablesTest",
+  "test_file": "test/com/google/javascript/jscomp/ShadowVariablesTest.java",
+  "test_method": "testShadowWithShadowAlready"
+ },
+ "variant_id": "CTV-062ABF",
+ "kind": "new",
+ "fault_lines": [
+  "found = declared;"
+ ],
+ "gold_key": "com.google.javascript.jscomp.TypeCheck::localDeclarationOf"
+}

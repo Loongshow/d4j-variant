@@ -1,0 +1,173 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 63c83992e..f55ca6891 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -58,6 +58,7 @@ import java.util.concurrent.Callable;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+ import java.util.regex.Matcher;
++import com.google.javascript.rhino.jstype.ObjectType;
+ 
+ /**
+  * Compiler (and the other classes in this package) does the following:
+@@ -1806,6 +1807,12 @@ public class Compiler extends AbstractCompiler {
+       return sb.toString();
+     }
+ 
++    /** Returns whether the given object type is unknown. */
++    public static boolean objectTypeIsUnknown(ObjectType type) {
++      return SymbolTable.SymbolScope.isUnknownObjectType(type);
++    }
++
++
+     /** Returns the length of the text buffer. */
+     public int getLength() {
+       return sb.length();
+diff --git a/src/com/google/javascript/jscomp/CompilerOptions.java b/src/com/google/javascript/jscomp/CompilerOptions.java
+index 408571f0e..7b058054c 100644
+--- a/src/com/google/javascript/jscomp/CompilerOptions.java
++++ b/src/com/google/javascript/jscomp/CompilerOptions.java
+@@ -29,6 +29,7 @@ import java.util.Collections;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.rhino.jstype.ObjectType;
+ 
+ /**
+  * Compiler options
+@@ -1990,6 +1991,14 @@ public class CompilerOptions implements Serializable, Cloneable {
+     public boolean shouldStrip() {
+       return this == STRIP;
+     }
++
++    /**
++     * Whether the given object type is unknown.
++     */
++    public static boolean isObjectTypeUnknown(ObjectType type) {
++      return Compiler.CodeBuilder.objectTypeIsUnknown(type);
++    }
++
+   }
+ 
+   /**
+diff --git a/src/com/google/javascript/jscomp/SymbolTable.java b/src/com/google/javascript/jscomp/SymbolTable.java
+index d8b133ef4..e7a32801c 100644
+--- a/src/com/google/javascript/jscomp/SymbolTable.java
++++ b/src/com/google/javascript/jscomp/SymbolTable.java
+@@ -1251,6 +1251,27 @@ public final class SymbolTable
+           mySymbol.docScope == this;
+     }
+ 
++    /**
++     * Returns whether the given object type is still unknown to the type
++     * system.
++     *
++     * @param type the object type
++     * @return whether the type is unknown
++     */
++    public static boolean isUnknownObjectType(ObjectType type) {
++      ObjectType implicitProto = type.getImplicitPrototype();
++      if (implicitProto == null || implicitProto.isNativeObjectType()) {
++        for (ObjectType extended : type.getCtorExtendedInterfaces()) {
++          if (extended.isUnknownType()) {
++            return true;
++          }
++        }
++        return false;
++      }
++      return implicitProto.isUnknownType();
++    }
++
++
+     public boolean isPropertyScope() {
+       return getRootNode() == null && !isDocScope();
+     }
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index 159663f37..b5d745245 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1885,4 +1885,15 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Returns whether the given object type is unknown.
++     *
++     * @param type The object type.
++     * @return Whether the object type is unknown.
++     */
++    public static boolean isUnknownObject(ObjectType type) {
++      return JSDocInfo.Marker.isUnresolvedObjectType(type);
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/JSDocInfo.java b/src/com/google/javascript/rhino/JSDocInfo.java
+index c6f1caac1..9bf98bef2 100644
+--- a/src/com/google/javascript/rhino/JSDocInfo.java
++++ b/src/com/google/javascript/rhino/JSDocInfo.java
+@@ -52,6 +52,8 @@ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.CompilerOptions;
++import com.google.javascript.rhino.jstype.ObjectType;
+ 
+ /**
+  * <p>JSDoc information describing JavaScript code. JSDoc is represented as a
+@@ -188,6 +190,15 @@ public class JSDocInfo implements Serializable {
+       return annotation;
+     }
+ 
++    /**
++     * Returns whether an object type is unresolved, that is, still unknown
++     * to the type system.
++     */
++    public static boolean isUnresolvedObjectType(ObjectType type) {
++      return CompilerOptions.TweakProcessing.isObjectTypeUnknown(type);
++    }
++
++
+     void setAnnotation(TrimmedStringPosition p) {
+       annotation = p;
+     }
+diff --git a/src/com/google/javascript/rhino/jstype/ObjectType.java b/src/com/google/javascript/rhino/jstype/ObjectType.java
+index 37bd48701..4a2b88dae 100644
+--- a/src/com/google/javascript/rhino/jstype/ObjectType.java
++++ b/src/com/google/javascript/rhino/jstype/ObjectType.java
+@@ -494,29 +494,19 @@ public abstract class ObjectType extends JSType implements StaticScope<JSType> {
+ 
+   /**
+    * We treat this as the unknown type if any of its implicit prototype
+-   * properties is unknown.
++   * properties is unknown. Each property of the implicit prototype is
++   * resolved in turn, and the first property whose declared type is still
++   * unknown marks this type as unknown.
+    */
+   @Override
+   public boolean isUnknownType() {
+-    // If the object is unknown now, check the supertype again,
++        // If the object is unknown now, check the supertype again,
+     // because it might have been resolved since the last check.
+     if (unknown) {
+-      ObjectType implicitProto = getImplicitPrototype();
+-      if (implicitProto == null ||
+-          implicitProto.isNativeObjectType()) {
+-        unknown = false;
+-        for (ObjectType interfaceType : getCtorExtendedInterfaces()) {
+-          if (interfaceType.isUnknownType()) {
+-            unknown = true;
+-            break;
+-          }
+-        }
+-      } else {
+-        unknown = implicitProto.isUnknownType();
+-      }
++      unknown = com.google.javascript.jscomp.TypeCheck.isUnknownObject(this);
+     }
+     return unknown;
+-  }
++    }
+ 
+   @Override
+   public boolean isObject() {

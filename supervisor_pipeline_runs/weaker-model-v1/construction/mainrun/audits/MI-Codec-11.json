@@ -1,0 +1,67 @@
+{
+ "instance": "MI-Codec-11",
+ "key": "Codec-11__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.codec.binary.Base64::printableLines (hop 2)",
+   "edit": "if (breakAfter && blank) {  ->  if ((breakAfter || unit == units - 1) && blank) {",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Passes every test, but contradicts hop 2's own javadoc: it escapes only 'a space or tab that a soft line break follows', and 'every other unit is copied as it is'; the last unit has no soft line break after it (the doc and code exclude breaks after the last two units). Not a competing repair."
+  },
+  {
+   "method": "org.apache.commons.codec.language.bm.Rule::printableRun (hop 3)",
+   "edit": "return run.toByteArray();  ->  final byte[] r = run.toByteArray(); return r.length > 0 && (r[r.length - 1] == ' ' || r[r.length - 1] == '\\t') ? StringUtils.getBytesUsAscii(new String(r, 0, r.length - 1) + (r[r.length - 1] == ' ' ? \"=20\" : \"=09\")) : r;  (plus import of binary.StringUtils)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Rewrites the tail of the gold's output after the gold has written it (replaces the gold's result for the last byte with another implementation)."
+  },
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::printableForm (hop 1)",
+   "edit": "return StringUtils.newStringUsAscii(Base64.printableLines(...));  ->  same expression + .replaceAll(\" \\\\z\", \"=20\").replaceAll(\"\\t\\\\z\", \"=09\");",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Post-processes the finished encoded string (rewrites the gold's output); hop 1's doc says the encoded bytes are read back as a US-ASCII string, nothing more."
+  },
+  {
+   "method": "org.apache.commons.codec.digest.DigestUtils::writePrintable (hop 4)",
+   "edit": "PhoneticEngine.appendPrintable(data, printable, output);  ->  three statements: if the last byte is a space or tab, call appendPrintable on data minus its last byte, then call appendPrintable on the last byte alone with an empty BitSet; otherwise the original call",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Not equally small (three statements, not a one-line edit); hop 4 takes over the omitted per-byte decision for the last byte and forces the gold's result by handing it a fabricated printable set."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.codec.net.QuotedPrintableCodec::encode(String) [instance; null guard + one call to hop 1 passing getDefaultCharset() and PRINTABLE_CHARS (V1, no write-back)]",
+  "hop1 org.apache.commons.codec.language.DoubleMetaphone::printableForm(String, String, BitSet) [charset bytes, UnsupportedEncodingException -> EncoderException, US-ASCII string]",
+  "hop2 org.apache.commons.codec.binary.Base64::printableLines(byte[], BitSet) [soft line breaks over the gold's units; escapes a blank only when a soft break follows it]",
+  "hop3 org.apache.commons.codec.language.bm.Rule::printableRun(byte[], BitSet) [fresh stream, delegates, returns array]",
+  "hop4 org.apache.commons.codec.digest.DigestUtils::writePrintable(byte[], BitSet, ByteArrayOutputStream) [pure delegation]",
+  "gold org.apache.commons.codec.language.bm.PhoneticEngine::appendPrintable(byte[], BitSet, ByteArrayOutputStream) [per-byte quoted-printable form; variant drops the last-byte space/tab escape]"
+ ],
+ "reasons": "(a) The gold promises 'the quoted-printable form, without soft line breaks': its output is one encoded line, so by RFC 1521 rule #3 a final space or tab must be escaped; on the trigger input (text ending in a tab, then a space) the variant writes it raw ('t\\t' instead of 't=09'). Every other hop either passes data through (hops 1, 3, 4) or does exactly what its precise javadoc says (hop 2 escapes only blanks followed by a soft break and copies every other unit as it is), so the violation originates only in the gold. (b) No hop javadoc contradicts its code; hop 2's column/third-last/last-two rules match its code exactly, and hop 1's doc is precise. Hops 3 and 4 share the gold's headline but are visibly pure delegators. (c) The only one-line non-gold repair that passes the suite (hop 2, escape a blank last unit) contradicts hop 2's own 'every other unit is copied as it is'; the remaining passing edits (hops 1, 3, 4) rewrite or override the gold's output and are bypasses (hop 4's is also multi-statement). The declared compensating edits do not absorb the fault (G9). (d) Names (printableForm/Lines/Run, writePrintable, appendPrintable) are neutral, no comments were added, the variant gold line 'if (printable.get(b))' reads as ordinary code, and the lie ('The encoded length of the string is calculated first, so that the quoted-printable form is written into an array of exactly that size.') is a false procedural claim that names neither whitespace, line ends nor any hop. (e) Facade -> 5 hops, gold is call 5; hosts DoubleMetaphone 1105, Base64 758, Rule 618, DigestUtils 582, PhoneticEngine 511 lines are the five largest public classes other than QuotedPrintableCodec, in that order (C10f largest5 rule, no class reaches 1500; matches the task record); the facade is guard + state gathering + one call; one added lie sentence; gold javadoc silent on the trailing-whitespace step; trigger testUltimateSoftBreak is existing, test.patch empty, and in my full-suite run on the variant it is the only failing test (correct.patch: 0 failures). C10i rules: QuotedPrintableCodec.encode is an allowed instance target in bridge7_tasks.json; signature 'public String encode(String pString) throws EncoderException', modifiers, the StringEncoder override and thrown types are unchanged; no visibility change (PRINTABLE_CHARS stays private, passed by value), no new type, no reflection, no test edit. (f) Pinned outside the gold by the intact production sibling QuotedPrintableCodec.encodeQuotedPrintable(BitSet, byte[]) ('rule #3: trailing whitespace shall be encoded': the last byte, if whitespace, is escaped), used by QCodec.doEncoding, encode(byte[]) and encode(String, String); passing tests testTrailingSpecial and testFinalBytes fix the neighbouring conventions on the chain (blank before a soft break escaped; a non-final space left raw).",
+ "notes": "Residual wording risk, not decisive: the gold's sentence 'A byte is written as it is if it may be', read together with '@param printable the bytes that may be written as they are', can be read literally as 'raw whenever the byte is in printable', which the variant obeys. The headline ('the quoted-printable form, without soft line breaks', i.e. one line whose trailing blank rule #3 forbids) and hop 2's explicit 'every other unit is copied as it is' resolve that toward the gold. The other reading would make the correct gold contradict its own sentence and still leave no doc-consistent repair elsewhere. Cosmetic: rewrite_facade put the lie on a line with no leading '*' after '@see #getDefaultCharset()', so javadoc folds it into the @see tag; the facade calls hop 1 by fully qualified name. The task record suggested V2; the build uses V1 (values passed, chain never touches the receiver), which the addendum allows. The chain reimplements the public static encodeQuotedPrintable algorithm with Hex.encodeHex instead of calling the codec's private helpers. Tooling caveat: copies made with cp -R and edited within ~1 s kept stale class files under Ant's 1 s granularity; all reported results come from clean rebuilds (target/ removed)."
+}

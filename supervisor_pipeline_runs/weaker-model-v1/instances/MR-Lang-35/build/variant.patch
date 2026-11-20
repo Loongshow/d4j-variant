@@ -1,0 +1,226 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 3a543ce29..64fc0b46a 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -219,32 +219,13 @@ public class ArrayUtils {
+      *  itself an Array containing less then two elements
+      * @throws IllegalArgumentException  if the array contains elements other
+      *  than {@link java.util.Map.Entry} and an Array
++       The pairs are first sorted by the hash codes of their keys, and the map is then filled from the sorted pairs in a single pass.
+      */
+     public static Map<Object, Object> toMap(Object[] array) {
+         if (array == null) {
+             return null;
+         }
+-        final Map<Object, Object> map = new HashMap<Object, Object>((int) (array.length * 1.5));
+-        for (int i = 0; i < array.length; i++) {
+-            Object object = array[i];
+-            if (object instanceof Map.Entry<?, ?>) {
+-                Map.Entry<?,?> entry = (Map.Entry<?,?>) object;
+-                map.put(entry.getKey(), entry.getValue());
+-            } else if (object instanceof Object[]) {
+-                Object[] entry = (Object[]) object;
+-                if (entry.length < 2) {
+-                    throw new IllegalArgumentException("Array element " + i + ", '"
+-                        + object
+-                        + "', has a length less than 2");
+-                }
+-                map.put(entry[0], entry[1]);
+-            } else {
+-                throw new IllegalArgumentException("Array element " + i + ", '"
+-                        + object
+-                        + "', is neither of type Map.Entry nor an Array");
+-            }
+-        }
+-        return map;
++        return org.apache.commons.lang3.time.DateUtils.mapOf(array);
+     }
+ 
+     // Generic array
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 088876da7..b1da0fbce 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -22,6 +22,7 @@ import java.util.List;
+ import java.util.Locale;
+ 
+ import org.apache.commons.lang3.text.WordUtils;
++import java.util.Map;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -3978,6 +3979,34 @@ public class StringUtils {
+         return str.replace(searchChar, replaceChar);
+     }
+ 
++    /**
++     * <p>Puts the key and the value held by each element in a range of an
++     * array into a map.</p>
++     *
++     * @param map  the map to put the keys and values into, not null
++     * @param array  the array of elements, not null
++     * @param start  the index of the first element of the range
++     * @param end  the index after the last element of the range
++     * @return the map
++     */
++    public static Map<Object, Object> putAll(Map<Object, Object> map, Object[] array, int start, int end) {
++        for (int i = start; i < end; i++) {
++            final Object element = array[i];
++            if (element instanceof Map.Entry<?, ?>) {
++                final Map.Entry<?, ?> entry = (Map.Entry<?, ?>) element;
++                map.put(entry.getKey(), entry.getValue());
++            } else if (element instanceof Object[]) {
++                final Object[] items = (Object[]) element;
++                map.put(items[0], items[1]);
++            } else {
++                throw new IllegalArgumentException("Array element " + i + ", '"
++                    + element + "', is neither of type Map.Entry nor of type Object[]");
++            }
++        }
++        return map;
++    }
++
++
+     /**
+      * <p>Replaces multiple characters in a String in one go.
+      * This method can also be used to delete characters.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 9f2096bb7..78f2b88bb 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -383,6 +384,21 @@ public abstract class ToStringStyle implements Serializable {
+         unregister(object);
+     }
+ 
++    /**
++     * <p>Puts the key and the value held by each element of an array into
++     * a map.</p>
++     *
++     * <p>All of the array is used, from its first element to its last.</p>
++     *
++     * @param map  the map to fill, not null
++     * @param array  the array of elements, not null
++     * @return the map
++     */
++    public static Map<Object, Object> fillMap(Map<Object, Object> map, Object[] array) {
++        return FastDateFormat.fillMapRange(map, array, 0, array.length);
++    }
++
++
+     /**
+      * <p>Remove the last field separator from the buffer.</p>
+      * 
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index a9ee8c7dd..1251c06f6 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,8 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Map;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -882,6 +884,21 @@ public class StrBuilder implements CharSequence, Appendable {
+         return append(chars, startIndex, length).appendNewLine();
+     }
+ 
++    /**
++     * <p>Puts the keys and the values held by the elements of a range of an
++     * array into a map, in the order of the range.</p>
++     *
++     * @param map  the map to put into, not null
++     * @param array  the array holding the range, not null
++     * @param start  the index where the range starts
++     * @param end  the index where the range ends, exclusive
++     * @return the map
++     */
++    public static Map<Object, Object> putRange(Map<Object, Object> map, Object[] array, int start, int end) {
++        return StringUtils.putAll(map, array, start, end);
++    }
++
++
+     /**
+      * Appends a boolean value followed by a new line to the string builder.
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index 0f4e2a4f4..3a81c42da 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,9 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import java.util.HashMap;
++import java.util.Map;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -649,6 +652,22 @@ public class DateUtils {
+         return gval.getTime();
+     }
+ 
++    /**
++     * <p>Converts an array into a {@link java.util.Map}, putting the key and
++     * the value held by each element of the array into a new map.</p>
++     *
++     * <p>The map is created with an initial capacity of one and a half
++     * times the length of the array.</p>
++     *
++     * @param array  the array to convert, not null
++     * @return a new map holding the keys and values of the elements
++     */
++    public static Map<Object, Object> mapOf(Object[] array) {
++        final Map<Object, Object> map = new HashMap<Object, Object>((int) (array.length * 1.5));
++        return ToStringStyle.fillMap(map, array);
++    }
++
++
+     /**
+      * <p>Round this date, leaving the field specified as the most
+      * significant field.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index e30da2a56..87ccd006e 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -799,6 +800,21 @@ public class FastDateFormat extends Format {
+         }
+     }
+ 
++    /**
++     * <p>Puts the key and the value held by each element between two
++     * indices of an array into a map.</p>
++     *
++     * @param map  the map to fill, not null
++     * @param array  the array of elements, not null
++     * @param start  the index of the first element to use
++     * @param end  the index after the last element to use
++     * @return the map
++     */
++    public static Map<Object, Object> fillMapRange(Map<Object, Object> map, Object[] array, int start, int end) {
++        return StrBuilder.putRange(map, array, start, end);
++    }
++
++
+     /**
+      * <p>Formats a millisecond <code>long</code> value.</p>
+      * 

@@ -1,0 +1,226 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 3756b998e..f323b6e5f 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -32,10 +32,7 @@ import com.google.javascript.jscomp.deps.SortedDependencies.CircularDependencyEx
+ import com.google.javascript.jscomp.deps.SortedDependencies.MissingProvideException;
+ import com.google.javascript.jscomp.parsing.Config;
+ import com.google.javascript.jscomp.parsing.ParserRunner;
+-import com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter;
+-import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;
+ import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
+-import com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;
+ import com.google.javascript.rhino.IR;
+ import com.google.javascript.rhino.InputId;
+ import com.google.javascript.rhino.JSDocInfo;
+@@ -1204,20 +1201,17 @@ public class Compiler extends AbstractCompiler {
+   }
+ 
+   @Override
++  /**
++   * Gets an interpreter for type analysis.
++     The interpreter is assembled by scanning the assertion functions of the coding convention and registering one refinement rule for each of them.
++     */
+   public ReverseAbstractInterpreter getReverseAbstractInterpreter() {
+-    if (abstractInterpreter == null) {
+-      ChainableReverseAbstractInterpreter interpreter =
+-          new SemanticReverseAbstractInterpreter(
+-              getCodingConvention(), getTypeRegistry());
+-      if (options.closurePass) {
+-        interpreter = new ClosureReverseAbstractInterpreter(
+-            getCodingConvention(), getTypeRegistry())
+-            .append(interpreter).getFirst();
+-      }
+-      abstractInterpreter = interpreter;
++        if (abstractInterpreter == null) {
++          abstractInterpreter = CompilerOptions.TweakProcessing.interpreterFor(
++              this, options.closurePass);
++        }
++        return abstractInterpreter;
+     }
+-    return abstractInterpreter;
+-  }
+ 
+   @Override
+   TypeValidator getTypeValidator() {
+diff --git a/src/com/google/javascript/jscomp/CompilerOptions.java b/src/com/google/javascript/jscomp/CompilerOptions.java
+index 408571f0e..0f2b5c81f 100644
+--- a/src/com/google/javascript/jscomp/CompilerOptions.java
++++ b/src/com/google/javascript/jscomp/CompilerOptions.java
+@@ -29,6 +29,7 @@ import java.util.Collections;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
+ 
+ /**
+  * Compiler options
+@@ -1987,6 +1988,23 @@ public class CompilerOptions implements Serializable, Cloneable {
+       return this != OFF;
+     }
+ 
++    /**
++     * Gets an interpreter for type analysis, for the coding convention and the
++     * type registry of the given compiler.
++     *
++     * @param compiler The compiler whose coding convention and type registry
++     *     are used.
++     * @param closurePrimitives Whether the Closure primitives, such as
++     *     goog.isDef, refine types.
++     * @return The interpreter.
++     */
++    public static ReverseAbstractInterpreter interpreterFor(
++        AbstractCompiler compiler, boolean closurePrimitives) {
++      return TypeCheck.conditionInterpreter(compiler.getCodingConvention(),
++          compiler.getTypeRegistry(), closurePrimitives);
++    }
++
++
+     public boolean shouldStrip() {
+       return this == STRIP;
+     }
+diff --git a/src/com/google/javascript/jscomp/SymbolTable.java b/src/com/google/javascript/jscomp/SymbolTable.java
+index d8b133ef4..564154a2a 100644
+--- a/src/com/google/javascript/jscomp/SymbolTable.java
++++ b/src/com/google/javascript/jscomp/SymbolTable.java
+@@ -53,6 +53,10 @@ import java.util.TreeSet;
+ import java.util.logging.Logger;
+ 
+ import javax.annotation.Nullable;
++import com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter;
++import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;
++import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
++import com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;
+ 
+ /**
+  * A symbol table for people that want to use Closure Compiler as an indexer.
+@@ -1238,6 +1242,30 @@ public final class SymbolTable
+       return typeOfThis;
+     }
+ 
++    /**
++     * Creates the interpreter that refines the types of names from the outcome
++     * of a condition, for the given coding convention and type registry. When
++     * closurePrimitives is set, the Closure primitives, such as goog.isDef, are
++     * recognized as well.
++     *
++     * @param convention The coding convention.
++     * @param registry The type registry.
++     * @param closurePrimitives Whether the Closure primitives refine types.
++     * @return The interpreter.
++     */
++    public static ReverseAbstractInterpreter newReverseInterpreter(
++        CodingConvention convention, JSTypeRegistry registry,
++        boolean closurePrimitives) {
++      ChainableReverseAbstractInterpreter interpreter =
++          new SemanticReverseAbstractInterpreter(convention, registry);
++      if (closurePrimitives) {
++        interpreter = new ClosureReverseAbstractInterpreter(
++            convention, registry).append(interpreter).getFirst();
++      }
++      return interpreter;
++    }
++
++
+     public boolean isGlobalScope() {
+       return getParentScope() == null && getRootNode() != null;
+     }
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index 6c674e558..0e8e98f9f 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1922,4 +1922,20 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Gets the interpreter that refines types from the outcome of a condition.
++     *
++     * @param convention The coding convention.
++     * @param registry The type registry.
++     * @param closurePrimitives Whether the Closure primitives refine types.
++     * @return The interpreter.
++     */
++    public static ReverseAbstractInterpreter conditionInterpreter(
++        CodingConvention convention, JSTypeRegistry registry,
++        boolean closurePrimitives) {
++      return JSTypeRegistry.refiningInterpreter(
++          convention, registry, closurePrimitives);
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/JSDocInfo.java b/src/com/google/javascript/rhino/JSDocInfo.java
+index 82c9a97b7..93e1c7ade 100644
+--- a/src/com/google/javascript/rhino/JSDocInfo.java
++++ b/src/com/google/javascript/rhino/JSDocInfo.java
+@@ -52,6 +52,10 @@ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.CodingConvention;
++import com.google.javascript.jscomp.SymbolTable;
++import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
++import com.google.javascript.rhino.jstype.JSTypeRegistry;
+ 
+ /**
+  * <p>JSDoc information describing JavaScript code. JSDoc is represented as a
+@@ -202,6 +206,22 @@ public class JSDocInfo implements Serializable {
+       return name;
+     }
+ 
++    /**
++     * Gets the interpreter for type analysis.
++     *
++     * @param convention The coding convention.
++     * @param registry The type registry.
++     * @param closurePrimitives Whether the Closure primitives refine types.
++     * @return The interpreter.
++     */
++    public static ReverseAbstractInterpreter typeInterpreter(
++        CodingConvention convention, JSTypeRegistry registry,
++        boolean closurePrimitives) {
++      return SymbolTable.SymbolScope.newReverseInterpreter(
++          convention, registry, closurePrimitives);
++    }
++
++
+     void setName(TrimmedStringPosition p) {
+       name = p;
+     }
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index 271f894c9..f4d41208d 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -66,6 +66,9 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.CodingConvention;
++import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
++import com.google.javascript.rhino.JSDocInfo;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1719,4 +1722,21 @@ public class JSTypeRegistry implements Serializable {
+   public void clearTemplateTypeNames() {
+     templateTypes.clear();
+   }
++
++        /**
++     * Gets the interpreter that refines the types of this registry from the
++     * outcome of a condition.
++     *
++     * @param convention The coding convention.
++     * @param registry The type registry.
++     * @param closurePrimitives Whether the Closure primitives refine types.
++     * @return The interpreter.
++     */
++    public static ReverseAbstractInterpreter refiningInterpreter(
++        CodingConvention convention, JSTypeRegistry registry,
++        boolean closurePrimitives) {
++      return JSDocInfo.Marker.typeInterpreter(
++          convention, registry, closurePrimitives);
++    }
++
+ }

@@ -1,0 +1,69 @@
+{
+ "instance": "Collections-15",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.collections.DoubleOrderedMap::uniqueElementsOf (hop 2)",
+   "edit": "return ExtendedProperties.uniqueOf(list, list.toArray());  ->  return ExtendedProperties.uniqueOf(list, new java.util.LinkedHashSet(list).toArray());",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::uniqueFrom (hop 4)",
+   "edit": "CursorableLinkedList.appendOnce(list, elements);  ->  list.addAll(new java.util.LinkedHashSet(java.util.Arrays.asList(elements)));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::uniqueFrom (hop 4)",
+   "edit": "CursorableLinkedList.appendOnce(list, elements);  ->  CursorableLinkedList.appendOnce(list, elements); java.util.Collections.sort(list);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::uniqueFrom (hop 4)",
+   "edit": "CursorableLinkedList.appendOnce(list, elements);  ->  List reversed = new java.util.ArrayList(java.util.Arrays.asList(elements)); java.util.Collections.reverse(reversed); CursorableLinkedList.appendOnce(list, reversed.toArray()); java.util.Collections.reverse(list);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "declared G9 decoy edits (hop 2 reversed array copy; hop 3 removeAll instead of clear; hop 4 set from array)",
+   "edit": "as declared in spec.compensating; checked by reasoning (trigger input [1, 2, 1] is a palindrome, removeAll of all elements empties the list exactly as clear does, and hop 4's set change leaves the list order [2, 1] unchanged); validation G9 also records trigger_fail = 1 for each",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections.list.SetUniqueList::decorate(List) (guard; return new SetUniqueList(list, TreeBidiMap.uniqueSetOf(list)))",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::uniqueSetOf(List) (empty list -> new HashSet(); else delegate)",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::uniqueElementsOf(List) (copies list.toArray() in list order, delegates)",
+  "hop3 org.apache.commons.collections.ExtendedProperties::uniqueOf(List, Object[]) (list.clear(), hands the whole array on)",
+  "hop4 org.apache.commons.collections.MapUtils::uniqueFrom(List, Object[]) (calls gold, returns new HashSet(list))",
+  "gold org.apache.commons.collections.CursorableLinkedList::appendOnce(List, Object[]) (position map without the containsKey guard records LAST index, so [1, 2, 1] is appended as [2, 1])"
+ ],
+ "reasons": "(a) On the trigger input [1, 2, 1] the gold appends [2, 1]. Its javadoc promises 'each element once, in the order in which the elements occur in the array', which for [1, 2, 1] is 1 then 2, so that contract is violated. Hops 1-4 document only plumbing: the empty-list answer, the array copy 'in list order', clear plus hand-on of 'the whole array', and the gold call plus building a HashSet from the filled list. They make no order decision, and their documented contracts hold on the trigger input. The facade's own contract ('first indexed one kept', 'retain order') is violated too, but the facade is the entry point. (b) Every hop's javadoc matches its code, and none is loose about anything that could produce the reordering: each passes the list and the complete array along unchanged. (c) The one-line edits that pass the trigger, the ownership tests and the full suite are bypasses or break documentation. Pre-deduplicating at hop 2 via LinkedHashSet repeats the gold's first-occurrence decision and contradicts hop 2's 'Every element of the list is first copied'. Replacing the gold call at hop 4 makes the gold dead. Sorting after the gold passes only because the suite has a single non-empty decorate input; it breaks the facade's 'retain order' and needs Comparable elements. A general correct compensation (reverse in, call, reverse out at hop 4) takes four statements, contradicts hop 4's 'handed on ... in array order', and relies on the gold breaking its own contract. No competing repair exists. The declared G9 edits do not fix the trigger. (d) The names (appendOnce, uniqueSetOf, uniqueElementsOf, uniqueOf, uniqueFrom, positions) are neutral and there is no fault vocabulary. The variant gold reads as a coherent keep-last-occurrence idiom. The lie ('The supplied list is not copied: each duplicate is deleted from it in place, during a single pass of its list iterator.') describes a procedure the code does not do: the list is copied to an array, cleared and refilled. It names neither the occurrence choice nor the omitted guard. (e) The gold is exactly five calls below the facade. The five hops sit in five distinct existing classes, and these are exactly host_files_top5 of the largest5 task record, in order: TreeBidiMap 2085, DoubleOrderedMap 1995, ExtendedProperties 1784, MapUtils 1678, CursorableLinkedList 1468. I confirmed by line count on the pristine checkout that these are the five largest public classes other than SetUniqueList and that only four reach 1500, so the C10f addendum section 1 applies and the sub-1500 fifth host is allowed. The facade is a guard plus one delegating statement. The facade javadoc has one added procedural lie. The gold javadoc is silent on the first-occurrence guard. The trigger testFactory is an existing test. In my runs the pristine and correct-patch full suites have 0 failures and the variant full suite has exactly 1 (the trigger). (f) The first-occurrence convention is pinned outside the gold. In documentation: the facade's original javadoc 'first indexed one kept' and UniquePredicate.evaluate 'true if this is the first time the object is seen'. In code: SetUniqueList.addAll and ListOrderedSet.add/addAll skip later equals. In passing tests: TestUniqueFilterIterator::testIterator (One..Six from a duplicated sequence in first-seen order), TestSetUniqueList::testAddAll and testIntCollectionAddAll, and TestListOrderedSet::testListAddReplacing.",
+ "notes": "Scratch: /private/tmp/mxb-NxmJ9i (deleted). Variant: compile OK; trigger fails 'expected:<1> but was:<2>' at TestSetUniqueList.java:218. Harness trap: after copying the compiled tree, an in-place source edit made in the same second was NOT recompiled by ant, so the first hop-2 trial falsely failed. All alternative trials were rerun after deleting build/ in each copy. Validators that edit sources in a copied, already-built tree may have the same stale-class risk. Minor observations, not penalised: (1) the lie sentence is appended after the @throws tag, with 7-space indentation and no leading '*', so in rendered javadoc it attaches to the @throws description; this appears to be the rewrite_facade output format. (2) The facade's single statement wraps hop 1's result in the protected SetUniqueList constructor, which is needed because hop 1 (bidimap package) cannot call it. (3) Only one test in the suite exercises decorate on a non-empty list, so order-breaking hacks such as sorting pass the full suite; they are excluded only by the documentation. (4) A literal-minded reader could argue that 'in the order in which the elements occur in the array' also admits last-occurrence order. The facade's 'first indexed one kept' and the external pins settle the convention, and no hop is a candidate owner either way. Host anchors (nextKey, remove, getString, predicatedMap, retainAll; seeds 4751-4755) match the task record's host_draw. I did not read the designs, history, builder notes, the no-local-trace checklist or any trace verdict."
+}

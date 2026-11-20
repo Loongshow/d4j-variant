@@ -1,0 +1,85 @@
+{
+  "instance": "Lang-38",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.time.FastDateFormat::applyRules",
+      "edit": "insert `if (mRules == null) init();` as the first statement (lazy initialisation on first format)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "Passes every test but contradicts the class documentation and the evidence methods. FastDateFormat is documented as thread-safe and for multi-threaded servers, and its instances are shared through the static cache. With this edit, the unsynchronised format methods would write mRules and mMaxLengthEstimate (non-final, non-volatile) on a shared instance: a data race. Today, init runs inside the synchronized factory before the instance is cached, which publishes it safely. getMaxLengthEstimate() (documented public API) would also return 0 for a formatter from the facade until its first format call. The sibling three-argument getInstance ('convert shell format into usable one') and readObject both pin eager initialisation by whoever creates or restores the instance. Not a competing repair; not a bypass either (the gold's object is still used)."
+    },
+    {
+      "method": "org.apache.commons.lang3.time.FastDateFormat::FastDateFormat(String,TimeZone,Locale) (constructor)",
+      "edit": "append `init();` after `mLocale = locale;`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "Passes every test but contradicts the two-phase convention that the evidence pins. The sibling three-argument getInstance names the constructed object `emptyFormat` and says 'convert shell format into usable one', so construction yields a shell that the factory initialises. Every cache lookup constructs a key object, so this edit would also re-parse the pattern on every cache hit, which defeats the caching that the class comment calls the source of its speed. It also calls the overridable protected init/parsePattern from a protected constructor. The constructor is pristine library code that is correct for every other caller."
+    },
+    {
+      "method": "org.apache.commons.lang3.ArrayUtils::patternFormat (hop 4)",
+      "edit": "insert `FastDateFormat.getInstance(pattern, timeZone, locale);` before `return DateUtils.formatInstance(pattern, timeZone, locale);` (pre-warms the cache)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "note": "The gold's create-on-miss branch becomes dead on this path. The formatter returned is the one created and initialised by the sibling three-argument getInstance, not the gold's. The gold's omission is still reachable through its own public entry point."
+    },
+    {
+      "method": "org.apache.commons.lang3.ArrayUtils::patternFormat (hop 4)",
+      "edit": "`return FastDateFormat.getInstance(pattern, timeZone, locale);` in place of `return DateUtils.formatInstance(pattern, timeZone, locale);`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "note": "Replaces the gold's result with the sibling implementation; the gold is no longer called. The same holds for reverting the facade to its pristine body `return getInstance(pattern, timeZone, null);` (equal to the clean baseline; not re-run separately)."
+    },
+    {
+      "method": "org.apache.commons.lang3.ArrayUtils::patternFormat (hop 4)",
+      "edit": "`return (FastDateFormat) SerializationUtils.clone(DateUtils.formatInstance(pattern, timeZone, locale));` (serialisation round trip runs readObject -> init)",
+      "trigger_passes": true,
+      "ownership_tests_pass": false,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "test_getInstance_String_TimeZone fails (assertSame(format3, format4)): every call yields a new instance. Hops 1-4 sit in packages text, lang3 and builder; none is a subclass of FastDateFormat, so none can call the protected init() or reach the package-private cache. This is the only non-bypass route open to them."
+    },
+    {
+      "method": "org.apache.commons.lang3.time.DateUtils::formatInstance (gold, reference)",
+      "edit": "insert `format.init();` after `format = requested;` (equals correct.patch)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "competing",
+      "note": "Reference gold repair, not an alternative. correct.patch differs from variant.patch only by this line."
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.time.FastDateFormat::getInstance(String,TimeZone) [now static synchronized; body = one delegating call]",
+    "hop1 org.apache.commons.lang3.text.StrBuilder::dateFormatFor(String,TimeZone) -> StringUtils.dateFormatter(pattern, timeZone, null)",
+    "hop2 org.apache.commons.lang3.StringUtils::dateFormatter(String,TimeZone,Locale) -> ToStringStyle.formatterFor",
+    "hop3 org.apache.commons.lang3.builder.ToStringStyle::formatterFor(String,TimeZone,Locale) -> ArrayUtils.patternFormat",
+    "hop4 org.apache.commons.lang3.ArrayUtils::patternFormat(String,TimeZone,Locale) -> DateUtils.formatInstance",
+    "gold org.apache.commons.lang3.time.DateUtils::formatInstance(String,TimeZone,Locale) [creates and caches the formatter, omits format.init()]",
+    "(downstream) FastDateFormat::format(Calendar) -> FastDateFormat::applyRules: NullPointerException on mRules.length"
+  ],
+  "reasons": "Reproduced the instance: the variant compiles; testLang538 fails with NullPointerException at FastDateFormat.applyRules (mRules == null); the full variant suite fails only testLang538. (a) The gold is the only method that creates a formatter on this path, and it promises '@return a date/time formatter for the pattern' but returns and caches an uninitialised shell that cannot format. Hops 1-4 only pass the arguments down and the result up. FastDateFormat's constructor, format and applyRules are pristine and correct under the class's established two-phase protocol (constructor builds a shell; the creator calls init, documented 'Initializes the instance for first use'). (b) Every hop's javadoc matches its code: hop 1 'in the default locale' passes null, which the constructor maps to the default locale; hops 2-4 are documented pass-throughs with optional zone and locale. None can initialise the formatter (init is protected and the cache is package-private in the time package; no hop class is in that package or a subclass), so no hop can reasonably be read as the fault site. (c) Two hop-level edits pass the full suite, but both are bypasses: pre-warming the cache through the three-argument getInstance, and calling it directly. The serialisation clone at a hop fails test_getInstance_String_TimeZone (assertSame). Two non-hop edits in FastDateFormat also pass the full suite: lazy init in applyRules, and init in the constructor. Neither is consistent with the documentation and evidence. Lazy init breaks the documented thread safety of shared cached instances (unsynchronised writes to non-volatile mRules and mMaxLengthEstimate) and leaves getMaxLengthEstimate() at 0. Constructor init contradicts the sibling's 'emptyFormat' / 'convert shell format into usable one' convention and re-parses on every cache lookup. A careful engineer comparing the gold with the sibling getInstance(String,TimeZone,Locale), which it reproduces line for line except for init(), would place the fault in the gold. (d) Hop names (dateFormatFor, dateFormatter, formatterFor, patternFormat, formatInstance) are neutral; added lines carry no comments. The gold renames the sibling's `emptyFormat` to `requested` and drops the 'shell' comment, and none of the added text mentions initialisation, rules or usability. The lie (zone reduced to a fixed offset, formatters shared by offset) is false (the cache keys on TimeZone.equals) and unrelated to the omitted init. (e) The gold is exactly five calls below the facade. The five hops are in five different existing classes (StrBuilder, StringUtils, ToStringStyle, ArrayUtils, DateUtils). The facade body is one delegating call (the original had no guard). One procedural lie sentence was added. The gold's javadoc is silent on init. The trigger is the existing testLang538 (test.patch empty), and it is the only new failure. (f) The convention is pinned outside the gold by the sibling three-argument getInstance (init before caching, 'convert shell format into usable one') and by readObject (init after deserialisation). Passing tests pin it too: testLang303 formats a deserialised formatter; testLowYearPadding and DateFormatUtilsTest.testSMTP format directly with factory-returned formatters; test_getInstance_String_TimeZone pins instance sharing, which rules out per-call recreation.",
+  "notes": "Context edits outside the chain: FastDateFormat.cInstanceCache went from private to package-private so that DateUtils can reach it. The facade gained the `synchronized` modifier, which keeps the original locking: the original delegated to the synchronized three-argument overload, and the gold touches the shared HashMap without a lock of its own. This is a modifier change, not a body change, so I accept it as recipe-conformant. Latent construction issue, not an ownership competitor: DateUtils.formatInstance and hops 1-4 are public static and unsynchronised, so a direct call outside the facade would access cInstanceCache without the FastDateFormat.class lock. Any such issue lies in the gold, so ownership does not change. The lie sentence sits after the @throws tag without a leading '*' (malformed javadoc placement). It draws attention only to the facade and does not point at the gold. The gold puts uninitialised formatters into the shared cache, so a later three-argument call with the same key (pattern, zone forced, locale null) would receive a shell; the full suite in its default order showed no extra failure. Compensating decoy edits were not re-run (gate G9 passed for all three). All scratch work was under /private/tmp/mxb-3kGkq0 and has been deleted."
+}

@@ -1,0 +1,177 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index adc40f822..ef441bb86 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -49,6 +49,7 @@ import java.util.Set;
+ import java.util.concurrent.Callable;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
++import com.google.javascript.rhino.TokenStream;
+ 
+ /**
+  * Compiler (and the other classes in this package) does the following:
+@@ -1529,6 +1530,18 @@ public class Compiler extends AbstractCompiler {
+       return sb.toString();
+     }
+ 
++    /**
++     * Returns the name of the source file that a node belongs to, for a node
++     * that records no source file name of its own.
++     *
++     * @param n the node, which records no source file name of its own
++     * @return the name of the source file that the node belongs to
++     */
++    public static String sourceFileOf(Node n) {
++      return TokenStream.getNodeSourceFileName(n);
++    }
++
++
+     /** Returns the length of the text buffer. */
+     public int getLength() {
+       return sb.length();
+diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java
+index 43a296f02..5e0599d35 100644
+--- a/src/com/google/javascript/jscomp/NodeUtil.java
++++ b/src/com/google/javascript/jscomp/NodeUtil.java
+@@ -2880,15 +2880,11 @@ public final class NodeUtil {
+   /**
+    * @param n The node.
+    * @return The source name property on the node or its ancestors.
+-   */
++     Each name that is found is also stored in a map keyed by node, and a later request for the same node is answered from that map.
++     */
+   public static String getSourceName(Node n) {
+-    String sourceName = null;
+-    while (sourceName == null && n != null) {
+-      sourceName = n.getSourceFileName();
+-      n = n.getParent();
++        return com.google.javascript.rhino.Parser.sourceNameOf(n);
+     }
+-    return sourceName;
+-  }
+ 
+   /**
+    * A new CALL node with the "FREE_CALL" set based on call target.
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index ac82c4399..4bf3ead2b 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1899,4 +1899,20 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Returns the name of the source file that a node belongs to.
++     *
++     * @param n the node
++     * @return the name of the source file that the node belongs to
++     */
++    public static String findSourceName(Node n) {
++      for (Node current = n; current != null; current = current.getParent()) {
++        if (current.getType() == Token.SCRIPT) {
++          return current.getSourceFileName();
++        }
++      }
++      return null;
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/Parser.java b/src/com/google/javascript/rhino/Parser.java
+index 95b720ff9..d72387ac2 100644
+--- a/src/com/google/javascript/rhino/Parser.java
++++ b/src/com/google/javascript/rhino/Parser.java
+@@ -50,6 +50,7 @@ import java.io.IOException;
+ import java.io.Reader;
+ import java.util.Hashtable;
+ import java.util.List;
++import com.google.javascript.rhino.jstype.JSTypeRegistry;
+ 
+ /**
+  * This class implements the JavaScript parser.
+@@ -175,6 +176,23 @@ public class Parser
+         this.errorReporter = errorReporter;
+     }
+ 
++    /**
++     * Returns the name of the source file that a node belongs to. A null node
++     * belongs to no source file.
++     *
++     * @param node the node, may be null
++     * @return the name of the source file that the node belongs to, or null
++     *     for a null node
++     */
++    public static String sourceNameOf(Node node)
++    {
++        if (node == null) {
++            return null;
++        }
++        return JSTypeRegistry.getSourceNameForNode(node);
++    }
++
++
+     Decompiler createDecompiler(CompilerEnvirons compilerEnv)
+     {
+         return new Decompiler();
+diff --git a/src/com/google/javascript/rhino/TokenStream.java b/src/com/google/javascript/rhino/TokenStream.java
+index 23e314977..5387bb690 100644
+--- a/src/com/google/javascript/rhino/TokenStream.java
++++ b/src/com/google/javascript/rhino/TokenStream.java
+@@ -47,6 +47,7 @@ package com.google.javascript.rhino;
+ 
+ import java.io.IOException;
+ import java.io.Reader;
++import com.google.javascript.jscomp.TypeCheck;
+ 
+ /**
+  * This class implements the JavaScript scanner.
+@@ -338,6 +339,19 @@ public class TokenStream
+         return true;
+     }
+ 
++    /**
++     * Returns the name of the source file that a node belongs to, for a node
++     * that records no source file name of its own.
++     *
++     * @param n the node, which records no source file name of its own
++     * @return the name of the source file that the node belongs to
++     */
++    public static String getNodeSourceFileName(Node n)
++    {
++        return TypeCheck.findSourceName(n);
++    }
++
++
+     protected final int getLineno() { return lineno; }
+ 
+     protected final int getCharno() { return charno; }
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index 1a4aa95a0..6ade53314 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -65,6 +65,7 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.Compiler;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1592,4 +1593,17 @@ public class JSTypeRegistry implements Serializable {
+     templateTypeName = null;
+     templateType = null;
+   }
++
++        /**
++     * Returns the name of the source file that a node belongs to. A node that
++     * records a source file name of its own belongs to that file.
++     *
++     * @param n the node
++     * @return the name of the source file that the node belongs to
++     */
++    public static String getSourceNameForNode(Node n) {
++      String own = n.getSourceFileName();
++      return own != null ? own : Compiler.CodeBuilder.sourceFileOf(n);
++    }
++
+ }

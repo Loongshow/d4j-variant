@@ -1,0 +1,182 @@
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index bc420ca3..3f67fdc2 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -29,6 +29,7 @@ import java.util.List;
+ import java.util.ListIterator;
+ import java.util.NoSuchElementException;
+ import java.lang.ref.WeakReference;
++import java.util.Map;
+ 
+ /**
+  * A doubly-linked list implementation of the {@link List} interface,
+@@ -683,6 +684,29 @@ public class CursorableLinkedList implements List, Serializable {
+         return a;
+     }
+ 
++    /**
++     * Removes a value from the collection that a map holds against a key.
++     * <p>
++     * Other values held against the key are unaffected. Once the last value
++     * has been removed, the key itself is removed from the map.
++     *
++     * @param map  the map of keys to collections, not null
++     * @param key  a key that the map holds a collection against
++     * @param value  the value to remove
++     * @return the value removed
++     */
++    public static Object removeFromValues(Map map, Object key, Object value) {
++        Collection values = (Collection) map.get(key);
++        if (!values.remove(value)) {
++            return null;
++        }
++        if (values.isEmpty()) {
++            map.remove(key);
++        }
++        return value;
++    }
++
++
+     /**
+      * Returns a {@link String} representation of this list, suitable for debugging.
+      * @return a {@link String} representation of this list, suitable for debugging.
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e7f44648..09259c5a 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -1433,6 +1433,20 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return doRemove((Comparable) key, KEY);
+     }
+ 
++    /**
++     * Removes a value from the collection mapped to a key
++     *
++     * @param map the map of keys to collections
++     * @param key the key to remove the value from
++     * @param value the value to remove
++     *
++     * @return the value removed
++     */
++    public static Object removeValueOf(final Map map, final Object key, final Object value) {
++        return ExtendedProperties.removeKeyValue(map, key, value);
++    }
++
++
+     /**
+      * Removes all mappings from this map
+      */
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index c5bda4f3..9fa9e0cb 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -527,6 +527,19 @@ public class ExtendedProperties extends Hashtable {
+         return includePropertyName;
+     }
+ 
++    /**
++     * Remove a value from the collection that is mapped to a key.
++     *
++     * @param map  the map of keys to collections
++     * @param key  the key to remove the value from
++     * @param value  the value to remove
++     * @return the value removed
++     */
++    public static Object removeKeyValue(Map map, Object key, Object value) {
++        return MapUtils.removeMultiValue(map, key, value);
++    }
++
++
+     /**
+      * Sets the property value for including other properties files.
+      * By default it is "include".
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 9d384917..71e0a76d 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -722,6 +722,22 @@ public class MapUtils {
+         return booleanObject.booleanValue();
+     }
+ 
++    /**
++     * Removes a value from the collection held in a Map against a key.
++     * <p>
++     * This is used by maps that hold a collection of values for each key,
++     * such as {@link MultiValueMap}.
++     *
++     * @param map  the map of keys to collections, must not be null
++     * @param key  the key to remove the value from
++     * @param value  the value to remove
++     * @return the value removed
++     */
++    public static Object removeMultiValue(final Map map, final Object key, final Object value) {
++        return CursorableLinkedList.removeFromValues(map, key, value);
++    }
++
++
+     /**
+      * Gets a byte from a Map in a null-safe manner,
+      * using the default value if the the conversion fails.     
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index 4c60e28f..9f57d8af 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -32,6 +32,7 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import org.apache.commons.collections.DoubleOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -206,6 +207,24 @@ public class TreeBidiMap implements OrderedBidiMap {
+         return doPut((Comparable) key, (Comparable) value, KEY);
+     }
+ 
++    /**
++     * Removes a value from the collection mapped to a key in a map of collections.
++     * <p>
++     * A key that the map does not contain gives <code>null</code>.
++     *
++     * @param map  the map of keys to collections, not null
++     * @param key  the key to remove the value from
++     * @param value  the value to remove
++     * @return the value removed, <code>null</code> if the map does not contain the key
++     */
++    public static Object removeMappedValue(final Map map, final Object key, final Object value) {
++        if (!map.containsKey(key)) {
++            return null;
++        }
++        return DoubleOrderedMap.removeValueOf(map, key, value);
++    }
++
++
+     /**
+      * Puts all the mappings from the specified map into this map.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/map/MultiValueMap.java b/src/java/org/apache/commons/collections/map/MultiValueMap.java
+index af69b70b..e520e5f9 100644
+--- a/src/java/org/apache/commons/collections/map/MultiValueMap.java
++++ b/src/java/org/apache/commons/collections/map/MultiValueMap.java
+@@ -186,20 +186,10 @@ public class MultiValueMap extends AbstractMapDecorator implements MultiMap, Ser
+      * @param key  the key to remove from
+      * @param value the value to remove
+      * @return the value removed (which was passed in), null if nothing removed
++       The collection mapped to the key is searched from its last value back to its first, and the first equal value found is removed.
+      */
+     public Object removeMapping(Object key, Object value) {
+-        Collection valuesForKey = getCollection(key);
+-        if (valuesForKey == null) {
+-            return null;
+-        }
+-        boolean removed = valuesForKey.remove(value);
+-        if (removed == false) {
+-            return null;
+-        }
+-        if (valuesForKey.isEmpty()) {
+-            remove(key);
+-        }
+-        return value;
++        return org.apache.commons.collections.bidimap.TreeBidiMap.removeMappedValue(this, key, value);
+     }
+ 
+     /**

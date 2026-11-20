@@ -1,0 +1,267 @@
+diff --git a/source/org/jfree/chart/ChartFactory.java b/source/org/jfree/chart/ChartFactory.java
+index 8de3665..c68a120 100644
+--- a/source/org/jfree/chart/ChartFactory.java
++++ b/source/org/jfree/chart/ChartFactory.java
+@@ -218,6 +218,8 @@ import org.jfree.data.xy.TableXYDataset;
+ import org.jfree.data.xy.WindDataset;
+ import org.jfree.data.xy.XYDataset;
+ import org.jfree.data.xy.XYZDataset;
++import org.jfree.chart.renderer.AbstractRenderer;
++import org.jfree.chart.util.SortOrder;
+ 
+ /**
+  * A collection of utility methods for creating some standard charts with
+@@ -562,6 +564,29 @@ public abstract class ChartFactory {
+ 
+     }
+ 
++    /**
++     * Creates a collection of legend items for the series of a category
++     * dataset, taking the series in the given row rendering order: upward
++     * from the first series for {@link SortOrder#ASCENDING}, and downward
++     * from the last series for any other order.
++     *
++     * @param renderer  the renderer (<code>null</code> not permitted).
++     * @param datasetIndex  the dataset index.
++     * @param seriesCount  the number of series in the dataset.
++     * @param order  the plot's row rendering order (<code>null</code> not
++     *               permitted).
++     *
++     * @return The legend item collection (never <code>null</code>).
++     */
++    public static LegendItemCollection createLegendItems(
++            CategoryItemRenderer renderer, int datasetIndex, int seriesCount,
++            SortOrder order) {
++        boolean ascending = order.equals(SortOrder.ASCENDING);
++        return AbstractRenderer.collectLegendItems(renderer, datasetIndex,
++                seriesCount, ascending ? 0 : seriesCount - 1, ascending ? 1 : -1);
++    }
++
++
+     /**
+      * Creates a ring chart with default settings.
+      * <P>
+diff --git a/source/org/jfree/chart/axis/DateAxis.java b/source/org/jfree/chart/axis/DateAxis.java
+index 059bc3a..f19ecba 100644
+--- a/source/org/jfree/chart/axis/DateAxis.java
++++ b/source/org/jfree/chart/axis/DateAxis.java
+@@ -161,6 +161,10 @@ import org.jfree.data.time.DateRange;
+ import org.jfree.data.time.Month;
+ import org.jfree.data.time.RegularTimePeriod;
+ import org.jfree.data.time.Year;
++import org.jfree.chart.LegendItemCollection;
++import org.jfree.chart.plot.CategoryPlot;
++import org.jfree.chart.plot.SpiderWebPlot;
++import org.jfree.chart.renderer.category.CategoryItemRenderer;
+ 
+ /**
+  * The base class for axes that display dates.  You will find it easier to
+@@ -780,6 +784,23 @@ public class DateAxis extends ValueAxis implements Cloneable, Serializable {
+ 
+     }
+ 
++    /**
++     * Returns a (possibly empty) collection of legend items for the series
++     * that a category renderer draws in a plot.
++     *
++     * @param renderer  the renderer (<code>null</code> not permitted).
++     * @param plot  the plot that the renderer is assigned to
++     *              (<code>null</code> not permitted).
++     *
++     * @return The legend item collection (never <code>null</code>).
++     */
++    public static LegendItemCollection rendererLegendItems(
++            CategoryItemRenderer renderer, CategoryPlot plot) {
++        int index = plot.getIndexOf(renderer);
++        return SpiderWebPlot.datasetLegendItems(renderer, plot, index);
++    }
++
++
+     /**
+      * Translates a date to Java2D coordinates, based on the range displayed by
+      * this axis for the specified data area.
+diff --git a/source/org/jfree/chart/plot/SpiderWebPlot.java b/source/org/jfree/chart/plot/SpiderWebPlot.java
+index 06e0bc2..b914c51 100644
+--- a/source/org/jfree/chart/plot/SpiderWebPlot.java
++++ b/source/org/jfree/chart/plot/SpiderWebPlot.java
+@@ -118,6 +118,7 @@ import org.jfree.chart.util.TableOrder;
+ import org.jfree.data.category.CategoryDataset;
+ import org.jfree.data.event.DatasetChangeEvent;
+ import org.jfree.data.general.DatasetUtilities;
++import org.jfree.chart.renderer.category.CategoryItemRenderer;
+ 
+ /**
+  * A plot that displays data from a {@link CategoryDataset} in the form of a
+@@ -912,6 +913,29 @@ public class SpiderWebPlot extends Plot implements Cloneable, Serializable {
+         fireChangeEvent();
+     }
+ 
++    /**
++     * Returns a (possibly empty) collection of legend items for the series in
++     * a dataset of a category plot, taking the series in the plot's row
++     * rendering order.  If the plot has no dataset at the given index, the
++     * collection is empty.
++     *
++     * @param renderer  the renderer (<code>null</code> not permitted).
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param datasetIndex  the dataset index.
++     *
++     * @return The legend item collection (never <code>null</code>).
++     */
++    public static LegendItemCollection datasetLegendItems(
++            CategoryItemRenderer renderer, CategoryPlot plot, int datasetIndex) {
++        CategoryDataset dataset = plot.getDataset(datasetIndex);
++        if (dataset == null) {
++            return new LegendItemCollection();
++        }
++        return XYPlot.legendItemsForRows(renderer, datasetIndex, dataset,
++                plot.getRowRenderingOrder());
++    }
++
++
+     /**
+      * Returns the shape used for legend items.
+      *
+diff --git a/source/org/jfree/chart/plot/XYPlot.java b/source/org/jfree/chart/plot/XYPlot.java
+index cc18077..e74a471 100644
+--- a/source/org/jfree/chart/plot/XYPlot.java
++++ b/source/org/jfree/chart/plot/XYPlot.java
+@@ -308,6 +308,10 @@ import org.jfree.data.xy.AbstractXYDataset;
+ import org.jfree.data.xy.SelectableXYDataset;
+ import org.jfree.data.xy.XYDataset;
+ import org.jfree.data.xy.XYDatasetSelectionState;
++import org.jfree.chart.ChartFactory;
++import org.jfree.chart.renderer.category.CategoryItemRenderer;
++import org.jfree.chart.util.SortOrder;
++import org.jfree.data.category.CategoryDataset;
+ 
+ /**
+  * A general class for plotting data in the form of (x, y) pairs.  This plot can
+@@ -1142,6 +1146,26 @@ public class XYPlot extends Plot implements ValueAxisPlot, Pannable,
+         setRangeAxisLocation(0, location, true);
+     }
+ 
++    /**
++     * Returns a collection of legend items for the rows (series) of a
++     * category dataset, taking the rows in the given row rendering order.
++     *
++     * @param renderer  the renderer (<code>null</code> not permitted).
++     * @param datasetIndex  the dataset index.
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param order  the plot's row rendering order (<code>null</code> not
++     *               permitted).
++     *
++     * @return The legend item collection (never <code>null</code>).
++     */
++    public static LegendItemCollection legendItemsForRows(
++            CategoryItemRenderer renderer, int datasetIndex,
++            CategoryDataset dataset, SortOrder order) {
++        return ChartFactory.createLegendItems(renderer, datasetIndex,
++                dataset.getRowCount(), order);
++    }
++
++
+     /**
+      * Sets the location of the primary range axis and, if requested, sends a
+      * {@link PlotChangeEvent} to all registered listeners.
+diff --git a/source/org/jfree/chart/renderer/AbstractRenderer.java b/source/org/jfree/chart/renderer/AbstractRenderer.java
+index a6f2ba6..acfb014 100644
+--- a/source/org/jfree/chart/renderer/AbstractRenderer.java
++++ b/source/org/jfree/chart/renderer/AbstractRenderer.java
+@@ -134,6 +134,9 @@ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.chart.util.ShapeList;
+ import org.jfree.chart.util.ShapeUtilities;
+ import org.jfree.chart.util.StrokeList;
++import org.jfree.chart.LegendItem;
++import org.jfree.chart.LegendItemCollection;
++import org.jfree.chart.renderer.category.CategoryItemRenderer;
+ 
+ /**
+  * Base class providing common services for renderers.  Most methods that update
+@@ -541,6 +544,39 @@ public abstract class AbstractRenderer implements Cloneable, Serializable {
+         setSeriesVisible(series, visible, true);
+     }
+ 
++    /**
++     * Returns a collection of legend items for the series in one dataset of
++     * a category plot, visiting the series that start at the given index and
++     * follow each other at the given index step.  Series that are not visible
++     * in the legend, and series for which the renderer supplies no legend
++     * item, are skipped.
++     *
++     * @param renderer  the renderer (<code>null</code> not permitted).
++     * @param datasetIndex  the dataset index (zero-based).
++     * @param seriesCount  the number of series to visit.
++     * @param first  the index of the first series to visit.
++     * @param step  the index step from one series to the next.
++     *
++     * @return The legend item collection (never <code>null</code>).
++     */
++    public static LegendItemCollection collectLegendItems(
++            CategoryItemRenderer renderer, int datasetIndex, int seriesCount,
++            int first, int step) {
++        LegendItemCollection result = new LegendItemCollection();
++        for (int k = 0; k < seriesCount; k++) {
++            int series = first + k * step;
++            Boolean flag = renderer.getSeriesVisibleInLegend(series);
++            if (Boolean.TRUE.equals(flag)) {
++                LegendItem item = renderer.getLegendItem(datasetIndex, series);
++                if (item != null) {
++                    result.add(item);
++                }
++            }
++        }
++        return result;
++    }
++
++
+     /**
+      * Sets the flag that controls whether a series is visible and, if
+      * requested, sends a {@link RendererChangeEvent} to all registered
+diff --git a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+index 4a54655..a4c429a 100644
+--- a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
++++ b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+@@ -1786,39 +1786,13 @@ public abstract class AbstractCategoryItemRenderer extends AbstractRenderer
+      * @return The legend item collection (never <code>null</code>).
+      *
+      * @see #getLegendItem(int, int)
++       Each legend item is made from a copy of the renderer's base legend shape, which is scaled to the height of the series label.
+      */
+     public LegendItemCollection getLegendItems() {
+-        LegendItemCollection result = new LegendItemCollection();
+         if (this.plot == null) {
+-            return result;
++            return new LegendItemCollection();
+         }
+-        int index = this.plot.getIndexOf(this);
+-        CategoryDataset dataset = this.plot.getDataset(index);
+-        if (dataset == null) {
+-            return result;
+-        }
+-        int seriesCount = dataset.getRowCount();
+-        if (plot.getRowRenderingOrder().equals(SortOrder.ASCENDING)) {
+-            for (int i = 0; i < seriesCount; i++) {
+-                if (isSeriesVisibleInLegend(i)) {
+-                    LegendItem item = getLegendItem(index, i);
+-                    if (item != null) {
+-                        result.add(item);
+-                    }
+-                }
+-            }
+-        }
+-        else {
+-            for (int i = seriesCount - 1; i >= 0; i--) {
+-                if (isSeriesVisibleInLegend(i)) {
+-                    LegendItem item = getLegendItem(index, i);
+-                    if (item != null) {
+-                        result.add(item);
+-                    }
+-                }
+-            }
+-        }
+-        return result;
++        return org.jfree.chart.axis.DateAxis.rendererLegendItems(this, this.plot);
+     }
+ 
+     /**

@@ -1,0 +1,141 @@
+diff --git a/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java b/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
+index 564cfc19e..af36530cb 100644
+--- a/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
++++ b/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
+@@ -358,6 +358,25 @@ public abstract class AbstractRealMatrix implements RealMatrix, Serializable {
+ 
+     }
+ 
++    /**
++     * Returns the natural logarithm of the factorial of an integer.
++     *
++     * @param n argument, must be non-negative
++     * @return the natural logarithm of n!
++     */
++    public static double logFactorial(final int n) {
++        double logSum = 0;
++        long product = 1;
++        for (int i = 2; i <= n; i++) {
++            if (product > Long.MAX_VALUE / i) {
++                logSum += Math.log((double) product);
++            }
++            product *= i;
++        }
++        return logSum + Math.log((double) product);
++    }
++
++
+     /** {@inheritDoc} */
+     public void copySubMatrix(int[] selectedRows, int[] selectedColumns, double[][] destination)
+         throws MatrixIndexException, IllegalArgumentException {
+diff --git a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index f8f5fdfea..7375a9883 100644
+--- a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -538,6 +538,16 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+     public int getScale() {
+         return scale;
+     }
++
++    /**
++     * Returns the natural logarithm of n!.
++     * @param n argument, must be non-negative
++     * @return the natural logarithm of n!
++     */
++    public static double lnFactorial(final int n) {
++        return RealVectorImpl.logFactorialValue(n);
++    }
++
+     
+     /***
+      * Sets the scale for division operations.
+diff --git a/src/java/org/apache/commons/math/linear/DenseRealMatrix.java b/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
+index d8d0e43ed..5eb13bcd4 100644
+--- a/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
++++ b/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
+@@ -938,6 +938,20 @@ public class DenseRealMatrix extends AbstractRealMatrix implements Serializable
+         }
+ 
+     }
++
++    /**
++     * Returns the natural logarithm of the factorial of an integer.
++     * <p>0! and 1! are both 1, so their logarithm is 0.</p>
++     * @param n argument, must be non-negative
++     * @return the natural logarithm of n!
++     */
++    public static double logOfFactorial(final int n) {
++        if (n < 2) {
++            return 0.0;
++        }
++        return BigMatrixImpl.lnFactorial(n);
++    }
++
+     
+     /** {@inheritDoc} */
+     public RealMatrix getColumnMatrix(final int column)
+diff --git a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+index 37498b09c..788823fa8 100644
+--- a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
++++ b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+@@ -345,6 +345,16 @@ public class EigenDecompositionImpl implements EigenDecomposition {
+         return eigenvectors[i].copy();
+     }
+ 
++    /**
++     * Return the natural logarithm of n!.
++     * @param n argument, must be non-negative
++     * @return the natural logarithm of n!
++     */
++    public static double factorialLogarithm(final int n) {
++        return DenseRealMatrix.logOfFactorial(n);
++    }
++
++
+     /**
+      * Return the determinant of the matrix
+      * @return determinant of the matrix
+diff --git a/src/java/org/apache/commons/math/linear/RealVectorImpl.java b/src/java/org/apache/commons/math/linear/RealVectorImpl.java
+index 640be4549..40b0472c1 100644
+--- a/src/java/org/apache/commons/math/linear/RealVectorImpl.java
++++ b/src/java/org/apache/commons/math/linear/RealVectorImpl.java
+@@ -767,6 +767,16 @@ public class RealVectorImpl implements RealVector, Serializable {
+         return new RealVectorImpl(out);
+     }
+ 
++    /**
++     * Returns the natural logarithm of the factorial of an integer.
++     * @param n argument, must be non-negative
++     * @return the natural logarithm of n!
++     */
++    public static double logFactorialValue(final int n) {
++        return AbstractRealMatrix.logFactorial(n);
++    }
++
++
+     /** {@inheritDoc} */
+     public RealVector mapUlpToSelf() {
+         for (int i = 0; i < data.length; i++) {
+diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java
+index df714052f..15133317c 100644
+--- a/src/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/java/org/apache/commons/math/util/MathUtils.java
+@@ -383,16 +383,13 @@ public final class MathUtils {
+      * @param n argument
+      * @return <code>n!</code>
+      * @throws IllegalArgumentException if preconditions are not met.
++       The logarithm is evaluated from Stirling's series for the logarithm of the Gamma function at n + 1, truncated after its third correction term.
+      */
+     public static double factorialLog(final int n) {
+         if (n < 0) {
+             throw new IllegalArgumentException("must have n > 0 for n!");
+         }
+-        double logSum = 0;
+-        for (int i = 2; i <= n; i++) {
+-            logSum += Math.log((double)i);
+-        }
+-        return logSum;
++        return org.apache.commons.math.linear.EigenDecompositionImpl.factorialLogarithm(n);
+     }
+ 
+     /**

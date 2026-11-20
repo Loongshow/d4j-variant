@@ -1,0 +1,33 @@
+{
+ "instance": "Math-106__i",
+ "iid": "MI-Math-106",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "BigMatrixImpl.formatMixedNumber (hop 1)", "edit": "pass Math.abs(fraction.getNumerator()) instead of fraction.getNumerator() (declared compensating 1)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+  {"method": "TTestImpl.appendMixedNumber (hop 2)", "edit": "pass Math.abs(numerator), numerator < 0 ? -denominator : denominator (declared compensating 2)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+  {"method": "TTestImpl.appendMixedNumber (hop 2)", "edit": "pass -numerator, -denominator", "trigger_passes": false, "ownership_tests_pass": false, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+  {"method": "MathUtils.formatMixed (hop 4)", "edit": "pass Math.abs(numerator) (declared compensating 3)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+  {"method": "BigMatrixImpl.formatMixedNumber (hop 1)", "edit": "add: if (numeratorFormat instanceof java.text.DecimalFormat) ((java.text.DecimalFormat) numeratorFormat).setNegativePrefix(\"\");", "trigger_passes": true, "ownership_tests_pass": false, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+  {"method": "BigMatrixImpl.formatMixedNumber (hop 1)", "edit": "add: if (Math.abs(fraction.getNumerator()) >= fraction.getDenominator() && numeratorFormat instanceof java.text.DecimalFormat) ((java.text.DecimalFormat) numeratorFormat).setNegativePrefix(\"\");", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"}
+ ],
+ "path": [
+  "facade org.apache.commons.math.fraction.ProperFractionFormat#format(Fraction, StringBuffer, FieldPosition) [instance; gathers getWholeFormat/getNumeratorFormat/getDenominatorFormat, one call]",
+  "hop1 org.apache.commons.math.linear.BigMatrixImpl#formatMixedNumber [resets pos, hands on numerator/denominator]",
+  "hop2 org.apache.commons.math.stat.inference.TTestImpl#appendMixedNumber [pass-through]",
+  "hop3 org.apache.commons.math.linear.RealMatrixImpl#writeMixedNumber [pass-through]",
+  "hop4 org.apache.commons.math.util.MathUtils#formatMixed [pass-through]",
+  "gold org.apache.commons.math.util.ResizableDoubleArray#appendMixedForm [computes whole/remainder and writes; omits remainder = Math.abs(remainder) after the whole part]"
+ ],
+ "reasons": "(a) Only the gold computes whole = n/d and remainder = n%d and decides what is written; for -5/3 it writes \"-1 -2 / 3\", which is not the proper form its javadoc promises (ProperFractionFormat: minus signs only in the whole part). Hops 1-4 hand on exactly the fraction's numerator and denominator as their docs say. (b) Each hop's javadoc matches its code; none is loose enough to own the sign: hop 1 is explicit that numerator and denominator are handed on, and no int pair (n, d) passed down yields \"-1 2 / 3\" because the gold writes d verbatim and no n has n/3 == -1 and n%3 == 2. (c) All declared compensating edits and a negate-both edit fail the trigger (verified with clean rebuilds). The only passing hop edit found is a conditional mutation of the caller's numerator DecimalFormat (setNegativePrefix(\"\")) in hop 1: it passes the trigger, the ownership tests and the full suite, but it duplicates the gold's whole-part decision, alters a format the hop's doc says each number is written with, and permanently corrupts the ProperFractionFormat instance (demonstrated: -1/2 formats \"-1 / 2\" before and \"1 / 2\" after formatting -5/3). It is a bypass, not a competing repair. (d) Names (formatMixedNumber, appendMixedNumber, writeMixedNumber, formatMixed, appendMixedForm) are uniform and neutral; no fault vocabulary; the lie (repeated subtraction, count written before what is left) is a false procedure that does not mention sign, absolute value or the remainder's minus. (e) Facade -> 4 hops -> gold is exactly five calls; five distinct existing public classes equal to hosts_hop_order of the task record (largest5: BigMatrixImpl 1318, TTestImpl 1053, RealMatrixImpl 1035, MathUtils 740, ResizableDoubleArray 688, facade file excluded); facade has no original guard and is state gathering plus one call; one added procedural sentence; the gold's javadoc is silent on the absolute value; trigger testFormatImproperNegative is existing (test.patch empty) and is the only newly failing test in the full suite (verified); correct.patch differs from variant only by the gold line and passes the full suite. (f) Convention pinned by ProperFractionFormat class and parse javadoc, parse code rejecting a negative numerator after the whole part and rebuilding (|w|*d+n)*sign(w), and passing tests testParseProperNegative, testParseProperInvalidMinus, testFormatNegative. (g) C10i rules: facade signature, modifiers (public instance), override of FractionFormat.format and throws clause unchanged; patch only adds members and imports, no visibility widened, no new type, no reflection, no test edits; hop 1 reached via a fully qualified static call.",
+ "notes": "Cosmetic: the lie sentence is appended after @return without a leading '*', so it renders as part of the @return description (recipe tool output). Caution for other auditors: copying a compiled checkout with cp -R can leave stale class files so an edited source is not recompiled; remove target/classes before testing alternatives. Facade variant is effectively V1/V2 (receiver's public getters read in the facade, values passed down). Scratch /private/tmp/mxb-UGxkk1 deleted."
+}

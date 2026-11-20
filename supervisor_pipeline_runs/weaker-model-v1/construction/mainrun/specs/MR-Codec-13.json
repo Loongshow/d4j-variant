@@ -1,0 +1,247 @@
+{
+ "bug_id": 13,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+   "new": "return DigestUtils.dataBytes(value, Charset.forName(\"UTF-16\".equalsIgnoreCase(charsetName) ? \"UTF-16BE\" : charsetName));",
+   "old": "return DigestUtils.dataBytes(value, Charset.forName(charsetName));",
+   "why": "hop 1 resolves UTF-16 to its big-endian form"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/binary/Base64.java",
+   "new": "return Rule.inputBytes(java.nio.CharBuffer.wrap(str.toCharArray()), charset);",
+   "old": "return Rule.inputBytes(str, charset);",
+   "why": "hop 3 hands on a CharBuffer over a copy of the characters"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/language/bm/Rule.java",
+   "new": "return Sha2Crypt.encodeKey(input.toString(), Charset.forName(charset.name()));",
+   "old": "return Sha2Crypt.encodeKey(input, charset);",
+   "why": "hop 4 hands on a String copy and the charset re-resolved by its canonical name"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/codec/binary/Base64.java",
+   "new": "import java.math.BigInteger;\nimport java.nio.charset.Charset;\nimport org.apache.commons.codec.language.bm.Rule;\n",
+   "old": "import java.math.BigInteger;\n",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/binary/Base64.java",
+   "new": "    }\n\n    /**\n     * Encodes the characters of a non-empty String into octets using the given charset.\n     *\n     * @param str\n     *            the String to encode, not null or empty\n     * @param charset\n     *            the charset to encode the String with\n     * @return the encoded octets\n     */\n    public static byte[] toOctets(final String str, final Charset charset) {\n        return Rule.inputBytes(str, charset);\n    }\n\n\n    /**\n     * Encodes binary data using the base64 algorithm but does not chunk the output.\n     *\n     * @param binaryData",
+   "old": "    }\n\n    /**\n     * Encodes binary data using the base64 algorithm but does not chunk the output.\n     *\n     * @param binaryData",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/binary/StringUtils.java",
+   "new": "       The string is first normalized to Unicode Normalization Form C, so that canonically equivalent strings are encoded to the same bytes.\n     */\n    public static byte[] getBytesUnchecked(final String string, final String charsetName) {\n        if (string == null) {\n            return null;\n        }\n        return org.apache.commons.codec.language.DoubleMetaphone.valueBytes(string, charsetName);",
+   "old": "     */\n    public static byte[] getBytesUnchecked(final String string, final String charsetName) {\n        if (string == null) {\n            return null;\n        }\n        try {\n            return string.getBytes(charsetName);\n        } catch (final UnsupportedEncodingException e) {\n            throw StringUtils.newIllegalStateException(charsetName, e);\n        }",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/digest/DigestUtils.java",
+   "new": "import org.apache.commons.codec.binary.StringUtils;\nimport java.nio.charset.Charset;\nimport org.apache.commons.codec.binary.Base64;\n",
+   "old": "import org.apache.commons.codec.binary.StringUtils;\n",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/digest/DigestUtils.java",
+   "new": "        return sha256(StringUtils.getBytesUtf8(data));\n    }\n\n    /**\n     * Encodes String data into bytes using the given charset.\n     * <p>\n     * Empty data gives an empty array.\n     * </p>\n     *\n     * @param data\n     *            the data to encode, not null\n     * @param charset\n     *            the charset to encode the data with\n     * @return the encoded bytes\n     */\n    public static byte[] dataBytes(final String data, final Charset charset) {\n        if (data.length() == 0) {\n            return new byte[0];\n        }\n        return Base64.toOctets(data, charset);\n    }\n\n\n    /**\n     * Calculates the SHA-256 digest and returns the value as a hex string.\n     * <p>\n     * Throws a <code>RuntimeException</code> on JRE versions prior to 1.4.0.\n     * </p>",
+   "old": "        return sha256(StringUtils.getBytesUtf8(data));\n    }\n\n    /**\n     * Calculates the SHA-256 digest and returns the value as a hex string.\n     * <p>\n     * Throws a <code>RuntimeException</code> on JRE versions prior to 1.4.0.\n     * </p>",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/digest/Sha2Crypt.java",
+   "new": "import org.apache.commons.codec.Charsets;\nimport java.nio.ByteBuffer;\nimport java.nio.CharBuffer;\nimport java.nio.charset.Charset;\nimport java.nio.charset.CharsetEncoder;\nimport java.nio.charset.CodingErrorAction;\n",
+   "old": "import org.apache.commons.codec.Charsets;\n",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/digest/Sha2Crypt.java",
+   "new": "    /**\n     * Encodes the characters of a key into a new byte array using the given charset.\n     *\n     * @param key\n     *            the characters of the key, not null\n     * @param charset\n     *            the charset to encode the key with, not null\n     * @return the encoded key bytes\n     */\n    public static byte[] encodeKey(final CharSequence key, final Charset charset) {\n        CharsetEncoder encoder = charset.newEncoder().onMalformedInput(CodingErrorAction.REPLACE)\n                .onUnmappableCharacter(CodingErrorAction.REPLACE);\n        CharBuffer in = CharBuffer.wrap(key);\n        ByteBuffer out = ByteBuffer.allocate((int) (in.remaining() * encoder.averageBytesPerChar()));\n        while (encoder.encode(in, out, true).isOverflow() || encoder.flush(out).isOverflow()) {\n            out.flip();\n            out = ByteBuffer.allocate(2 * out.capacity() + 1).put(out);\n        }\n        out.flip();\n        byte[] bytes = new byte[out.remaining()];\n        out.get(bytes);\n        return bytes;\n    }\n\n\n    /**\n     * Generates a libc6 crypt() compatible \"$6$\" hash value.",
+   "old": "    /**\n     * Generates a libc6 crypt() compatible \"$6$\" hash value.",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+   "new": "import org.apache.commons.codec.binary.StringUtils;\nimport java.nio.charset.Charset;\nimport java.nio.charset.UnsupportedCharsetException;\nimport org.apache.commons.codec.digest.DigestUtils;\n",
+   "old": "import org.apache.commons.codec.binary.StringUtils;\n",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+   "new": "        return this.maxCodeLen;\n    }\n\n    /**\n     * Encodes a String value into a sequence of bytes using the named charset.\n     *\n     * @param value\n     *            the String value to encode, not null\n     * @param charsetName\n     *            the name of a required {@link Charset}\n     * @return the encoded bytes\n     * @throws IllegalStateException\n     *             if the named charset is not supported, which should never happen for a required charset name\n     */\n    public static byte[] valueBytes(final String value, final String charsetName) {\n        try {\n            return DigestUtils.dataBytes(value, Charset.forName(charsetName));\n        } catch (final UnsupportedCharsetException e) {\n            throw new IllegalStateException(charsetName + \": \" + e);\n        }\n    }\n\n\n    /**",
+   "old": "        return this.maxCodeLen;\n    }\n\n    /**",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/language/bm/Rule.java",
+   "new": "import org.apache.commons.codec.language.bm.Languages.LanguageSet;\nimport java.nio.charset.Charset;\nimport org.apache.commons.codec.digest.Sha2Crypt;\n",
+   "old": "import org.apache.commons.codec.language.bm.Languages.LanguageSet;\n",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/codec/language/bm/Rule.java",
+   "new": "        return allRules;\n    }\n\n    /**\n     * Encodes a sequence of input characters into bytes using the given charset.\n     *\n     * @param input\n     *            the characters to encode, not null or empty\n     * @param charset\n     *            the charset to encode the characters with\n     * @return the encoded bytes\n     */\n    public static byte[] inputBytes(final CharSequence input, final Charset charset) {\n        return Sha2Crypt.encodeKey(input, charset);\n    }\n\n\n    /**",
+   "old": "        return allRules;\n    }\n\n    /**",
+   "purpose": "MR-Codec-13 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.codec.language.DoubleMetaphone",
+   "file": "src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+   "method": "valueBytes"
+  },
+  {
+   "class": "org.apache.commons.codec.digest.DigestUtils",
+   "file": "src/main/java/org/apache/commons/codec/digest/DigestUtils.java",
+   "method": "dataBytes"
+  },
+  {
+   "class": "org.apache.commons.codec.binary.Base64",
+   "file": "src/main/java/org/apache/commons/codec/binary/Base64.java",
+   "method": "toOctets"
+  },
+  {
+   "class": "org.apache.commons.codec.language.bm.Rule",
+   "file": "src/main/java/org/apache/commons/codec/language/bm/Rule.java",
+   "method": "inputBytes"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Codec-13.py",
+ "entry_points": [
+  "org.apache.commons.codec.binary.StringUtils::getBytesUnchecked"
+ ],
+ "evidence": [
+  "org.apache.commons.codec.binary.StringUtils::getBytesUtf16",
+  "org.apache.commons.codec.binary.Hex::encode",
+  "org.apache.commons.codec.binary.BaseNCodec::ensureBufferSize"
+ ],
+ "expected_signature": "StringUtilsTest.testGetBytesUnchecked(StringUtilsTest.java:64)",
+ "extra_tests": [],
+ "fixture_key": "Codec-13",
+ "gold": {
+  "class": "org.apache.commons.codec.digest.Sha2Crypt",
+  "edits": [
+   {
+    "new": "        encoder.encode(in, out, true);\n        encoder.flush(out);",
+    "old": "        while (encoder.encode(in, out, true).isOverflow() || encoder.flush(out).isOverflow()) {\n            out.flip();\n            out = ByteBuffer.allocate(2 * out.capacity() + 1).put(out);\n        }"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/codec/digest/Sha2Crypt.java",
+  "method": "encodeKey"
+ },
+ "group": "MR-Codec-13",
+ "hops": 5,
+ "iid": "MR-Codec-13",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold creates the encoder and the output buffer, sees the encoder's overflow result and can enlarge the buffer; hops 1-4 hand on the String and the Charset and get back one finished array, and none of them can change the gold's size estimate (the gold wraps the characters and takes the average bytes per char from an encoder it creates itself). Once the gold has returned the bytes that fit, the rest of the encoding is lost to every caller. The convention that the result holds the encoding of every character is pinned outside the gold: StringUtils.getBytesUtf16, the facade's sibling, returns the UTF-16 encoding with the byte-order mark and every character (String.getBytes(Charset)); Hex.encode(byte[]) encodes its hex String with the codec's charset the same way, and HexTest testRequiredCharset (UTF-16 included) and testCustomCharset (every available charset) assert that these bytes equal String.getBytes(name); BaseNCodec.ensureBufferSize enlarges the Base64/Base32 output buffer whenever the next output would not fit instead of dropping output; StringUtilsTest testGetBytesUtf16Be and testGetBytesUtf16Le assert that the chain's own result equals String.getBytes(name). The gold's javadoc promises the characters of the key encoded with the given charset, which FE FF 00 41 00 42 is not for \"ABC\" in UTF-16. A one-line hop edit that rewrites UTF-16 as UTF-16BE with an explicit U+FEFF first char passes the existing tests only because that estimate happens to be exact; it leaves every other text whose encoding exceeds its estimate cut short (getBytesUnchecked(\"\\u00e9\", \"UTF-8\") gives an empty array) and no longer encodes with the given charset as the hop's javadoc says.",
+ "ownership_tests": [
+  "org.apache.commons.codec.binary.HexTest::testRequiredCharset",
+  "org.apache.commons.codec.binary.HexTest::testCustomCharset",
+  "org.apache.commons.codec.binary.StringUtilsTest::testGetBytesUtf16Be",
+  "org.apache.commons.codec.binary.StringUtilsTest::testGetBytesUtf16Le"
+ ],
+ "project": "Codec",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getMaxCodeLen",
+    "anchor_seed": 3272,
+    "class": "org.apache.commons.codec.language.DoubleMetaphone",
+    "file": "src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.nio.charset.Charset;",
+     "import java.nio.charset.UnsupportedCharsetException;",
+     "import org.apache.commons.codec.digest.DigestUtils;"
+    ],
+    "method": "valueBytes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "sha256",
+    "anchor_seed": 3273,
+    "class": "org.apache.commons.codec.digest.DigestUtils",
+    "file": "src/main/java/org/apache/commons/codec/digest/DigestUtils.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.nio.charset.Charset;",
+     "import org.apache.commons.codec.binary.Base64;"
+    ],
+    "method": "dataBytes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isBase64",
+    "anchor_seed": 3274,
+    "class": "org.apache.commons.codec.binary.Base64",
+    "file": "src/main/java/org/apache/commons/codec/binary/Base64.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.nio.charset.Charset;",
+     "import org.apache.commons.codec.language.bm.Rule;"
+    ],
+    "method": "toOctets",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getInstance",
+    "anchor_seed": 3275,
+    "class": "org.apache.commons.codec.language.bm.Rule",
+    "file": "src/main/java/org/apache/commons/codec/language/bm/Rule.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.nio.charset.Charset;",
+     "import org.apache.commons.codec.digest.Sha2Crypt;"
+    ],
+    "method": "inputBytes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "sha512Crypt",
+    "anchor_seed": 3276,
+    "class": "org.apache.commons.codec.digest.Sha2Crypt",
+    "file": "src/main/java/org/apache/commons/codec/digest/Sha2Crypt.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.nio.ByteBuffer;",
+     "import java.nio.CharBuffer;",
+     "import java.nio.charset.Charset;",
+     "import java.nio.charset.CharsetEncoder;",
+     "import java.nio.charset.CodingErrorAction;"
+    ],
+    "method": "encodeKey",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3172
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Codec-13"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.codec.binary.StringUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/codec/binary/StringUtilsTest.java",
+  "test_method": "testGetBytesUtf16"
+ },
+ "variant_id": "CTV-63334A",
+ "kind": "new",
+ "fault_lines": [
+  "encoder.encode(in, out, true);\n        encoder.flush(out);"
+ ],
+ "gold_key": "org.apache.commons.codec.digest.Sha2Crypt::encodeKey"
+}

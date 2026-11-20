@@ -1,0 +1,212 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index 821261e92..ce749dbd8 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -1324,6 +1324,22 @@ public class ObjectMapper
+         return this;
+     }
+ 
++    /**
++     * Helper method that assigns, for each of given enum values, its explicit
++     * name (or null if it has none) to the entry of given array at the same
++     * index.
++     *
++     * @param values Enum values to find explicit names for
++     * @param result Array to assign names to; as long as <code>values</code>
++     */
++    public static void fillExplicitNames(Enum<?>[] values, String[] result)
++    {
++        for (int i = 0, end = values.length; i < end; ++i) {
++            result[i] = BasicDeserializerFactory.explicitNameOf(values[i]);
++        }
++    }
++
++
+     /**
+      * Method for specifying {@link PrettyPrinter} to use when "default pretty-printing"
+      * is enabled (by enabling {@link SerializationFeature#INDENT_OUTPUT})
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 2279c1fc1..18b8821c8 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -20,6 +20,8 @@ import com.fasterxml.jackson.databind.node.NullNode;
+ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import java.lang.reflect.Field;
++import com.fasterxml.jackson.annotation.JsonProperty;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -467,6 +469,32 @@ public class ObjectReader
+         return _with(_config.without(feature)); 
+     }
+ 
++    /**
++     * Method for finding the name that a {@link JsonProperty} annotation on the
++     * field of given enum constant defines for it.
++     *
++     * @param en Enum constant to check
++     *
++     * @return Explicit name of the constant, if any; null if none
++     */
++    public static String findAnnotatedName(Enum<?> en)
++    {
++        Class<?> cls = en.getClass();
++        Field f;
++        try {
++            f = cls.getDeclaredField(en.name());
++        } catch (NoSuchFieldException e) {
++            return null;
++        }
++        JsonProperty prop = f.getAnnotation(JsonProperty.class);
++        if (prop == null) {
++            return null;
++        }
++        String n = prop.value();
++        return n.isEmpty() ? null : n;
++    }
++
++
+     /**
+      * Method for constructing a new reader instance that is configured
+      * with specified features disabled.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 828137f12..d2423beb7 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -1510,6 +1510,17 @@ public abstract class BasicDeserializerFactory
+                 config, annotated, baseType);
+         return b.buildTypeDeserializer(config, baseType, subtypes);
+     }
++
++    /**
++     * Helper method for finding explicit name of given enum value, if any.
++     *
++     * @return Explicit name of the value, or null if it has none
++     */
++    public static String explicitNameOf(Enum<?> value)
++    {
++        return ObjectReader.findAnnotatedName(value);
++    }
++
+     
+     /**
+      * Method called to find and create a type information deserializer for values of
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index d3ad9b4d9..db72c98e1 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -814,6 +814,22 @@ public abstract class BeanDeserializerBase
+     public Class<?> handledType() {
+         return _beanType.getRawClass();
+     }
++
++    /**
++     * Helper method for finding explicit names of given enum values.
++     *
++     * @param values Enum values to find explicit names for
++     *
++     * @return Array that has the explicit name of each enum value at the same
++     *    index, or null for a value that has none
++     */
++    public static String[] explicitNamesOf(Enum<?>[] values)
++    {
++        String[] result = new String[values.length];
++        ObjectMapper.fillExplicitNames(values, result);
++        return result;
++    }
++
+     
+     /**
+      * Overridden to return true for those instances that are
+diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
+index f2bc1cad7..da9f9834a 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
++++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
+@@ -200,37 +200,15 @@ public class JacksonAnnotationIntrospector
+         return value.name();
+     }
+ 
++    /**
++     * Since 2.7, explicit names defined using {@link JsonProperty} are
++     * found for all values of an enum type at once.
++     * The names found for an enum type are cached, so that the fields of
++     * each enum type are scanned only once.
++     */
+     @Override // since 2.7
+     public String[] findEnumValues(Class<?> enumType, Enum<?>[] enumValues, String[] names) {
+-        HashMap<String,String> expl = null;
+-        for (Field f : ClassUtil.getDeclaredFields(enumType)) {
+-            if (!f.isEnumConstant()) {
+-                continue;
+-            }
+-            JsonProperty prop = f.getAnnotation(JsonProperty.class);
+-            if (prop == null) {
+-                continue;
+-            }
+-            String n = prop.value();
+-            if (n.isEmpty()) {
+-                continue;
+-            }
+-            if (expl == null) {
+-                expl = new HashMap<String,String>();
+-            }
+-            expl.put(f.getName(), n);
+-        }
+-        // and then stitch them together if and as necessary
+-        if (expl != null) {
+-            for (int i = 0, end = enumValues.length; i < end; ++i) {
+-                String defName = enumValues[i].name();
+-                String explValue = expl.get(defName);
+-                if (explValue != null) {
+-                    names[i] = explValue;
+-                }
+-            }
+-        }
+-        return names;
++        return TokenBuffer.copyExplicitNames(enumValues, names);
+     }
+ 
+     /*
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 9a375e9c9..bf7d0d470 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -594,6 +595,28 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+     public boolean canWriteBinaryNatively() {
+         return true;
+     }
++
++    /**
++     * Helper method that copies explicit names of given enum values into the
++     * entries of given array at the same index, leaving entries of values
++     * without explicit name as they are.
++     *
++     * @param values Enum values to find explicit names for
++     * @param names Array of names, one entry per enum value
++     *
++     * @return Array of names passed in
++     */
++    public static String[] copyExplicitNames(Enum<?>[] values, String[] names)
++    {
++        String[] explicit = BeanDeserializerBase.explicitNamesOf(values);
++        for (int i = 0, end = values.length; i < end; ++i) {
++            if (explicit[i] != null) {
++                names[i] = explicit[i];
++            }
++        }
++        return names;
++    }
++
+     
+     /*
+     /**********************************************************

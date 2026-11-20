@@ -1,0 +1,30 @@
+{
+  "instance": "JacksonCore-8__i",
+  "iid": "MI-JacksonCore-8",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {"method": "TextBuffer.expandCurrentSegment (facade)", "edit": "enlargedCharBuffer(_currentSegment, MAX_SEGMENT_LEN) -> enlargedCharBuffer(_currentSegment, Integer.MAX_VALUE)", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+    {"method": "JsonParser.nextBufferLength (hop 4)", "edit": "grownBufferLength(length, limit) -> grownBufferLength(length, Math.max(limit, length + (length >> 2)))", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+    {"method": "JsonGenerator.copyIntoLargerBuffer (hop 2)", "edit": "Arrays.copyOf(buffer, largerBufferLength(buffer.length, limit)) -> Arrays.copyOf(buffer, Math.max(largerBufferLength(buffer.length, limit), buffer.length + (buffer.length >> 2)))", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+    {"method": "declared compensating edits (hop 4 limit+limit/4, hop 3 length+1, hop 2 length+length/4)", "edit": "as in spec.compensating", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": false, "doc_consistent": false, "class": "fails"}
+  ],
+  "path": [
+    "facade com.fasterxml.jackson.core.util.TextBuffer#expandCurrentSegment() (instance, V1: reads _currentSegment and MAX_SEGMENT_LEN, writes _currentSegment back)",
+    "hop1 com.fasterxml.jackson.core.json.UTF8JsonGenerator#enlargedCharBuffer(char[],int)",
+    "hop2 com.fasterxml.jackson.core.JsonGenerator#copyIntoLargerBuffer(char[],int)",
+    "hop3 com.fasterxml.jackson.core.json.UTF8StreamJsonParser#largerBufferLength(int,int)",
+    "hop4 com.fasterxml.jackson.core.JsonParser#nextBufferLength(int,int)",
+    "gold com.fasterxml.jackson.core.json.ReaderBasedJsonParser#grownBufferLength(int,int)"
+  ],
+  "reasons": "Reproduced: variant compiles, TestTextBuffer::testExpand fails with 'Expected buffer of 262144 to expand, did not, length now 262144', testSimple passes, full suite fails only testExpand. (a) The gold promises 'the length to which a buffer of the given length grows'; for length 262144 = limit it returns min(393216, 262144) = 262144 (no growth; for length > limit it would even shrink), so its own contract is violated at the origin. Hops 1-4 are pure pass-throughs whose output contracts are violated only by inheritance; the facade passes MAX_SEGMENT_LEN as the limit, which matches the chain's @param limit ('Length up to which a buffer grows by half'). (b) Hop javadocs match their code and defer the growth rule to the length they obtain; none is loose enough to own the beyond-limit decision. (c) No competing repair: the declared compensating edits all leave the trigger failing; three edits that pass the trigger, ownership test and full suite (facade limit Integer.MAX_VALUE; hop 4 inflating the limit to max(limit, length*1.25); hop 2 Math.max post-correction) all leave the gold's code contradicting its own 'grows' contract for length >= limit and either neutralise the limit (the chain's limit branch becomes dead) or substitute a hop-computed length for the gold's result: bypasses. (d) Hop names are a homogeneous family (enlargedCharBuffer/copyIntoLargerBuffer/largerBufferLength/nextBufferLength/grownBufferLength), no fault vocabulary; the gold's javadoc is quiet on the beyond-limit quarter step; the lie ('The expanded segment is allocated from the buffer recycler, and the previous segment is released back to it.') is procedural and false (Arrays.copyOf, no recycler) and names neither the fault nor any hop. (e) Gold is exactly five calls below the facade; five distinct existing public classes that exactly match the seeded 1500-regime draw (mr_lib preview JacksonCore-8 .../TextBuffer.java: UTF8JsonGenerator 1845, JsonGenerator 1646, UTF8StreamJsonParser 3577, JsonParser 1537, ReaderBasedJsonParser 2302; host_mode '1500', hosts_hop_order null) with matching anchors; facade body is state gathering + one hop-1 call + write-back (no original guard); one appended sentence; trigger existing, test.patch empty, only it newly fails. (f) Pinned outside the gold: TextBuffer.expandCurrentSegment(int) grows the current segment to any requested size with no MAX_SEGMENT_LEN cap; UTF8StreamJsonParser.addName writes cbuf[cix++] directly after 'if (cix >= cbuf.length) cbuf = _textBuffer.expandCurrentSegment();', which requires a strictly longer segment; facade javadoc 'to accommodate for more contiguous content'. (g) C10i rules: facade expandCurrentSegment is an allowed candidate (facade_planned_by null); signature/modifiers/throws unchanged; no visibility widened, no new type, no reflection (TextBuffer uses a fully-qualified call, no import), no test edited.",
+  "notes": "Spec overstates the ownership test: TestTextBuffer::testSimple only asserts assertNotNull(tb.expandCurrentSegment()); it does not check that the buffer got larger (spec says '200 -> 300, a non-null larger buffer'), so the passing-test pin is weak and the pin rests on the evidence code. Counter-signal a model may follow: TextBuffer.expand/finishCurrentSegment cap NEW segments at MAX_SEGMENT_LEN and the field javadoc says 'limit maximum segment length ... like 256k', which reads in favour of capping; these concern new segments, not contiguous expansion of the current one, so they do not make the facade an owner, but they may pull attention to the facade's MAX_SEGMENT_LEN argument. The lie line is inserted without a leading '*' in the javadoc block (recipe rewrite formatting), a cosmetic marker of an added line on the facade, not on the gold. Bypass edits recorded above. Scratch /private/tmp/mxb-P35XKT used."
+}

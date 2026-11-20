@@ -1,0 +1,212 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index b9267ca46..bdaa24b02 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -1865,6 +1865,19 @@ public class Compiler extends AbstractCompiler {
+       return sb.toString();
+     }
+ 
++    /**
++     * Creates a node representing a qualified name.
++     *
++     * @param convention the coding convention in use
++     * @param name a qualified name (e.g. "foo" or "foo.bar.baz")
++     * @return a NAME or GETPROP node
++     */
++    public static Node qualifiedNameTree(CodingConvention convention,
++        String name) {
++      return JSTypeRegistry.createDottedName(convention, name.split("\\.", -1));
++    }
++
++
+     /** Returns the length of the text buffer. */
+     public int getLength() {
+       return sb.length();
+diff --git a/src/com/google/javascript/jscomp/CompilerOptions.java b/src/com/google/javascript/jscomp/CompilerOptions.java
+index 516193d4a..8e7a03876 100644
+--- a/src/com/google/javascript/jscomp/CompilerOptions.java
++++ b/src/com/google/javascript/jscomp/CompilerOptions.java
+@@ -2265,6 +2265,21 @@ public class CompilerOptions implements Serializable, Cloneable {
+       return this != OFF;
+     }
+ 
++    /**
++     * Creates a node representing the qualified name made of the first
++     * {@code count} parts.
++     *
++     * @param convention the coding convention in use
++     * @param parts the parts of the qualified name, in order
++     * @param count the number of parts to use, at least one
++     * @return a NAME or GETPROP node
++     */
++    public static Node accessPathOf(CodingConvention convention,
++        String[] parts, int count) {
++      return SymbolTable.Symbol.qualifiedNameFrom(convention, parts, count);
++    }
++
++
+     public boolean shouldStrip() {
+       return this == STRIP;
+     }
+diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java
+index 4facea30f..d114e2a14 100644
+--- a/src/com/google/javascript/jscomp/NodeUtil.java
++++ b/src/com/google/javascript/jscomp/NodeUtil.java
+@@ -2320,36 +2320,12 @@ public final class NodeUtil {
+    *
+    * @param name A qualified name (e.g. "foo" or "foo.bar.baz")
+    * @return A NAME or GETPROP node
+-   */
++     The name is scanned from its last dot back to its first, and the node built for each prefix of the name is kept in a cache, so that a prefix shared with a name created earlier is reused instead of being created again.
++     */
+   public static Node newQualifiedNameNode(
+       CodingConvention convention, String name) {
+-    int endPos = name.indexOf('.');
+-    if (endPos == -1) {
+-      return newName(convention, name);
+-    }
+-    Node node;
+-    String nodeName = name.substring(0, endPos);
+-    if ("this".equals(nodeName)) {
+-      node = IR.thisNode();
+-    } else {
+-      node = newName(convention, nodeName);
+-    }
+-    int startPos;
+-    do {
+-      startPos = endPos + 1;
+-      endPos = name.indexOf('.', startPos);
+-      String part = (endPos == -1
+-                     ? name.substring(startPos)
+-                     : name.substring(startPos, endPos));
+-      Node propNode = IR.string(part);
+-      if (convention.isConstantKey(part)) {
+-        propNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
+-      }
+-      node = IR.getprop(node, propNode);
+-    } while (endPos != -1);
+-
+-    return node;
+-  }
++        return Compiler.CodeBuilder.qualifiedNameTree(convention, name);
++    }
+ 
+   /**
+    * Creates a node representing a qualified name.
+diff --git a/src/com/google/javascript/jscomp/SymbolTable.java b/src/com/google/javascript/jscomp/SymbolTable.java
+index b2bdbf76d..414c9afc7 100644
+--- a/src/com/google/javascript/jscomp/SymbolTable.java
++++ b/src/com/google/javascript/jscomp/SymbolTable.java
+@@ -53,6 +53,7 @@ import java.util.TreeSet;
+ import java.util.logging.Logger;
+ 
+ import javax.annotation.Nullable;
++import com.google.javascript.rhino.IR;
+ 
+ /**
+  * A symbol table for people that want to use Closure Compiler as an indexer.
+@@ -1096,6 +1097,39 @@ public final class SymbolTable
+       return scope.isGlobalScope();
+     }
+ 
++    /**
++     * Creates a node representing the qualified name made of the given parts,
++     * the first part being the root of the name and each following part the
++     * name of a property.
++     *
++     * @param convention the coding convention in use
++     * @param parts the parts of the qualified name, in order
++     * @param count the number of parts to use, at least one
++     * @return a NAME or GETPROP node
++     */
++    public static Node qualifiedNameFrom(CodingConvention convention,
++        String[] parts, int count) {
++      String rootName = parts[0];
++      Node node;
++      if (count > 1 && "this".equals(rootName)) {
++        node = IR.thisNode();
++      } else {
++        node = IR.name(rootName);
++        if (convention.isConstant(rootName)) {
++          node.putBooleanProp(Node.IS_CONSTANT_NAME, true);
++        }
++      }
++      for (int i = 1; i < count; i++) {
++        Node propNode = IR.string(parts[i]);
++        if (convention.isConstantKey(parts[i])) {
++          propNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);
++        }
++        node = IR.getprop(node, propNode);
++      }
++      return node;
++    }
++
++
+     public boolean inExterns() {
+       Node n = getDeclarationNode();
+       return n == null ? false : n.isFromExterns();
+diff --git a/src/com/google/javascript/rhino/JSDocInfo.java b/src/com/google/javascript/rhino/JSDocInfo.java
+index 982f90e8e..146267bae 100644
+--- a/src/com/google/javascript/rhino/JSDocInfo.java
++++ b/src/com/google/javascript/rhino/JSDocInfo.java
+@@ -52,6 +52,8 @@ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.CodingConvention;
++import com.google.javascript.jscomp.CompilerOptions;
+ 
+ /**
+  * <p>JSDoc information describing JavaScript code. JSDoc is represented as a
+@@ -237,6 +239,21 @@ public class JSDocInfo implements Serializable {
+       return description;
+     }
+ 
++    /**
++     * Creates a node representing the qualified name made of the first
++     * {@code count} parts.
++     *
++     * @param convention the coding convention in use
++     * @param parts the parts of the qualified name, in order
++     * @param count the number of parts to use, at least one
++     * @return a NAME or GETPROP node
++     */
++    public static Node dottedNameOf(CodingConvention convention,
++        String[] parts, int count) {
++      return CompilerOptions.TweakProcessing.accessPathOf(convention, parts, count);
++    }
++
++
+     void setDescription(StringPosition p) {
+       description = p;
+     }
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index ddf40aac9..ccb7120cb 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -67,6 +67,7 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.CodingConvention;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1842,4 +1843,17 @@ public class JSTypeRegistry implements Serializable {
+   public void clearTemplateTypeNames() {
+     templateTypes.clear();
+   }
++
++        /**
++     * Creates a node representing the qualified name made of the given parts.
++     *
++     * @param convention the coding convention in use
++     * @param parts the dot-separated parts of the name, in order
++     * @return a NAME or GETPROP node
++     */
++    public static Node createDottedName(CodingConvention convention,
++        String[] parts) {
++      return JSDocInfo.Marker.dottedNameOf(convention, parts, parts.length);
++    }
++
+ }

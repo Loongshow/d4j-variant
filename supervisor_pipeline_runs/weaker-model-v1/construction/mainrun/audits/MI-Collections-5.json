@@ -1,0 +1,87 @@
+{
+  "instance": "MI-Collections-5",
+  "task_key": "Collections-5__i",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.collections.list.SetUniqueList::addAll(int, Collection) (facade)",
+      "edit": "return org.apache.commons.collections.bidimap.TreeBidiMap.insertAll(this, index, coll);  ->  return org.apache.commons.collections.bidimap.TreeBidiMap.insertAll(this, index, org.apache.commons.collections.CollectionUtils.subtract(new java.util.LinkedHashSet(coll), set));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "Pre-filters ahead of the chain by re-implementing SetUniqueList.add(int, Object)'s set test, so the receiver never declines on this path and the corrected gold's position condition would always be true (dead). It masks rather than repairs: with this edit TreeBidiMap.insertAll(SetUniqueList[2,3,1], 0, [1,4]) still gives [2,4,3,1], violating hop 1/hop 2/gold contracts on an input hop 2's javadoc puts in scope ('A list may decline an element'). Recorded as a bypass."
+    },
+    {
+      "method": "org.apache.commons.collections.ExtendedProperties::addInOrder (hop 3)",
+      "edit": "return MapUtils.populateList(list, index, coll.iterator());  ->  return MapUtils.populateList(list, index, CollectionUtils.subtract(new java.util.LinkedHashSet(coll), list).iterator());",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "Second implementation of the receiver's acceptance test inside a general List hop; breaks hop 3's own contract ('Inserts the elements of a collection into a list') for a list that takes every element: addInOrder(ArrayList[1], 0, [1]) gives [1] instead of [1, 1]. Not doc-consistent, so not competing."
+    },
+    {
+      "method": "org.apache.commons.collections.ExtendedProperties::addInOrder (hop 3, declared compensating edit)",
+      "edit": "coll.iterator()  ->  new java.util.ArrayList(new java.util.LinkedHashSet(coll)).iterator()",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Element 1 is already in the receiver, so it is still declined and 4 still lands at index 1 (re-run independently: trigger fails expected:<4> but was:<2>)."
+    },
+    {
+      "method": "org.apache.commons.collections.MapUtils::populateList (hop 4, declared compensating edit)",
+      "edit": "index  ->  Math.min(index, list.size())",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails",
+      "why": "Index 0 is unchanged by the clamp; placement after a decline is decided only in the gold (validation G9 also shows trigger_fail 1)."
+    },
+    {
+      "method": "org.apache.commons.collections.DoubleOrderedMap::insertElements (hop 2, declared compensating edit)",
+      "edit": "!= sizeBefore  ->  > sizeBefore",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails",
+      "why": "Only changes the boolean result; hop 2 never sees individual elements or positions (G9 trigger_fail 1)."
+    },
+    {
+      "method": "org.apache.commons.collections.list.SetUniqueList::addAll(int, Collection) (facade, lie taken as true)",
+      "edit": "copy coll to an array and bulk-insert into the decorated list (getList().addAll(index, Arrays.asList(coll.toArray())))",
+      "trigger_passes": null,
+      "ownership_tests_pass": false,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Reasoned, not run: bypasses the set, so testAddAll ([1,1] gives size 2) fails and the facade's 'duplicates ... ignored' contract is broken."
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.collections.list.SetUniqueList::addAll(int, Collection) [instance method, V2 receiver passed as List; body = one call]",
+    "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::insertAll(List, int, Collection)",
+    "hop2 org.apache.commons.collections.DoubleOrderedMap::insertElements(List, int, Collection)",
+    "hop3 org.apache.commons.collections.ExtendedProperties::addInOrder(List, int, Collection)",
+    "hop4 org.apache.commons.collections.MapUtils::populateList(List, int, Iterator)",
+    "gold org.apache.commons.collections.CursorableLinkedList::insertInOrder(List, int, Iterator) [fault: unconditional size = list.size(); at++ instead of only when the list's size changed]"
+  ],
+  "reasons": "(a) On the trigger's second call (SetUniqueList [2,3,1], index 0, [1,4]) the receiver declines 1 and the gold still advances its position, so the only new element 4 lands at index 1; the gold's contract (insert starting at the specified position, new elements in iterator order) is violated there, while hops 1-4 only pass list/index/elements along (hop 2 computes the changed flag correctly, 3 -> 4 gives true) and SetUniqueList.add(int, Object) behaves as documented. (b) No hop javadoc contradicts its code; hop 2 explicitly scopes the chain to lists that may decline an element, which removes the 'gold assumes accept-all lists' reading. (c) Two one-line edits pass trigger, ownership tests and the full suite: a facade pre-filter (re-implements the receiver's set test; the chain still misplaces for a declining list passed directly, [2,4,3,1]) and a hop-3 pre-filter (breaks hop 3's contract for ArrayList, [1]+[1] -> [1]); both are bypasses, neither is doc-consistent; the three declared compensating edits fail the trigger. (d) Names (insertAll, insertElements, addInOrder, populateList, insertInOrder, at) are neutral; G2b clean; the lie ('The collection is first copied into an array, and the elements of that array are then inserted into the decorated list by a single bulk call.') describes a different algorithm and names neither the fault nor the omitted step; the gold's javadoc (modelled on CursorableLinkedList.addAll's) is silent on declined elements. (e) Gold is five calls below the facade; hops are new public static methods in five different existing classes; host_mode largest5 is correct for this revision (only four other public classes reach 1500 lines) and the hosts are exactly the five largest public classes in size order (TreeBidiMap 2085, DoubleOrderedMap 1995, ExtendedProperties 1717, MapUtils 1645, CursorableLinkedList 1468); facade body is one delegating call (original had no guard); one lie sentence added; trigger testIntCollectionAddAll is existing (test.patch empty) and is the only failure in my independent full-suite run of the variant. (f) ListOrderedSet.addAll(int, Collection) advances its index only inside if (contains(object) == false), pinned by the passing TestListOrderedSet.testListAddIndexed (addAll(1,[3,0,2]) on [0,1] -> [0,3,2,1], which an unconditional advance would turn into [0,3,1,2]); CursorableLinkedList.addAll(int, Collection) with TestCursorableLinkedList.testAdd pins consecutive insertion in iterator order. (g) C10i rules: facade signature, modifiers, override and throws are unchanged (public boolean addAll(int index, Collection coll)); V2 passes this as List and hops use only public List methods; no visibility widened, no new type, no reflection, no test edited.",
+  "notes": "Compile and trigger reproduced (expected:<4> but was:<2>). Variant full suite: only the trigger fails. Additional observation: the variant also throws IndexOutOfBoundsException for SetUniqueList.addAll(0, [5,5,6]) on an empty list, which no existing test exercises (consistent with G5). Cosmetic: the lie line is inserted without a leading '*' after the @return tag, so rendered javadoc attaches it to the @return description; this is the recipe's insertion format and is not a fault marker. The facade pre-filter bypass is the strongest alternative and should be kept in mind when interpreting facade-first model answers: it fixes every SetUniqueList path, but leaves the public chain (and the gold) violating its documented behaviour for declining lists, which the gold repair does not. Scratch /private/tmp/mxb-Covzhe deleted after the audit."
+}

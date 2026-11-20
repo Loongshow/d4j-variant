@@ -1,0 +1,54 @@
+{
+ "instance": "Lang-22__i",
+ "iid": "MI-Lang-22",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.StringUtils::properFractionAsString (hop 4)",
+   "edit": "return DateUtils.properFractionString(numerator, denominator);  ->  return DateUtils.properFractionString(numerator, denominator).replace(\" -\", \" \");",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::formatProperFraction (hop 3)",
+   "edit": "return StringUtils.properFractionAsString(numerator, denominator);  ->  return numerator < 0 ? \"-\" + StringUtils.properFractionAsString(-numerator, denominator) : StringUtils.properFractionAsString(numerator, denominator);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  },
+  {
+   "method": "hops 1-4: any rewrite of the two int arguments passed down (abs numerator, sign moved onto denominator, sign written by caller)",
+   "edit": "analysed, plus the spec's three compensating edits checked by G9 (all trigger_fail=1)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.math.Fraction::toProperString (instance; V1: cache guard, passes fields numerator/denominator, writes result back to the toProperString cache field)",
+  "hop1 org.apache.commons.lang3.SystemUtils::toProperFractionString (zero numerator -> \"0\", else delegate)",
+  "hop2 org.apache.commons.lang3.builder.ToStringStyle::properFractionText (pass-through)",
+  "hop3 org.apache.commons.lang3.time.FastDateFormat::formatProperFraction (pass-through)",
+  "hop4 org.apache.commons.lang3.StringUtils::properFractionAsString (pass-through)",
+  "gold org.apache.commons.lang3.time.DateUtils::properFractionString (whole = n/d, remainder = n%d; omitted: make the remainder non-negative)"
+ ],
+ "reasons": "(a) Only the gold computes the whole part and remainder and lays out 'X Y/Z'; for -7/5 it returns '-1 -2/5', which breaks its own 'proper String in the format X Y/Z' contract under the class convention (getProperNumerator 'always positive', -7/4 -> -1 3/4). Hops 1-4 pass (n, d) through unchanged, so their outputs are wrong only because they delegate. (b) Each hop's javadoc matches its code: plain delegation, and hop 1's documented zero case. No hop documents a sign or remainder step, and none computes anything that could own the result. (c) No change to the two ints at a hop can fix it. The gold prints the denominator it receives, and n'%d' is <= 0 whenever the whole part it prints is negative, so '-1 2/5' cannot come from any (n', d') input. A sign prefix written by a caller fails on Integer.MIN_VALUE, which I tested on the trigger. The only passing non-gold edit is a string rewrite of the gold's output at hop 4 (.replace(\" -\", \" \")). It passes the trigger, the ownership tests and the full suite, but the gold still breaks its own documented contract, so it is a bypass, not a competing repair. (d) The neutral 'proper fraction' names are shared across the whole chain. The gold javadoc does not mention sign or remainder normalisation. The lie (binary search over multiples of the denominator) names neither the fault nor the omitted step. G2a/G2b pass. (e) The gold is exactly 5 calls below the facade. The hops are in 5 distinct existing classes, all at least 1500 lines (1824/2269/1757/6422/1871; host_mode 1500, matching the task record's draw). The facade is the cache guard plus one delegating call with field write-back (V1). The lie is added by the recipe's rewrite_facade. The gold javadoc is quiet. The trigger FractionTest::testToProperString is existing (test.patch is empty) and is the only newly failing test in my own full-suite run. (f) Production evidence pins the convention: Fraction.getProperNumerator does Math.abs(n % d), documented 'always positive'. Fraction.getFraction(String) parses 'X Y/Z' into getFraction(int,int,int), which rejects a negative numerator. Passing ownership tests also pin it: testGets, testFactory_String_proper and testFactory_int_int_int all pass on the variant. (g) toProperString is a listed allowed instance method. Its signature and modifiers are unchanged and it has no override or throws clause. No visibility is widened, no type is added, no reflection is used and no test is edited. The hops are new public static methods. The private fields are read inside Fraction, as V1 allows.",
+ "notes": "Compile is OK on the variant. The trigger fails with the expected signature 'expected:<-1 []2/5> but was:<-1 [-]2/5>'. The variant's full suite fails only on the trigger. Bypass found: hop 4 (StringUtils.properFractionAsString) can append .replace(\" -\", \" \") to the gold's result, and the full suite is then clean. It is textual surgery on the gold's output, and the gold itself still returns '-1 -2/5'. The lie line is spliced after @return without a leading '*', which is standard rewrite_facade output. Hop 1's zero-numerator guard duplicates what the gold already returns for 0/d. It is harmless. The facade calls hop 1 by its fully qualified name, because Fraction has no import for it. During testing I saw stale compiled classes in a copied scratch tree, which needed rm -rf target before recompiling. The validation.json gates are unaffected. I did not read the paired MR-Lang-22 files, the designs, history, builder notes, the trace checklist or any trace verdict. The bridge7 task record lists the paired static facade's name, and that is all I saw of it."
+}

@@ -1,0 +1,248 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index e7571f6ea..e1ce50642 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -24,6 +24,7 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import java.util.Locale;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -1849,6 +1850,28 @@ public class ArrayUtils {
+         return indexOf(array, valueToFind, 0);
+     }
+ 
++    /**
++     * <p>Creates a Locale from the characters of a locale String.</p>
++     *
++     * @param chars  the characters of the locale String, not null
++     * @return the Locale
++     */
++    public static Locale localeOfChars(char[] chars) {
++        String[] codes = new String[] {"", "", ""};
++        int count = 0;
++        String code = "";
++        for (int i = 0; i < chars.length; i++) {
++            if (chars[i] == '_' && count < codes.length - 1) {
++                codes[count++] = code;
++            } else {
++                code = code + chars[i];
++            }
++        }
++        codes[count] = code;
++        return new Locale(codes[0], codes[1], codes[2]);
++    }
++
++
+     /**
+      * <p>Finds the index of the given value within a given tolerance in the array.
+      * This method will return the index of the first value which falls between the region
+diff --git a/src/java/org/apache/commons/lang/LocaleUtils.java b/src/java/org/apache/commons/lang/LocaleUtils.java
+index 139d9a7f6..be93d4667 100644
+--- a/src/java/org/apache/commons/lang/LocaleUtils.java
++++ b/src/java/org/apache/commons/lang/LocaleUtils.java
+@@ -90,40 +90,13 @@ public class LocaleUtils {
+      * @param str  the locale String to convert, null returns null
+      * @return a Locale, null if null input
+      * @throws IllegalArgumentException if the string is an invalid format
++       The string is matched against a regular expression compiled once for the class, and the language, the country and the variant are then read from the groups of the match.
+      */
+     public static Locale toLocale(String str) {
+         if (str == null) {
+             return null;
+         }
+-        int len = str.length();
+-        if (len != 2 && len != 5 && len < 7) {
+-            throw new IllegalArgumentException("Invalid locale format: " + str);
+-        }
+-        char ch0 = str.charAt(0);
+-        char ch1 = str.charAt(1);
+-        if (ch0 < 'a' || ch0 > 'z' || ch1 < 'a' || ch1 > 'z') {
+-            throw new IllegalArgumentException("Invalid locale format: " + str);
+-        }
+-        if (len == 2) {
+-            return new Locale(str, "");
+-        } else {
+-            if (str.charAt(2) != '_') {
+-                throw new IllegalArgumentException("Invalid locale format: " + str);
+-            }
+-            char ch3 = str.charAt(3);
+-            char ch4 = str.charAt(4);
+-            if (ch3 < 'A' || ch3 > 'Z' || ch4 < 'A' || ch4 > 'Z') {
+-                throw new IllegalArgumentException("Invalid locale format: " + str);
+-            }
+-            if (len == 5) {
+-                return new Locale(str.substring(0, 2), str.substring(3, 5));
+-            } else {
+-                if (str.charAt(5) != '_') {
+-                    throw new IllegalArgumentException("Invalid locale format: " + str);
+-                }
+-                return new Locale(str.substring(0, 2), str.substring(3, 5), str.substring(6));
+-            }
+-        }
++        return org.apache.commons.lang.time.FastDateFormat.parseLocale(str);
+     }
+ 
+     //-----------------------------------------------------------------------
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 5de41cddc..87c64ac0f 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -24,6 +24,8 @@ import java.util.Map;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import java.util.Locale;
++import org.apache.commons.lang.math.NumberUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -697,6 +699,31 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Converts a locale String with a valid language code to a Locale.</p>
++     *
++     * <p>If the String is longer than the language code, the separator must
++     * be an underscore and the country code must be uppercase.</p>
++     *
++     * @param str  the locale String to convert, not null
++     * @return a Locale
++     * @throws IllegalArgumentException if the string is an invalid format
++     */
++    public static Locale localeFor(String str) {
++        if (str.length() > 2) {
++            if (str.charAt(2) != '_') {
++                throw new IllegalArgumentException("Invalid locale format: " + str);
++            }
++            char ch3 = str.charAt(3);
++            char ch4 = str.charAt(4);
++            if (ch3 < 'A' || ch3 > 'Z' || ch4 < 'A' || ch4 > 'Z') {
++                throw new IllegalArgumentException("Invalid locale format: " + str);
++            }
++        }
++        return NumberUtils.createLocale(str);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>boolean</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang/math/NumberUtils.java b/src/java/org/apache/commons/lang/math/NumberUtils.java
+index eb74e72fe..6727b1837 100644
+--- a/src/java/org/apache/commons/lang/math/NumberUtils.java
++++ b/src/java/org/apache/commons/lang/math/NumberUtils.java
+@@ -20,6 +20,8 @@ import java.math.BigDecimal;
+ import java.math.BigInteger;
+ 
+ import org.apache.commons.lang.StringUtils;
++import java.util.Locale;
++import org.apache.commons.lang.ArrayUtils;
+ 
+ /**
+  * <p>Provides extra functionality for Java Number classes.</p>
+@@ -1429,6 +1431,25 @@ public class NumberUtils {
+             return +1;
+         }
+     }
++
++    /**
++     * <p>Creates a Locale from a locale String whose language code and
++     * country code have been checked.</p>
++     *
++     * <p>If the String is longer than the country code, the separator before
++     * the variant must be an underscore.</p>
++     *
++     * @param str  the locale String to convert, not null
++     * @return a Locale
++     * @throws IllegalArgumentException if the string is an invalid format
++     */
++    public static Locale createLocale(String str) {
++        if (str.length() > 5 && str.charAt(5) != '_') {
++            throw new IllegalArgumentException("Invalid locale format: " + str);
++        }
++        return ArrayUtils.localeOfChars(str.toCharArray());
++    }
++
+     
+     /**
+      * <p>Compares two floats for order.</p>
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 4c1450995..ef3497692 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,8 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import java.util.Locale;
++import org.apache.commons.lang.builder.ToStringStyle;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1838,6 +1840,25 @@ public class StrBuilder implements Cloneable {
+         return lastIndexOf(ch, size - 1);
+     }
+ 
++    /**
++     * <p>Converts a locale String of length 2, 5 or at least 7 to a Locale.</p>
++     *
++     * <p>The language code, the first two characters, must be lowercase.</p>
++     *
++     * @param str  the locale String to convert, not null
++     * @return a Locale
++     * @throws IllegalArgumentException if the string is an invalid format
++     */
++    public static Locale readLocale(String str) {
++        char ch0 = str.charAt(0);
++        char ch1 = str.charAt(1);
++        if (ch0 < 'a' || ch0 > 'z' || ch1 < 'a' || ch1 > 'z') {
++            throw new IllegalArgumentException("Invalid locale format: " + str);
++        }
++        return ToStringStyle.localeFor(str);
++    }
++
++
+     /**
+      * Searches the string builder to find the last reference to the specified char.
+      * 
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index ac96c5889..464eba6d0 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -33,6 +33,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -832,6 +833,24 @@ public class FastDateFormat extends Format {
+         return format(calendar, new StringBuffer(mMaxLengthEstimate)).toString();
+     }
+ 
++    /**
++     * <p>Converts a locale String to a Locale.</p>
++     *
++     * <p>The length of the String must be 2, 5 or at least 7.</p>
++     *
++     * @param str  the locale String to convert, not null
++     * @return a Locale
++     * @throws IllegalArgumentException if the string is an invalid format
++     */
++    public static Locale parseLocale(String str) {
++        int len = str.length();
++        if (len != 2 && len != 5 && len < 7) {
++            throw new IllegalArgumentException("Invalid locale format: " + str);
++        }
++        return StrBuilder.readLocale(str);
++    }
++
++
+     /**
+      * <p>Formats a milliseond <code>long</code> value into the
+      * supplied <code>StringBuffer</code>.</p>

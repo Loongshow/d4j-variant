@@ -1,0 +1,74 @@
+{
+ "instance": "Lang-13",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.StringUtils::readSingleObject (hop 4, anonymous resolveClass)",
+   "edit": "return ArrayUtils.classNamed(desc.getName(), classLoader, contextLoader);  ->  try { return ArrayUtils.classNamed(desc.getName(), classLoader, contextLoader); } catch (final ClassNotFoundException ex) { return super.resolveClass(desc); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "Consistent with hop 4's own javadoc, but it overrides the gold's documented result (ClassNotFoundException) with the JDK's ObjectInputStream.resolveClass, a second implementation of the same name-to-class decision; the gold still throws ClassNotFoundException: int, contradicting its own @return. Also handles nested primitive classes (probe), so it is a full mask, recorded as a bypass."
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::serialCopy (hop 1)",
+   "edit": "insert as first statement: if (object instanceof Class && ((Class<?>) object).isPrimitive()) { return object; }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "Short-circuits the chain (gold output dead for this input), contradicting hop 1's javadoc (copy by serializing to bytes and reading back); clone(new Class<?>[] {String.class, int.class, void.class}) still throws SerializationException caused by ClassNotFoundException: int."
+  },
+  {
+   "method": "org.apache.commons.lang3.StringUtils::readSingleObject (hop 4)",
+   "edit": "fallback on ClassNotFoundException to ClassUtils.getClass(classLoader, desc.getName(), false)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails",
+   "detail": "ClassUtils' abbreviation map has no 'void'; trigger still fails on void.class."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.DateUtils::readSerialData (hop 3)",
+   "edit": "Thread.currentThread().getContextClassLoader() -> ClassLoader.getSystemClassLoader()",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Class.forName never returns a primitive class for any loader."
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::serialCopy (hop 1)",
+   "edit": "use the context class loader when object.getClass().getClassLoader() is null",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "No class loader choice resolves a primitive type name."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.SerializationUtils::clone (null guard + ToStringStyle.serialCopy(object))",
+  "hop1 org.apache.commons.lang3.builder.ToStringStyle::serialCopy",
+  "hop2 org.apache.commons.lang3.text.StrBuilder::readObjectData",
+  "hop3 org.apache.commons.lang3.time.DateUtils::readSerialData",
+  "hop4 org.apache.commons.lang3.StringUtils::readSingleObject (its anonymous ObjectInputStream.resolveClass override, called back from in.readObject())",
+  "gold org.apache.commons.lang3.ArrayUtils::classNamed"
+ ],
+ "reasons": "(a) The gold documents that it finds the class a class descriptor read from an object stream names and returns 'the class of that name'; for the descriptor of byte.class (name 'byte') it throws ClassNotFoundException because only Class.forName over the loaders is tried. Hops 1-4 only carry the object, bytes, stream and loaders and delegate faithfully; their contracts fail only transitively. (b) All four hop javadocs match their code (hop 1 uses the class's loader, hop 3 passes the context loader second and wraps failures, hop 4 tries the loaders in the given order via the gold); hop 4's resolveClass is a one-line delegation to a method whose documented contract is exactly descriptor-name resolution, so hop 4 is not a reasonable owner. (c) No competing repair: no loader choice at hops 1/3 can yield a primitive class; the ClassUtils fallback fails on void; the two passing edits (hop 4 fallback to super.resolveClass, hop 1 primitive pre-filter) both replace or skip the gold's result (bypasses), and the hop 1 one also contradicts hop 1's javadoc and fails for nested primitive classes. (d) Names (serialCopy, readObjectData, readSerialData, readSingleObject, classNamed) are neutral; the lie (temporary file under java.io.tmpdir) names neither primitives nor class resolution; the gold's javadoc is silent on primitive names. (e) Five hops in five existing classes (ToStringStyle, StrBuilder, DateUtils, StringUtils, ArrayUtils); facade body = original null guard + one call; exactly one added false procedural sentence in the facade javadoc; trigger is the existing SerializationUtilsTest::testPrimitiveTypeClassSerialization and the variant's full suite fails only it (re-run here); correct.patch passes the trigger (re-run here). (f) SerializationUtils.ClassLoaderAwareObjectInputStream.resolveClass maps the nine primitive names after both loaders, and SerializationUtils.deserialize (JDK ObjectInputStream) returns all nine primitive classes on the variant (probe); ClassUtils.getClass raw primitives pinned by passing ClassUtilsTest::testGetClassRawPrimitives.",
+ "notes": "Bypass recorded: hop 4 'try { return ArrayUtils.classNamed(...); } catch (final ClassNotFoundException ex) { return super.resolveClass(desc); }' passes trigger, ownership tests and the full suite (0 failures) and also fixes nested primitive classes; the spec's ownership_reason mentions this fallback but compensating does not list it. Bypass recorded: hop 1 primitive-Class pre-filter passes the full suite but fails clone(new Class<?>[]{String.class, int.class}). Minor observations, not decisive: (1) the hop4->gold edge is a JDK callback through hop 4's anonymous ObjectInputStream subclass, lexically inside hop 4 in host StringUtils; (2) the omitted step is one statement (a for-loop over the nine primitive TYPEs) spanning six physical lines rather than a single line; (3) the lie sentence was appended after the @throws tag, so in rendered javadoc it attaches to the @throws description; (4) ClassLoaderAwareObjectInputStream is now unreferenced production code in the facade's own file, kept as the evidence pin. Scratch copies were rebuilt from a clean target/ after an initial stale-class run; only the clean results are reported."
+}

@@ -1,0 +1,41 @@
+{
+ "instance": "MI-Jsoup-84",
+ "task_key": "Jsoup-84__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.jsoup.parser.HtmlTreeBuilder::createW3cElement (hop 4)",
+   "edit": "insert before the return: if (source.tagName().indexOf(':') > 0) scope.putIfAbsent(source.tagName().substring(0, source.tagName().indexOf(':')), \"\");",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "note": "Not competing: it plants an undeclared prefix->\"\" entry in the scope, which hop 4's and the gold's @param scope define as 'the namespace URIs declared by the element's ancestors ... the element's own declarations are added to it'; the fake binding also leaks to the children through hop 2. It pre-empts the gold's namespace decision with data that violates the documented scope contract."},
+  {"method": "org.jsoup.parser.HtmlTreeBuilder::createW3cElement (hop 4)",
+   "edit": "try { return Node.newW3cElement(source, owner, scope); } catch (org.w3c.dom.DOMException e) { return owner.createElementNS(\"\", source.tagName()); }",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "note": "Replaces the gold's result with a second element-creation implementation."},
+  {"method": "declared compensating edits (hop 1 setNamespaceAware(false); hop 2 pass inherited scope; hop 3 fresh empty scope)",
+   "edit": "per spec compensating list (validator G9)",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": null,
+   "class": "fails"}
+ ],
+ "path": [
+  "facade org.jsoup.helper.W3CDom::fromJsoup (instance; Validate.notNull guard + return Element.toW3cDocument(in, factory); field 'factory' passed as state)",
+  "hop1 org.jsoup.nodes.Element::toW3cDocument (namespace-aware builder, document URI, starts walk on in.child(0) with empty scope)",
+  "hop2 org.jsoup.helper.HttpConnection::appendW3cNode (recursive walk; copies inherited scope per element; text/data/comment)",
+  "hop3 org.jsoup.select.Evaluator.IsNthChild::w3cElementOf (copies sanitised attributes onto the element made below)",
+  "hop4 org.jsoup.parser.HtmlTreeBuilder::createW3cElement (pass-through)",
+  "gold org.jsoup.nodes.Node::newW3cElement (adds xmlns declarations to scope, resolves prefix, createElementNS; omitted: unbound prefix -> \"\" namespace)"
+ ],
+ "reasons": "Compiled; trigger W3CDomTest::treatsUndeclaredNamespaceAsLocalName fails with NAMESPACE_ERR thrown from createElementNS inside Node.newW3cElement; the five ownership tests pass; full variant suite fails only the trigger. (a) Only the gold resolves namespaces; for <fb:like> with no xmlns:fb it calls createElementNS(null, 'fb:like') and returns no element, violating its '@return the new W3C element' in the namespace bound to the prefix (unbound -> no namespace, as unprefixed names already get). Upstream hops fail only by propagation. (b) Each hop's javadoc matches its code (hop 3's attribute-key rule is equivalent to the original regex); none mentions namespace resolution, and hop 2/hop 4 scope docs restrict scope to declared URIs. (c) No competing repair: the only passing non-gold edits found either plant an undeclared binding in the scope (contradicts the scope param contract) or catch the DOMException and recreate the element (bypass). Declared compensating edits do not absorb the fault (re-checked by G9). (d) Neutral names; gold javadoc silent on unbound prefixes; facade lie (XML text written out then parsed by a namespace-aware builder) describes an unperformed algorithm and names neither the fault nor any hop. (e) Gold is exactly 5 calls below the facade; hosts are exactly hosts_hop_order (Element 1458, HttpConnection 1186, Evaluator 778 [nested public IsNthChild at seeded anchor], HtmlTreeBuilder 733, Node 725; largest5 regime, W3CDom excluded); facade = guard + state + one call; one added lie sentence; trigger is existing and the only new failure. (f) Convention pinned by the intact production sibling W3CDom.W3CBuilder.head (via public W3CDom.convert): namespace == null && tagName.contains(':') -> createElementNS(\"\", tagName); namespacePreservation pins prefix->namespace resolution through the chain. (g) No visibility widening, no new types, no reflection, facade signature/modifiers/throws unchanged (public Document fromJsoup(org.jsoup.nodes.Document)), test.patch empty, facade is the task's allowed instance method W3CDom.fromJsoup.",
+ "notes": "Bypasses recorded above (hop-4 scope pre-binding and hop-4 DOMException catch); neither is doc-consistent. The facade passes the 'factory' field (V1-style state) rather than 'this' (task record suggested V2); this is the smaller variant and allowed. The chain re-implements W3CDom.convert / W3CBuilder logic (including the private updateNamespaces/copyAttributes behaviour, rewritten) instead of calling convert; this is the C10 redistribution of the facade's computation and leaves the original as the evidence sibling, but a reviewer may wish to note that addendum V4 discourages copying private logic into hops. The lie sentence sits after the @return tag (recipe's rewrite_facade placement). W3CDom still imports DocumentBuilder/ParserConfigurationException, now unused (compiles). Scratch dirs under /private/tmp/mxb-* were deleted."
+}

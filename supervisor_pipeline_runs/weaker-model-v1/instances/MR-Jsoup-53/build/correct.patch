@@ -1,0 +1,175 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 77fb6608..939655fa 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -19,6 +19,7 @@ import java.util.regex.Pattern;
+ import java.util.zip.GZIPInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -145,6 +146,20 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Build the unescaped value of a backslash escaped character sequence. The value is collected in a builder sized to
++     * the sequence.
++     *
++     * @param chars the escaped characters
++     * @return the unescaped value
++     */
++    public static String unescapedValue(char[] chars) {
++        StringBuilder accum = new StringBuilder(chars.length);
++        Evaluator.CssNthEvaluator.appendUnescapedArgument(chars, accum);
++        return accum.toString();
++    }
++
++
+     public Connection data(Map<String, String> data) {
+         Validate.notNull(data, "Data map must not be null");
+         for (Map.Entry<String, String> entry : data.entrySet()) {
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index c6ea7fa0..e5f52287 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -22,6 +22,7 @@ import java.util.Map;
+ import java.util.Set;
+ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -1198,6 +1199,20 @@ public class Element extends Node {
+         return getOutputSettings().prettyPrint() ? accum.toString().trim() : accum.toString();
+     }
+ 
++    /**
++     * Get the unescaped text of a backslash escaped string.
++     * <p>
++     * The characters of the string are taken as a char array.
++     * </p>
++     *
++     * @param escaped the backslash escaped string
++     * @return the unescaped text
++     */
++    public static String unescapedText(String escaped) {
++        return HttpConnection.unescapedValue(escaped.toCharArray());
++    }
++
++
+     private void html(StringBuilder accum) {
+         for (Node node : childNodes)
+             node.outerHtml(accum);
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index fb718f2e..bac61bf2 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -237,6 +237,25 @@ public abstract class Node implements Cloneable {
+         return parentNode;
+     }
+ 
++    /**
++     * Appends the unescaped text of a backslash escaped character sequence to a builder.
++     *
++     * @param chars the escaped characters
++     * @param accum the builder to append to
++     */
++    public static void appendUnescaped(char[] chars, StringBuilder accum) {
++        int start = 0;
++        for (int i = 0; i < chars.length; i++) {
++            if (chars[i] == '\\'
++                    && (i == 0 || chars[i - 1] != '\\')) {
++                accum.append(chars, start, i - start);
++                start = i + 1;
++            }
++        }
++        accum.append(chars, start, chars.length - start);
++    }
++
++
+     /**
+      Gets this node's parent node. Node overridable by extending classes, so useful if you really just need the Node type.
+      @return parent node; or null if no parent.
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index b3fd8f5a..4742a7dd 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -220,6 +220,17 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         return el;
+     }
+ 
++    /**
++     * Append the unescaped characters of a backslash escaped sequence to a builder.
++     *
++     * @param chars the escaped characters
++     * @param accum the builder to append to
++     */
++    public static void appendUnescapedCharacters(char[] chars, StringBuilder accum) {
++        Node.appendUnescaped(chars, accum);
++    }
++
++
+     void insert(Token.Comment commentToken) {
+         Comment comment = new Comment(commentToken.getData(), baseUri);
+         insertNode(comment);
+diff --git a/src/main/java/org/jsoup/parser/TokenQueue.java b/src/main/java/org/jsoup/parser/TokenQueue.java
+index 47947fa5..9a49c2f0 100644
+--- a/src/main/java/org/jsoup/parser/TokenQueue.java
++++ b/src/main/java/org/jsoup/parser/TokenQueue.java
+@@ -292,20 +292,10 @@ public class TokenQueue {
+      * Unescaped a \ escaped string.
+      * @param in backslash escaped string
+      * @return unescaped string
++       The string is read from its last character back to its first, and its characters are pushed onto a stack that is then emptied into the result.
+      */
+     public static String unescape(String in) {
+-        StringBuilder out = new StringBuilder();
+-        char last = 0;
+-        for (char c : in.toCharArray()) {
+-            if (c == ESC) {
+-                if (last != 0 && last == ESC)
+-                    out.append(c);
+-            }
+-            else 
+-                out.append(c);
+-            last = c;
+-        }
+-        return out.toString();
++        return org.jsoup.nodes.Element.unescapedText(in);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 4283a672..19fbaaa5 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -11,6 +11,7 @@ import org.jsoup.nodes.XmlDeclaration;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -422,6 +423,17 @@ public abstract class Evaluator {
+     		
+     		return (pos-b)*a >= 0 && (pos-b)%a==0;
+     	}
++
++    /**
++     * Append the unescaped text of a backslash escaped argument to a builder.
++     *
++     * @param chars the escaped characters of the argument
++     * @param accum the builder to append to
++     */
++    public static void appendUnescapedArgument(char[] chars, StringBuilder accum) {
++        HtmlTreeBuilder.appendUnescapedCharacters(chars, accum);
++    }
++
+     	
+ 		@Override
+ 		public String toString() {

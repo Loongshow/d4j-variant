@@ -1,0 +1,51 @@
+{
+ "instance": "Cli-26",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.cli.CommandLine::typedOption (hop 4)",
+   "edit": "Option option = PosixParser.namedOption(opt, description);  ->  Option option = new Option(opt, description);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.cli.CommandLine::typedOption (hop 4)",
+   "edit": "Option option = PosixParser.namedOption(opt, description);  ->  Option option = (opt != null && opt.length() == 1) ? new Option(opt, description) : PosixParser.namedOption(opt, description);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.cli.Parser::optionWithArgs (hop 3, declared compensating edit)",
+   "edit": "CommandLine.typedOption(opt, description, type)  ->  CommandLine.typedOption(opt == null ? null : Util.stripLeadingAndTrailingQuotes(opt), description, type)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.cli.OptionBuilder::create(String) (trigger enters via create(char) -> create(String))",
+  "hop1 org.apache.commons.cli.HelpFormatter::buildOption",
+  "hop2 org.apache.commons.cli.Option::newOption",
+  "hop3 org.apache.commons.cli.Parser::optionWithArgs",
+  "hop4 org.apache.commons.cli.CommandLine::typedOption",
+  "gold org.apache.commons.cli.PosixParser::namedOption"
+ ],
+ "reasons": "(a) Only namedOption reads the characters of the name. Its condition rejects every char that is not a Java identifier part, so it throws IllegalArgumentException(\"illegal option value '?'\") for the single-char name '?'. Its javadoc promises an Option and an IAE only for an invalid Option name, and '?' is valid by OptionValidator.validateOption/isValidOpt, which the Option constructor applies. Hops 1-4 pass opt through unchanged and only set independent fields (argName, longOpt, required, args, optionalArg, valuesep, type) with plain setters. Their @throws clauses fail only through delegation. (b) Each hop's javadoc matches its code. None says anything about name characters beyond the shared @throws clause, so none can be read as owning name validation. (c) Option has no setter for the name, so no hop can change the name to get it past the gold and still return an Option with the right name. Every passing non-gold edit either calls the Option constructor instead of the gold (the gold is never called) or pre-filters single-char names around it (the gold's result is replaced). Both are bypasses: they pass the trigger, the four ownership tests and the full suite. The declared quote-strip, trim and hyphen-strip edits do not absorb the fault (I re-checked the quote-strip edit; G9 covers all three). (d) The hop names (buildOption, newOption, optionWithArgs, typedOption, namedOption) are neutral, there are no comments in the hops, and G2b is clean. The lie (a template Option cached under the name and cloned on later calls) says nothing about validation or special characters. The gold's javadoc is quiet ('valid Option name'). (e) The gold is exactly 5 calls below create(String), and each hop is a new public static method in a different existing class. The hosts follow C10f section 1, largest5 regime: no Cli class reaches 1500 lines. The five largest public, non-interface, non-enum classes other than OptionBuilder, by newline count in the pristine checkout, are HelpFormatter 984, Option 674, Parser 399 (abstract class), CommandLine 385 and PosixParser 276, in hop order 1-5. The recorded anchors (getArgName, setArgs, processArgs, getOptionValue, processOptionToken; seeds 4266-4270 = 4166+100+i) match stageB_lib.pick_anchor, which I re-ran on the pristine files. The facade body is one delegating call; the original had no guard. The original finally-reset moved into hop 1 through reset() made package-private. Settings are passed by value before the reset, so this is behaviour-preserving, and the reset still happens on rejection (testBuilderIsResettedAlways passes). One added procedural sentence (the caching lie) is untrue of the code. test.patch is empty. The variant compiles, the trigger fails with the expected signature, and the full variant suite fails only OptionBuilderTest::testSpecialOptChars. correct.patch gives 0 failures. (f) The convention is pinned outside the gold: in code by OptionValidator.validateOption/isValidOpt (javadoc: a single-char opt may be ' ', '?', '@' or a letter), which every Option constructor applies, and by the facade's 'See Option.' reference. The general rejection rule is also pinned by the passing OptionBuilderTest.testIllegalOptions.",
+ "notes": "1. The trigger's IllegalArgumentException is thrown inside the gold, so the top stack frame names PosixParser.namedOption (line 241). This is runtime output, not a name, comment or marker, so it is not recorded as leakage under (d). It may make the instance easy. 2. The gold's validation duplicates OptionValidator's, and the Option constructor re-applies it. The cleanest bypass (hop 4 calls new Option directly) therefore removes a redundant check. It still makes the gold dead, so it is recorded as a bypass, not a competing repair. 3. The lie line in OptionBuilder.create(String)'s javadoc has no leading ' * ' (it is indented with spaces only). This is a formatting artifact of the recipe's facade rewrite, in the facade, not pointing at the gold. 4. Apart from the trigger itself, no passing test pins acceptance of '?' or '@'; the pin for the special case is in evidence code (OptionValidator). 5. I did not check facade membership in the batch-6 pre-registration (not an audit input). I did not read the host_files_top5 task record: I recomputed the largest-five list from the pristine checkout instead. 6. The correct gold's message for an invalid name of two or more characters ('illegal option value') differs from OptionValidator's ('opt contains illegal character value'). As the spec says, no test or production code reads it."
+}

@@ -1,0 +1,201 @@
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index 0abe4ed0..74a6eefe 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -1293,6 +1293,30 @@ class CursorableSubList extends CursorableLinkedList implements List {
+         return super.addAll(c);
+     }
+ 
++    /**
++     * Returns the index of the slot holding the specified key among the
++     * first <code>count</code> slots of a flat table.
++     * <p>
++     * The hash codes of the slots are compared first; the key of a slot is
++     * looked at only when its hash code is the hash code given.
++     *
++     * @param key  the key to search for, may be null
++     * @param hash  the hash code of the key
++     * @param keys  the keys of the slots
++     * @param hashes  the hash codes of the slots
++     * @param count  the number of slots to search
++     * @return the index of the slot holding the key, or -1 if none does
++     */
++    public static int indexOfSlot(Object key, int hash, Object[] keys, int[] hashes, int count) {
++        for (int slot = 0; slot < count; slot++) {
++            if (hashes[slot] == hash && keys[slot] == key) {
++                return slot;
++            }
++        }
++        return -1;
++    }
++
++
+     public boolean add(Object o) {
+         checkForComod();
+         return super.add(o);
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e7f44648..f156905e 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -261,6 +261,24 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return setOfEntries[VALUE];
+     }
+ 
++    /**
++     * Finds the slot of a flat table that holds the specified key.
++     * <p>
++     * The hash code of a null key is taken as zero, as it is when the key
++     * is stored.
++     *
++     * @param key  the key to search for, may be null
++     * @param keys  the keys of the slots
++     * @param hashes  the hash codes of the slots
++     * @param size  the number of slots in use
++     * @return the index of the slot holding the key, or -1 if none does
++     */
++    public static int lookupSlot(final Object key, final Object[] keys, final int[] hashes, final int size) {
++        final int hash = (key == null ? 0 : key.hashCode());
++        return ExtendedProperties.findSlot(key, hash, keys, hashes, size);
++    }
++
++
+     /**
+      * Returns a set view of the keys contained in this map.  The set
+      * is backed by the map, so changes to the map are reflected in
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index 561aebcb..015e2910 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -1120,6 +1120,23 @@ public class ExtendedProperties extends Hashtable {
+         return getList(key, null);
+     }
+ 
++    /**
++     * Finds the slot of a flat table that holds the specified key, searching
++     * no more slots than the table has.
++     *
++     * @param key  the key to search for, may be null
++     * @param hash  the hash code of the key
++     * @param keys  the keys of the slots
++     * @param hashes  the hash codes of the slots
++     * @param size  the number of slots in use
++     * @return the index of the slot holding the key, or -1 if none does
++     */
++    public static int findSlot(Object key, int hash, Object[] keys, int[] hashes, int size) {
++        int count = Math.min(size, keys.length);
++        return MapUtils.slotIndex(key, hash, keys, hashes, count);
++    }
++
++
+     /**
+      * Get a List of strings associated with the given configuration key.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 9d384917..5b745f5c 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -528,6 +528,21 @@ public class MapUtils {
+         return answer;
+     }
+ 
++    /**
++     * Gets the index of the slot of a flat table that holds the specified key.
++     *
++     * @param key  the key to search for, may be null
++     * @param hash  the hash code of the key
++     * @param keys  the keys of the slots
++     * @param hashes  the hash codes of the slots
++     * @param count  the number of slots to search
++     * @return the index of the slot holding the key, or -1 if none does
++     */
++    public static int slotIndex(final Object key, final int hash, final Object[] keys, final int[] hashes, final int count) {
++        return CursorableSubList.indexOfSlot(key, hash, keys, hashes, count);
++    }
++
++
+     /**
+      *  Looks up the given key in the given map, converting the result into
+      *  a double, using the default value if the the conversion fails.
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index 0a630af7..f682a35d 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -32,6 +32,7 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import org.apache.commons.collections.DoubleOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -178,6 +179,29 @@ public class TreeBidiMap implements OrderedBidiMap {
+         return doGet((Comparable) key, KEY);
+     }
+ 
++    /**
++     * Checks whether a flat table of up to three slots holds the specified key.
++     * <p>
++     * The slots in use are the first <code>size</code> slots.
++     *
++     * @param key  the key to search for, may be null
++     * @param size  the number of slots in use
++     * @param hash1  the hash code of the key in the first slot
++     * @param hash2  the hash code of the key in the second slot
++     * @param hash3  the hash code of the key in the third slot
++     * @param key1  the key in the first slot
++     * @param key2  the key in the second slot
++     * @param key3  the key in the third slot
++     * @return true if one of the slots in use holds the key
++     */
++    public static boolean containsFlatKey(Object key, int size, int hash1, int hash2, int hash3,
++            Object key1, Object key2, Object key3) {
++        final Object[] keys = new Object[] {key1, key2, key3};
++        final int[] hashes = new int[] {hash1, hash2, hash3};
++        return DoubleOrderedMap.lookupSlot(key, keys, hashes, size) >= 0;
++    }
++
++
+     /**
+      * Puts the key-value pair into the map, replacing any previous pair.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/map/Flat3Map.java b/src/java/org/apache/commons/collections/map/Flat3Map.java
+index 1a7bfb58..766766cd 100644
+--- a/src/java/org/apache/commons/collections/map/Flat3Map.java
++++ b/src/java/org/apache/commons/collections/map/Flat3Map.java
+@@ -183,34 +183,13 @@ public class Flat3Map implements IterableMap, Serializable, Cloneable {
+      * 
+      * @param key  the key to search for
+      * @return true if the map contains the key
++       The slots are kept in ascending order of hash code, so that the search stops at the first slot whose hash code is greater than that of the key.
+      */
+     public boolean containsKey(Object key) {
+         if (delegateMap != null) {
+             return delegateMap.containsKey(key);
+         }
+-        if (key == null) {
+-            switch (size) {  // drop through
+-                case 3:
+-                    if (key3 == null) return true;
+-                case 2:
+-                    if (key2 == null) return true;
+-                case 1:
+-                    if (key1 == null) return true;
+-            }
+-        } else {
+-            if (size > 0) {
+-                int hashCode = key.hashCode();
+-                switch (size) {  // drop through
+-                    case 3:
+-                        if (hash3 == hashCode && key.equals(key3)) return true;
+-                    case 2:
+-                        if (hash2 == hashCode && key.equals(key2)) return true;
+-                    case 1:
+-                        if (hash1 == hashCode && key.equals(key1)) return true;
+-                }
+-            }
+-        }
+-        return false;
++        return org.apache.commons.collections.bidimap.TreeBidiMap.containsFlatKey(key, size, hash1, hash2, hash3, key1, key2, key3);
+     }
+ 
+     /**

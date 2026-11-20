@@ -1,0 +1,84 @@
+{
+  "instance": "Chart-2",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": false,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::combinedSeriesBounds (hop 2)",
+      "edit": "minimum = Math.min(minimum, limits[0]);  ->  minimum = Double.isNaN(limits[0]) ? minimum : Math.min(minimum, limits[0]);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": true,
+      "class": "fails",
+      "result": "expected:<25.0> but was:<NaN>"
+    },
+    {
+      "method": "org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::combinedSeriesBounds (hop 2)",
+      "edit": "skip NaN in both folds: minimum = Double.isNaN(limits[0]) ? minimum : Math.min(minimum, limits[0]); maximum = Double.isNaN(limits[1]) ? maximum : Math.max(maximum, limits[1]);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": true,
+      "class": "fails",
+      "result": "expected:<25.0> but was:<0.0> (the 25 reached before the NaN is already lost inside the gold)"
+    },
+    {
+      "method": "org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::combinedSeriesBounds (hop 2)",
+      "edit": "if (limits != null) {  ->  if (limits != null && !Double.isNaN(limits[0]) && !Double.isNaN(limits[1])) {",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": true,
+      "class": "fails",
+      "result": "NullPointerException (row dropped, chain returns null)"
+    },
+    {
+      "method": "org.jfree.chart.plot.PiePlot::accumulatedExtent (hop 1)",
+      "edit": "return new Range(bounds[0], bounds[1]);  ->  return new Range(Double.isNaN(bounds[0]) ? 0.0 : bounds[0], Double.isNaN(bounds[1]) ? 0.0 : bounds[1]);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": true,
+      "class": "fails",
+      "result": "expected:<25.0> but was:<0.0>"
+    },
+    {
+      "method": "org.jfree.chart.plot.CategoryPlot::dataExtentForSeries (hop 4)",
+      "edit": "return DateAxis.runningExtremes(dataset, row);  ->  return DateAxis.runningExtremes(new org.jfree.data.category.SlidingCategoryDataset(dataset, 0, dataset.getColumnCount() - 1), row);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "result": "overfit hack that drops the last column; full suite newly fails DatasetUtilitiesTests::testCumulativeRange3; contradicts hop 4/3/2/1 docs (running total of the whole row)"
+    },
+    {
+      "method": "org.jfree.chart.axis.DateAxis::runningExtremes (gold, control)",
+      "edit": "runningTotal = runningTotal + value;  ->  runningTotal = Double.isNaN(value) ? runningTotal : runningTotal + value;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "gold repair (control)",
+      "result": "full suite 0 failures"
+    }
+  ],
+  "path": [
+    "facade org.jfree.data.general.DatasetUtilities::findCumulativeRangeBounds (null guard + PiePlot.accumulatedExtent(dataset))",
+    "hop1 org.jfree.chart.plot.PiePlot::accumulatedExtent (null check, wraps double[] bounds into Range)",
+    "hop2 org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::combinedSeriesBounds (fold over rows of per-row extremes, min/max from 0)",
+    "hop3 org.jfree.chart.axis.ValueAxis::boundsForSeries (pass-through)",
+    "hop4 org.jfree.chart.plot.CategoryPlot::dataExtentForSeries (pass-through)",
+    "gold org.jfree.chart.axis.DateAxis::runningExtremes (per-row running total over columns; NaN guard omitted)"
+  ],
+  "reasons": "Variant compiles; trigger DatasetUtilitiesTests::testCumulativeRange_NaN fails with expected:<0.0> but was:<NaN>; full suite (2191 tests) newly fails only the trigger. (a) Row values 10, 15, NaN: the gold adds NaN to its running total, so Math.min/Math.max turn both extremes into NaN although the total did reach 25; this violates its contract 'the lowest and the highest values reached by the running total'. Every hop above it is a faithful fold, pass-through or Range wrap of what it receives, so the violation starts only in the gold. (b) Every hop javadoc matches its code, and none mentions NaN or leaves room for that hop to own the per-item skip. (c) The 25 is lost inside the gold, so no hop can recover [0, 25] from {NaN, NaN}. All five hop edits tried fail the trigger or the full suite. No existing NaN-filtering CategoryDataset view exists for a one-line pre-filter, and no one-line bypass was found. (d) The names (accumulatedExtent, combinedSeriesBounds, boundsForSeries, dataExtentForSeries, runningExtremes) are neutral, and no added line uses fault vocabulary. The lie describes a different accumulation order (one running total carried across categories and series) and never mentions NaN or skipping. (e) There are exactly 5 calls to the gold, in 5 distinct existing classes. The facade is a guard plus one call, with one added procedural sentence. The gold javadoc is silent on NaN. The trigger is existing (empty test.patch) and the only new failure. (f) NaN skipping is pinned outside the gold by DatasetUtilities.calculateStackTotal, iterateRangeBounds(CategoryDataset), findStackedRangeBounds(TableXYDataset) and StackedAreaRenderer.getStackValues. The passing tests testIterateRangeBounds2_CategoryDataset, testFindStackedRangeBounds_CategoryDataset2 and testFindMaximumStackedRangeValue also pin it, and the trigger's own javadoc says the method ignores Double.NaN.",
+  "notes": "(1) The lie sentence is appended after the '@see #findRangeBounds(CategoryDataset)' tag with no leading '*', so it renders as part of the @see text. This looks like the recipe's rewrite_facade output and does not point at the gold. (2) On the single-series trigger, the lie's single global running total is behaviourally the same as per-row totals, so the lie cannot be falsified on the trigger. It is still false as a description of the code: the code keeps per-row totals, as the original first javadoc sentence and the hop docs say. (3) Counter-evidence for the convention: WaterfallBarRenderer.findRangeBounds, a near-sibling running-total computation in production, does NOT skip NaN. It has a different contract (last column absolute) and is off the path, so it does not create an alternative owner, but it weakens the convention pin slightly. (4) testCumulativeRange1 and testCumulativeRange2 in ownership_tests do not exercise NaN. Only the other three ownership tests pin the NaN convention. (5) Harness note: the first scratch copies hit ant's 1 s timestamp granularity and did not recompile the edited class. Re-run with the edited .class deleted; the results above come from the forced recompiles."
+}

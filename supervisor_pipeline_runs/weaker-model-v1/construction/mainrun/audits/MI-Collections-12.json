@@ -1,0 +1,34 @@
+{
+ "instance": "Collections-12__i",
+ "iid": "MI-Collections-12",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "TreeBidiMap::resolveKey (hop 1)", "edit": "return DoubleOrderedMap.lookupKey(storedKey == null ? null : storedKey.trim(), defaultKey);", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": false, "doc_consistent": true, "class": "fails"},
+  {"method": "DoubleOrderedMap::lookupKey (hop 2)", "edit": "return MapUtils.getKeyString(\"\".equals(storedKey) ? null : storedKey, defaultKey);", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": false, "doc_consistent": true, "class": "fails"},
+  {"method": "MapUtils::getKeyString (hop 3)", "edit": "return CursorableSubList.keyFor(storedKey, storedKey == null ? defaultKey : null);", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": false, "doc_consistent": true, "class": "fails"},
+  {"method": "TreeBidiMap::resolveKey (hop 1)", "edit": "return \"\".equals(storedKey) ? null : DoubleOrderedMap.lookupKey(storedKey, defaultKey);", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+  {"method": "DoubleOrderedMap::lookupKey (hop 2)", "edit": "return MapUtils.getKeyString(\"\".equals(storedKey) ? null : storedKey, \"\".equals(storedKey) ? null : defaultKey);", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+  {"method": "MapUtils::getKeyString (hop 3)", "edit": "return \"\".equals(storedKey) ? CursorableSubList.keyFor(null, null) : CursorableSubList.keyFor(storedKey, defaultKey);", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+  {"method": "CursorableSubList::keyFor (hop 4)", "edit": "String key = AbstractHashedMap.currentKey(storedKey, defaultKey); return \"\".equals(key) ? null : key;", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"}
+ ],
+ "path": [
+  "facade org.apache.commons.collections.ExtendedProperties::getInclude (instance, V1: passes includePropertyName and static include to hop 1)",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::resolveKey",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::lookupKey",
+  "hop3 org.apache.commons.collections.MapUtils::getKeyString",
+  "hop4 org.apache.commons.collections.CursorableSubList::keyFor (in CursorableLinkedList.java)",
+  "gold org.apache.commons.collections.map.AbstractHashedMap::currentKey"
+ ],
+ "reasons": "(a) Only the gold documents the stored form: '@param storedKey the key as setInclude stores it', '@return the include key that setInclude has set, or the default key'. setInclude's javadoc ('An empty string is also now converted to null internally', 'empty converted to null') and code (null stored as \"\") fix that stored \"\" means the include key null; on testInclude (setInclude(\"\") and setInclude(null)) the variant gold returns \"\", violating its @return. Hops 1-4 are pure pass-throughs and their docs take 'the stored key' and return 'the include key' without assigning stored-form semantics; their wrong result is propagation only. (b) No hop javadoc contradicts its code. (c) The three declared compensating edits fail the trigger (re-run). Every passing non-gold edit decodes the stored form above or below the gold: a hop-1 short-circuit, a hop-2/hop-3 rewrite that forges (null, null) gold inputs, a hop-4 post-filter; all pass trigger, ownership tests and full suite but replace the gold's answer and leave the gold contradicting its own @return (the forging edits also break the gold's @param contracts), so they are bypasses, not competing repairs. setInclude cannot carry a repair (null in the field means 'use default'). (d) Names neutral; lie ('Each call first searches the loaded properties for an entry that redefines the include name ...') describes a nonexistent lookup and names neither the omitted step nor a hop; the gold's link to setInclude is the pin route, not a fault marker. (e) Gold is exactly five calls below the facade; five distinct existing classes; facade body is state gathering + one call (original had no argument guard); one lie sentence (machinery formatting); gold javadoc silent on empty->null; existing trigger testInclude is the only new failure in the full suite (re-run: 1 failure). Hosts: largest5 regime, hosts 1-4 equal hosts_hop_order; FastArrayList (5th) replaced by AbstractHashedMap (1329 lines, verified next-largest public class after excluding ExtendedProperties.java); I verified the replacement reason: adding one public static method to FastArrayList makes TestFastArrayList::testEmptyListCompatibility, ::testFullListCompatibility and TestFastArrayList1::testEmptyListCompatibility fail (serialVersionUID). (f) Convention pinned outside the gold by setInclude's javadoc and code and by load()'s null-means-disabled check; ownership tests pass but only cover the default branch. (g) No visibility change, no new type, no reflection, facade signature/modifiers unchanged (only body and javadoc), no test edit.",
+ "notes": "Hop 4 sits in the package-private secondary class CursorableSubList of CursorableLinkedList.java, not in the public class CursorableLinkedList; this is where the recipe's seeded anchor (after addLast, seed 3961) landed, the spec names the class correctly, and adding a new public static method there widens nothing; MapUtils (same package) calls it. The spec's ownership_reason sentence 'No one-line change of the arguments above the gold restores null' is not literally true: a one-line rewrite at hop 2 or hop 3 passing (null, null) when the stored key is \"\" passes everything, but it forges the gold's documented inputs and decodes the stored form at the hop, so it is a bypass. Real-bug relation: the gold's correct body is exactly the original getInclude logic. Facade variant V1 (fields includePropertyName, static include)."
+}

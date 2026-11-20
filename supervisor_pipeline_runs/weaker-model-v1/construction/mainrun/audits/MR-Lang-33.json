@@ -1,0 +1,64 @@
+{
+ "instance": "Lang-33",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::typeInterfaces (hop 4)",
+   "edit": "ArrayUtils.addInterfaces(types, found);  ->  for (Class<?> t : types) { ArrayUtils.addInterfaces(new Class<?>[] {t}, found); typeInterfaces(t.getInterfaces(), found); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "The bypass the spec records. It is test-fitted: it breaks the facade's documented depth-first order (probe: C implements I1, I2 with I1 extends J gives [I1, I2, J, K] instead of [I1, J, I2, K]; ArrayList gives ...Serializable, Collection, Iterable). It re-implements the traversal outside the gold."
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::interfacesOf (hop 1)",
+   "edit": "after StrBuilder.gatherInterfaces(cls, found): Set<Class<?>> all = new LinkedHashSet<Class<?>>(); for (Class<?> i : found) { if (all.add(i)) { all.addAll(interfacesOf(i)); } } return new ArrayList<Class<?>>(all);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Gives exactly the correct facade output for every input probed (12 classes, including diamonds and JDK collections). It is not doc-consistent: hop 2's javadoc makes the identical claim ('the interfaces implemented by a class and its superclasses'). Either hop 2, and so the chain below it, is already wrong, or hop 1 now returns more than its own doc says. It re-implements the hierarchy walk above the gold by recursing through the whole chain. This contradicts the spec's ownership_reason, which claims no hop can restore the documented order."
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::gatherInterfaces (hop 2)",
+   "edit": "StringUtils.interfacesOfTypes(types, found);  ->  Set<Class<?>> direct = new java.util.LinkedHashSet<Class<?>>(); StringUtils.interfacesOfTypes(types, direct); for (Class<?> i : direct) { if (found.add(i)) { gatherInterfaces(i, found); } }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Gives the exactly correct output for every input probed. Hop 2's documented claim is hop 3's identical claim ('the interfaces implemented by each of the types') applied to the list [cls + superclasses]. If hop 2 must add superinterfaces, then hop 3, hop 4 and the gold must too, so the defect lies below. Otherwise the repaired hop 2 over-delivers. It moves the gold's traversal into a hop."
+  },
+  {
+   "method": "org.apache.commons.lang3.ClassUtils::getAllInterfaces (facade)",
+   "edit": "return ToStringStyle.interfacesOf(cls);  ->  LinkedHashSet<Class<?>> all = new LinkedHashSet<Class<?>>(); for (Class<?> i : ToStringStyle.interfacesOf(cls)) { if (all.add(i)) { all.addAll(getAllInterfaces(i)); } } return new ArrayList<Class<?>>(all);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Gives the exactly correct output. It is consistent only under a split reading: the facade's 'all interfaces implemented by the given class and its superclasses' would include the hierarchy, while hop 1's restatement of that same sentence and @return, 'the interfaces implemented by a class and its superclasses ... in order', would mean only the declared interfaces (Class.getInterfaces sense). Under a uniform reading, hop 1 already promises the facade's list, so the facade's post-processing only compensates for the chain below it."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.ClassUtils::getAllInterfaces(Class) - null guard + return ToStringStyle.interfacesOf(cls)",
+  "hop1 org.apache.commons.lang3.builder.ToStringStyle::interfacesOf - LinkedHashSet, gatherInterfaces, copy to ArrayList",
+  "hop2 org.apache.commons.lang3.text.StrBuilder::gatherInterfaces - types = [cls] + ClassUtils.getAllSuperclasses(cls), delegate",
+  "hop3 org.apache.commons.lang3.StringUtils::interfacesOfTypes - List to array, delegate",
+  "hop4 org.apache.commons.lang3.time.FastDateFormat::typeInterfaces - pass-through (javadoc identical to the gold)",
+  "gold org.apache.commons.lang3.ArrayUtils::addInterfaces - for each type, for each type.getInterfaces(): found.add(iface) (the recursion into each new interface's superinterfaces is omitted)"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger ClassUtilsTest::test_getAllInterfaces_Class fails 'expected:<6> but was:<4>' (CY gives [IB, IC, IA, IE]); full suite: only the trigger fails. (a) Every hop's javadoc uses the same phrase, 'the interfaces implemented by X', and each hop's claim is exactly its callee's claim composed over its argument. Hop 1 restates the facade's first sentence and @return; hop 2 = hop 3 over [cls + superclasses]; hop 3 = hop 4 = gold. The gold is the deepest method whose claim its own code does not meet. A class implements every superinterface (JLS 8.1.5; CY implements ID, IE and IF through IC), and the facade's own vocabulary uses 'all interfaces implemented by ... following its hierarchy up'. The gold adds only the directly declared interfaces. Given a correct gold, every hop is correct. (b) Hop docs match their code (starting with the class itself; order of the list/types; each interface listed once). None is looser than the gold's, because each hop's claim is the composition of its callee's. (c) Four non-gold edits pass the trigger, ownership tests and the full suite. Hop 1, hop 2 and the facade can even reproduce the exact correct output for all probed inputs. None is consistent with all path documentation under a uniform reading of 'interfaces implemented by'. Each re-implements the hierarchy walk outside the gold, so all are classed as bypasses. No competing repair. (d) Neutral names (interfacesOf, gatherInterfaces, interfacesOfTypes, typeInterfaces, addInterfaces). There are no comments in the gold, and 'found.add(iface);' is an ordinary idiom. The lie (array that doubles in size + linear search) is about storage and names neither the recursion nor superinterfaces. (e) Five calls deep; five distinct existing classes (ToStringStyle, StrBuilder, StringUtils, FastDateFormat, ArrayUtils); facade = guard + one call; one added procedural sentence the code does not perform; the gold javadoc is silent on the superinterface walk; existing trigger, empty test.patch, sole new failure. (f) MethodUtils.getAccessibleMethodFromInterfaceNest does the same recursive walk inside its loop over cls.getInterfaces() (production pin), and the facade's retained javadoc requires following each interface's hierarchy up. FieldUtils.getField and ClassUtils.getPublicMethod consume the list. The ownership tests pass on the variant.",
+ "notes": "Residual risk, not disqualifying: Class.getInterfaces()'s own JDK javadoc calls the declared-only result 'the interfaces implemented by the class'. A reader who applies that narrow sense to the gold, but not to the facade, could argue that no hop owns the walk and that the facade lost it. That reading needs hop 1's restatement of the facade contract to mean something different from the facade, and it still gives no hop as owner. Inaccuracy in the spec's ownership_reason: it says that anything a hop adds is appended after IA and cannot restore the documented order. That is false for rebuilding (not appending) edits at hop 1 and hop 2, and at the facade, which reproduce the exact documented order (see alternative_repairs_tried). Uniqueness rests on documentation consistency, not on order infeasibility. The G9 compensating edits only tried appending variants. Cosmetic: the lie line has no leading ' * ' and is placed after @return, so it renders as part of the @return text."
+}

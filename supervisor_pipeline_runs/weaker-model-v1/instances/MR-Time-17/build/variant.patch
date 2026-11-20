@@ -1,0 +1,206 @@
+diff --git a/src/main/java/org/joda/time/DateTime.java b/src/main/java/org/joda/time/DateTime.java
+index 6cb6dc31..92eb82a9 100644
+--- a/src/main/java/org/joda/time/DateTime.java
++++ b/src/main/java/org/joda/time/DateTime.java
+@@ -27,6 +27,7 @@ import org.joda.time.chrono.ISOChronology;
+ import org.joda.time.field.AbstractReadableInstantFieldProperty;
+ import org.joda.time.format.DateTimeFormatter;
+ import org.joda.time.format.ISODateTimeFormat;
++import org.joda.time.tz.Provider;
+ 
+ /**
+  * DateTime is the standard implementation of an unmodifiable datetime class.
+@@ -144,6 +145,18 @@ public final class DateTime
+         return formatter.parseDateTime(str);
+     }
+ 
++    /**
++     * Sets the zone provider factory, using the default zone provider when
++     * none is specified.
++     *
++     * @param provider  provider to use, or null for default
++     * @throws IllegalArgumentException if the provider is invalid
++     */
++    public static void installZoneProvider(Provider provider) {
++        DateTimeZone.setProvider0(provider != null ? provider : Period.defaultZoneProvider());
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Constructs an instance set to the current system millisecond time
+diff --git a/src/main/java/org/joda/time/DateTimeZone.java b/src/main/java/org/joda/time/DateTimeZone.java
+index 72198993..cabee35a 100644
+--- a/src/main/java/org/joda/time/DateTimeZone.java
++++ b/src/main/java/org/joda/time/DateTimeZone.java
+@@ -112,7 +112,7 @@ public abstract class DateTimeZone implements Serializable {
+     private static Map<String, String> cZoneIdConversion;
+ 
+     static {
+-        setProvider0(null);
++        setProvider0(getDefaultProvider());
+         setNameProvider0(null);
+     }
+ 
+@@ -396,25 +396,23 @@ public abstract class DateTimeZone implements Serializable {
+      * @param provider  provider to use, or null for default
+      * @throws SecurityException if you do not have the permission DateTimeZone.setProvider
+      * @throws IllegalArgumentException if the provider is invalid
++       Every identifier of the new provider is resolved to its zone once, and each zone is compared with the zone the current provider gives for the same identifier before the new provider is made current.
+      */
+     public static void setProvider(Provider provider) throws SecurityException {
+         SecurityManager sm = System.getSecurityManager();
+         if (sm != null) {
+             sm.checkPermission(new JodaTimePermission("DateTimeZone.setProvider"));
+         }
+-        setProvider0(provider);
++        DateTimeFormatterBuilder.applyZoneProvider(provider);
+     }
+ 
+     /**
+      * Sets the zone provider factory without performing the security check.
+      * 
+-     * @param provider  provider to use, or null for default
++     * @param provider  provider to use, not null
+      * @throws IllegalArgumentException if the provider is invalid
+      */
+-    private static void setProvider0(Provider provider) {
+-        if (provider == null) {
+-            provider = getDefaultProvider();
+-        }
++    static void setProvider0(Provider provider) {
+         Set<String> ids = provider.getAvailableIDs();
+         if (ids == null || ids.size() == 0) {
+             throw new IllegalArgumentException
+diff --git a/src/main/java/org/joda/time/Period.java b/src/main/java/org/joda/time/Period.java
+index 7ec80720..faa34881 100644
+--- a/src/main/java/org/joda/time/Period.java
++++ b/src/main/java/org/joda/time/Period.java
+@@ -23,6 +23,9 @@ import org.joda.time.chrono.ISOChronology;
+ import org.joda.time.field.FieldUtils;
+ import org.joda.time.format.ISOPeriodFormat;
+ import org.joda.time.format.PeriodFormatter;
++import org.joda.time.tz.Provider;
++import org.joda.time.tz.UTCProvider;
++import org.joda.time.tz.ZoneInfoProvider;
+ 
+ /**
+  * An immutable time period specifying a set of duration field values.
+@@ -275,6 +278,22 @@ public final class Period
+         return new Period(values, PeriodType.forFields(types));
+     }
+ 
++    /**
++     * Gets the default zone provider.
++     *
++     * @return the default zone provider
++     */
++    public static Provider defaultZoneProvider() {
++        try {
++            return new ZoneInfoProvider("org/joda/time/tz/data");
++        } catch (Exception ex) {
++            Thread thread = Thread.currentThread();
++            thread.getThreadGroup().uncaughtException(thread, ex);
++        }
++        return new UTCProvider();
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Creates a new empty period with the standard set of fields.
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index ebb4b087..c3d2df37 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -35,6 +35,8 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import org.joda.time.tz.DateTimeZoneBuilder;
++import org.joda.time.tz.Provider;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -593,6 +595,20 @@ public class DateTimeFormatterBuilder {
+         return appendFraction(DateTimeFieldType.hourOfDay(), minDigits, maxDigits);
+     }
+ 
++    /**
++     * Sets the zone provider factory.
++     * <p>
++     * The zone provider is a pluggable instance factory that supplies the
++     * actual instances of DateTimeZone.
++     *
++     * @param provider  provider to use, or null for default
++     * @throws IllegalArgumentException if the provider is invalid
++     */
++    public static void applyZoneProvider(Provider provider) {
++        DateTimeZoneBuilder.registerZoneProvider(provider);
++    }
++
++
+     /**
+      * Appends the print/parse of a fractional day.
+      * <p>
+diff --git a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+index 2471fce9..47ecfab8 100644
+--- a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+@@ -28,6 +28,8 @@ import org.joda.time.DurationFieldType;
+ import org.joda.time.PeriodType;
+ import org.joda.time.ReadWritablePeriod;
+ import org.joda.time.ReadablePeriod;
++import org.joda.time.DateTime;
++import org.joda.time.tz.Provider;
+ 
+ /**
+  * Factory that creates complex instances of PeriodFormatter via method calls.
+@@ -257,6 +259,17 @@ public class PeriodFormatterBuilder {
+         return this;
+     }
+ 
++    /**
++     * Sets the zone provider factory.
++     *
++     * @param provider  provider to use, or null for default
++     * @throws IllegalArgumentException if the provider is invalid
++     */
++    public static void useZoneProvider(Provider provider) {
++        DateTime.installZoneProvider(provider);
++    }
++
++
+     /**
+      * Reject signed values when parsing the next and following appended fields.
+      *
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ab4731bb..eeff3140 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,7 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import org.joda.time.format.PeriodFormatterBuilder;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -259,6 +260,17 @@ public class DateTimeZoneBuilder {
+         return this;
+     }
+ 
++    /**
++     * Sets the zone provider factory.
++     *
++     * @param provider  provider to use, or null for default
++     * @throws IllegalArgumentException if the provider is invalid
++     */
++    public static void registerZoneProvider(Provider provider) {
++        PeriodFormatterBuilder.useZoneProvider(provider);
++    }
++
++
+     /**
+      * Sets the standard offset to use for newly added rules until the next
+      * cutover is added.

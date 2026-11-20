@@ -1,0 +1,84 @@
+{
+ "instance": "Lang-7",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::lowestInRange (hop 2)",
+   "edit": "return Conversion.minimumFrom(array[begin], array, begin + 1, length - 1);  ->  return Conversion.minimumFrom(array[begin + length - 1], array, begin, length - 1);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Test overfit, not a repair: both trigger arrays happen to end in NaN. Contradicts hop 2's own javadoc ('taking the first value of the range as the starting value'). Probe: min({1.2,NaN,3.7}) still 1.2, and min({NaN,1.2,NaN,3.7}) becomes 1.2. That breaks the NaN convention pinned by NumberUtils.max(double[]) and min(float[])."
+  },
+  {
+   "method": "org.apache.commons.lang3.Conversion::minimumFrom (hop 3)",
+   "edit": "return DateUtils.minAcross(start, array, begin, length);  ->  return DateUtils.minAcross(Math.min(start, array[begin + length - 1]), array, begin, length);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Test overfit, not a repair: it propagates NaN only when the last value of the range is NaN. Probe: min({1.2,NaN,3.7}) is still 1.2, which is inconsistent with the evidence methods. With length 0 it reads array[begin-1], outside the documented range."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.DateUtils::minAcross (hop 4)",
+   "edit": "return ArrayUtils.leastFrom(start, array, begin, length);  ->  return java.util.Arrays.asList(ArrayUtils.toObject(ArrayUtils.subarray(array, begin, begin + length))).contains(Double.NaN) ? Double.NaN : ArrayUtils.leastFrom(start, array, begin, length);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "A second NaN-detecting scan in a pass-through. On any NaN-containing range the gold is never called, so its output is dead. The gold, whose javadoc matches hop 4's word for word, still returns 1.2 for leastFrom(1.2,{NaN,3.7},0,2) when called directly."
+  },
+  {
+   "method": "org.apache.commons.lang3.StringUtils::lowestOf (hop 1)",
+   "edit": "return StrBuilder.lowestInRange(array, 0, array.length);  ->  return Double.isNaN(org.apache.commons.lang3.math.NumberUtils.max(array)) ? Double.NaN : StrBuilder.lowestInRange(array, 0, array.length);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "On the NaN path it replaces the chain's result with another implementation (NumberUtils.max), so the output of hops 2-5 is dead there."
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::lowestInRange (hop 2; declared compensating edit 2)",
+   "edit": "return Conversion.minimumFrom(array[begin], array, begin + 1, length - 1);  ->  return Conversion.minimumFrom(Double.NaN, array, begin, length);",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Ownership test NumberUtilsTest::testMinDouble fails: every result becomes NaN."
+  },
+  {
+   "method": "hop 2 NaN-first guard / hop 4 Math.min (declared compensating edits 1 and 3)",
+   "edit": "as declared in spec.compensating",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": false,
+   "doc_consistent": null,
+   "class": "fails",
+   "note": "Not re-run. validation.json G9 reports trigger_fail=1 for both. Reasoned check: neither edit can see the interior NaN at index 1 of {1.2, NaN, ...}."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.math.NumberUtils::min(double[]) -- null/empty guard + return StringUtils.lowestOf(array)",
+  "hop1 org.apache.commons.lang3.StringUtils::lowestOf(double[]) -- StrBuilder.lowestInRange(array, 0, array.length)",
+  "hop2 org.apache.commons.lang3.text.StrBuilder::lowestInRange(double[],int,int) -- Conversion.minimumFrom(array[begin], array, begin+1, length-1)",
+  "hop3 org.apache.commons.lang3.Conversion::minimumFrom(double,double[],int,int) -- DateUtils.minAcross(start, array, begin, length)",
+  "hop4 org.apache.commons.lang3.time.DateUtils::minAcross(double,double[],int,int) -- ArrayUtils.leastFrom(start, array, begin, length)",
+  "gold org.apache.commons.lang3.ArrayUtils::leastFrom(double,double[],int,int) -- running-min scan, Double.isNaN(value) -> return NaN omitted"
+ ],
+ "reasons": "Reproduced: the variant compiles. defects4j test -t NumberUtilsTest::testLang381 fails at NumberUtilsTest.java:1286 (min(a) with a={1.2,NaN,3.7,27,42,NaN} returns 1.2). Full suite: pristine 0 failures, variant only testLang381. The ownership tests pass on the variant. (a) The gold is the only method that reads individual range values. It receives (1.2, a, 1, 5) correctly placed and returns 1.2. Under the pinned convention 'If any value is NaN, NaN is returned' the minimum is NaN. The gold is also self-inconsistent: leastFrom(NaN,{1.2,3.7}) = NaN but leastFrom(1.2,{NaN,3.7}) = 1.2, so it fits neither the NaN-propagating nor the IEEE754r reading of 'minimum'. Hops 1, 3 and 4 forward their arguments unchanged, and hop 2 does exactly the placement its javadoc states. Their contracts fail only through the gold's result. (b) Every hop's javadoc matches its code. Hops 3 and 4 carry the gold's contract word for word but do no per-value work, and no hop javadoc promises or omits a NaN step. (c) No doc-consistent one-line repair outside the gold exists, because detecting an interior NaN needs a scan of the values and only the gold scans. The two non-gold edits that pass the full suite without a second scan (hop 2 last-value start, hop 3 Math.min with the last value) are overfits that rely on both trigger arrays ending in NaN. Both still return 1.2 for {1.2,NaN,3.7}, and the hop 2 edit also contradicts hop 2's javadoc. The general NaN fixes outside the gold (hop 4 boxed contains, hop 1 NumberUtils.max) are bypasses that make the gold's output dead on the NaN path. (d) Added names lowestOf, lowestInRange, minimumFrom, minAcross and leastFrom are neutral. Added lines contain no fault vocabulary and no 'NaN'. The variant differs from correct.patch only by the 3-line NaN check. The facade lie (pairwise mirrored halving reduction) is procedural and says nothing about NaN or the omitted step. (e) The gold is exactly 5 calls below the facade. The hosts StringUtils, StrBuilder, Conversion, DateUtils and ArrayUtils are 5 distinct existing classes. The facade body is the original guard plus one delegating call, and its javadoc has exactly one added procedural sentence. The gold's javadoc ('minimum of a starting value and the values in a range') is silent on NaN. The trigger is an existing test, test.patch is empty, and it is the only new failure. NumberUtils is the class the real Lang-7 bug modified. (f) The convention is pinned outside the gold by code: NumberUtils.max(double[]) and NumberUtils.min(float[]) return NaN on meeting NaN, and NumberUtils.min(double,double,double) documents 'If any value is NaN, NaN is returned'. The facade's @see says IEEE754rUtils.min(double[]) handles NaN differently, and the passing IEEE754rUtilsTest.testLang381 shows that version ignoring NaN on the same arrays.",
+ "notes": "1) Trigger adequacy: both NaN arrays in testLang381 end in NaN, and array b starts with NaN (the gold's start-NaN propagation already passes it). Position-dependent hacks at hop 2 or hop 3 can therefore pass the full suite. They are not repairs, but a model could submit such an overfit. 2) Formatting: the lie sentence sits after the @see tag with no leading '*' and 7-space indentation. Rendered javadoc attaches it to the @see label, and the line looks visually odd in source. This draws attention to the facade, not the gold. 3) The listed ownership tests other than IEEE754rUtilsTest.testLang381 (testMinDouble, testMinimumDouble, testMaxDouble) involve no NaN. The NaN convention is pinned by evidence code and the 3-arg min javadoc rather than by a passing NaN test on NumberUtils. 4) validation.json is at instances/MR-Lang-7/validation.json, not under build/."
+}

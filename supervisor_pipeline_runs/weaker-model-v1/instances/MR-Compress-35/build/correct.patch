@@ -1,0 +1,217 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index 8a7af0e3..57e40c0b 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -26,6 +26,7 @@ import java.util.Locale;
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.zip.ZipEncoding;
+ import org.apache.commons.compress.utils.ArchiveUtils;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -535,6 +536,29 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return groupName;
+     }
+ 
++    /**
++     * Writes the octal digits of a number into the end of a field of a
++     * buffer.
++     *
++     * <p>Zero is written as the single digit 0 at the last position of
++     * the field.</p>
++     *
++     * @param value number to convert to octal
++     * @param buffer destination buffer
++     * @param offset starting offset of the field in the buffer
++     * @param end end of the field in the buffer (exclusive)
++     * @return the position of the highest digit written
++     */
++    public static int placeOctalDigits(final long value, byte[] buffer,
++                                       final int offset, final int end) {
++        if (value == 0) {
++            buffer[end - 1] = (byte) '0';
++            return end - 1;
++        }
++        return ZipFile.storeOctalDigits(value, buffer, offset, end);
++    }
++
++
+     /**
+      * Set this entry's group name.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 204debff..d87db59c 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -376,30 +376,11 @@ public class TarUtils {
+      * @param offset starting offset in buffer
+      * @param length length of buffer to fill
+      * @throws IllegalArgumentException if the value will not fit in the buffer
++       The digits are computed from the most significant end down, by dividing the value by decreasing powers of eight, and are written into the buffer from left to right.
+      */
+     public static void formatUnsignedOctalString(final long value, byte[] buffer,
+             final int offset, final int length) {
+-        int remaining = length;
+-        remaining--;
+-        if (value == 0) {
+-            buffer[offset + remaining--] = (byte) '0';
+-        } else {
+-            long val = value;
+-            for (; remaining >= 0 && val != 0; --remaining) {
+-                // CheckStyle:MagicNumber OFF
+-                buffer[offset + remaining] = (byte) ((byte) '0' + (byte) (val & 7));
+-                val = val >>> 3;
+-                // CheckStyle:MagicNumber ON
+-            }
+-            if (val != 0){
+-                throw new IllegalArgumentException
+-                (value+"="+Long.toOctalString(value)+ " will not fit in octal number buffer of length "+length);
+-            }
+-        }
+-
+-        for (; remaining >= 0; --remaining) { // leading zeros
+-            buffer[offset + remaining] = (byte) '0';
+-        }
++        org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.writeOctalField(value, buffer, offset, length);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index 2f7894aa..a8c6b58b 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -431,6 +431,32 @@ public class ZipArchiveInputStream extends ArchiveInputStream {
+         return read;
+     }
+ 
++    /**
++     * Writes the octal digits of a number into the end of a field of a
++     * buffer, the lowest digit at the last position of the field.
++     *
++     * @param value number to convert to octal
++     * @param buffer destination buffer
++     * @param offset starting offset of the field in the buffer
++     * @param end end of the field in the buffer (exclusive)
++     * @return the position of the highest digit written
++     */
++    public static int putOctalDigits(final long value, byte[] buffer,
++                                     final int offset, final int end) {
++        int pos = end;
++        long rest = value;
++        while (rest != 0 && pos > offset) {
++            buffer[--pos] = (byte) ('0' + (int) (rest & 7));
++            rest = rest >>> 3;
++        }
++        if (rest != 0) {
++            throw new IllegalArgumentException(value + "=" + Long.toOctalString(value)
++                + " will not fit in octal number buffer of length " + (end - offset));
++        }
++        return pos;
++    }
++
++
+     /**
+      * Implementation of read for STORED entries.
+      */
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index 07ba4051..931c38c6 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -47,6 +47,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
+ import static org.apache.commons.compress.archivers.zip.ZipLong.putLong;
+ import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -496,6 +497,24 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         streamCompressor.reset();
+     }
+ 
++    /**
++     * Writes a number as octal digits into a field of a buffer, padded
++     * with leading zeroes.
++     *
++     * <p>The field starts at the given offset and ends after the given
++     * number of bytes.</p>
++     *
++     * @param value number to convert to octal
++     * @param buffer destination buffer
++     * @param offset starting offset of the field in the buffer
++     * @param length length of the field
++     */
++    public static void writeOctalField(final long value, byte[] buffer,
++                                       final int offset, final int length) {
++        BZip2CompressorOutputStream.fillOctalField(value, buffer, offset, offset + length);
++    }
++
++
+     /**
+      * Writes all necessary data for this entry.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index 51fe7713..ee68cebb 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -335,6 +335,22 @@ public class ZipFile implements Closeable {
+         return Arrays.asList(entriesOfThatName);
+     }
+ 
++    /**
++     * Writes the octal digits of a non-zero number into the end of a
++     * field of a buffer.
++     *
++     * @param value number to convert to octal, not zero
++     * @param buffer destination buffer
++     * @param offset starting offset of the field in the buffer
++     * @param end end of the field in the buffer (exclusive)
++     * @return the position of the highest digit written
++     */
++    public static int storeOctalDigits(final long value, byte[] buffer,
++                                       final int offset, final int end) {
++        return ZipArchiveInputStream.putOctalDigits(value, buffer, offset, end);
++    }
++
++
+     /**
+      * Whether this class is able to read the given entry.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index 14e924e2..ac94cfa2 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,7 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -510,6 +511,24 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         }
+     }
+ 
++    /**
++     * Writes a number as octal digits into the end of a field of a buffer
++     * and fills the positions in front of the digits with the digit zero.
++     *
++     * @param value number to convert to octal
++     * @param buffer destination buffer
++     * @param offset starting offset of the field in the buffer
++     * @param end end of the field in the buffer (exclusive)
++     */
++    public static void fillOctalField(final long value, byte[] buffer,
++                                      final int offset, final int end) {
++        final int start = TarArchiveEntry.placeOctalDigits(value, buffer, offset, end);
++        for (int i = offset; i < start; i++) {
++            buffer[i] = (byte) '0';
++        }
++    }
++
++
+     /**
+      * Writes magic bytes like BZ on the first position of the stream
+      * and bytes indiciating the file-format, which is 

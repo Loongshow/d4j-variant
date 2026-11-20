@@ -1,0 +1,223 @@
+{
+ "bug_id": 7,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "buffer.writeStartObject(); return BasicDeserializerFactory.bufferObjectFields(buffer, jp, ctxt);",
+   "old": "return BasicDeserializerFactory.bufferObjectFields(buffer, jp, ctxt);",
+   "why": "hop 1 writes the START_OBJECT of the Object itself before passing the field name on"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "jp.nextToken(); return SerializerProvider.copyFieldsAsObject(buffer, jp, ctxt);",
+   "old": "return SerializerProvider.copyFieldsAsObject(buffer, jp, ctxt);",
+   "why": "hop 4 moves the parser from the first field name to its value before handing it to the gold"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "buffer.copyCurrentStructure(jp); return buffer;",
+   "old": "return BeanDeserializerBase.copyPropertiesInto(buffer, jp, ctxt);",
+   "why": "hop 3 copies the current structure itself instead of passing the field name on"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "                ((rootType == null) ? null :_typeFactory.constructType(rootType)),\n                /*PrettyPrinter*/null);\n    }\n\n    /**\n     * Method that copies the content given parser points to into given\n     * {@link TokenBuffer}. If the parser points to a field name, the content\n     * is taken to be the fields of a JSON Object whose START_OBJECT has\n     * already been read.\n     *\n     * @param buffer Buffer to copy the content into\n     * @param jp Parser that points to the content to copy\n     * @param ctxt Context used for reporting problems\n     *\n     * @return Buffer given, for convenience\n     */\n    public static TokenBuffer bufferContents(TokenBuffer buffer, JsonParser jp, DeserializationContext ctxt)\n        throws IOException\n    {\n        if (jp.getCurrentTokenId() != JsonToken.FIELD_NAME.id()) {\n            buffer.copyCurrentStructure(jp);\n            return buffer;\n        }\n        return BasicDeserializerFactory.bufferObjectFields(buffer, jp, ctxt);\n    }\n\n\n    /**\n     * Factory method for constructing {@link ObjectWriter} that will\n     * serialize objects using specified root type, instead of actual\n     * runtime type of value. Type must be a super-type of runtime type.\n     */\n    public ObjectWriter writerWithType(TypeReference<?> rootType) {",
+   "old": "                ((rootType == null) ? null :_typeFactory.constructType(rootType)),\n                /*PrettyPrinter*/null);\n    }\n\n    /**\n     * Factory method for constructing {@link ObjectWriter} that will\n     * serialize objects using specified root type, instead of actual\n     * runtime type of value. Type must be a super-type of runtime type.\n     */\n    public ObjectWriter writerWithType(TypeReference<?> rootType) {",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "import com.fasterxml.jackson.databind.util.RootNameLookup;\nimport com.fasterxml.jackson.databind.deser.BeanDeserializerBase;\nimport com.fasterxml.jackson.databind.util.TokenBuffer;\n",
+   "old": "import com.fasterxml.jackson.databind.util.RootNameLookup;\n",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "        return r;\n    }\n\n    /**\n     * Method for reading the fields of a JSON Object, starting at the\n     * field name given parser points to, into given buffer.\n     *\n     * @param buffer Buffer to read the fields into\n     * @param jp Parser that points to the first field name\n     * @param ctxt Context used for reporting problems\n     *\n     * @return Buffer given, for convenience\n     */\n    public static TokenBuffer readFieldsInto(TokenBuffer buffer, JsonParser jp, DeserializationContext ctxt)\n        throws IOException\n    {\n        return BeanDeserializerBase.copyPropertiesInto(buffer, jp, ctxt);\n    }\n\n    \n    /**",
+   "old": "        return r;\n    }\n    \n    /**",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java",
+   "new": "import com.fasterxml.jackson.databind.util.RootNameLookup;\nimport com.fasterxml.jackson.databind.util.TokenBuffer;\n",
+   "old": "import com.fasterxml.jackson.databind.util.RootNameLookup;\n",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java",
+   "new": "        return _config.getAnnotationIntrospector();\n    }\n\n    /**\n     * Method that copies the fields of a JSON Object into given buffer,\n     * starting at the field name given parser points to, and writes them\n     * into the buffer as a single Object.\n     *<p>\n     * Copying ends at the token that follows the last field; that token\n     * has to close the Object.\n     *\n     * @param buffer Buffer to copy the fields into\n     * @param jp Parser that points to the first field name to copy\n     * @param ctxt Context used for reporting problems\n     *\n     * @return Buffer given, for convenience\n     */\n    public static TokenBuffer copyFieldsAsObject(TokenBuffer buffer, JsonParser jp, DeserializationContext ctxt)\n        throws IOException\n    {\n        buffer.writeStartObject();\n        JsonToken t;\n        do {\n            buffer.writeFieldName(jp.getCurrentName());\n            jp.nextToken();\n            buffer.copyCurrentStructure(jp);\n        } while ((t = jp.nextToken()) == JsonToken.FIELD_NAME);\n        if (t != JsonToken.END_OBJECT) {\n            throw ctxt.mappingException(\"Expected END_OBJECT after copying contents of a JsonParser into TokenBuffer, got \"+t);\n        }\n        buffer.writeEndObject();\n        return buffer;\n    }\n\n\n    @Override",
+   "old": "        return _config.getAnnotationIntrospector();\n    }\n\n    @Override",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "import com.fasterxml.jackson.databind.util.TokenBuffer;\nimport java.io.IOException;\nimport com.fasterxml.jackson.core.JsonParser;\n",
+   "old": "import com.fasterxml.jackson.databind.util.TokenBuffer;\n",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "        return withConfig(_factoryConfig.withAdditionalDeserializers(additional));\n    }\n\n    /**\n     * Helper method for copying the fields of a JSON Object, starting at\n     * the field name given parser points to, into given buffer.\n     *\n     * @param buffer Buffer to copy the fields into\n     * @param jp Parser that points to the first field name\n     * @param ctxt Context used for reporting problems\n     *\n     * @return Buffer given, for convenience\n     */\n    public static TokenBuffer bufferObjectFields(TokenBuffer buffer, JsonParser jp, DeserializationContext ctxt)\n        throws IOException\n    {\n        return ObjectReader.readFieldsInto(buffer, jp, ctxt);\n    }\n\n\n    /**",
+   "old": "        return withConfig(_factoryConfig.withAdditionalDeserializers(additional));\n    }\n\n    /**",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "        return _beanType.getRawClass();\n    }\n\n    /**\n     * Helper method that copies the properties of a JSON Object, starting\n     * at the property name given parser points to, into given buffer.\n     *\n     * @param buffer Buffer to copy the properties into\n     * @param jp Parser that points to the first property name\n     * @param ctxt Context used for reporting problems\n     *\n     * @return Buffer given, for convenience\n     */\n    public static TokenBuffer copyPropertiesInto(TokenBuffer buffer, JsonParser jp, DeserializationContext ctxt)\n        throws IOException\n    {\n        return SerializerProvider.copyFieldsAsObject(buffer, jp, ctxt);\n    }\n\n    \n    /**",
+   "old": "        return _beanType.getRawClass();\n    }\n    \n    /**",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "       The content is first read into a tree of nodes, which is then written into this buffer in document order.\n     */\n    public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n    {\n        return ObjectMapper.bufferContents(this, jp, ctxt);",
+   "old": "     */\n    public TokenBuffer deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException\n    {\n        if (jp.getCurrentTokenId() != JsonToken.FIELD_NAME.id()) {\n            copyCurrentStructure(jp);\n            return this;\n        }\n        /* 28-Oct-2014, tatu: As per #592, need to support a special case of starting from\n         *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need\n         *    to assume one did exist.\n         */\n        JsonToken t;\n        writeStartObject();\n        do {\n            copyCurrentStructure(jp);\n        } while ((t = jp.nextToken()) == JsonToken.FIELD_NAME);\n        if (t != JsonToken.END_OBJECT) {\n            throw ctxt.mappingException(\"Expected END_OBJECT after copying contents of a JsonParser into TokenBuffer, got \"+t);\n        }\n        writeEndObject();\n        return this;",
+   "purpose": "MI-JacksonDatabind-7 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectMapper",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "method": "bufferContents"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "method": "bufferObjectFields"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectReader",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "method": "readFieldsInto"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "method": "copyPropertiesInto"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonDatabind-7__i.py",
+ "entry_points": [
+  "com.fasterxml.jackson.databind.util.TokenBuffer::deserialize"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.databind.jsontype.impl.AsPropertyTypeDeserializer::deserializeTypedFromObject",
+  "com.fasterxml.jackson.databind.deser.BeanDeserializer::deserializeWithUnwrapped",
+  "com.fasterxml.jackson.databind.util.TokenBuffer::copyCurrentStructure"
+ ],
+ "expected_signature": "Expected token VALUE_NUMBER_INT, current token FIELD_NAME",
+ "extra_tests": [],
+ "fixture_key": "JacksonDatabind-7",
+ "gold": {
+  "class": "com.fasterxml.jackson.databind.SerializerProvider",
+  "edits": [
+   {
+    "new": "            buffer.writeFieldName(jp.getCurrentName());\n            buffer.copyCurrentStructure(jp);\n",
+    "old": "            buffer.writeFieldName(jp.getCurrentName());\n            jp.nextToken();\n            buffer.copyCurrentStructure(jp);\n"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java",
+  "method": "copyFieldsAsObject"
+ },
+ "group": "MI-JacksonDatabind-7",
+ "hops": 5,
+ "iid": "MI-JacksonDatabind-7",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold iterates over the fields of the Object and moves the parser within a field; hop 1 only routes a parser that is not at a field name to copyCurrentStructure, and hops 2-4 pass buffer, parser and context along unchanged. The gold's javadoc promises the fields of the JSON Object copied into the buffer as a single Object, which a stream with every field name written twice is not. No one-line change above the gold restores the stream: moving the parser to the first value before the gold fixes only the first field (the trigger's second field is still written twice), a START_OBJECT written by a hop is a second one, and routing the field-name case to copyCurrentStructure loses the START_OBJECT and stops after one field. The convention is pinned outside the gold by production code doing the same step: AsPropertyTypeDeserializer.deserializeTypedFromObject and BeanDeserializer.deserializeWithUnwrapped read the field name, call jp.nextToken() 'to point to the value', then writeFieldName(name) and copyCurrentStructure(jp); TokenBuffer.copyCurrentStructure on a FIELD_NAME writes the name and moves to the value before copying it. Passing tests: TestVisibleTypeId testVisibleWithProperty ({\"a\":7, \"type\":\"BaseType\"}, the field before the type id buffered by name and value), TestUnwrapped testSimpleUnwrappedDeserialize, TestJacksonTypes testTokenBufferWithSample.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.databind.jsontype.TestVisibleTypeId::testVisibleWithProperty",
+  "com.fasterxml.jackson.databind.struct.TestUnwrapped::testSimpleUnwrappedDeserialize",
+  "com.fasterxml.jackson.databind.deser.TestJacksonTypes::testTokenBufferWithSample"
+ ],
+ "project": "JacksonDatabind",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "writerWithType",
+    "anchor_seed": 4138,
+    "class": "com.fasterxml.jackson.databind.ObjectMapper",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "bufferContents",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "withAdditionalDeserializers",
+    "anchor_seed": 4139,
+    "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.io.IOException;",
+     "import com.fasterxml.jackson.core.JsonParser;"
+    ],
+    "method": "bufferObjectFields",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "with",
+    "anchor_seed": 4140,
+    "class": "com.fasterxml.jackson.databind.ObjectReader",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;",
+     "import com.fasterxml.jackson.databind.util.TokenBuffer;"
+    ],
+    "method": "readFieldsInto",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "handledType",
+    "anchor_seed": 4141,
+    "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "copyPropertiesInto",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getAnnotationIntrospector",
+    "anchor_seed": 4142,
+    "class": "com.fasterxml.jackson.databind.SerializerProvider",
+    "file": "src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java",
+    "hop": 5,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.util.TokenBuffer;"
+    ],
+    "method": "copyFieldsAsObject",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4038
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonDatabind-7"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.databind.creators.TestCreatorsDelegating",
+  "test_file": "src/test/java/com/fasterxml/jackson/databind/creators/TestCreatorsDelegating.java",
+  "test_method": "testDelegateWithTokenBuffer"
+ },
+ "variant_id": "CTV-926B7F",
+ "kind": "new",
+ "fault_lines": [
+  "buffer.writeFieldName(jp.getCurrentName());\n            buffer.copyCurrentStructure(jp);"
+ ],
+ "gold_key": "com.fasterxml.jackson.databind.SerializerProvider::copyFieldsAsObject"
+}

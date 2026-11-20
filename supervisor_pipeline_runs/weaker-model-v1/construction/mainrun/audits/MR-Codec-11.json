@@ -1,0 +1,60 @@
+{
+ "instance": "Codec-11",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.codec.digest.DigestUtils::writeQuotedOctets (hop 4)",
+   "edit": "insert before the delegating call: if (java.util.regex.Pattern.compile(\"=([^0-9A-Fa-f\\\\r\\\\n]|[0-9A-Fa-f][^0-9A-Fa-f])\").matcher(StringUtils.newStringUsAscii(bytes)).find()) { throw new DecoderException(\"Not a hexadecimal digit after the escape character\"); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.binary.Base64::decodeQuotedChars (hop 2), declared compensating edit",
+   "edit": "throw DecoderException when the last byte is '=' before delegating",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.codec.language.bm.Rule::unquoteOctets (hop 3), declared compensating edit",
+   "edit": "wrap the delegation in try/catch IllegalArgumentException -> DecoderException",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.codec.digest.DigestUtils::writeQuotedOctets (hop 4), declared compensating edit",
+   "edit": "upper-case the characters before delegating",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.codec.net.QuotedPrintableCodec::decodeQuotedPrintable (reached via QuotedPrintableCodec.decode(String) -> decode(String,charset) -> decode(byte[]))",
+  "hop1 org.apache.commons.codec.language.DoubleMetaphone::decodeQuotedText",
+  "hop2 org.apache.commons.codec.binary.Base64::decodeQuotedChars",
+  "hop3 org.apache.commons.codec.language.bm.Rule::unquoteOctets",
+  "hop4 org.apache.commons.codec.digest.DigestUtils::writeQuotedOctets",
+  "gold org.apache.commons.codec.language.bm.PhoneticEngine::appendDecodedOctets"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger QuotedPrintableCodecTest::testDecodeInvalid fails with 'DecoderException should have been thrown' (the \"=WW\" case: Character.digit returns -1 for both characters and (-1<<4)+(-1) is written as 0xEF); the full variant suite fails only the trigger; the four ownership tests pass on the variant; the correct.patch configuration passes the full suite (0 failures). (a) Only the gold examines an escape and its two following characters; it already raises DecoderException for an incomplete escape but folds Character.digit's -1 into an octet, violating its own javadoc ('Writes the octets represented by an array of quoted-printable characters'): \"=WW\" represents no octet. Hops 1-4 are single delegations (hop 1 also allocates the buffer and returns its bytes); their contracts fail only derivatively, and the facade's @throws ('Thrown if quoted-printable decoding is unsuccessful') is the symptom. (b) Each hop's javadoc matches its code (pure delegation / buffer allocation); none promises a validation step it skips, and none contains logic that could own the per-escape decision. (c) The declared compensating edits at hops 2-4 do not absorb the fault (G9, reasoning confirmed: none touches non-hex digits). The only passing non-gold edit found is a whole-array regex pre-filter at a hop (tested at hop 4: trigger, ownership tests and full suite pass). It re-implements the gold's per-escape digit decision at a level that never sees an escape, splits escape validation across two levels (the gold still handles incomplete escapes and still writes 0xEF for \"=WW\" to any direct caller, contradicting its own javadoc), and departs from the pinned convention that validation happens where the hex digit is converted (Utils.digit16, Hex.toDigit). Classified as a bypass, matching the builder's recorded bypass; no competing repair. (d) Hop names (decodeQuotedText, decodeQuotedChars, unquoteOctets, writeQuotedOctets, appendDecodedOctets) are neutral and equally foreign to their hosts; no fault vocabulary or comment marker; the gold's javadoc is silent on hex validation; the lie ('The data is first split into lines at each soft line break, and every line is then decoded on its own before the decoded lines are joined.') describes line splitting, which the code does not do, and does not name the hex check or any hop. (e) The gold is exactly five calls below the facade; the hops are in five different existing classes; the facade body is the original null guard plus one delegating call; one added procedural lie sentence; the gold javadoc does not state the omitted step; the trigger is existing (empty test.patch) and is the only new failure. Hosts judged against BUILD_BRIEF_C10F_ADDENDUM section 1: no public class in the fixed Codec-11 revision reaches 1500 lines (largest 1105), so largest5 applies; the five largest public, non-interface, non-enum classes other than QuotedPrintableCodec by newline count are DoubleMetaphone 1105, Base64 758, Rule 618, DigestUtils 582, PhoneticEngine 511 (no ties), and hops 1-5 sit in exactly that order with the gold in the fifth; insertion anchors were placed by the recipe script with seeds 4320-4324 (instance seed 4220 + 100 + i). (f) The convention 'a non-hex character after the escape raises DecoderException' is pinned outside the gold by URLCodec.decodeUrl (same escape + two-digit shape, each digit via Utils.digit16, which throws on -1) and Hex.decodeHex/Hex.toDigit, with passing tests URLCodecTest::testDecodeInvalid (\"%WW\", \"%0W\") and HexTest::testDecodeBadCharacterPos0/Pos1.",
+ "notes": "Recorded bypass (exact edit, hop 4 DigestUtils.writeQuotedOctets, before 'PhoneticEngine.appendDecodedOctets(bytes, buffer);'): if (java.util.regex.Pattern.compile(\"=([^0-9A-Fa-f\\\\r\\\\n]|[0-9A-Fa-f][^0-9A-Fa-f])\").matcher(StringUtils.newStringUsAscii(bytes)).find()) { throw new DecoderException(\"Not a hexadecimal digit after the escape character\"); } -- passes the trigger, all four ownership tests and the full suite. It works without a full parse because in quoted-printable every '=' starts an escape, so the fault's effect is pre-filterable by a caller in principle; it is still a second implementation of the gold's per-escape decision rather than a use of the hops as documented. Minor observations, not decisive: the lie sentence is appended as an unstarred continuation of the @throws tag (recipe rewrite_facade formatting); the gold treats '=' followed by LF as a soft line break, whereas the original facade only did so for CR (no test distinguishes this). The gold's fault edit removes a three-line if/throw block (one statement). Scratch directory /private/tmp/mxb-5uOXxw deleted."
+}

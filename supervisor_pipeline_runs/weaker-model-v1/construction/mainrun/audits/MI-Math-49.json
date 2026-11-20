@@ -1,0 +1,30 @@
+{
+ "instance": "MI-Math-49",
+ "task_key": "Math-49__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.apache.commons.math.util.MathUtils::addToSparse (hop 4)", "edit": "after `BlockFieldMatrix.addToEntries(v, held, d);` add `for (int i = 0; i < held.length; i++) { if (held[i] && v.getEntry(i) == d) { v.setEntry(i, 0); } }`", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+  {"method": "org.apache.commons.math.util.MathUtils::addToSparse (hop 4), any mask", "edit": "reasoned: entry 2 with d=-2 ends at -2 if marked held (2-2=0, then second pass writes d) and at 2 if not marked (second pass skips non-zero); no mask yields 0", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": null, "class": "fails"},
+  {"method": "FastMath::addToAll (hop 1) `if (d != 0)` guard; MathUtils::addToSparse iterator() mask; MathUtils::addToSparse value-non-zero mask", "edit": "declared compensating edits, re-checked against validation G9 (trigger still fails for all three) and the mask argument above", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": null, "class": "fails"}
+ ],
+ "path": [
+  "facade org.apache.commons.math.linear.OpenMapRealVector::mapAddToSelf(double) [instance, V2 receiver: FastMath.addToAll(this, d); return this;]",
+  "hop1 org.apache.commons.math.util.FastMath::addToAll(RealVector,double)",
+  "hop2 org.apache.commons.math.dfp.Dfp::addScalarTo(RealVector,double)",
+  "hop3 org.apache.commons.math.optimization.direct.BOBYQAOptimizer::addOffset(RealVector,double)",
+  "hop4 org.apache.commons.math.util.MathUtils::addToSparse(RealVector,double) [marks held entries via sparseIterator]",
+  "gold org.apache.commons.math.linear.BlockFieldMatrix::addToEntries(RealVector,boolean[],double) [second pass drops `&& !held[i]`]"
+ ],
+ "reasons": "(a) Variant compiles; SparseRealVectorTest::testMapFunctions fails ({1,2,3} - 2 gives -2 at index 1, expected 0); my full-suite run shows it as the only failure. Only the gold writes entries; its javadoc 'Adds a value to the entries' is violated because its second pass rewrites a held entry that its own first pass made zero. Hops 1-3 delegate, hop 4 marks exactly the sparse-iterator entries as its javadoc says. (b) No hop javadoc contradicts its code or leaves room for a hop to own the fault; no mask hop 4 could pass repairs it. (c) No competing repair: hops can only change v, d or the mask, and none of these can restore the lost value. A hop-4 post-pass that resets held entries equal to d passes the full suite, but it overwrites the gold's output with a value heuristic. That heuristic is not equivalent (a held 1.0 with d=1e17 rounds to d and gets reset to 0), so it is a bypass. (d) The names are neutral (addToAll/addScalarTo/addOffset/addToSparse/addToEntries), G2b is clean, and the gold javadoc is silent on the second pass and its membership test. The facade lie (dense copy, add, write back) names neither the fault nor the omitted step. (e) Gold is five calls below the facade, in five distinct existing classes. These match the seeded 1500-regime draw exactly (re-ran mr_lib.py preview: FastMath, Dfp, BOBYQAOptimizer, MathUtils, BlockFieldMatrix, with matching anchors ceil/newInstance/BOBYQAOptimizer/addAndCheck/createMatrix); the task record's hosts_hop_order is null and host_mode is 1500. The facade body is one call plus the original `return this` (the original had no guard). One sentence is appended after {@inheritDoc}. test.patch is empty. The trigger is an existing test and the only new failure. (f) Pinned by RealVector.mapAddToSelf javadoc ('Add a value to each entry'), ArrayRealVector.mapAddToSelf and SparseFieldVector.mapAddToSelf (add d to every entry, zero sums included), OpenMapRealVector.getDistance(OpenMapRealVector) (second pass selected by containsKey membership), and the passing ArrayRealVectorTest/SparseFieldVectorTest::testMapFunctions. (g) C10i rules: mapAddToSelf is an allowed candidate (V2 in the task record). `this` is passed typed as the RealVector interface it implements, and the hops call only public interface methods (getDimension, sparseIterator, getEntry, setEntry). The signature, public modifier, @Override and throws are unchanged. No visibility widening, no new type, no reflection, no test edit.",
+ "notes": "Recorded bypass: MathUtils::addToSparse post-pass `for (int i = 0; i < held.length; i++) { if (held[i] && v.getEntry(i) == d) { v.setEntry(i, 0); } }` placed after the gold call. It passes the trigger, the four ownership tests and the full suite, but it overrides the gold's result by value and is wrong whenever a held value plus d rounds to d. Observation, not a rejection reason: in the correct gold, the `v.getEntry(i) == 0` conjunct is redundant (a non-held entry is always zero after the first pass). Hop 5 lands in the same package as the facade (linear) because the seeded draw relaxed package distinctness, as its note records. The correct patch differs from the variant only in the gold line."
+}

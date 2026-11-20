@@ -1,0 +1,111 @@
+{
+ "instance": "Lang-16",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.ArrayUtils::largestElement (hop 1)",
+   "edit": "return array[FastDateFormat.largestPosition(array)];  ->  return ObjectUtils.max(toObject(array));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "Replaces the chain with ObjectUtils.max; hops 2-5 (and the gold) are no longer called. Matches the builder's declared W13 bypass."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::largestPosition (hop 2)",
+   "edit": "return StringUtils.indexOfLargest(array, 0, array.length);  ->  return ArrayUtils.indexOf(array, ObjectUtils.max(ArrayUtils.toObject(array)));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "Hops 3-5 become dead (not called). Matches the builder's declared W13 bypass."
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::largestIndex (hop 4)",
+   "edit": "return DateUtils.locateLargest(array, startIndex, endIndex);  ->  return endIndex - startIndex > 1 && array[largestIndex(array, startIndex + 1, endIndex)] > array[startIndex] ? largestIndex(array, startIndex + 1, endIndex) : DateUtils.locateLargest(array, startIndex, endIndex);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Re-implements the per-element scan as a recursion inside hop 4 (exponential double recursion; one line only by ternary packing, far larger than the one-statement gold repair). The gold is reached only on ranges whose start hop 4 has already established as the maximum, so the gold's result is replaced by hop 4's own implementation; the gold still returns startIndex for any range, contradicting its own javadoc."
+  },
+  {
+   "method": "org.apache.commons.lang3.ArrayUtils::largestElement (hop 1)",
+   "edit": "return array[FastDateFormat.largestPosition(array)];  ->  long[] c = clone(array); java.util.Arrays.sort(c); reverse(c); return c[FastDateFormat.largestPosition(c)];",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "The sort computes the maximum; hops 2-5 are only ever asked about an array whose maximum sits at index 0, so their output is a constant and carries no information. Three statements; gold contract still violated for general input."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::largestPosition (hop 2)",
+   "edit": "indexOfLargest(array, 0, array.length)  ->  indexOfLargest(array, array.length - 1, array.length)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Fails on {-5, 0, 10, 5, -10}."
+  },
+  {
+   "method": "org.apache.commons.lang3.StringUtils::indexOfLargest (hop 3)",
+   "edit": "return ToStringStyle.largestIndex(array, startIndex, endIndex);  ->  one-step lookahead: endIndex - startIndex > 1 && array[largestIndex(array, startIndex + 1, endIndex)] > array[startIndex] ? largestIndex(array, startIndex + 1, endIndex) : largestIndex(array, startIndex, endIndex)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Hop 4 always returns its start, so a non-recursive lookahead cannot recover the position."
+  },
+  {
+   "method": "org.apache.commons.lang3.ArrayUtils::largestElement (hop 1, declared compensating)",
+   "edit": "return Math.max(array[FastDateFormat.largestPosition(array)], array[array.length - 1]);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::largestIndex (hop 4, declared compensating)",
+   "edit": "return DateUtils.locateLargest(array, DateUtils.locateLargest(array, startIndex, endIndex), endIndex);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang3.StringUtils::indexOfLargest (hop 3, declared compensating)",
+   "edit": "return array[ToStringStyle.largestIndex(array, startIndex, endIndex)] < array[startIndex] ? startIndex : ToStringStyle.largestIndex(array, startIndex, endIndex);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.math.NumberUtils::max(long[]) -- guard + return ArrayUtils.largestElement(array)",
+  "hop1 org.apache.commons.lang3.ArrayUtils::largestElement(long[]) -- return array[FastDateFormat.largestPosition(array)]",
+  "hop2 org.apache.commons.lang3.time.FastDateFormat::largestPosition(long[]) -- return StringUtils.indexOfLargest(array, 0, array.length)",
+  "hop3 org.apache.commons.lang3.StringUtils::indexOfLargest(long[], int, int) -- return ToStringStyle.largestIndex(array, startIndex, endIndex)",
+  "hop4 org.apache.commons.lang3.builder.ToStringStyle::largestIndex(long[], int, int) -- return DateUtils.locateLargest(array, startIndex, endIndex)",
+  "gold org.apache.commons.lang3.time.DateUtils::locateLargest(long[], int, int) -- scan updates largest but never index; returns startIndex"
+ ],
+ "reasons": "(a) On {6, 9} the gold returns 0 for range [0,2) although its javadoc promises the index of the largest value; the gold is a leaf (no project callees), so its violation is original. Hops 1-4 fail only by propagation: each is a faithful delegation (value at index; full range [0,len); two pass-throughs) that would satisfy its own javadoc if its callee did. (b) Every hop javadoc matches its code and is tight (index of the largest value in a range, first occurrence on ties, endIndex exclusive; hop 1: value of the largest); no hop behaviour can explain 6 instead of 9 without its callee being wrong. (c) The faulty gold always returns startIndex, so its output carries no position information; no one-line range change at hops 2-4 recovers it (declared compensating edits and my own range/lookahead edits all fail the trigger on {-5,0,10,5,-10}). The edits that pass the trigger, ownership tests and full suite all re-implement the maximum outside the gold (ObjectUtils.max at hop 1, indexOf+ObjectUtils.max at hop 2, recursive self-scan at hop 4, descending sort at hop 1): bypasses, not competing repairs. (d) Names (largestElement, largestPosition, indexOfLargest, largestIndex, locateLargest) are neutral and parallel; no fault vocabulary (G2b clean); the lie describes a pairwise tournament, says nothing about positions or recording the index. (e) Gold is exactly five calls below the facade; hops in five distinct existing classes (ArrayUtils, FastDateFormat, StringUtils, ToStringStyle, DateUtils); facade = null/empty guard + one delegating call; one added procedural sentence the code does not perform; gold javadoc states the contract but not the omitted 'record the position' step; trigger NumberUtilsTest::testMaxLong is pre-existing (empty test.patch) and is the only new failure (pristine baseline 0 failures; variant full suite 1 failure). (f) Sibling overloads NumberUtils.max(int[]/short[]/byte[]/double[]/float[]) and IEEE754rUtils.max keep a running maximum replaced at every larger element, ObjectUtils.max documents first-on-ties; passing tests testMaxInt/Short/Byte/Double feed the same inputs ({6,9}->9, {-5,0,10,5,-10}->10) and ObjectUtilsTest::testMax pins ties.",
+ "notes": "Verified in scratch: variant compiles; trigger fails 'max(long[]) failed for array length 2 expected:<9> but was:<6>'; five ownership tests pass on the variant; variant full suite fails only testMaxLong; pristine full suite 0 failures; gold repair (insert 'index = i;') passes trigger, ownership tests and full suite. Cosmetic: the lie line is appended after the @throws tags with 7-space indentation and no leading '*', so in rendered javadoc it attaches to the last @throws description and visually stands out as an inserted line; it points at the facade, not the gold, and appears to be the recipe's rewrite_facade output. The facade's '@return the minimum value in the array' is an upstream typo shared by all max overloads, not an added line. The gold's javadoc has an extra clause 'examining the elements of the range in order' not on the hops; it describes the scan the code performs and does not state the omitted step. The omission is visible to a careful reader (local 'index' is never reassigned), which is inherent to the omission fault type."
+}

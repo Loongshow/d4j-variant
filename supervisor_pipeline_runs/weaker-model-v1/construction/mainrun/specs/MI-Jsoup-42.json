@@ -1,0 +1,242 @@
+{
+ "bug_id": 42,
+ "compensating": [
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "if (!control.tag().isFormListed() || control.hasAttr(\"disabled\"))",
+   "old": "if (!control.tag().isFormSubmittable() || control.hasAttr(\"disabled\"))",
+   "why": "hop 3 lets every form-listed control through, not only the submittable ones"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "String name = control.hasAttr(\"name\") ? control.attr(\"name\") : control.id();\n        if (name.length() == 0)",
+   "old": "String name = control.attr(\"name\");\n        if (name.length() == 0)",
+   "why": "hop 4 falls back to the control's id when it has no name attribute"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "for (Element control : new org.jsoup.select.Elements(controls).select(\"input, select, textarea\"))\n            Evaluator.IsOnlyChild",
+   "old": "for (Element control : controls)\n            Evaluator.IsOnlyChild",
+   "why": "hop 2 re-selects the controls by tag (input, select, textarea) before handing them on"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "import java.util.zip.GZIPInputStream;\nimport org.jsoup.nodes.Element;\nimport org.jsoup.select.Evaluator;\n",
+   "old": "import java.util.zip.GZIPInputStream;\n",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "        return res.parse();\n    }\n\n    /**\n     * Adds the key/value pairs of each of the given form controls to the data list, in the order of the controls. The\n     * controls are not modified.\n     * @param controls form controls\n     * @param data list to add the key vals to\n     */\n    public static void appendFormData(List<Element> controls, List<Connection.KeyVal> data) {\n        for (Element control : controls)\n            Evaluator.IsOnlyChild.addIfSubmittable(control, data);\n    }\n\n\n    public Document post() throws IOException {",
+   "old": "        return res.parse();\n    }\n\n    public Document post() throws IOException {",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "import java.util.regex.PatternSyntaxException;\nimport org.jsoup.Connection;\nimport org.jsoup.helper.HttpConnection;\n",
+   "old": "import java.util.regex.PatternSyntaxException;\n",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "\n    /**\n     * Get the key/value pairs that the given form controls submit, in the order of the controls. The controls are not\n     * modified.\n     * @param controls form controls\n     * @return a new list of key vals\n     */\n    public static List<Connection.KeyVal> formDataOf(List<Element> controls) {\n        List<Connection.KeyVal> data = new ArrayList<Connection.KeyVal>();\n        HttpConnection.appendFormData(controls, data);\n        return data;\n    }\n\n\n    public String toString() {",
+   "old": "\n    public String toString() {",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/FormElement.java",
+   "new": "       The data is gathered by a depth-first traversal of this form's descendant nodes, so that each control is visited in document order.\n     */\n    public List<Connection.KeyVal> formData() {\n        return Element.formDataOf(elements);",
+   "old": "     */\n    public List<Connection.KeyVal> formData() {\n        ArrayList<Connection.KeyVal> data = new ArrayList<Connection.KeyVal>();\n\n        // iterate the form control elements and accumulate their values\n        for (Element el: elements) {\n            if (!el.tag().isFormSubmittable()) continue; // contents are form listable, superset of submitable\n            if (el.hasAttr(\"disabled\")) continue; // skip disabled form inputs\n            String name = el.attr(\"name\");\n            if (name.length() == 0) continue;\n            String type = el.attr(\"type\");\n\n            if (\"select\".equals(el.tagName())) {\n                Elements options = el.select(\"option[selected]\");\n                boolean set = false;\n                for (Element option: options) {\n                    data.add(HttpConnection.KeyVal.create(name, option.val()));\n                    set = true;\n                }\n                if (!set) {\n                    Element option = el.select(\"option\").first();\n                    if (option != null)\n                        data.add(HttpConnection.KeyVal.create(name, option.val()));\n                }\n            } else if (\"checkbox\".equalsIgnoreCase(type) || \"radio\".equalsIgnoreCase(type)) {\n                // only add checkbox or radio if they have the checked attribute\n                if (el.hasAttr(\"checked\")) {\n                    final String val = el.val().length() >  0 ? el.val() : \"on\";\n                    data.add(HttpConnection.KeyVal.create(name, val));\n                }\n            } else {\n                data.add(HttpConnection.KeyVal.create(name, el.val()));\n            }\n        }\n        return data;",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "import java.util.List;\nimport org.jsoup.Connection;\nimport org.jsoup.safety.Whitelist;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "        return this;\n    }\n\n    /**\n     * Adds the key/value pairs of a form control to the data list, under the control's name attribute. A control without\n     * a name adds nothing. The control is not modified.\n     * @param control form control\n     * @param data list to add the key vals to\n     */\n    public static void addNamedFormData(Element control, List<Connection.KeyVal> data) {\n        String name = control.attr(\"name\");\n        if (name.length() == 0)\n            return;\n        Whitelist.addControlValues(control, name, data);\n    }\n\n\n    private void addSiblingHtml(int index, String html) {",
+   "old": "        return this;\n    }\n\n    private void addSiblingHtml(int index, String html) {",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+   "new": "import java.util.Set;\nimport org.jsoup.Connection;\nimport org.jsoup.helper.HttpConnection;\nimport java.util.List;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+   "new": "            }\n        return this;\n    }\n\n    /**\n     * Adds the key/value pairs that a form control submits under the given name to the data list. A select submits its\n     * selected options, or its first option when none is selected; a checkbox or radio button submits its value, or \"on\"\n     * when the value is empty, and only when it is checked; any other control submits its value. The control is not\n     * modified.\n     *\n     * @param control form control\n     * @param name name the control's values are submitted under\n     * @param data list to add the key vals to\n     */\n    public static void addControlValues(Element control, String name, List<Connection.KeyVal> data) {\n        String type = control.attr(\"type\");\n        String value = control.attr(\"value\");\n        if (\"textarea\".equals(control.tagName())) value = control.text();\n        if (\"select\".equals(control.tagName())) {\n            List<Element> options = control.select(\"option[selected]\");\n            Element first = control.select(\"option\").first();\n            if (options.isEmpty() && first != null)\n                options.add(first);\n            for (Element option : options)\n                data.add(HttpConnection.KeyVal.create(name, option.attr(\"value\")));\n        } else if (\"checkbox\".equalsIgnoreCase(type) || \"radio\".equalsIgnoreCase(type)) {\n            if (control.hasAttr(\"checked\"))\n                data.add(HttpConnection.KeyVal.create(name, value.length() > 0 ? value : \"on\"));\n        } else {\n            data.add(HttpConnection.KeyVal.create(name, value));\n        }\n    }\n\n\n    /**\n     Add an enforced attribute to a tag. An enforced attribute will always be added to the element. If the element",
+   "old": "            }\n        return this;\n    }\n\n    /**\n     Add an enforced attribute to a tag. An enforced attribute will always be added to the element. If the element",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "import java.util.regex.Pattern;\nimport org.jsoup.Connection;\n",
+   "old": "import java.util.regex.Pattern;\n",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "    \t\treturn \":only-child\";\n    \t}\n\n    /**\n     * Adds the key/value pairs of a form control to the data list, if the control is submittable and not disabled. The\n     * control is not modified.\n     * @param control form control\n     * @param data list to add the key vals to\n     */\n    public static void addIfSubmittable(Element control, List<Connection.KeyVal> data) {\n        if (!control.tag().isFormSubmittable() || control.hasAttr(\"disabled\"))\n            return;\n        Node.addNamedFormData(control, data);\n    }\n\n    }\n",
+   "old": "    \t\treturn \":only-child\";\n    \t}\n    }\n",
+   "purpose": "MI-Jsoup-42 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.jsoup.nodes.Element",
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "method": "formDataOf"
+  },
+  {
+   "class": "org.jsoup.helper.HttpConnection",
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "method": "appendFormData"
+  },
+  {
+   "class": "org.jsoup.select.Evaluator.IsOnlyChild",
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "method": "addIfSubmittable"
+  },
+  {
+   "class": "org.jsoup.nodes.Node",
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "method": "addNamedFormData"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Jsoup-42__i.py",
+ "entry_points": [
+  "org.jsoup.nodes.FormElement::formData"
+ ],
+ "evidence": [
+  "org.jsoup.nodes.Element::val",
+  "org.jsoup.select.Elements::val",
+  "org.jsoup.nodes.FormElement::submit"
+ ],
+ "expected_signature": "expected:<six=[seven]> but was:<six=[]>",
+ "extra_tests": [],
+ "fixture_key": "Jsoup-42",
+ "gold": {
+  "class": "org.jsoup.safety.Whitelist",
+  "edits": [
+   {
+    "new": "        String value = control.attr(\"value\");\n",
+    "old": "        String value = control.attr(\"value\");\n        if (\"textarea\".equals(control.tagName())) value = control.text();\n"
+   }
+  ],
+  "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+  "method": "addControlValues"
+ },
+ "group": "MI-Jsoup-42",
+ "hops": 5,
+ "iid": "MI-Jsoup-42",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold reads a form control's value and decides which pairs the control submits; hop 1 creates and returns the list, hop 2 hands every control to hop 3 in order, hop 3 drops controls that are not submittable or are disabled, hop 4 reads the name and drops unnamed controls - none of them reads a value. The gold's javadoc promises that any control other than a select, checkbox or radio submits its value; the value of a textarea is its text, as Element.val() computes it ('Get the value of a form element (input, textarea, etc)'), Element.val(String) sets it and Elements.val() returns it (HtmlParserTest handlesTextArea and preservesSpaceInTextArea pass), yet the gold submits the textarea's empty value attribute. The pairs leave the gold as name/value KeyVals without the control, so no caller can recover the text, and no filtering of the controls above the gold can supply it. The facade's javadoc ('the data that this form submits') and its caller FormElement.submit, which posts that data, fix the meaning of a submitted value.",
+ "ownership_tests": [
+  "org.jsoup.parser.HtmlParserTest::handlesTextArea",
+  "org.jsoup.parser.HtmlParserTest::preservesSpaceInTextArea",
+  "org.jsoup.nodes.FormElementTest::usesOnForCheckboxValueIfNoValueSet"
+ ],
+ "project": "Jsoup",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "html",
+    "anchor_seed": 8155,
+    "class": "org.jsoup.nodes.Element",
+    "file": "src/main/java/org/jsoup/nodes/Element.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.jsoup.Connection;",
+     "import org.jsoup.helper.HttpConnection;"
+    ],
+    "method": "formDataOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "get",
+    "anchor_seed": 8156,
+    "class": "org.jsoup.helper.HttpConnection",
+    "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.jsoup.nodes.Element;",
+     "import org.jsoup.select.Evaluator;"
+    ],
+    "method": "appendFormData",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 8157,
+    "class": "org.jsoup.select.Evaluator.IsOnlyChild",
+    "file": "src/main/java/org/jsoup/select/Evaluator.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.jsoup.Connection;"
+    ],
+    "method": "addIfSubmittable",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "after",
+    "anchor_seed": 8158,
+    "class": "org.jsoup.nodes.Node",
+    "file": "src/main/java/org/jsoup/nodes/Node.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.jsoup.Connection;",
+     "import org.jsoup.safety.Whitelist;"
+    ],
+    "method": "addNamedFormData",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "removeAttributes",
+    "anchor_seed": 8159,
+    "class": "org.jsoup.safety.Whitelist",
+    "file": "src/main/java/org/jsoup/safety/Whitelist.java",
+    "hop": 5,
+    "imports_added": [
+     "import org.jsoup.Connection;",
+     "import org.jsoup.helper.HttpConnection;",
+     "import java.util.List;"
+    ],
+    "method": "addControlValues",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8055
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Jsoup-42"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.jsoup.nodes.FormElementTest",
+  "test_file": "src/test/java/org/jsoup/nodes/FormElementTest.java",
+  "test_method": "createsFormData"
+ },
+ "variant_id": "CTV-D8E140",
+ "kind": "new",
+ "fault_lines": [
+  "String value = control.attr(\"value\");"
+ ],
+ "gold_key": "org.jsoup.safety.Whitelist::addControlValues"
+}

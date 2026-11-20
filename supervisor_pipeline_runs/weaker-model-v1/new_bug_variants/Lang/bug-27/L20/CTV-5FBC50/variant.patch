@@ -1,0 +1,196 @@
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 269bb9f92..b268b497c 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -2607,6 +2607,22 @@ public class StringUtils {
+         return splitByWholeSeparatorWorker(str, separator, -1, true);
+     }
+ 
++    /**
++     * <p>Decodes a non-empty <code>String</code> into an <code>int</code>,
++     * reading an optional leading <code>'-'</code> or <code>'+'</code> sign.</p>
++     *
++     * @param str  the <code>String</code> to decode, not null or empty
++     * @return the decoded value
++     * @throws NumberFormatException if the <code>String</code> cannot be decoded
++     */
++    public static int decodeInt(String str) {
++        final char first = str.charAt(0);
++        final boolean negative = first == '-';
++        final int index = negative || first == '+' ? 1 : 0;
++        return SystemUtils.toDecodedInt(str, index, negative);
++    }
++
++
+     /**
+      * <p>Splits the provided text into an array, separator string specified.
+      * Returns a maximum of <code>max</code> substrings.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/SystemUtils.java b/src/main/java/org/apache/commons/lang3/SystemUtils.java
+index 2116f7c14..fba15573a 100644
+--- a/src/main/java/org/apache/commons/lang3/SystemUtils.java
++++ b/src/main/java/org/apache/commons/lang3/SystemUtils.java
+@@ -18,6 +18,7 @@ package org.apache.commons.lang3;
+ 
+ import java.io.File;
+ import java.util.regex.Pattern;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>
+@@ -1500,6 +1501,34 @@ public class SystemUtils {
+         return new File(System.getProperty(USER_HOME_KEY));
+     }
+ 
++    /**
++     * <p>Decodes the part of a <code>String</code> after its sign into an
++     * <code>int</code>.</p>
++     *
++     * <p>A <code>0x</code>, <code>0X</code> or <code>#</code> prefix gives hex
++     * digits, and a leading <code>0</code> followed by more characters gives
++     * octal digits; otherwise the digits are decimal.</p>
++     *
++     * @param str  the <code>String</code> to decode, not null
++     * @param index  the index of the first character after the sign
++     * @param negative  whether the value is negative
++     * @return the decoded value
++     * @throws NumberFormatException if the <code>String</code> cannot be decoded
++     */
++    public static int toDecodedInt(String str, int index, boolean negative) {
++        if (str.startsWith("0x", index) || str.startsWith("0X", index)) {
++            return FastDateFormat.parseIntDigits(str.substring(index + 2), 16, negative);
++        }
++        if (str.startsWith("#", index)) {
++            return FastDateFormat.parseIntDigits(str.substring(index + 1), 16, negative);
++        }
++        if (str.startsWith("0", index) && str.length() > index + 1) {
++            return FastDateFormat.parseIntDigits(str.substring(index + 1), 8, negative);
++        }
++        return FastDateFormat.parseIntDigits(str.substring(index), 10, negative);
++    }
++
++
+     /**
+      * Returns whether the {@link #JAVA_AWT_HEADLESS} value is <code>true</code>.
+      * 
+diff --git a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+index f1f36a888..7f220fbef 100644
+--- a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
++++ b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+@@ -663,13 +663,13 @@ public class NumberUtils {
+      * @param str  a <code>String</code> to convert, may be null
+      * @return converted <code>Integer</code>
+      * @throws NumberFormatException if the value cannot be converted
++       The digits after the sign and the radix prefix are read from the last to the first, and each digit is multiplied by the matching power of the radix before it is added to the result.
+      */
+     public static Integer createInteger(String str) {
+         if (str == null) {
+             return null;
+         }
+-        // decode() handles 0xAABD and 0777 (hex and octal) as well.
+-        return Integer.decode(str);
++        return org.apache.commons.lang3.text.StrBuilder.decodeInteger(str);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 6f2be0069..9015aa2b3 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1574,6 +1575,24 @@ public class StrBuilder implements CharSequence, Appendable {
+         return this;
+     }
+ 
++    /**
++     * <p>Decodes a <code>String</code> into an <code>Integer</code>, handling
++     * hex and octal notations.</p>
++     *
++     * <p>A zero length <code>String</code> is not a number.</p>
++     *
++     * @param str  the <code>String</code> to decode, not null
++     * @return the decoded <code>Integer</code>
++     * @throws NumberFormatException if the <code>String</code> cannot be decoded
++     */
++    public static Integer decodeInteger(String str) {
++        if (str.length() == 0) {
++            throw new NumberFormatException("Zero length string");
++        }
++        return Integer.valueOf(StringUtils.decodeInt(str));
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Deletes the character wherever it occurs in the builder.
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index f75d7bf48..40950554b 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -1592,6 +1592,30 @@ public class DateUtils {
+     public static long getFragmentInHours(Calendar calendar, int fragment) {
+         return getFragment(calendar, fragment, Calendar.HOUR_OF_DAY);
+     }
++
++    /**
++     * <p>Returns the value of the digits of a number in a radix, with a
++     * sign.</p>
++     *
++     * @param digits  the digits of the number, not null or empty
++     * @param radix  the radix of the digits
++     * @param negative  whether the number is negative
++     * @return the value of the number
++     * @throws NumberFormatException if a character is not a digit in the radix
++     */
++    public static int valueOfDigits(String digits, int radix, boolean negative) {
++        final int length = digits.length();
++        int value = 0;
++        for (int i = 0; i < length; i++) {
++            final int digit = Character.digit(digits.charAt(i), radix);
++            if (digit < 0) {
++                throw new NumberFormatException("For input string: \"" + digits + "\"");
++            }
++            value = value * radix - digit;
++        }
++        return negative ? value : -value;
++    }
++
+     
+     /**
+      * <p>Returns the number of days within the 
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index e30da2a56..006d57493 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -390,6 +390,25 @@ public class FastDateFormat extends Format {
+         return format;
+     }
+ 
++    /**
++     * <p>Parses the digits of a number in a radix into an <code>int</code>.</p>
++     *
++     * <p>Empty digits are not a number.</p>
++     *
++     * @param digits  the digits to parse, not null
++     * @param radix  the radix of the digits
++     * @param negative  whether the number is negative
++     * @return the parsed value
++     * @throws NumberFormatException if the digits cannot be parsed
++     */
++    public static int parseIntDigits(String digits, int radix, boolean negative) {
++        if (digits.length() == 0) {
++            throw new NumberFormatException("No digits to parse");
++        }
++        return DateUtils.valueOfDigits(digits, radix, negative);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Gets a date/time formatter instance using the specified style

@@ -1,0 +1,87 @@
+{
+ "instance": "MI-Collections-15",
+ "task_key": "Collections-15__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.collections.list.SetUniqueList::addAll(int, Collection) (facade)",
+   "edit": "return org.apache.commons.collections.bidimap.TreeBidiMap.insertAllAt(this, index, org.apache.commons.collections.CollectionUtils.removeAll(new java.util.LinkedHashSet(coll), this));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Re-implements the gold's omitted per-element contains test upstream as a whole-collection set difference, so the gold's insertion decision and the receiver's decline in add(int, Object) never fire; the gold's loop still advances its cursor past declined elements for any list that declines. This is the bypass the builder declared in ownership_reason."
+  },
+  {
+   "method": "org.apache.commons.collections.bidimap.TreeBidiMap::insertAllAt (hop 1)",
+   "edit": "DoubleOrderedMap.insertElementsOf(list, index, org.apache.commons.collections.CollectionUtils.removeAll(new java.util.LinkedHashSet(coll), list));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Same moved-up contains test; contradicts hop 1's javadoc 'The collection is passed on as given', so it cannot be a competing repair."
+  },
+  {
+   "method": "org.apache.commons.collections.ExtendedProperties::addElementsAt (hop 3)",
+   "edit": "MapUtils.insertElements(list, index, new org.apache.commons.collections.iterators.UniqueFilterIterator(elements));",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Declared compensating edit; G9 shows the trigger still fails (element 1 is held by the list, not repeated in the iteration); also contradicts 'The iterator is passed on as given'."
+  },
+  {
+   "method": "org.apache.commons.collections.bidimap.TreeBidiMap::insertAllAt (hop 1)",
+   "edit": "DoubleOrderedMap.insertElementsOf(list, index, new java.util.LinkedHashSet(coll));",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Declared compensating edit; G9: trigger still fails."
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::insertElements (hop 4)",
+   "edit": "CursorableLinkedList.insertEachAt(list, Math.min(index, list.size()), elements);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails",
+   "why": "Declared compensating edit; G9: trigger still fails (index 0 is already in range)."
+  },
+  {
+   "method": "org.apache.commons.collections.list.SetUniqueList::addAll(int, Collection) (facade)",
+   "edit": "restore the pristine per-element loop (add(index, it.next()); advance index only if size changed) in place of the call to hop 1",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Makes the whole chain dead (pristine code; G0 baseline is clean). Not run separately."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections.list.SetUniqueList::addAll(int, Collection) [instance, V2: passes this]",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::insertAllAt",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::insertElementsOf",
+  "hop3 org.apache.commons.collections.ExtendedProperties::addElementsAt",
+  "hop4 org.apache.commons.collections.MapUtils::insertElements",
+  "gold org.apache.commons.collections.CursorableLinkedList::insertEachAt"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger TestSetUniqueList::testIntCollectionAddAll fails with 'Third new element should be at index 0 expected:<4> but was:<2>'; the full suite fails only the trigger; the four ownership tests pass; correct.patch gives a clean full suite. (a) On the trigger ([2,3,1].addAll(0,[1,4])) the gold calls list.add(0,1), which the receiver declines, then list.add(1,4), so the only inserted element lands at 1. That violates the gold's documented postcondition: the inserted elements start at the given position, in iterator order. Hops 1-4 meet their pass-through docs. SetUniqueList.add(int,Object) behaves as documented. Only the facade (the symptom) is otherwise violated. (b) Each hop's javadoc ('The collection is passed on as given', 'Every element of the collection is passed on, in the order of the collection's own iterator', 'The iterator is passed on as given' twice) matches its code and rules out filtering or index changes at that hop. (c) No competing repair. The only documentation-consistent non-gold edit that passes everything is a facade pre-filter, CollectionUtils.removeAll(new LinkedHashSet(coll), this). It moves the gold's omitted contains test up to the facade and leaves the gold's cursor wrong for any list that declines, so it is a bypass, the one the builder declared. The same filter at hop 1 contradicts hop 1's javadoc. The three declared compensating edits fail the trigger (G9). (d) Hop and gold names are neutral. G2b is clean. The lie ('The collection is first copied into an array, and the elements are then read from that array in index order') is procedural and false, and names neither the contains test nor the conditional advance. (e) The gold is exactly 5 calls below the facade. The hosts are 5 different existing classes and match hosts_hop_order. host_mode is largest5, and CursorableLinkedList's 1468 lines are allowed by C10f section 1. The facade body is one delegating call (the original had no guard). The lie is one appended sentence, placed by chain_transform.rewrite_facade's standard mechanism after @return. The gold's javadoc is silent on the contains test. The trigger is an existing test and the only one that newly fails. (f) The convention is pinned outside the gold. Pins in code: ListOrderedSet.addAll(int,Collection) tests contains per element and advances the index only after an insertion; ListOrderedSet.add(int,Object) and SetUniqueList.add(int,Object) insert only elements not yet held; the facade javadoc says duplicates are ignored. Pins in passing tests: TestListOrderedSet/TestListOrderedSet2::testListAddIndexed ([0,1].addAll(1,[3,0,2]) gives [0,3,2,1]), and TestSetUniqueList::testFactory and testAddAll. (g) The facade SetUniqueList.addAll is an allowed instance target (bridge7 task record). It uses V2 (receiver as parameter), and the hops call only the receiver's public List methods (size, add). There is no visibility widening, no new type (no anonymous or nested class), and no reflection. The facade's signature, modifiers, override and throws are unchanged. test.patch is empty and no test source is touched.",
+ "notes": "Residual arguability, not judged decisive. The gold's javadoc reads like the generic List.addAll(int, Collection) contract, and for a list that always inserts, the faulty body implements it exactly. So someone using design-by-contract reasoning could argue that the facade, which alone documents duplicate avoidance and passes a receiver that breaks the List contract, should pre-filter. Against that: the gold's postcondition (inserted elements start at the given index) is violated on the trigger; only the gold holds the insertion cursor; and the sibling indexed bulk insertion ListOrderedSet.addAll(int,Collection) puts the contains test and conditional advance inside the insertion loop. The facade pre-filter is therefore classed as a bypass, consistent with the builder's declaration. In the gold, the single-use local 'elt' is a mild residue of the removed if, not a marker. Method: scratch copy /private/tmp/mxb-aJxqca (deleted). Alternatives 1 and 2 were rebuilt from clean (build/ removed) because the copied class files had the same timestamps as the edited sources and ant did not recompile them. Without that step both alternatives looked as if they failed. The declared compensating edits were not re-run; their results are taken from validation.json G9. Files of MR-Collections-15 were not opened."
+}

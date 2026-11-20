@@ -1,0 +1,74 @@
+{
+  "instance": "Lang-31",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.time.FastDateFormat::charsFoundIn (hop 4)",
+      "edit": "return ArrayUtils.anyCharFound(cs, searchChars);  ->  return org.apache.commons.lang3.StringUtils.containsAny(cs, searchChars);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "note": "Replaces the gold's result with the sibling char[] overload; the gold becomes dead code."
+    },
+    {
+      "method": "org.apache.commons.lang3.StringUtils::containsAny(CharSequence,String) (facade)",
+      "edit": "return org.apache.commons.lang3.builder.ToStringStyle.anyCharacterOf(cs, searchChars);  ->  return containsAny(cs, searchChars.toCharArray());",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "note": "Restores the pristine delegate; all five hops become dead."
+    },
+    {
+      "method": "org.apache.commons.lang3.time.DateUtils::anyCharacterIn (hop 2)",
+      "edit": "searchChars.toCharArray()  ->  org.apache.commons.lang3.CharSetUtils.delete(searchChars, \"\\uD800-\\uDBFF\").toCharArray()",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "Passes all tests but is not a competing repair. It contradicts hop 2's documented step (the characters of the search String are taken as a char array) and disagrees with the evidence overload containsAny(CharSequence,char[]) on 3 of 8 probe inputs: (D840,D840), (D840 DC00,D840) and (x D840,U+20000) give false where the sibling and the correct gold give true."
+    },
+    {
+      "method": "org.apache.commons.lang3.builder.ToStringStyle::anyCharacterOf (hop 1)",
+      "edit": "DateUtils.anyCharacterIn(cs, searchChars)  ->  DateUtils.anyCharacterIn(org.apache.commons.lang3.CharSetUtils.delete(cs.toString(), \"\\uD800-\\uDBFF\"), searchChars)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "Passes all tests but is not a competing repair. It checks a different CharSequence than hop 1 documents, and it disagrees with the evidence char[] overload on the same 3 unpaired-high-surrogate probe inputs."
+    },
+    {
+      "method": "org.apache.commons.lang3.time.DateUtils::anyCharacterIn (hop 2)",
+      "edit": "searchChars.toCharArray()  ->  searchChars.replaceAll(\"[\\\\uD800-\\\\uDBFF](?=[\\\\uDC00-\\\\uDFFF])\", \"\").toCharArray()",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "java.util.regex matches whole code points, so paired high surrogates are never removed and the trigger still fails."
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.StringUtils::containsAny(CharSequence,String): null guard + ToStringStyle.anyCharacterOf(cs, searchChars)",
+    "hop1 org.apache.commons.lang3.builder.ToStringStyle::anyCharacterOf: null/empty cs -> false, else DateUtils.anyCharacterIn",
+    "hop2 org.apache.commons.lang3.time.DateUtils::anyCharacterIn: StrBuilder.anyCharOf(cs, searchChars.toCharArray())",
+    "hop3 org.apache.commons.lang3.text.StrBuilder::anyCharOf: empty search array -> false, else FastDateFormat.charsFoundIn",
+    "hop4 org.apache.commons.lang3.time.FastDateFormat::charsFoundIn: ArrayUtils.anyCharFound(cs, searchChars)",
+    "gold org.apache.commons.lang3.ArrayUtils::anyCharFound: nested char loop; variant returns true on any equal char and drops the high-surrogate pairing condition"
+  ],
+  "reasons": "Compile is OK. The trigger StringUtilsEqualsIndexOfTest::testContainsAnyStringWithSupplementaryChars fails with expected:<false> but was:<true>. The full variant suite has exactly one failure, the trigger. All four ownership tests pass on the variant. The correct patch passes the trigger, and on 8 surrogate probe inputs it matches the sibling containsAny(CharSequence,char[]) exactly.\n(a) Hops 1-4 are guards or pass-throughs whose documented guards and conversions are honoured. The only local violation is in the gold: with the 'character' convention pinned by the identically worded sibling overload, U+20000 does not contain a character of {U+20001}, yet the gold returns true because the high surrogates are equal.\n(b) No hop's javadoc contradicts its code. Hop 2's 'taken as a char array' sentence is faithful to the pristine delegation (searchChars.toCharArray() into the char[] overload, which does the pairing), so it does not make hop 2 a plausible owner.\n(c) No competing repair exists. Only the gold sees i, k, cs[i+1] and searchChars[k+1] together, and the sibling's rule depends on cs[i+1]. A filter on the search set alone, or on the CharSequence alone, cannot reproduce it: the filters I tried pass every existing test but break hop 1's or hop 2's documented behaviour and disagree with the evidence overload on unpaired high surrogates. There are two bypasses: hop 4 calling the sibling, and reverting the facade.\n(d) The names (anyCharacterOf, anyCharacterIn, anyCharOf, charsFoundIn, anyCharFound) and the javadocs are neutral. The variant gold reads as a complete, ordinary nested search loop. The lie (sort the search chars, then binary search) names neither surrogates nor pairing.\n(e) The gold is exactly 5 calls below the facade. The hops sit in five distinct existing classes: ToStringStyle, DateUtils, StrBuilder, FastDateFormat and ArrayUtils. The facade body is the original null guard plus one delegating call. The facade javadoc carries one added procedural sentence that the code does not perform. The gold javadoc is silent on pairing. The trigger is existing (test.patch is empty) and is the only failure.\n(f) The convention is pinned outside the gold by StringUtils.containsAny(CharSequence,char[]) (same wording, explicit 'ch is a supplementary character' pairing, still used by StringEscapeUtils' CSV unescaper) and by the passing testContainsAnyCharArrayWithSupplementaryChars, which asserts the same five cases. testContainsStringWithSupplementaryChars and CharSequenceTranslator.translate's code-point handling add weaker support.",
+  "notes": "1. The lie sentence was inserted after the '@since 2.4' line, with no leading '*', so javadoc renders it as part of the @since tag. This is cosmetic and comes from the recipe's rewrite.\n2. The lie describes a per-char lookup, which matches how the variant behaves, but it does not mention the omitted step.\n3. The two doc-inconsistent filters (hop 1 or hop 2, CharSetUtils.delete of high surrogates) pass the whole existing suite, because no existing test drives an unpaired high surrogate through the String overload. They are excluded only on documentation and evidence consistency.\n4. Watch out for stale classes: copying a compiled tree with cp -R leaves target/ newer than edited sources, so ant may skip recompilation. All candidate runs above were redone after deleting target/ and were confirmed with javap.\n5. Both the sibling and the correct gold treat a lone low surrogate in cs as matching the low half of a supplementary search char ((D800 DC00) vs U+20000 gives true). This quirk is inherited and does not affect ownership."
+}

@@ -1,0 +1,228 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index adc3fd29d..2044261c4 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -298,6 +298,33 @@ public class ArrayUtils {
+         return items;
+     }
+ 
++    /**
++     * <p>Gets the characters of a String from a start position up to an end
++     * position.</p>
++     *
++     * <p>A negative position counts back from the end of the String, and a
++     * position that then lies outside the String is moved to the nearer end
++     * of it.</p>
++     *
++     * @param str  the String to get the characters from, not null
++     * @param start  the position to start from
++     * @param end  the position to end at (exclusive)
++     * @return the characters from the start position up to the end position
++     */
++    public static String regionOf(String str, int start, int end) {
++        final int len = str.length();
++        if (start < 0) {
++            start = len + start;
++        }
++        if (end < 0) {
++            end = len + end;
++        }
++        start = Math.max(0, Math.min(start, len));
++        end = Math.max(0, Math.min(end, len));
++        return str.substring(start, end);
++    }
++
++
+     // Clone
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 711852ecb..32e5779d2 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -2066,38 +2066,13 @@ public class StringUtils {
+      *  count back from the end of the String by this many characters
+      * @return substring from start position to end positon,
+      *  {@code null} if null String input
++       The characters are collected by walking from the end position back towards the start position, each character being placed in front of the characters already collected.
+      */
+     public static String substring(String str, int start, int end) {
+         if (str == null) {
+             return null;
+         }
+-
+-        // handle negatives
+-        if (end < 0) {
+-            end = str.length() + end; // remember end is negative
+-        }
+-        if (start < 0) {
+-            start = str.length() + start; // remember start is negative
+-        }
+-
+-        // check length next
+-        if (end > str.length()) {
+-            end = str.length();
+-        }
+-
+-        // if start is greater than end, return ""
+-        if (start > end) {
+-            return EMPTY;
+-        }
+-
+-        if (start < 0) {
+-            start = 0;
+-        }
+-        if (end < 0) {
+-            end = 0;
+-        }
+-
+-        return str.substring(start, end);
++        return org.apache.commons.lang3.time.DateUtils.clippedText(str, start, end);
+     }
+ 
+     // Left/Right/Mid
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 7200356f2..600d3e3d3 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,7 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -781,6 +782,22 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets the characters of a String from a start position up to an end
++     * position.</p>
++     *
++     * @param str  the String to get the characters from, not null
++     * @param start  the position to start from, negative means count back
++     *  from the end of the String by this many characters
++     * @param end  the position to end at (exclusive), negative means count
++     *  back from the end of the String by this many characters
++     * @return the characters from the start position up to the end position
++     */
++    public static String textWithin(String str, int start, int end) {
++        return StrBuilder.midText(str, start, end);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>double</code>
+      * value.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index ac17cf640..bf4d154b1 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -938,6 +939,22 @@ public class StrBuilder implements CharSequence, Appendable {
+         return append(value).appendNewLine();
+     }
+ 
++    /**
++     * <p>Gets the characters of a String from a start position up to an end
++     * position.</p>
++     *
++     * @param str  the String to get the characters from, not null
++     * @param start  the position to start from, negative means count back
++     *  from the end of the String by this many characters
++     * @param end  the position to end at (exclusive), negative means count
++     *  back from the end of the String by this many characters
++     * @return the characters from the start position up to the end position
++     */
++    public static String midText(String str, int start, int end) {
++        return FastDateFormat.partOf(str, start, end);
++    }
++
++
+     /**
+      * Appends a double value followed by a new line to the string builder using <code>String.valueOf</code>.
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index ed84e5481..b01e96216 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -23,6 +23,7 @@ import java.util.Calendar;
+ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -1312,6 +1313,27 @@ public class DateUtils {
+     public static long getFragmentInMinutes(Date date, int fragment) {
+         return getFragment(date, fragment, Calendar.MINUTE);
+     }
++
++    /**
++     * <p>Gets the characters of a String from a start position up to an end
++     * position.</p>
++     *
++     * <p>An empty String is returned as it is.</p>
++     *
++     * @param str  the String to get the characters from, not null
++     * @param start  the position to start from, negative means count back
++     *  from the end of the String by this many characters
++     * @param end  the position to end at (exclusive), negative means count
++     *  back from the end of the String by this many characters
++     * @return the characters from the start position up to the end position
++     */
++    public static String clippedText(String str, int start, int end) {
++        if (str.length() == 0) {
++            return str;
++        }
++        return ToStringStyle.textWithin(str, start, end);
++    }
++
+     
+     /**
+      * <p>Returns the number of hours within the 
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index 8be2e6133..959a5a02e 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -34,6 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.ConcurrentMap;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -355,6 +356,22 @@ public class FastDateFormat extends Format {
+         return cache.getDateTimeInstance(dateStyle, timeStyle, null, locale);
+     }
+ 
++    /**
++     * <p>Gets the characters of a String from a start position up to an end
++     * position.</p>
++     *
++     * @param str  the String to get the characters from, not null
++     * @param start  the position to start from, negative means count back
++     *  from the end of the String by this many characters
++     * @param end  the position to end at (exclusive), negative means count
++     *  back from the end of the String by this many characters
++     * @return the characters from the start position up to the end position
++     */
++    public static String partOf(String str, int start, int end) {
++        return ArrayUtils.regionOf(str, start, end);
++    }
++
++
+     /**
+      * <p>Gets a date/time formatter instance using the specified style and
+      * time zone in the default locale.</p>

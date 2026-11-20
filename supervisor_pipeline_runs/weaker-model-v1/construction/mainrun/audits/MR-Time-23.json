@@ -1,0 +1,74 @@
+{
+ "instance": "Time-23",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.DateTime::zoneForOffsetId (hop 4)",
+   "edit": "return Period.zoneForOffset(offset);  ->  return DateTimeZone.forOffsetMillis(offset);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "the gold is no longer called; the zone is rebuilt by another implementation (forOffsetMillis/printOffset)"
+  },
+  {
+   "method": "org.joda.time.DateTime::zoneForOffsetId (hop 4)",
+   "edit": "return Period.zoneForOffset(offset);  ->  return DateTimeZone.fixedOffsetZone(Period.zoneForOffset(offset).getID().replaceFirst(\"\\\\.000$\", \"\"), offset);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "the gold's zone is thrown away and a second zone is built from a post-edited id; the gold still returns a zone whose id is not the timezone offset string of the offset"
+  },
+  {
+   "method": "org.joda.time.DateTimeZone::fixedOffsetZone (callee of the gold, not a hop)",
+   "edit": "insert 'id = printOffset(offset);' as the first statement",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "makes the gold's id argument dead (gold's output discarded); contradicts fixedOffsetZone's '@param id the zone id'"
+  },
+  {
+   "method": "org.joda.time.format.ISODateTimeFormat::zoneOfId (hop 3)",
+   "edit": "return DateTime.zoneForOffsetId(id);  ->  return DateTime.zoneForOffsetId(id.replaceFirst(\"[.,]0+$\", \"\"));",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails",
+   "why": "the id is re-parsed to the same offset -25534000; the gold writes the id from the offset only and still appends .000"
+  },
+  {
+   "method": "org.joda.time.DateTime::zoneForOffsetId (hop 4)",
+   "edit": "return Period.zoneForOffset(offset);  ->  return Period.zoneForOffset(offset - offset % DateTimeConstants.MILLIS_PER_SECOND);",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "trigger offset is already whole seconds (no change); also breaks testForOffsetMillis_int (+04:45:17.045)"
+  }
+ ],
+ "path": [
+  "facade org.joda.time.DateTimeZone::forID (null guard + delegate)",
+  "hop1 org.joda.time.format.PeriodFormatterBuilder::zoneForId (UTC id check)",
+  "hop2 org.joda.time.tz.DateTimeZoneBuilder::zoneFromId (provider lookup)",
+  "hop3 org.joda.time.format.ISODateTimeFormat::zoneOfId (sign check / reject)",
+  "hop4 org.joda.time.DateTime::zoneForOffsetId (parseOffset, zero -> UTC)",
+  "gold org.joda.time.Period::zoneForOffset (writes the offset id, then fixedOffsetZone)"
+ ],
+ "reasons": "Reproduced: variant compiles; testForID_String fails with expected:<-07:05:34[]> but was:<-07:05:34[.000]>; full suite (3828 tests) fails only the trigger; correct.patch gives 0 failures. (a) Only the gold computes the zone id, and it alone turns correct input (offset -25534000, verified via hop 4's parseOffset) into a wrong value: its javadoc promises 'the timezone offset string of the offset' as the id, and the codebase's timezone offset string for this offset (DateTimeZone.printOffset, 'Formats a timezone offset string', used by forOffsetMillis/forTimeZone) is -07:05:34; the variant makes forID(\"-07:05:34.0\") unequal to forOffsetMillis of the same offset. Hops 1-4 and the facade only fail transitively. (b) Each hop's javadoc matches its code (UTC check; provider lookup; +/- acceptance else IAE; parse + zero->UTC); none mentions or forms the id, and hop 4 hands over the offset only, so no hop doc admits the observed id. (c) The gold's id depends only on the int offset and, with the fault, any offset with a sub-minute part yields hh:mm:ss.mmm, so no change of the id or offset above the gold can produce -07:05:34 (hop-3 normalisation and hop-4 rounding both fail). The only passing edits discard or override the gold's output (hop 4 -> forOffsetMillis; hop 4 post-editing the gold's id; fixedOffsetZone ignoring its id): bypasses. (d) Hop/gold names are neutral (zoneForId, zoneFromId, zoneOfId, zoneForOffsetId, zoneForOffset), no added comments in the gold, G2b clean; the lie ('Region IDs are looked up by a binary search in a sorted array of all the available IDs') is false (ConcurrentHashMap lookup) and names neither the fault nor the omitted step. (e) Gold is 5 calls below forID; hosts are 5 distinct existing classes (PeriodFormatterBuilder, DateTimeZoneBuilder, ISODateTimeFormat, DateTime, Period); facade = null guard + one delegating call; one added procedural sentence; gold javadoc silent on omitting a zero millisecond rest; trigger is an existing test, empty test.patch, sole new failure. (f) Pinned outside the gold by DateTimeZone.printOffset (returns after seconds when rest==0) and DateTimeFormatterBuilder.TimeZoneOffset.printTo (returns after seconds when the rest is zero), and by passing tests testForOffsetMillis_int / testForOffsetHoursMinutes_int_int / testForTimeZone_TimeZone (forID ids equal printOffset-built ids; zero rests omitted).",
+ "notes": "Bypass edits recorded above. No passing test pins exactly the 'seconds present, zero millis' case other than the trigger; the pin for that case is code (printOffset, TimeZoneOffset.printTo). The lie is placed after the @throws tag with irregular indentation (no leading '*'), so in rendered javadoc it reads as part of the @throws text; it is still one added sentence in the facade javadoc. The @FromString annotation was moved onto the return type (behaviour-preserving). parseOffset and fixedOffsetZone were widened from private to package-private to make the chain compile. The only shape cue in the gold is that the seconds group is guarded by rest != 0 while the millisecond tail is not; this was not assessed against the no-local-trace checklist (out of scope for this audit). Note for re-runs: copying a compiled workspace and editing within the same second leaves stale classes; trials were run with build/ removed."
+}

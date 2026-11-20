@@ -1,0 +1,215 @@
+{
+ "bug_id": 61,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "        return TypeCheck.qualifiedNameOf(parent.getFirstChild()) != null ? TypeCheck.qualifiedNameOf(parent.getFirstChild()) : (fnNode.getFirstChild().getString().length() != 0 ? fnNode.getFirstChild().getString() : null);",
+   "old": "        return TypeCheck.qualifiedNameOf(parent.getFirstChild());",
+   "why": "hop 4 falls back to the function's own name when the assignment target has no qualified name"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "        case Token.NUMBER:\n          return NodeUtil.getStringValue(parent);\n        case Token.ASSIGN: return NodeUtil.isGetProp(parent.getFirstChild()) ? parent.getFirstChild().getLastChild().getString() : null;",
+   "old": "        case Token.NUMBER:\n          return NodeUtil.getStringValue(parent);",
+   "why": "hop 3's key fallback names an assigned function after the last property of the target"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "        return parent.getType() == Token.ASSIGN && parent.getFirstChild().getType() == Token.GETPROP ? parent.getFirstChild().getLastChild().getString() : Compiler.CodeBuilder.functionOrKeyName(fnNode, parent);",
+   "old": "        return Compiler.CodeBuilder.functionOrKeyName(fnNode, parent);",
+   "why": "hop 2 names a function assigned to a property after that property"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /**\n     * Gets the name of a function, given the node that contains it: the name\n     * the function is declared with or, when it has none, the name of the\n     * object literal key whose value it is.\n     *\n     * @param fnNode a node whose type is {@link Token#FUNCTION}\n     * @param parent the parent of the function node\n     * @return the function's name, or {@code null} if it has no name\n     */\n    public static String functionOrKeyName(Node fnNode, Node parent) {\n      String name = JSTypeRegistry.declaredFunctionName(fnNode, parent);\n      if (name != null) {\n        return name;\n      }\n      switch (parent.getType()) {\n        case Token.SET:\n        case Token.GET:\n        case Token.STRING:\n          return parent.getString();\n        case Token.NUMBER:\n          return NodeUtil.getStringValue(parent);\n      }\n      return null;\n    }\n\n\n    /** Returns the length of the text buffer. */",
+   "old": "\n    /** Returns the length of the text buffer. */",
+   "purpose": "MR-Closure-61 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "new": "     The name is recovered from the function's source text, by scanning back from the {@code function} keyword to the nearest {@code =} or {@code :} and reading the name written before it.\n     */\n  public static String getNearestFunctionName(Node n) {\n        return com.google.javascript.rhino.TokenStream.nameOfFunction(n);\n    }",
+   "old": "   */\n  public static String getNearestFunctionName(Node n) {\n    String name = getFunctionName(n);\n    if (name != null) {\n      return name;\n    }\n\n    // Check for the form { 'x' : function() { } }\n    Node parent = n.getParent();\n    switch (parent.getType()) {\n      case Token.SET:\n      case Token.GET:\n      case Token.STRING:\n        // Return the name of the literal's key.\n        return parent.getString();\n      case Token.NUMBER:\n        return getStringValue(parent);\n    }\n\n    return null;\n  }",
+   "purpose": "MR-Closure-61 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "  }\n\n        /**\n     * Returns the qualified name of an expression, such as {@code a.b.c}.\n     *\n     * @param expr the expression\n     * @return the qualified name, or {@code null} if the expression is not a\n     *     qualified name\n     */\n    public static String qualifiedNameOf(Node expr) {\n      String suffix = \"\";\n      Node current = expr;\n      while (NodeUtil.isGetProp(current)) {\n        suffix = \".\" + current.getLastChild().getString() + suffix;\n        current = current.getFirstChild();\n      }\n      if (NodeUtil.isThis(current)) {\n        return \"this\" + suffix;\n      }\n      if (NodeUtil.isName(current)) {\n        return current.getString() + suffix;\n      }\n      return null;\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Closure-61 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "import java.util.List;\nimport com.google.javascript.jscomp.Compiler;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MR-Closure-61 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "        return parse();\n    }\n\n    /**\n     * Gets the name of a function, given the node that contains it. A\n     * function that initializes a variable takes the name of the variable.\n     *\n     * @param fnNode a node whose type is {@link Token#FUNCTION}\n     * @param parent the parent of the function node\n     * @return the function's name, or {@code null} if it has no name\n     */\n    public static String nameFromParent(Node fnNode, Node parent) {\n        if (parent.getType() == Token.NAME) {\n            return parent.getString();\n        }\n        return Compiler.CodeBuilder.functionOrKeyName(fnNode, parent);\n    }\n\n\n    private ScriptOrFnNode parse()",
+   "old": "        return parse();\n    }\n\n    private ScriptOrFnNode parse()",
+   "purpose": "MR-Closure-61 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "\n    /**\n     * Gets the name of a function, given by the function node together with\n     * the node that contains it.\n     *\n     * @param fnNode a node whose type is {@link Token#FUNCTION}\n     * @return the function's name, or {@code null} if it has no name\n     */\n    public static String nameOfFunction(Node fnNode) {\n        return Parser.nameFromParent(fnNode, fnNode.getParent());\n    }\n\n\n    protected void ungetChar(int c)",
+   "old": "\n    protected void ungetChar(int c)",
+   "purpose": "MR-Closure-61 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.TypeCheck;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-61 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  }\n\n        /**\n     * Gets the name a function is declared with: the qualified name of the\n     * target when the function is assigned, otherwise the function's own name.\n     *\n     * @param fnNode a node whose type is {@link Token#FUNCTION}\n     * @param parent the parent of the function node\n     * @return the declared name, or {@code null} if there is none\n     */\n    public static String declaredFunctionName(Node fnNode, Node parent) {\n      if (parent.getType() == Token.ASSIGN) {\n        return TypeCheck.qualifiedNameOf(parent.getFirstChild());\n      }\n      String name = fnNode.getFirstChild().getString();\n      return name.length() != 0 ? name : null;\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Closure-61 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.rhino.TokenStream",
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "method": "nameOfFunction"
+  },
+  {
+   "class": "com.google.javascript.rhino.Parser",
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "method": "nameFromParent"
+  },
+  {
+   "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "method": "functionOrKeyName"
+  },
+  {
+   "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "method": "declaredFunctionName"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-61.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.NodeUtil::getNearestFunctionName"
+ ],
+ "evidence": [
+  "com.google.javascript.rhino.Node::getQualifiedName",
+  "com.google.javascript.jscomp.NodeUtil::getFunctionName",
+  "com.google.javascript.jscomp.NodeNameExtractor::getName",
+  "com.google.javascript.jscomp.NodeUtil::getRootOfQualifiedName"
+ ],
+ "expected_signature": "expected:<this.a> but was:<null>",
+ "extra_tests": [],
+ "fixture_key": "Closure-61",
+ "gold": {
+  "class": "com.google.javascript.jscomp.TypeCheck",
+  "edits": [
+   {
+    "new": "        current = current.getFirstChild();\n      }\n      if (NodeUtil.isName(current)) {",
+    "old": "        current = current.getFirstChild();\n      }\n      if (NodeUtil.isThis(current)) {\n        return \"this\" + suffix;\n      }\n      if (NodeUtil.isName(current)) {"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+  "method": "qualifiedNameOf"
+ },
+ "group": "MR-Closure-61",
+ "hops": 5,
+ "iid": "MR-Closure-61",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold walks the chain of property accesses of an assignment target and decides on its root; hops 1-3 hold the function and its parent, hop 4 the target, and each gets back a name or null. The gold returns null for the whole of this.a and no sub-node of it has a qualified name (the property is a STRING node), so no hop can call the gold on another node or wrap its result to obtain this.a; restoring it outside the gold needs a second walk over the chain (or Node.getQualifiedName, which replaces the gold). The convention is pinned outside the gold: Node.getQualifiedName names THIS 'this', so this.a is 'this.a', and Node.isQualifiedName documents 'such as x or a.b.c or this.a' (NodeTest.testIsQualifiedName asserts this.foo); NodeUtil.getRootOfQualifiedName says the root must be either NAME or THIS; NodeUtil.getFunctionName, beside the facade and used by five production passes, names an assigned function by the target's Node.getQualifiedName; NodeNameExtractor.getName names THIS 'this' when naming anonymous functions (NameAnonymousFunctionsTest.testAssignmentToGetElem); SourceMapGeneratorV1Test.testFunctionNameOutput2 pins that a function assigned to a.b.c is named a.b.c. The gold's javadoc promises the qualified name of the expression, which this.a has.",
+ "ownership_tests": [
+  "com.google.javascript.rhino.NodeTest::testIsQualifiedName",
+  "com.google.javascript.jscomp.NameAnonymousFunctionsTest::testAssignmentToGetElem",
+  "com.google.javascript.jscomp.NameAnonymousFunctionsMappedTest::testAssignmentToGetElem",
+  "com.google.debugging.sourcemap.SourceMapGeneratorV1Test::testFunctionNameOutput2"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getTokenno",
+    "anchor_seed": 4111,
+    "class": "com.google.javascript.rhino.TokenStream",
+    "file": "src/com/google/javascript/rhino/TokenStream.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "nameOfFunction",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "parse",
+    "anchor_seed": 4112,
+    "class": "com.google.javascript.rhino.Parser",
+    "file": "src/com/google/javascript/rhino/Parser.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.google.javascript.jscomp.Compiler;"
+    ],
+    "method": "nameFromParent",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 4113,
+    "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "functionOrKeyName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 4114,
+    "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+    "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.google.javascript.jscomp.TypeCheck;"
+    ],
+    "method": "declaredFunctionName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 4115,
+    "class": "com.google.javascript.jscomp.TypeCheck",
+    "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "qualifiedNameOf",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4011
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-61"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.NodeUtilTest",
+  "test_file": "test/com/google/javascript/jscomp/NodeUtilTest.java",
+  "test_method": "testGetNearestFunctionName"
+ },
+ "variant_id": "CTV-D3E63B",
+ "kind": "new",
+ "fault_lines": [
+  "current = current.getFirstChild();\n      }\n      if (NodeUtil.isName(current)) {"
+ ],
+ "gold_key": "com.google.javascript.jscomp.TypeCheck::qualifiedNameOf"
+}

@@ -1,0 +1,185 @@
+diff --git a/src/java/org/apache/commons/codec/binary/Base32.java b/src/java/org/apache/commons/codec/binary/Base32.java
+index 42b4ba95..5b3aab97 100644
+--- a/src/java/org/apache/commons/codec/binary/Base32.java
++++ b/src/java/org/apache/commons/codec/binary/Base32.java
+@@ -500,6 +500,20 @@ public class Base32 extends BaseNCodec {
+         return new Base32(true).decode(base32HexString);
+     }
+ 
++    /**
++     * Tests a given byte array to see if it contains only valid characters within the Base64 alphabet. The whole array is
++     * tested. Currently the method treats whitespace as valid.
++     *
++     * @param arrayOctet
++     *            byte array to test
++     * @return <code>true</code> if all bytes are valid characters in the Base64 alphabet or if the byte array is empty;
++     *         <code>false</code>, otherwise
++     */
++    public static boolean isBase64Octets(byte[] arrayOctet) {
++        return org.apache.commons.codec.digest.DigestUtils.isBase64Data(arrayOctet, 0, arrayOctet.length);
++    }
++
++
+     /**
+      * Decodes Base32 Hex data into octets
+      * 
+diff --git a/src/java/org/apache/commons/codec/binary/Base64.java b/src/java/org/apache/commons/codec/binary/Base64.java
+index e81b7e91..f6b62de5 100644
+--- a/src/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/java/org/apache/commons/codec/binary/Base64.java
+@@ -602,9 +602,10 @@ public class Base64 implements BinaryEncoder, BinaryDecoder {
+      * @return <code>true</code> if all characters in the String are valid characters in the Base64 alphabet or if
+      *         the String is empty; <code>false</code>, otherwise
+      *  @since 1.5
++       The String is matched in a single pass against a precompiled regular expression of the Base64 alphabet.
+      */
+     public static boolean isBase64(String base64) {
+-        return isBase64(StringUtils.getBytesUtf8(base64));
++        return org.apache.commons.codec.language.DoubleMetaphone.isBase64Value(base64);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/codec/digest/DigestUtils.java b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+index f35488cf..9832caf6 100644
+--- a/src/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,7 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import org.apache.commons.codec.language.ColognePhonetic;
+ 
+ /**
+  * Operations to simplifiy common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -388,6 +389,27 @@ public class DigestUtils {
+         return digest(getSha384Digest(), data);
+     }
+ 
++    /**
++     * Checks whether a range of data contains only valid characters within the Base64 alphabet, treating whitespace as
++     * valid. An empty range gives <code>true</code>.
++     *
++     * @param data
++     *            Data to check
++     * @param offset
++     *            Index of the first byte of the range
++     * @param length
++     *            Number of bytes in the range
++     * @return <code>true</code> if all bytes of the range are valid characters in the Base64 alphabet or if the range is
++     *         empty
++     */
++    public static boolean isBase64Data(byte[] data, int offset, int length) {
++        if (length == 0) {
++            return true;
++        }
++        return ColognePhonetic.isBase64Text(data, offset, length);
++    }
++
++
+     /**
+      * Calculates the SHA-384 digest and returns the value as a <code>byte[]</code>.
+      * <p>
+diff --git a/src/java/org/apache/commons/codec/language/ColognePhonetic.java b/src/java/org/apache/commons/codec/language/ColognePhonetic.java
+index 81346c7a..9a956026 100644
+--- a/src/java/org/apache/commons/codec/language/ColognePhonetic.java
++++ b/src/java/org/apache/commons/codec/language/ColognePhonetic.java
+@@ -401,6 +401,21 @@ public class ColognePhonetic implements StringEncoder {
+         return colognePhonetic(text1).equals(colognePhonetic(text2));
+     }
+ 
++    /**
++     * Checks whether a non-empty range of bytes contains only valid characters
++     * within the Base64 alphabet, treating whitespace as valid.
++     *
++     * @param data the bytes to check
++     * @param offset the index of the first byte of the range
++     * @param length the number of bytes in the range, at least one
++     * @return <code>true</code> if all bytes of the range are valid characters
++     *         in the Base64 alphabet
++     */
++    public static boolean isBase64Text(byte[] data, int offset, int length) {
++        return Metaphone.isBase64Region(data, offset, length);
++    }
++
++
+     /*
+      * Converts the string to upper case and replaces germanic umlauts, and the
+      * “ß”.
+diff --git a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index f7122d41..cb795619 100644
+--- a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,8 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.binary.Base32;
++import org.apache.commons.codec.binary.StringUtils;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -245,6 +247,21 @@ public class DoubleMetaphone implements StringEncoder {
+         return doubleMetaphone(value1, alternate).equals(doubleMetaphone
+                                                          (value2, alternate));
+     }
++
++    /**
++     * Check if a <code>String</code> value contains only valid characters
++     * within the Base64 alphabet, treating whitespace as valid. The value is
++     * tested as its UTF-8 bytes.
++     *
++     * @param value String to test
++     * @return <code>true</code> if all characters are valid characters in the
++     *          Base64 alphabet or if the value is empty;
++     *          <code>false</code> otherwise.
++     */
++    public static boolean isBase64Value(String value) {
++        return Base32.isBase64Octets(StringUtils.getBytesUtf8(value));
++    }
++
+     
+     /**
+      * Returns the maxCodeLen.
+diff --git a/src/java/org/apache/commons/codec/language/Metaphone.java b/src/java/org/apache/commons/codec/language/Metaphone.java
+index 2d0ffd3f..10f13c34 100644
+--- a/src/java/org/apache/commons/codec/language/Metaphone.java
++++ b/src/java/org/apache/commons/codec/language/Metaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.binary.Base64;
+ 
+ /**
+  * Encodes a string into a metaphone value. 
+@@ -380,6 +381,30 @@ public class Metaphone implements StringEncoder {
+         return metaphone(pString);   
+     }
+ 
++    /**
++     * Tests whether a range of a byte array holds valid Base64 data.
++     *
++     * @param data the bytes to test
++     * @param offset the index of the first byte of the range
++     * @param length the number of bytes in the range
++     * @return <code>true</code> if the range holds valid Base64 data or is empty;
++     *         <code>false</code> otherwise
++     */
++    public static boolean isBase64Region(byte[] data, int offset, int length) {
++        final int end = offset + length;
++        for (int i = offset; i < end; i++) {
++            final byte octet = data[i];
++            if (octet <= ' ') {
++                continue;
++            }
++            if (!Base64.isBase64(octet)) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++
+     /**
+      * Tests is the metaphones of two strings are identical.
+      *

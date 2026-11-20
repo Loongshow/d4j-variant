@@ -1,0 +1,252 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index a0a499a98..9bdfdda4b 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -27,6 +27,8 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
+ import org.apache.commons.lang3.mutable.MutableInt;
++import java.math.BigInteger;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like {@code int[]}) and
+@@ -2860,6 +2862,27 @@ public class ArrayUtils {
+         return result;
+     }
+ 
++    /**
++     * <p>Gets the value of the digits of a <code>String</code>, from an index
++     * to the end of the <code>String</code>, in a radix. Leading zeros are
++     * skipped, the last digit being always kept.</p>
++     *
++     * @param str  the <code>String</code> to read, not null
++     * @param start  the index of the first digit
++     * @param radix  the radix of the digits
++     * @return the value of the digits
++     * @throws NumberFormatException if there are no digits, or if a character
++     *  is not a digit in the radix
++     */
++    public static BigInteger digitRunValue(final String str, final int start, final int radix) {
++        int first = start;
++        while (first < str.length() - 1 && str.charAt(first) == '0') {
++            first++;
++        }
++        return StrBuilder.valueOfDigits(str, first, radix);
++    }
++
++
+     /**
+      * <p>Converts an array of primitive ints to objects.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/Conversion.java b/src/main/java/org/apache/commons/lang3/Conversion.java
+index 91131ad83..a2c10a206 100644
+--- a/src/main/java/org/apache/commons/lang3/Conversion.java
++++ b/src/main/java/org/apache/commons/lang3/Conversion.java
+@@ -19,6 +19,7 @@
+ package org.apache.commons.lang3;
+ 
+ import java.util.UUID;
++import java.math.BigInteger;
+ 
+ 
+ /**
+@@ -492,6 +493,32 @@ public class Conversion {
+         return binaryBeMsb0ToHexDigit(src, 0);
+     }
+ 
++    /**
++     * <p>Converts the number that starts at an index of a <code>String</code>
++     * to a non-negative <code>BigInteger</code>. A <code>0x</code> or
++     * <code>#</code> prefix marks a hexadecimal number, a leading <code>0</code>
++     * followed by further digits an octal number, and any other number is
++     * decimal.</p>
++     *
++     * @param str  the <code>String</code> to convert, not null
++     * @param pos  the index at which the number starts
++     * @return the value of the number
++     * @throws NumberFormatException if the value cannot be converted
++     */
++    public static BigInteger prefixedToBigInteger(final String str, final int pos) {
++        if (str.startsWith("0x", pos)) {
++            return ArrayUtils.digitRunValue(str, pos + 2, 16);
++        }
++        if (str.startsWith("#", pos)) {
++            return ArrayUtils.digitRunValue(str, pos + 1, 16);
++        }
++        if (str.startsWith("0", pos) && str.length() > pos + 1) {
++            return ArrayUtils.digitRunValue(str, pos + 1, 8);
++        }
++        return ArrayUtils.digitRunValue(str, pos, 10);
++    }
++
++
+     /**
+      * <p>
+      * Converts a binary (represented as boolean array) in big endian Msb0 bit ordering to a
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index f41a3eaaa..aa4a0fe16 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,8 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.math.BigInteger;
++import org.apache.commons.lang3.Conversion;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -762,6 +764,22 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Converts a <code>String</code> to a <code>BigInteger</code>. A leading
++     * minus sign is stepped over and the value of the rest of the
++     * <code>String</code> is negated.</p>
++     *
++     * @param str  the <code>String</code> to convert, not null
++     * @return the <code>BigInteger</code> value of the <code>String</code>
++     * @throws NumberFormatException if the value cannot be converted
++     */
++    public static BigInteger integerValue(final String str) {
++        final boolean negative = str.startsWith("-");
++        final BigInteger value = Conversion.prefixedToBigInteger(str, negative ? 1 : 0);
++        return negative ? value.negate() : value;
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>char</code>
+      * value.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+index 70b8d6466..9c46065ac 100644
+--- a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
++++ b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+@@ -719,31 +719,13 @@ public class NumberUtils {
+      * @param str  a <code>String</code> to convert, may be null
+      * @return converted <code>BigInteger</code> (or null if the input is null)
+      * @throws NumberFormatException if the value cannot be converted
++       The digits are converted in blocks of nine with {@link Integer#parseInt(String, int)}, from the last block to the first, and each block is multiplied by the power of the radix that matches its position before the blocks are added up.
+      */
+     public static BigInteger createBigInteger(final String str) {
+         if (str == null) {
+             return null;
+         }
+-        int pos = 0; // offset within string
+-        int radix = 10;
+-        boolean negate = false; // need to negate later?
+-        if (str.startsWith("-")) {
+-            negate = true;
+-            pos = 1;
+-        }
+-        if (str.startsWith("0x", pos) || str.startsWith("0x", pos)) { // hex
+-            radix = 16;
+-            pos += 2;
+-        } else if (str.startsWith("#", pos)) { // alternative hex (allowed by Long/Integer)
+-            radix = 16;
+-            pos ++;
+-        } else if (str.startsWith("0", pos) && str.length() > pos + 1) { // octal; so long as there are additional digits
+-            radix = 8;
+-            pos ++;
+-        } // default is to treat as decimal
+-
+-        final BigInteger value = new BigInteger(str.substring(pos), radix);
+-        return negate ? value.negate() : value;
++        return org.apache.commons.lang3.builder.ToStringStyle.integerValue(str);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index b662ffd30..b34f88bcc 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -26,6 +26,8 @@ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
+ import org.apache.commons.lang3.builder.Builder;
++import java.math.BigInteger;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -330,6 +332,22 @@ public class StrBuilder implements CharSequence, Appendable, Serializable, Build
+         return this;
+     }
+ 
++    /**
++     * <p>Gets the value of the digits of a <code>String</code>, from an index
++     * to the end of the <code>String</code>, in a radix.</p>
++     *
++     * @param str  the <code>String</code> to read, not null
++     * @param start  the index of the first digit
++     * @param radix  the radix of the digits
++     * @return the value of the digits
++     * @throws NumberFormatException if there are no digits, or if a character
++     *  is not a digit in the radix
++     */
++    public static BigInteger valueOfDigits(final String str, final int start, final int radix) {
++        return DateUtils.parseDigits(str, start, radix);
++    }
++
++
+     /**
+      * Deletes the character at the specified index.
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index b16af53d4..fb140ab9f 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.Locale;
+ import java.util.NoSuchElementException;
++import java.math.BigInteger;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -332,6 +333,43 @@ public class DateUtils {
+         return parseDateWithLeniency(str, null, parsePatterns, false);
+     }    
+ 
++    /**
++     * <p>Parses the digits of a <code>String</code>, from an index to the end
++     * of the <code>String</code>, as a non-negative number in a radix.</p>
++     *
++     * @param str  the <code>String</code> to parse, not null
++     * @param start  the index of the first digit
++     * @param radix  the radix of the digits, from 2 to 36
++     * @return the value of the digits, not null
++     * @throws NumberFormatException if there are no digits, or if a character
++     *  is not a digit in the radix
++     */
++    public static BigInteger parseDigits(final String str, final int start, final int radix) {
++        final int end = str.length();
++        if (start >= end) {
++            throw new NumberFormatException("Zero length BigInteger");
++        }
++        final long limit = Long.MAX_VALUE / radix;
++        long head = 0;
++        BigInteger value = null;
++        for (int i = start; i < end; i++) {
++            final int digit = Character.digit(str.charAt(i), radix);
++            if (digit < 0) {
++                throw new NumberFormatException("For input string: \"" + str + "\"");
++            }
++            if (value == null && head < limit) {
++                head = head * radix + digit;
++            } else {
++                if (value == null) {
++                    value = BigInteger.valueOf(head);
++                }
++                value = value.multiply(BigInteger.valueOf(radix)).add(BigInteger.valueOf(digit));
++            }
++        }
++        return value;
++    }
++
++
+     /**
+      * <p>Parses a string representing a date by trying a variety of different parsers.</p>
+      * 

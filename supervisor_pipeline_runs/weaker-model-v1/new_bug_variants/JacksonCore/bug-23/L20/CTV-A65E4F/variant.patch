@@ -1,0 +1,213 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+index 9ccca1ef..025d13b9 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+@@ -18,6 +18,8 @@ import com.fasterxml.jackson.core.type.WritableTypeId.Inclusion;
+ import com.fasterxml.jackson.core.util.VersionUtil;
+ 
+ import static com.fasterxml.jackson.core.JsonTokenId.*;
++import com.fasterxml.jackson.core.json.WriterBasedJsonGenerator;
++import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
+ 
+ /**
+  * Base class that defines public API for writing JSON content.
+@@ -609,6 +611,22 @@ public abstract class JsonGenerator
+         return (ctxt == null) ? null : ctxt.getCurrentValue();
+     }
+ 
++    /**
++     * Writes the closing curly bracket of an Object value in pretty-printed
++     * output.
++     *
++     * @param g Generator to write to
++     * @param indenter Indenter used for the entries of the Object
++     * @param level Nesting level of the closing bracket
++     * @param entries Number of entries the Object has
++     */
++    public static void writePrettyObjectEnd(JsonGenerator g, DefaultPrettyPrinter.Indenter indenter,
++            int level, int entries) throws IOException
++    {
++        WriterBasedJsonGenerator.writeIndentedEnd(g, indenter, level, entries, '}');
++    }
++
++
+     /**
+      * Helper method, usually equivalent to:
+      *<code>
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonParser.java b/src/main/java/com/fasterxml/jackson/core/JsonParser.java
+index 852336a1..75e0f926 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonParser.java
+@@ -13,6 +13,8 @@ import java.util.Iterator;
+ import com.fasterxml.jackson.core.async.NonBlockingInputFeeder;
+ import com.fasterxml.jackson.core.type.TypeReference;
+ import com.fasterxml.jackson.core.util.RequestPayload;
++import com.fasterxml.jackson.core.json.UTF8StreamJsonParser;
++import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
+ 
+ /**
+  * Base class that defines public API for reading JSON content.
+@@ -1712,6 +1714,23 @@ public abstract class JsonParser
+      */
+     public Object getObjectId() throws IOException { return null; }
+ 
++    /**
++     * Writes the closing marker of an Object or Array value in pretty-printed
++     * output.
++     *
++     * @param g Generator to write to
++     * @param indenter Indenter used for the entries of the value
++     * @param level Nesting level of the closing marker
++     * @param entries Number of entries the value has
++     * @param marker Closing marker to write
++     */
++    public static void prettyEndMarker(JsonGenerator g, DefaultPrettyPrinter.Indenter indenter,
++            int level, int entries, char marker) throws IOException
++    {
++        UTF8StreamJsonParser.writeClosingMarker(g, indenter, level, entries, marker);
++    }
++
++
+     /**
+      * Method that can be called to check whether current token
+      * (one that was just read) has an associated type id, and if
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+index 50c1ba06..3035216d 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+@@ -329,6 +329,26 @@ public class UTF8StreamJsonParser
+         }
+         return super.getValueAsString(null);
+     }
++
++    /**
++     * Writes the closing marker of an Object or Array value in the
++     * pretty-printed layout of {@link DefaultPrettyPrinter}.
++     *
++     * @param g Generator to write to
++     * @param indenter Indenter used for the entries of the value
++     * @param level Nesting level of the closing marker
++     * @param entries Number of entries the value has
++     * @param marker Closing marker to write
++     */
++    public static void writeClosingMarker(JsonGenerator g, DefaultPrettyPrinter.Indenter indenter,
++            int level, int entries, char marker) throws IOException
++    {
++        if (entries > 0) {
++            indenter.writeIndentation(g, level);
++        }
++        g.writeRaw(marker);
++    }
++
+     
+     // @since 2.1
+     @Override
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+index 3f20531d..298bdd98 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.io.CharTypes;
+ import com.fasterxml.jackson.core.io.CharacterEscapes;
+ import com.fasterxml.jackson.core.io.IOContext;
+ import com.fasterxml.jackson.core.io.NumberOutput;
++import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
+ 
+ /**
+  * {@link JsonGenerator} that outputs JSON content using a {@link java.io.Writer}
+@@ -734,6 +735,23 @@ public class WriterBasedJsonGenerator
+         _outputTail = NumberOutput.outputLong(l, _outputBuffer, _outputTail);
+     }
+ 
++    /**
++     * Writes the closing marker of an Object or Array value in pretty-printed
++     * output.
++     *
++     * @param g Generator to write to
++     * @param indenter Indenter used for the entries of the value
++     * @param level Nesting level of the closing marker
++     * @param entries Number of entries the value has
++     * @param marker Closing marker to write
++     */
++    public static void writeIndentedEnd(JsonGenerator g, DefaultPrettyPrinter.Indenter indenter,
++            int level, int entries, char marker) throws IOException
++    {
++        JsonParser.prettyEndMarker(g, indenter, level, entries, marker);
++    }
++
++
+     private void _writeQuotedLong(long l) throws IOException {
+         if ((_outputTail + 23) >= _outputEnd) {
+             _flushBuffer();
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/async/NonBlockingJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/async/NonBlockingJsonParser.java
+index 5046b373..8a67a9b8 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/async/NonBlockingJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/async/NonBlockingJsonParser.java
+@@ -10,6 +10,7 @@ import com.fasterxml.jackson.core.io.CharTypes;
+ import com.fasterxml.jackson.core.io.IOContext;
+ import com.fasterxml.jackson.core.sym.ByteQuadsCanonicalizer;
+ import com.fasterxml.jackson.core.util.VersionUtil;
++import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
+ 
+ public class NonBlockingJsonParser
+     extends NonBlockingJsonParserBase
+@@ -142,6 +143,29 @@ public class NonBlockingJsonParser
+         return avail;
+     }
+ 
++    /**
++     * Writes the end of an Object value in pretty-printed output, and returns
++     * the nesting level that follows it.
++     *<p>
++     * The level drops by one, unless the indenter is inline (in which case
++     * it was not raised when the Object was started).
++     *
++     * @param g Generator to write to
++     * @param entries Number of entries the Object has
++     * @param indenter Indenter used for the entries of the Object
++     * @param nesting Nesting level of the entries of the Object
++     *
++     * @return Nesting level after the end of the Object
++     */
++    public static int prettyObjectEnd(JsonGenerator g, int entries, DefaultPrettyPrinter.Indenter indenter,
++            int nesting) throws IOException
++    {
++        final int level = indenter.isInline() ? nesting : (nesting - 1);
++        JsonGenerator.writePrettyObjectEnd(g, indenter, level, entries);
++        return level;
++    }
++
++
+     // Should never be called: can not be implemented quite as expected
+     // due to non-blocking behavior
+     @Override
+diff --git a/src/main/java/com/fasterxml/jackson/core/util/DefaultPrettyPrinter.java b/src/main/java/com/fasterxml/jackson/core/util/DefaultPrettyPrinter.java
+index 7e8250ef..36d0efdf 100644
+--- a/src/main/java/com/fasterxml/jackson/core/util/DefaultPrettyPrinter.java
++++ b/src/main/java/com/fasterxml/jackson/core/util/DefaultPrettyPrinter.java
+@@ -323,18 +323,17 @@ public class DefaultPrettyPrinter
+         _objectIndenter.writeIndentation(g, _nesting);
+     }
+ 
++    /**
++     * Method called after an Object value has been completely output,
++     * to output the closing curly bracket with its white-space decoration.
++     * The nesting level to use is recomputed by counting the Object and
++     * Array scopes still open in the generator's output context, instead
++     * of being read from a counter kept by this pretty printer.
++     */
+     @Override
+     public void writeEndObject(JsonGenerator g, int nrOfEntries) throws IOException
+     {
+-        if (!_objectIndenter.isInline()) {
+-            --_nesting;
+-        }
+-        if (nrOfEntries > 0) {
+-            _objectIndenter.writeIndentation(g, _nesting);
+-        } else {
+-            g.writeRaw(' ');
+-        }
+-        g.writeRaw('}');
++        _nesting = com.fasterxml.jackson.core.json.async.NonBlockingJsonParser.prettyObjectEnd(g, nrOfEntries, _objectIndenter, _nesting);
+     }
+ 
+     @Override

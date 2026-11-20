@@ -1,0 +1,200 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 98ca1c87b..e9a7e01f1 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -613,6 +613,38 @@ public class ArrayUtils {
+         return array;
+     }
+ 
++    /**
++     * <p>Checks whether the character at an index of a CharSequence is one of
++     * a set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param index  the index of the character to check
++     * @param searchChars  the chars to search for, not null
++     * @param high  whether the character at the index is a high surrogate
++     * @return {@code true} if the character is one of the search chars
++     */
++    public static boolean occursAt(final CharSequence cs, final int index, final char[] searchChars, final boolean high) {
++        final char ch = cs.charAt(index);
++        final int csLast = cs.length() - 1;
++        final int searchLast = searchChars.length - 1;
++        for (int j = 0; j <= searchLast; j++) {
++            if (searchChars[j] != ch) {
++                continue;
++            }
++            if (high && j < searchLast) {
++                if (index == csLast) {
++                    continue;
++                }
++                if (searchChars[j + 1] != cs.charAt(index + 1)) {
++                    continue;
++                }
++            }
++            return true;
++        }
++        return false;
++    }
++
++
+     /**
+      * <p>Defensive programming technique to change a {@code null}
+      * reference to an empty one.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 4733b7e91..0985608c1 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -1893,12 +1893,13 @@ public class StringUtils {
+      * @return true if it contains none of the invalid chars, or is null
+      * @since 2.0
+      * @since 3.0 Changed signature from containsNone(String, String) to containsNone(CharSequence, String)
++       The invalid characters are first sorted into a lookup table, and the CharSequence is then read from its last character back to its first, each character being located in that table by a binary search.
+      */
+     public static boolean containsNone(CharSequence cs, String invalidChars) {
+         if (cs == null || invalidChars == null) {
+             return true;
+         }
+-        return containsNone(cs, invalidChars.toCharArray());
++        return org.apache.commons.lang3.time.FastDateFormat.excludesAll(cs, invalidChars.toCharArray());
+     }
+ 
+     // IndexOfAny strings
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 7200356f2..d8215b151 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,7 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -1215,6 +1216,21 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Checks whether the character at an index of a CharSequence is one of
++     * a set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param index  the index of the character to check
++     * @param searchChars  the chars to search for, not null
++     * @param high  whether the character at the index is a high surrogate
++     * @return {@code true} if the character is one of the search chars
++     */
++    public static boolean listedAt(final CharSequence cs, final int index, final char[] searchChars, final boolean high) {
++        return ArrayUtils.occursAt(cs, index, searchChars, high);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the detail of a
+      * <code>char</code> array.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 6aec7a1eb..6fb271df5 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -25,6 +25,7 @@ import java.util.List;
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -2318,6 +2319,20 @@ public class StrBuilder implements CharSequence, Appendable, Serializable {
+         return -1;
+     }
+ 
++    /**
++     * <p>Checks whether the character at an index of a CharSequence is one of
++     * a set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param index  the index of the character to check
++     * @param searchChars  the chars to search for, not null
++     * @return {@code true} if the character is one of the search chars
++     */
++    public static boolean foundAt(final CharSequence cs, final int index, final char[] searchChars) {
++        return DateUtils.inSetAt(cs, index, searchChars);
++    }
++
++
+     /**
+      * Searches the string builder to find the last reference to the specified string.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index 8f48909fa..d09f7d0f4 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -23,6 +23,7 @@ import java.util.Calendar;
+ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -392,6 +393,21 @@ public class DateUtils {
+         return add(date, Calendar.DAY_OF_MONTH, amount);
+     }
+ 
++    /**
++     * <p>Checks whether the character at an index of a CharSequence is one of
++     * a set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param index  the index of the character to check
++     * @param searchChars  the chars to search for, not null
++     * @return {@code true} if the character is one of the search chars
++     */
++    public static boolean inSetAt(final CharSequence cs, final int index, final char[] searchChars) {
++        final boolean high = Character.isHighSurrogate(cs.charAt(index));
++        return ToStringStyle.listedAt(cs, index, searchChars, high);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Adds a number of hours to a date returning a new object.
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index 51da48e13..13b84fc84 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -34,6 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.ConcurrentMap;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -696,6 +697,24 @@ public class FastDateFormat extends Format {
+         return format(new Date(millis));
+     }
+ 
++    /**
++     * <p>Checks that a CharSequence contains none of a set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param searchChars  the chars to search for, not null
++     * @return {@code true} if none of the search chars is found
++     */
++    public static boolean excludesAll(final CharSequence cs, final char[] searchChars) {
++        final int csLen = cs.length();
++        for (int i = 0; i < csLen; i++) {
++            if (StrBuilder.foundAt(cs, i, searchChars)) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++
+     /**
+      * <p>Formats a {@code Date} object using a {@code GregorianCalendar}.</p>
+      *

@@ -1,0 +1,245 @@
+{
+ "bug_id": 23,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "DateTimeZone zone = DateTimeZone.getProvider().getZone(id.trim());",
+   "old": "DateTimeZone zone = DateTimeZone.getProvider().getZone(id);",
+   "why": "hop 2 trims the id before the provider lookup"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "return DateTime.zoneForOffsetId(id.replaceFirst(\"[.,]0+$\", \"\"));",
+   "old": "return DateTime.zoneForOffsetId(id);",
+   "why": "hop 3 drops a fraction of zeros from the id"
+  },
+  {
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "new": "return Period.zoneForOffset(offset - offset % DateTimeConstants.MILLIS_PER_SECOND);",
+   "old": "return Period.zoneForOffset(offset);",
+   "why": "hop 4 passes the offset in whole seconds"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "new": "        return super.toDateTime(chronology);\n    }\n\n    /**\n     * Gets a time zone instance for a fixed offset id.\n     * <p>\n     * The offset is parsed from the id; a zero offset gives the\n     * {@link DateTimeZone#UTC} zone.\n     *\n     * @param id  the fixed offset id, starting with {@code +} or {@code -}\n     * @return the DateTimeZone object for the offset\n     * @throws IllegalArgumentException if the offset cannot be parsed\n     */\n    public static DateTimeZone zoneForOffsetId(String id) {\n        int offset = DateTimeZone.parseOffset(id);\n        if (offset == 0) {\n            return DateTimeZone.UTC;\n        }\n        return Period.zoneForOffset(offset);\n    }\n\n\n    //-----------------------------------------------------------------------",
+   "old": "        return super.toDateTime(chronology);\n    }\n\n    //-----------------------------------------------------------------------",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/DateTimeZone.java",
+   "new": "       Region IDs are looked up by a binary search in a sorted array of all the available IDs.\n     */\n    public static @FromString DateTimeZone forID(String id) {\n        if (id == null) {\n            return getDefault();\n        }\n        return org.joda.time.format.PeriodFormatterBuilder.zoneForId(id);",
+   "old": "     */\n    @FromString\n    public static DateTimeZone forID(String id) {\n        if (id == null) {\n            return getDefault();\n        }\n        if (id.equals(\"UTC\")) {\n            return DateTimeZone.UTC;\n        }\n        DateTimeZone zone = cProvider.getZone(id);\n        if (zone != null) {\n            return zone;\n        }\n        if (id.startsWith(\"+\") || id.startsWith(\"-\")) {\n            int offset = parseOffset(id);\n            if (offset == 0L) {\n                return DateTimeZone.UTC;\n            } else {\n                id = printOffset(offset);\n                return fixedOffsetZone(id, offset);\n            }\n        }\n        throw new IllegalArgumentException(\"The datetime zone id '\" + id + \"' is not recognised\");",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/DateTimeZone.java",
+   "new": "    static synchronized DateTimeZone fixedOffsetZone(String id, int offset) {",
+   "old": "    private static synchronized DateTimeZone fixedOffsetZone(String id, int offset) {",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/DateTimeZone.java",
+   "new": "    static int parseOffset(String str) {",
+   "old": "    private static int parseOffset(String str) {",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "import org.joda.time.format.PeriodFormatter;\nimport org.joda.time.format.FormatUtils;\n",
+   "old": "import org.joda.time.format.PeriodFormatter;\n",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "        return new Period(new int[] {0, 0, 0, 0, 0, 0, 0, millis}, PeriodType.standard());\n    }\n\n    /**\n     * Gets the time zone instance for a fixed offset, using the timezone\n     * offset string of the offset as its id.\n     *\n     * @param offset  the offset in milliseconds\n     * @return the DateTimeZone object for the offset\n     */\n    public static DateTimeZone zoneForOffset(int offset) {\n        StringBuffer buf = new StringBuffer();\n        int rest = offset;\n        if (rest >= 0) {\n            buf.append('+');\n        } else {\n            buf.append('-');\n            rest = -rest;\n        }\n\n        int hours = rest / DateTimeConstants.MILLIS_PER_HOUR;\n        FormatUtils.appendPaddedInteger(buf, hours, 2);\n        rest -= hours * DateTimeConstants.MILLIS_PER_HOUR;\n\n        int minutes = rest / DateTimeConstants.MILLIS_PER_MINUTE;\n        buf.append(':');\n        FormatUtils.appendPaddedInteger(buf, minutes, 2);\n        rest -= minutes * DateTimeConstants.MILLIS_PER_MINUTE;\n\n        if (rest != 0) {\n            int seconds = rest / DateTimeConstants.MILLIS_PER_SECOND;\n            buf.append(':');\n            FormatUtils.appendPaddedInteger(buf, seconds, 2);\n            rest -= seconds * DateTimeConstants.MILLIS_PER_SECOND;\n            if (rest != 0) {\n                buf.append('.');\n                FormatUtils.appendPaddedInteger(buf, rest, 3);\n            }\n        }\n        return DateTimeZone.fixedOffsetZone(buf.toString(), offset);\n    }\n\n\n    //-----------------------------------------------------------------------",
+   "old": "        return new Period(new int[] {0, 0, 0, 0, 0, 0, 0, millis}, PeriodType.standard());\n    }\n\n    //-----------------------------------------------------------------------",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "import org.joda.time.DateTimeFieldType;\nimport org.joda.time.DateTime;\nimport org.joda.time.DateTimeZone;\n",
+   "old": "import org.joda.time.DateTimeFieldType;\n",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "\n    /**\n     * Gets a time zone instance for a time zone id that the zone provider\n     * does not know.\n     * <p>\n     * Such an id is accepted only as a fixed offset id, which starts with\n     * {@code +} or {@code -}.\n     *\n     * @param id  the ID of the datetime zone, not null\n     * @return the DateTimeZone object for the ID\n     * @throws IllegalArgumentException if the ID is not recognised\n     */\n    public static DateTimeZone zoneOfId(String id) {\n        if (id.startsWith(\"+\") || id.startsWith(\"-\")) {\n            return DateTime.zoneForOffsetId(id);\n        }\n        throw new IllegalArgumentException(\"The datetime zone id '\" + id + \"' is not recognised\");\n    }\n\n\n    /**\n     * Returns a basic formatter that combines a basic weekyear date and time\n     * without millis, separated by a 'T' (xxxx'W'wwe'T'HHmmssZ).",
+   "old": "\n    /**\n     * Returns a basic formatter that combines a basic weekyear date and time\n     * without millis, separated by a 'T' (xxxx'W'wwe'T'HHmmssZ).",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "import org.joda.time.ReadablePeriod;\nimport org.joda.time.DateTimeZone;\nimport org.joda.time.tz.DateTimeZoneBuilder;\n",
+   "old": "import org.joda.time.ReadablePeriod;\n",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "        iFieldFormatters = new FieldFormatter[10];\n    }\n\n    /**\n     * Gets a time zone instance for the specified time zone id.\n     * <p>\n     * The id {@code UTC} gives the {@link DateTimeZone#UTC} zone; any other\n     * id is passed on to the zone lookup.\n     *\n     * @param id  the ID of the datetime zone, not null\n     * @return the DateTimeZone object for the ID\n     * @throws IllegalArgumentException if the ID is not recognised\n     */\n    public static DateTimeZone zoneForId(String id) {\n        if (id.equals(\"UTC\")) {\n            return DateTimeZone.UTC;\n        }\n        return DateTimeZoneBuilder.zoneFromId(id);\n    }\n\n\n    /**",
+   "old": "        iFieldFormatters = new FieldFormatter[10];\n    }\n\n    /**",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport org.joda.time.format.ISODateTimeFormat;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "        getLastRuleSet().setStandardOffset(standardOffset);\n        return this;\n    }\n\n    /**\n     * Gets a time zone instance for the specified time zone id.\n     * <p>\n     * An id that the zone provider knows gives the provider's zone.\n     *\n     * @param id  the ID of the datetime zone, not null\n     * @return the DateTimeZone object for the ID\n     * @throws IllegalArgumentException if the ID is not recognised\n     */\n    public static DateTimeZone zoneFromId(String id) {\n        DateTimeZone zone = DateTimeZone.getProvider().getZone(id);\n        if (zone != null) {\n            return zone;\n        }\n        return ISODateTimeFormat.zoneOfId(id);\n    }\n\n\n    /**\n     * Set a fixed savings rule at the cutover.",
+   "old": "        getLastRuleSet().setStandardOffset(standardOffset);\n        return this;\n    }\n\n    /**\n     * Set a fixed savings rule at the cutover.",
+   "purpose": "MR-Time-23 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.format.PeriodFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "method": "zoneForId"
+  },
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "zoneFromId"
+  },
+  {
+   "class": "org.joda.time.format.ISODateTimeFormat",
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "method": "zoneOfId"
+  },
+  {
+   "class": "org.joda.time.DateTime",
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "method": "zoneForOffsetId"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-23.py",
+ "entry_points": [
+  "org.joda.time.DateTimeZone::forID"
+ ],
+ "evidence": [
+  "org.joda.time.DateTimeZone::printOffset",
+  "org.joda.time.DateTimeZone::forOffsetMillis",
+  "org.joda.time.DateTimeZone::forTimeZone",
+  "org.joda.time.format.DateTimeFormatterBuilder.TimeZoneOffset::printTo"
+ ],
+ "expected_signature": "but was:<-07:05:34[.000]>",
+ "extra_tests": [],
+ "fixture_key": "Time-23",
+ "gold": {
+  "class": "org.joda.time.Period",
+  "edits": [
+   {
+    "new": "            rest -= seconds * DateTimeConstants.MILLIS_PER_SECOND;\n            buf.append('.');\n            FormatUtils.appendPaddedInteger(buf, rest, 3);\n        }",
+    "old": "            rest -= seconds * DateTimeConstants.MILLIS_PER_SECOND;\n            if (rest != 0) {\n                buf.append('.');\n                FormatUtils.appendPaddedInteger(buf, rest, 3);\n            }\n        }"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/Period.java",
+  "method": "zoneForOffset"
+ },
+ "group": "MR-Time-23",
+ "hops": 5,
+ "iid": "MR-Time-23",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold writes the id of a fixed offset zone; hops 1-3 route the id (UTC, provider, sign) and hop 4 hands over the parsed offset, which is right on the trigger input (-25534000 for \"-07:05:34.0\"). The written id depends only on the offset, so no change of the id or of the offset above the gold makes it \"-07:05:34\"; a hop can only discard the gold's zone and build another one (forOffsetMillis), which is a bypass. The convention is pinned outside the gold: DateTimeZone.printOffset ('Formats a timezone offset string'), beside the facade, leaves out a zero rest after the minutes and again after the seconds, and it writes the ids of DateTimeZone.forOffsetMillis and DateTimeZone.forTimeZone; the timezone offset printer DateTimeFormatterBuilder.TimeZoneOffset.printTo stops after the seconds when the rest is zero; testForOffsetMillis_int (forID(\"+04:45:17.045\") equals forOffsetMillis of the same offset), testForOffsetHoursMinutes_int_int, testForTimeZone_TimeZone (ids \"+01:23\", \"-02:00\") and testSerialization2 (one shared zone per id) pass. The gold's javadoc promises the timezone offset string of the offset as the id, which for -7:05:34 is \"-07:05:34\", not \"-07:05:34.000\".",
+ "ownership_tests": [
+  "org.joda.time.TestDateTimeZone::testForOffsetMillis_int",
+  "org.joda.time.TestDateTimeZone::testForOffsetHoursMinutes_int_int",
+  "org.joda.time.TestDateTimeZone::testForTimeZone_TimeZone",
+  "org.joda.time.TestDateTimeZone::testSerialization2"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "clear",
+    "anchor_seed": 4865,
+    "class": "org.joda.time.format.PeriodFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.joda.time.DateTimeZone;",
+     "import org.joda.time.tz.DateTimeZoneBuilder;"
+    ],
+    "method": "zoneForId",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "setStandardOffset",
+    "anchor_seed": 4866,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.joda.time.format.ISODateTimeFormat;"
+    ],
+    "method": "zoneFromId",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "basicWeekDateTime",
+    "anchor_seed": 4867,
+    "class": "org.joda.time.format.ISODateTimeFormat",
+    "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.joda.time.DateTime;",
+     "import org.joda.time.DateTimeZone;"
+    ],
+    "method": "zoneOfId",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toDateTime",
+    "anchor_seed": 4868,
+    "class": "org.joda.time.DateTime",
+    "file": "src/main/java/org/joda/time/DateTime.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "zoneForOffsetId",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "millis",
+    "anchor_seed": 4869,
+    "class": "org.joda.time.Period",
+    "file": "src/main/java/org/joda/time/Period.java",
+    "hop": 5,
+    "imports_added": [
+     "import org.joda.time.format.FormatUtils;"
+    ],
+    "method": "zoneForOffset",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4765
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-23"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.TestDateTimeZone",
+  "test_file": "src/test/java/org/joda/time/TestDateTimeZone.java",
+  "test_method": "testForID_String"
+ },
+ "variant_id": "CTV-83D0BE",
+ "kind": "new",
+ "fault_lines": [
+  "rest -= seconds * DateTimeConstants.MILLIS_PER_SECOND;\n            buf.append('.');\n            FormatUtils.appendPaddedInteger(buf, rest, 3);\n        }"
+ ],
+ "gold_key": "org.joda.time.Period::zoneForOffset"
+}

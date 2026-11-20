@@ -1,0 +1,215 @@
+{
+ "bug_id": 79,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "    return ObjectReader.findAnnotatedName(value.getDeclaringClass().getEnumConstants()[value.ordinal()]);",
+   "old": "    return ObjectReader.findAnnotatedName(value);",
+   "why": "hop 4 passes the constant obtained from its declaring class"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "        if (explicit[i] != null && names[i] == null) {",
+   "old": "        if (explicit[i] != null) {",
+   "why": "hop 1 writes an explicit name only into an entry that is still null"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "    for (int i = values.length - 1; i >= 0; --i) {\n            result[i] = BasicDeserializerFactory",
+   "old": "    for (int i = 0, end = values.length; i < end; ++i) {\n            result[i] = BasicDeserializerFactory",
+   "why": "hop 3 fills the entries from the last value to the first"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "        _serializationConfig = _serializationConfig.withPropertyInclusion(incl);\n        return this;\n    }\n\n    /**\n     * Helper method that assigns, for each of given enum values, its explicit\n     * name (or null if it has none) to the entry of given array at the same\n     * index.\n     *\n     * @param values Enum values to find explicit names for\n     * @param result Array to assign names to; as long as <code>values</code>\n     */\n    public static void fillExplicitNames(Enum<?>[] values, String[] result)\n    {\n        for (int i = 0, end = values.length; i < end; ++i) {\n            result[i] = BasicDeserializerFactory.explicitNameOf(values[i]);\n        }\n    }\n\n\n    /**\n     * Method for specifying {@link PrettyPrinter} to use when \"default pretty-printing\"",
+   "old": "        _serializationConfig = _serializationConfig.withPropertyInclusion(incl);\n        return this;\n    }\n\n    /**\n     * Method for specifying {@link PrettyPrinter} to use when \"default pretty-printing\"",
+   "purpose": "MI-JacksonDatabind-79 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "import com.fasterxml.jackson.databind.type.TypeFactory;\nimport java.lang.reflect.Field;\nimport com.fasterxml.jackson.annotation.JsonProperty;\n",
+   "old": "import com.fasterxml.jackson.databind.type.TypeFactory;\n",
+   "purpose": "MI-JacksonDatabind-79 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "    public ObjectReader without(JsonParser.Feature feature) {\n        return _with(_config.without(feature)); \n    }\n\n    /**\n     * Method for finding the name that a {@link JsonProperty} annotation on the\n     * field of given enum constant defines for it.\n     *\n     * @param en Enum constant to check\n     *\n     * @return Explicit name of the constant, if any; null if none\n     */\n    public static String findAnnotatedName(Enum<?> en)\n    {\n        Class<?> cls = en.getClass();\n        if (cls.getSuperclass() != Enum.class) {\n            cls = cls.getSuperclass();\n        }\n        Field f;\n        try {\n            f = cls.getDeclaredField(en.name());\n        } catch (NoSuchFieldException e) {\n            return null;\n        }\n        JsonProperty prop = f.getAnnotation(JsonProperty.class);\n        if (prop == null) {\n            return null;\n        }\n        String n = prop.value();\n        return n.isEmpty() ? null : n;\n    }\n\n\n    /**\n     * Method for constructing a new reader instance that is configured",
+   "old": "    public ObjectReader without(JsonParser.Feature feature) {\n        return _with(_config.without(feature)); \n    }\n\n    /**\n     * Method for constructing a new reader instance that is configured",
+   "purpose": "MI-JacksonDatabind-79 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "        return b.buildTypeDeserializer(config, baseType, subtypes);\n    }\n\n    /**\n     * Helper method for finding explicit name of given enum value, if any.\n     *\n     * @return Explicit name of the value, or null if it has none\n     */\n    public static String explicitNameOf(Enum<?> value)\n    {\n        return ObjectReader.findAnnotatedName(value);\n    }\n\n    \n    /**",
+   "old": "        return b.buildTypeDeserializer(config, baseType, subtypes);\n    }\n    \n    /**",
+   "purpose": "MI-JacksonDatabind-79 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "        return _beanType.getRawClass();\n    }\n\n    /**\n     * Helper method for finding explicit names of given enum values.\n     *\n     * @param values Enum values to find explicit names for\n     *\n     * @return Array that has the explicit name of each enum value at the same\n     *    index, or null for a value that has none\n     */\n    public static String[] explicitNamesOf(Enum<?>[] values)\n    {\n        String[] result = new String[values.length];\n        ObjectMapper.fillExplicitNames(values, result);\n        return result;\n    }\n\n    \n    /**",
+   "old": "        return _beanType.getRawClass();\n    }\n    \n    /**",
+   "purpose": "MI-JacksonDatabind-79 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java",
+   "new": "    /**\n     * Since 2.7, explicit names defined using {@link JsonProperty} are\n     * found for all values of an enum type at once.\n     * The names found for an enum type are cached, so that the fields of\n     * each enum type are scanned only once.\n     */\n    @Override // since 2.7\n    public String[] findEnumValues(Class<?> enumType, Enum<?>[] enumValues, String[] names) {\n        return TokenBuffer.copyExplicitNames(enumValues, names);",
+   "old": "    @Override // since 2.7\n    public String[] findEnumValues(Class<?> enumType, Enum<?>[] enumValues, String[] names) {\n        HashMap<String,String> expl = null;\n        for (Field f : ClassUtil.getDeclaredFields(enumType)) {\n            if (!f.isEnumConstant()) {\n                continue;\n            }\n            JsonProperty prop = f.getAnnotation(JsonProperty.class);\n            if (prop == null) {\n                continue;\n            }\n            String n = prop.value();\n            if (n.isEmpty()) {\n                continue;\n            }\n            if (expl == null) {\n                expl = new HashMap<String,String>();\n            }\n            expl.put(f.getName(), n);\n        }\n        // and then stitch them together if and as necessary\n        if (expl != null) {\n            for (int i = 0, end = enumValues.length; i < end; ++i) {\n                String defName = enumValues[i].name();\n                String explValue = expl.get(defName);\n                if (explValue != null) {\n                    names[i] = explValue;\n                }\n            }\n        }\n        return names;",
+   "purpose": "MI-JacksonDatabind-79 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "import com.fasterxml.jackson.databind.*;\nimport com.fasterxml.jackson.databind.deser.BeanDeserializerBase;\n",
+   "old": "import com.fasterxml.jackson.databind.*;\n",
+   "purpose": "MI-JacksonDatabind-79 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "        return true;\n    }\n\n    /**\n     * Helper method that copies explicit names of given enum values into the\n     * entries of given array at the same index, leaving entries of values\n     * without explicit name as they are.\n     *\n     * @param values Enum values to find explicit names for\n     * @param names Array of names, one entry per enum value\n     *\n     * @return Array of names passed in\n     */\n    public static String[] copyExplicitNames(Enum<?>[] values, String[] names)\n    {\n        String[] explicit = BeanDeserializerBase.explicitNamesOf(values);\n        for (int i = 0, end = values.length; i < end; ++i) {\n            if (explicit[i] != null) {\n                names[i] = explicit[i];\n            }\n        }\n        return names;\n    }\n\n    \n    /*",
+   "old": "        return true;\n    }\n    \n    /*",
+   "purpose": "MI-JacksonDatabind-79 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "method": "copyExplicitNames"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "method": "explicitNamesOf"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectMapper",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "method": "fillExplicitNames"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "method": "explicitNameOf"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonDatabind-79__i.py",
+ "entry_points": [
+  "com.fasterxml.jackson.databind.introspect.JacksonAnnotationIntrospector::findEnumValues"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.databind.util.ClassUtil::findEnumType",
+  "com.fasterxml.jackson.databind.util.EnumValues::constructFromName",
+  "com.fasterxml.jackson.databind.introspect.JacksonAnnotationIntrospector::findEnumValue"
+ ],
+ "expected_signature": "expected:<[\"[b]\",\"a\"]> but was:<[\"[B]\",\"a\"]>",
+ "extra_tests": [],
+ "fixture_key": "JacksonDatabind-79",
+ "gold": {
+  "class": "com.fasterxml.jackson.databind.ObjectReader",
+  "edits": [
+   {
+    "new": "        Class<?> cls = en.getClass();\n",
+    "old": "        Class<?> cls = en.getClass();\n        if (cls.getSuperclass() != Enum.class) {\n            cls = cls.getSuperclass();\n        }\n"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+  "method": "findAnnotatedName"
+ },
+ "group": "MI-JacksonDatabind-79",
+ "hops": 5,
+ "iid": "MI-JacksonDatabind-79",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold maps an enum value to its formal enum type and reads the JsonProperty annotation of the constant's field there; hops 1-4 pass the values along and place the gold's results (hop 3 one entry per value, hop 1 writing the non-null entries into names). The enum value itself cannot be replaced by a caller: the constant B is the instance of its anonymous subclass however it is obtained, so once the gold has looked for B's field in that subclass and found none, the name 'b' can appear only if a caller re-implements the lookup or replaces the gold. The gold's javadoc promises the name that a JsonProperty annotation on the field of the given enum constant defines; for B, annotated @JsonProperty(\"b\"), the variant returns null. The convention is pinned outside the gold: ClassUtil.findEnumType(Enum) ('enums with \"body\" are sub-classes of the formal type': the superclass is taken when it is not Enum), used by EnumValues.constructFromName ('Enum types with per-instance sub-classes need special handling') and EnumSerializer; the intact sibling JacksonAnnotationIntrospector.findEnumValue finds the constant's public field through getField, which also searches the formal enum type. testSubclassedEnums (ser and deser: constants with a body through the chain) and testEnumsWithJsonProperty / testEnumsWithJsonPropertyAsKey (annotated constants through the chain) pass.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.databind.ser.TestEnumSerialization::testSubclassedEnums",
+  "com.fasterxml.jackson.databind.deser.TestEnumDeserialization::testSubclassedEnums",
+  "com.fasterxml.jackson.databind.ser.TestEnumSerialization::testEnumsWithJsonProperty",
+  "com.fasterxml.jackson.databind.ser.TestEnumSerialization::testEnumsWithJsonPropertyAsKey"
+ ],
+ "project": "JacksonDatabind",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "canWriteBinaryNatively",
+    "anchor_seed": 3837,
+    "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+    "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;"
+    ],
+    "method": "copyExplicitNames",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "handledType",
+    "anchor_seed": 3838,
+    "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "explicitNamesOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "setPropertyInclusion",
+    "anchor_seed": 3839,
+    "class": "com.fasterxml.jackson.databind.ObjectMapper",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "fillExplicitNames",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "findPropertyTypeDeserializer",
+    "anchor_seed": 3840,
+    "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "explicitNameOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "without",
+    "anchor_seed": 3841,
+    "class": "com.fasterxml.jackson.databind.ObjectReader",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.lang.reflect.Field;",
+     "import com.fasterxml.jackson.annotation.JsonProperty;"
+    ],
+    "method": "findAnnotatedName",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3737
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonDatabind-79"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.databind.deser.TestEnumDeserialization",
+  "test_file": "src/test/java/com/fasterxml/jackson/databind/deser/TestEnumDeserialization.java",
+  "test_method": "testEnumWithJsonPropertyRename"
+ },
+ "variant_id": "CTV-801BE6",
+ "kind": "new",
+ "fault_lines": [
+  "Class<?> cls = en.getClass();"
+ ],
+ "gold_key": "com.fasterxml.jackson.databind.ObjectReader::findAnnotatedName"
+}

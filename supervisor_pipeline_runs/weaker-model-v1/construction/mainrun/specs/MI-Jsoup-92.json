@@ -1,0 +1,234 @@
+{
+ "bug_id": 92,
+ "compensating": [
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "return Node.listAttributes(keys, vals, Math.min(size, keys.length), parent);",
+   "old": "return Node.listAttributes(keys, vals, size, parent);",
+   "why": "hop 4 bounds the slot count by the number of key slots"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "return Evaluator.IsNthOfType.matchableAttributes(java.util.Arrays.copyOf(keys, size), java.util.Arrays.copyOf(vals, size), size, parent);",
+   "old": "return Evaluator.IsNthOfType.matchableAttributes(keys, vals, size, parent);",
+   "why": "hop 2 hands on copies of the used slots only"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "return Collections.unmodifiableList(new ArrayList<>(HttpConnection.attributePairs(keys, vals, size, parent)));",
+   "old": "return Collections.unmodifiableList(HttpConnection.attributePairs(keys, vals, size, parent));",
+   "why": "hop 1 copies the listed attributes before wrapping them"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "import static org.jsoup.internal.Normalizer.lowerCase;\nimport org.jsoup.nodes.Attribute;\nimport org.jsoup.nodes.Attributes;\nimport org.jsoup.select.Evaluator;\n",
+   "old": "import static org.jsoup.internal.Normalizer.lowerCase;\n",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "        return this;\n    }\n\n    /**\n     * Lists the attributes held in parallel key and value slots, in slot order.\n     * @param keys the attribute keys, by slot\n     * @param vals the attribute values, by slot\n     * @param size the number of used slots\n     * @param parent the attributes the slots belong to\n     * @return the attributes, in slot order\n     */\n    public static List<Attribute> attributePairs(String[] keys, String[] vals, int size, Attributes parent) {\n        return Evaluator.IsNthOfType.matchableAttributes(keys, vals, size, parent);\n    }\n\n\n    public Connection proxy(Proxy proxy) {",
+   "old": "        return this;\n    }\n\n    public Connection proxy(Proxy proxy) {",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Attributes.java",
+   "new": "       Each attribute is created lazily, the first time its position in the returned list is read.\n     */\n    public List<Attribute> asList() {\n        return Element.attributesView(keys, vals, size, this);",
+   "old": "     */\n    public List<Attribute> asList() {\n        ArrayList<Attribute> list = new ArrayList<>(size);\n        for (int i = 0; i < size; i++) {\n            Attribute attr = vals[i] == null ?\n                new BooleanAttribute(keys[i]) : // deprecated class, but maybe someone still wants it\n                new Attribute(keys[i], vals[i], Attributes.this);\n            list.add(attr);\n        }\n        return Collections.unmodifiableList(list);",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "import static org.jsoup.internal.Normalizer.normalize;\nimport org.jsoup.helper.HttpConnection;\n",
+   "old": "import static org.jsoup.internal.Normalizer.normalize;\n",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "        return nextElementSiblings(false);\n    }\n\n    /**\n     * Get a read-only list of the attributes held in parallel key and value slots, in slot order.\n     * @param keys the attribute keys, by slot\n     * @param vals the attribute values, by slot\n     * @param size the number of used slots\n     * @param parent the attributes the slots belong to\n     * @return an unmodifiable list of the attributes\n     */\n    public static List<Attribute> attributesView(String[] keys, String[] vals, int size, Attributes parent) {\n        return Collections.unmodifiableList(HttpConnection.attributePairs(keys, vals, size, parent));\n    }\n\n\n    private Elements nextElementSiblings(boolean next) {",
+   "old": "        return nextElementSiblings(false);\n    }\n\n    private Elements nextElementSiblings(boolean next) {",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "    /**\n     * Lists the attributes of the used slots of parallel key and value arrays, in slot order. A bare attribute, one\n     * without a value, is listed as a {@link BooleanAttribute}.\n     * @param keys the attribute keys, by slot\n     * @param vals the attribute values, by slot; a bare attribute has no value\n     * @param count the number of used slots\n     * @param parent the attributes the slots belong to\n     * @return a new list of the attributes\n     */\n    public static List<Attribute> listAttributes(String[] keys, String[] vals, int count, Attributes parent) {\n        List<Attribute> list = new ArrayList<>(count);\n        boolean bare = false;\n        for (int i = 0; i < count; i++) {\n            String key = keys[i];\n            String val = vals[i];\n            if (val == null)\n                bare = true;\n            if (bare) {\n                list.add(new BooleanAttribute(key));\n                bare = false;\n            } else {\n                list.add(new Attribute(key, val, parent));\n            }\n        }\n        return list;\n    }\n\n\n    /**\n     Get this node's next sibling.",
+   "old": "    /**\n     Get this node's next sibling.",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "import static org.jsoup.internal.StringUtil.inSorted;\nimport org.jsoup.nodes.Attribute;\nimport org.jsoup.nodes.Attributes;\n",
+   "old": "import static org.jsoup.internal.StringUtil.inSorted;\n",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "        return null;\n    }\n\n    /**\n     * Lists the attributes held in parallel key and value slots, in slot order.\n     * @param keys the attribute keys, by slot\n     * @param vals the attribute values, by slot\n     * @param size the number of used slots\n     * @param parent the attributes the slots belong to\n     * @return the attributes, in slot order\n     */\n    public static List<Attribute> tokenAttributes(String[] keys, String[] vals, int size, Attributes parent) {\n        return Node.listAttributes(keys, vals, size, parent);\n    }\n\n\n    boolean removeFromStack(Element el) {",
+   "old": "        return null;\n    }\n\n    boolean removeFromStack(Element el) {",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "import static org.jsoup.internal.Normalizer.normalize;\nimport org.jsoup.nodes.Attributes;\nimport org.jsoup.parser.HtmlTreeBuilder;\n",
+   "old": "import static org.jsoup.internal.Normalizer.normalize;\n",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "    \t}\n\n    /**\n     * Lists the attributes held in parallel key and value slots, in slot order.\n     * @param keys the attribute keys, by slot\n     * @param vals the attribute values, by slot\n     * @param size the number of used slots\n     * @param parent the attributes the slots belong to\n     * @return the attributes, in slot order\n     */\n    public static List<org.jsoup.nodes.Attribute> matchableAttributes(String[] keys, String[] vals, int size, Attributes parent) {\n        return HtmlTreeBuilder.tokenAttributes(keys, vals, size, parent);\n    }\n\n\n\t\tprotected int calculatePosition(Element root, Element element) {\n\t\t\tint pos = 0;",
+   "old": "    \t}\n\n\t\tprotected int calculatePosition(Element root, Element element) {\n\t\t\tint pos = 0;",
+   "purpose": "MI-Jsoup-92 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.jsoup.nodes.Element",
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "method": "attributesView"
+  },
+  {
+   "class": "org.jsoup.helper.HttpConnection",
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "method": "attributePairs"
+  },
+  {
+   "class": "org.jsoup.select.Evaluator.IsNthOfType",
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "method": "matchableAttributes"
+  },
+  {
+   "class": "org.jsoup.parser.HtmlTreeBuilder",
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "method": "tokenAttributes"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Jsoup-92__i.py",
+ "entry_points": [
+  "org.jsoup.nodes.Attributes::asList"
+ ],
+ "evidence": [
+  "org.jsoup.nodes.Attributes::iterator",
+  "org.jsoup.nodes.Attributes::html",
+  "org.jsoup.parser.Token.Tag::newAttribute"
+ ],
+ "expected_signature": "'empty' attribute should not be boolean",
+ "extra_tests": [],
+ "fixture_key": "Jsoup-92",
+ "gold": {
+  "class": "org.jsoup.nodes.Node",
+  "edits": [
+   {
+    "new": "                list.add(new BooleanAttribute(key));\n",
+    "old": "                list.add(new BooleanAttribute(key));\n                bare = false;\n"
+   }
+  ],
+  "file": "src/main/java/org/jsoup/nodes/Node.java",
+  "method": "listAttributes"
+ },
+ "group": "MI-Jsoup-92",
+ "hops": 5,
+ "iid": "MI-Jsoup-92",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold walks the used slots and decides, slot by slot, between a BooleanAttribute (no value) and an Attribute with its value bound to the parent; hops 2-4 hand the two arrays, the count and the parent on unchanged and hop 1 only wraps the returned list read-only. The gold's javadoc promises the attributes of the used slots in slot order with a bare attribute, one without a value, listed as a BooleanAttribute; the slot 'empty' of <a normal=\"123\" boolean empty=\"\"> has the value \"\" and is not bare, yet the variant lists it as a BooleanAttribute. The decision of one slot leaks into the next inside the gold's own loop, so no one-line change of the arrays, the count or the parent above the gold restores it: the values reaching the gold are already right, a shorter count drops the slot, and copying or bounding the arrays changes nothing. The convention is pinned outside the gold: Attributes.iterator() and Attributes.html(Appendable, OutputSettings) treat slot i from keys[i] and vals[i] alone (html collapses a slot only through Attribute.shouldCollapseAttribute(key, val, out) on that slot's own value); Token.Tag.newAttribute(), which fills the slots, gives each attribute its own value (the pending value, \"\" for an empty value, null for none) and clears hasEmptyAttributeValue and hasPendingAttributeValue after every attribute; passing tests: ElementTest testAddBooleanAttribute (a bare slot is listed as a BooleanAttribute), TokeniserTest handleSuperLargeAttributeName (a valued slot is listed with its value), AttributeTest booleanAttributesAreEmptyStringValues (the iterator gives a bare slot its own empty value) and SelectorTest testByAttributeStarting (every key is listed).",
+ "ownership_tests": [
+  "org.jsoup.nodes.ElementTest::testAddBooleanAttribute",
+  "org.jsoup.parser.TokeniserTest::handleSuperLargeAttributeName",
+  "org.jsoup.nodes.AttributeTest::booleanAttributesAreEmptyStringValues",
+  "org.jsoup.select.SelectorTest::testByAttributeStarting"
+ ],
+ "project": "Jsoup",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "previousElementSiblings",
+    "anchor_seed": 6383,
+    "class": "org.jsoup.nodes.Element",
+    "file": "src/main/java/org/jsoup/nodes/Element.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.jsoup.helper.HttpConnection;"
+    ],
+    "method": "attributesView",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "url",
+    "anchor_seed": 6384,
+    "class": "org.jsoup.helper.HttpConnection",
+    "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.jsoup.nodes.Attribute;",
+     "import org.jsoup.nodes.Attributes;",
+     "import org.jsoup.select.Evaluator;"
+    ],
+    "method": "attributePairs",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "IsNthOfType",
+    "anchor_seed": 6385,
+    "class": "org.jsoup.select.Evaluator.IsNthOfType",
+    "file": "src/main/java/org/jsoup/select/Evaluator.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.jsoup.nodes.Attributes;",
+     "import org.jsoup.parser.HtmlTreeBuilder;"
+    ],
+    "method": "matchableAttributes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getFromStack",
+    "anchor_seed": 6386,
+    "class": "org.jsoup.parser.HtmlTreeBuilder",
+    "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.jsoup.nodes.Attribute;",
+     "import org.jsoup.nodes.Attributes;"
+    ],
+    "method": "tokenAttributes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "siblingNodes",
+    "anchor_seed": 6387,
+    "class": "org.jsoup.nodes.Node",
+    "file": "src/main/java/org/jsoup/nodes/Node.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "listAttributes",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6283
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Jsoup-92"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.jsoup.parser.AttributeParseTest",
+  "test_file": "src/test/java/org/jsoup/parser/AttributeParseTest.java",
+  "test_method": "parsesBooleanAttributes"
+ },
+ "variant_id": "CTV-C6AC45",
+ "kind": "new",
+ "fault_lines": [
+  "list.add(new BooleanAttribute(key));"
+ ],
+ "gold_key": "org.jsoup.nodes.Node::listAttributes"
+}

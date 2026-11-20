@@ -1,0 +1,240 @@
+{
+ "bug_id": 84,
+ "compensating": [
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "factory.setNamespaceAware(false);",
+   "old": "factory.setNamespaceAware(true);",
+   "why": "hop 1 creates the builder without namespace awareness"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "appendW3cNode(child, owner, made, inherited);",
+   "old": "appendW3cNode(child, owner, made, scope);",
+   "why": "hop 2 hands the children the inherited scope instead of the element's"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "HtmlTreeBuilder.createW3cElement(source, owner, new java.util.HashMap<String, String>());",
+   "old": "HtmlTreeBuilder.createW3cElement(source, owner, scope);",
+   "why": "hop 3 passes a fresh empty scope"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "import static org.jsoup.internal.Normalizer.lowerCase;\nimport java.util.HashMap;\nimport org.jsoup.nodes.Comment;\nimport org.jsoup.nodes.DataNode;\nimport org.jsoup.nodes.Element;\nimport org.jsoup.nodes.Node;\nimport org.jsoup.nodes.TextNode;\nimport org.jsoup.select.Evaluator;\n",
+   "old": "import static org.jsoup.internal.Normalizer.lowerCase;\n",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "        return this;\n    }\n\n    /**\n     * Appends the W3C form of a jsoup node, and of all its descendants, to a\n     * W3C node.\n     *\n     * <p>An element is appended as a new W3C element, made with a copy of the\n     * namespace scope it inherits, and its child nodes are then appended to it\n     * in order, with that copy as their scope. Text is appended as a text node,\n     * data as a text node of its whole data, and a comment as a comment; other\n     * nodes are not appended.</p>\n     *\n     * @param source the jsoup node\n     * @param owner the W3C document that creates the new nodes\n     * @param parent the W3C node to append to\n     * @param inherited the namespace URIs declared by the node's ancestors, by prefix\n     */\n    public static void appendW3cNode(Node source, org.w3c.dom.Document owner, org.w3c.dom.Node parent, Map<String, String> inherited) {\n        if (source instanceof Element) {\n            Map<String, String> scope = new HashMap<>(inherited);\n            org.w3c.dom.Element made = Evaluator.IsNthChild.w3cElementOf((Element) source, owner, scope);\n            parent.appendChild(made);\n            for (Node child : source.childNodes())\n                appendW3cNode(child, owner, made, scope);\n        } else if (source instanceof TextNode) {\n            parent.appendChild(owner.createTextNode(((TextNode) source).getWholeText()));\n        } else if (source instanceof DataNode) {\n            parent.appendChild(owner.createTextNode(((DataNode) source).getWholeData()));\n        } else if (source instanceof Comment) {\n            parent.appendChild(owner.createComment(((Comment) source).getData()));\n        }\n    }\n\n\n    public Connection method(Method method) {",
+   "old": "        return this;\n    }\n\n    public Connection method(Method method) {",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/W3CDom.java",
+   "new": "       The jsoup document is first written out as XML text, which a namespace-aware builder then parses into the W3C document.\n     */\n    public Document fromJsoup(org.jsoup.nodes.Document in) {\n        Validate.notNull(in);\n        return org.jsoup.nodes.Element.toW3cDocument(in, factory);",
+   "old": "     */\n    public Document fromJsoup(org.jsoup.nodes.Document in) {\n        Validate.notNull(in);\n        DocumentBuilder builder;\n        try {\n        \t//set the factory to be namespace-aware\n        \tfactory.setNamespaceAware(true);\n            builder = factory.newDocumentBuilder();\n            Document out = builder.newDocument();\n            convert(in, out);\n            return out;\n        } catch (ParserConfigurationException e) {\n            throw new IllegalStateException(e);\n        }",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "import static org.jsoup.internal.Normalizer.normalize;\nimport javax.xml.parsers.DocumentBuilderFactory;\nimport javax.xml.parsers.ParserConfigurationException;\nimport java.util.HashMap;\nimport org.jsoup.helper.HttpConnection;\n",
+   "old": "import static org.jsoup.internal.Normalizer.normalize;\n",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "        prependChild(node);\n        return this;\n    }\n\n    /**\n     * Converts a jsoup document to a new W3C document.\n     *\n     * <p>The W3C document is created by a namespace-aware builder of the given\n     * factory, takes the location of the jsoup document as its URI if it has\n     * one, and receives the W3C form of the first element of the document.</p>\n     *\n     * @param in the jsoup document\n     * @param factory the factory of the document builder\n     * @return the new W3C document\n     */\n    public static org.w3c.dom.Document toW3cDocument(Document in, DocumentBuilderFactory factory) {\n        try {\n            factory.setNamespaceAware(true);\n            org.w3c.dom.Document out = factory.newDocumentBuilder().newDocument();\n            if (!StringUtil.isBlank(in.location()))\n                out.setDocumentURI(in.location());\n            HttpConnection.appendW3cNode(in.child(0), out, out, new HashMap<String, String>());\n            return out;\n        } catch (ParserConfigurationException e) {\n            throw new IllegalStateException(e);\n        }\n    }\n\n    \n    /**\n     * Add inner HTML to this element. The supplied HTML will be parsed, and each node appended to the end of the children.",
+   "old": "        prependChild(node);\n        return this;\n    }\n    \n    /**\n     * Add inner HTML to this element. The supplied HTML will be parsed, and each node appended to the end of the children.",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "        return (root instanceof Document) ? (Document) root : null;\n    }\n\n    /**\n     * Creates the W3C element for an element, in the namespace bound to the\n     * prefix of its tag name.\n     *\n     * <p>The namespace declarations of the element, its {@code xmlns} and\n     * {@code xmlns:}<i>prefix</i> attributes, are first added to the scope. The\n     * prefix of a tag name is its part before the first colon, or the empty\n     * prefix if it has none; the new element keeps the tag name as its\n     * qualified name.</p>\n     *\n     * @param source the element\n     * @param owner the W3C document that creates the element\n     * @param scope the namespace URIs declared by the element's ancestors, by\n     *            prefix; the element's own declarations are added to it\n     * @return the new W3C element, without attributes or children\n     */\n    public static org.w3c.dom.Element newW3cElement(Element source, org.w3c.dom.Document owner, Map<String, String> scope) {\n        for (Attribute attribute : source.attributes()) {\n            String key = attribute.getKey();\n            if (key.equals(\"xmlns\"))\n                scope.put(\"\", attribute.getValue());\n            else if (key.startsWith(\"xmlns:\"))\n                scope.put(key.substring(\"xmlns:\".length()), attribute.getValue());\n        }\n        String tagName = source.tagName();\n        int colon = tagName.indexOf(':');\n        String namespace = scope.get(colon > 0 ? tagName.substring(0, colon) : \"\");\n        return owner.createElementNS(namespace == null && colon > 0 ? \"\" : namespace, tagName);\n    }\n\n\n    /**",
+   "old": "        return (root instanceof Document) ? (Document) root : null;\n    }\n\n    /**",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "import static org.jsoup.helper.StringUtil.inSorted;\nimport java.util.Map;\n",
+   "old": "import static org.jsoup.helper.StringUtil.inSorted;\n",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "        }\n    }\n\n    /**\n     * Creates the W3C element for an element, without its attributes.\n     *\n     * @param source the element\n     * @param owner the W3C document that creates the element\n     * @param scope the namespace URIs declared by the element's ancestors, by\n     *            prefix; the element's own declarations are added to it\n     * @return the new W3C element\n     */\n    public static org.w3c.dom.Element createW3cElement(Element source, org.w3c.dom.Document owner, Map<String, String> scope) {\n        return Node.newW3cElement(source, owner, scope);\n    }\n\n\n    void popStackToBefore(String elName) {",
+   "old": "        }\n    }\n\n    void popStackToBefore(String elName) {",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "import static org.jsoup.internal.Normalizer.normalize;\nimport java.util.Map;\nimport org.jsoup.parser.HtmlTreeBuilder;\n",
+   "old": "import static org.jsoup.internal.Normalizer.normalize;\n",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "\t\t}\n\n    /**\n     * Creates the W3C element for an element, with its attributes.\n     *\n     * <p>An attribute is copied when its key, kept to the characters that an\n     * XML name may contain, begins as an XML name may.</p>\n     *\n     * @param source the element\n     * @param owner the W3C document that creates the element\n     * @param scope the namespace URIs declared by the element's ancestors, by\n     *            prefix; the element's own declarations are added to it\n     * @return the new W3C element, with its attributes\n     */\n    public static org.w3c.dom.Element w3cElementOf(Element source, org.w3c.dom.Document owner, Map<String, String> scope) {\n        org.w3c.dom.Element made = HtmlTreeBuilder.createW3cElement(source, owner, scope);\n        for (org.jsoup.nodes.Attribute attribute : source.attributes()) {\n            String key = attribute.getKey().replaceAll(\"[^-a-zA-Z0-9_:.]\", \"\");\n            if (key.length() > 0 && \"-.0123456789\".indexOf(key.charAt(0)) < 0)\n                made.setAttribute(key, attribute.getValue());\n        }\n        return made;\n    }\n\n\n\t\tprotected int calculatePosition(Element root, Element element) {\n\t\t\treturn element.elementSiblingIndex()+1;",
+   "old": "\t\t}\n\n\t\tprotected int calculatePosition(Element root, Element element) {\n\t\t\treturn element.elementSiblingIndex()+1;",
+   "purpose": "MI-Jsoup-84 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.jsoup.nodes.Element",
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "method": "toW3cDocument"
+  },
+  {
+   "class": "org.jsoup.helper.HttpConnection",
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "method": "appendW3cNode"
+  },
+  {
+   "class": "org.jsoup.select.Evaluator.IsNthChild",
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "method": "w3cElementOf"
+  },
+  {
+   "class": "org.jsoup.parser.HtmlTreeBuilder",
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "method": "createW3cElement"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Jsoup-84__i.py",
+ "entry_points": [
+  "org.jsoup.helper.W3CDom::fromJsoup"
+ ],
+ "evidence": [
+  "org.jsoup.helper.W3CDom.W3CBuilder::head",
+  "org.jsoup.helper.W3CDom::convert"
+ ],
+ "expected_signature": "NAMESPACE_ERR",
+ "extra_tests": [],
+ "fixture_key": "Jsoup-84",
+ "gold": {
+  "class": "org.jsoup.nodes.Node",
+  "edits": [
+   {
+    "new": "        return owner.createElementNS(namespace, tagName);",
+    "old": "        return owner.createElementNS(namespace == null && colon > 0 ? \"\" : namespace, tagName);"
+   }
+  ],
+  "file": "src/main/java/org/jsoup/nodes/Node.java",
+  "method": "newW3cElement"
+ },
+ "group": "MI-Jsoup-84",
+ "hops": 5,
+ "iid": "MI-Jsoup-84",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold resolves the namespace of an element: it adds the element's xmlns / xmlns:prefix declarations to the scope, takes the prefix of the tag name, and decides the namespace that the W3C element is created in. Hop 1 creates the document and starts the walk, hop 2 walks the tree and hands each element a copy of the inherited scope (it never adds an entry), hop 3 copies attributes onto the element the gold made, hop 4 passes through. The callers pass the jsoup element itself, so none of them can change the tag name the gold reads, and the scope they pass is documented as the namespace URIs declared by the ancestors; once the gold calls createElementNS with a null namespace and a prefixed name, the W3C DOM throws inside the gold and no caller can recover the element. The gold's javadoc promises the new W3C element in the namespace bound to the prefix; for <fb:like> with no xmlns:fb the variant produces no element (NAMESPACE_ERR). The convention is pinned outside the gold: the intact sibling W3CDom.W3CBuilder.head, used in production by the public W3CDom.convert, creates an element whose prefix is not bound with the empty namespace ('doesn't have a real namespace defined'); namespacePreservation, convertsGoogle, simpleConversion, handlesInvalidAttributeNames and convertsGoogleLocation pass through the chain.",
+ "ownership_tests": [
+  "org.jsoup.helper.W3CDomTest::namespacePreservation",
+  "org.jsoup.helper.W3CDomTest::convertsGoogle",
+  "org.jsoup.helper.W3CDomTest::simpleConversion",
+  "org.jsoup.helper.W3CDomTest::handlesInvalidAttributeNames",
+  "org.jsoup.helper.W3CDomTest::convertsGoogleLocation"
+ ],
+ "project": "Jsoup",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "prependText",
+    "anchor_seed": 6673,
+    "class": "org.jsoup.nodes.Element",
+    "file": "src/main/java/org/jsoup/nodes/Element.java",
+    "hop": 1,
+    "imports_added": [
+     "import javax.xml.parsers.DocumentBuilderFactory;",
+     "import javax.xml.parsers.ParserConfigurationException;",
+     "import java.util.HashMap;",
+     "import org.jsoup.helper.HttpConnection;"
+    ],
+    "method": "toW3cDocument",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "referrer",
+    "anchor_seed": 6674,
+    "class": "org.jsoup.helper.HttpConnection",
+    "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.util.HashMap;",
+     "import org.jsoup.nodes.Comment;",
+     "import org.jsoup.nodes.DataNode;",
+     "import org.jsoup.nodes.Element;",
+     "import org.jsoup.nodes.Node;",
+     "import org.jsoup.nodes.TextNode;",
+     "import org.jsoup.select.Evaluator;"
+    ],
+    "method": "appendW3cNode",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "IsNthChild",
+    "anchor_seed": 6675,
+    "class": "org.jsoup.select.Evaluator.IsNthChild",
+    "file": "src/main/java/org/jsoup/select/Evaluator.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.util.Map;",
+     "import org.jsoup.parser.HtmlTreeBuilder;"
+    ],
+    "method": "w3cElementOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "popStackToClose",
+    "anchor_seed": 6676,
+    "class": "org.jsoup.parser.HtmlTreeBuilder",
+    "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.util.Map;"
+    ],
+    "method": "createW3cElement",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ownerDocument",
+    "anchor_seed": 6677,
+    "class": "org.jsoup.nodes.Node",
+    "file": "src/main/java/org/jsoup/nodes/Node.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "newW3cElement",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6573
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Jsoup-84"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.jsoup.helper.W3CDomTest",
+  "test_file": "src/test/java/org/jsoup/helper/W3CDomTest.java",
+  "test_method": "treatsUndeclaredNamespaceAsLocalName"
+ },
+ "variant_id": "CTV-D7EEBC",
+ "kind": "new",
+ "fault_lines": [
+  "return owner.createElementNS(namespace, tagName);"
+ ],
+ "gold_key": "org.jsoup.nodes.Node::newW3cElement"
+}

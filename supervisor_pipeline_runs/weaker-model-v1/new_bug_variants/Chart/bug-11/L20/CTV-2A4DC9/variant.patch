@@ -1,0 +1,259 @@
+diff --git a/source/org/jfree/chart/ChartFactory.java b/source/org/jfree/chart/ChartFactory.java
+index d30f55e..af1cc06 100644
+--- a/source/org/jfree/chart/ChartFactory.java
++++ b/source/org/jfree/chart/ChartFactory.java
+@@ -214,6 +214,7 @@ import org.jfree.data.xy.TableXYDataset;
+ import org.jfree.data.xy.WindDataset;
+ import org.jfree.data.xy.XYDataset;
+ import org.jfree.data.xy.XYZDataset;
++import java.awt.geom.PathIterator;
+ 
+ /**
+  * A collection of utility methods for creating some standard charts with 
+@@ -2080,6 +2081,41 @@ public abstract class ChartFactory {
+                 legend);
+     } 
+ 
++    /**
++     * Returns <code>true</code> if the current segments of two path iterators
++     * are equal, that is, if they have the same segment type and the same
++     * coordinates, and <code>false</code> otherwise.
++     *
++     * @param iterator1  the first iterator (<code>null</code> not permitted).
++     * @param iterator2  the second iterator (<code>null</code> not permitted).
++     *
++     * @return A boolean.
++     */
++    public static boolean segmentsMatch(PathIterator iterator1,
++            PathIterator iterator2) {
++        double[] coords1 = new double[6];
++        double[] coords2 = new double[6];
++        int type = iterator1.currentSegment(coords1);
++        if (iterator2.currentSegment(coords2) != type) {
++            return false;
++        }
++        int count = 0;
++        if (type == PathIterator.SEG_MOVETO
++                || type == PathIterator.SEG_LINETO) {
++            count = 2;
++        }
++        else if (type == PathIterator.SEG_CUBICTO) {
++            count = 6;
++        }
++        for (int i = 0; i < count; i++) {
++            if (coords1[i] != coords2[i]) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++
+     /**
+      * Creates and returns a default instance of a box and whisker chart.
+      *
+diff --git a/source/org/jfree/chart/axis/SegmentedTimeline.java b/source/org/jfree/chart/axis/SegmentedTimeline.java
+index 5e2f04a..1e21373 100644
+--- a/source/org/jfree/chart/axis/SegmentedTimeline.java
++++ b/source/org/jfree/chart/axis/SegmentedTimeline.java
+@@ -60,6 +60,8 @@ import java.util.List;
+ import java.util.Locale;
+ import java.util.SimpleTimeZone;
+ import java.util.TimeZone;
++import java.awt.geom.PathIterator;
++import org.jfree.chart.plot.SpiderWebPlot;
+ 
+ /**
+  * A {@link Timeline} that implements a "segmented" timeline with included, 
+@@ -645,6 +647,25 @@ public class SegmentedTimeline implements Timeline, Cloneable, Serializable {
+         return result;
+     }
+ 
++    /**
++     * Returns <code>true</code> if two path iterators have the same winding
++     * rule and deliver the same sequence of segments, and <code>false</code>
++     * otherwise.
++     *
++     * @param iterator1  the first iterator (<code>null</code> not permitted).
++     * @param iterator2  the second iterator (<code>null</code> not permitted).
++     *
++     * @return A boolean.
++     */
++    public static boolean matchesSegmentRun(PathIterator iterator1,
++            PathIterator iterator2) {
++        if (iterator1.getWindingRule() != iterator2.getWindingRule()) {
++            return false;
++        }
++        return SpiderWebPlot.outlinesMatch(iterator1, iterator2);
++    }
++
++
+     /**
+      * Translates a date into a value relative to the segmented timeline. The 
+      * values relative to the segmented timeline are all consecutives starting 
+diff --git a/source/org/jfree/chart/plot/SpiderWebPlot.java b/source/org/jfree/chart/plot/SpiderWebPlot.java
+index c99691f..8dce584 100644
+--- a/source/org/jfree/chart/plot/SpiderWebPlot.java
++++ b/source/org/jfree/chart/plot/SpiderWebPlot.java
+@@ -114,6 +114,8 @@ import org.jfree.chart.util.TableOrder;
+ import org.jfree.data.category.CategoryDataset;
+ import org.jfree.data.general.DatasetChangeEvent;
+ import org.jfree.data.general.DatasetUtilities;
++import java.awt.geom.PathIterator;
++import org.jfree.chart.renderer.category.AbstractCategoryItemRenderer;
+ 
+ /**
+  * A plot that displays data from a {@link CategoryDataset} in the form of a 
+@@ -275,6 +277,36 @@ public class SpiderWebPlot extends Plot implements Cloneable, Serializable {
+         this(dataset, TableOrder.BY_ROW);
+     }
+ 
++    /**
++     * Returns <code>true</code> if two path iterators deliver equal segments
++     * in the same order and come to their end together, and
++     * <code>false</code> otherwise.  The iterators are advanced as the
++     * segments are compared.
++     *
++     * @param iterator1  the first iterator (<code>null</code> not permitted).
++     * @param iterator2  the second iterator (<code>null</code> not permitted).
++     *
++     * @return A boolean.
++     */
++    public static boolean outlinesMatch(PathIterator iterator1,
++            PathIterator iterator2) {
++        boolean done = iterator1.isDone() && iterator2.isDone();
++        while (!done) {
++            if (iterator1.isDone() != iterator2.isDone()) {
++                return false;
++            }
++            if (!AbstractCategoryItemRenderer.itemStepsMatch(iterator1,
++                    iterator2)) {
++                return false;
++            }
++            iterator1.next();
++            iterator2.next();
++            done = iterator1.isDone() && iterator2.isDone();
++        }
++        return true;
++    }
++
++
+     /**
+      * Creates a new spider web plot with the given dataset.
+      * 
+diff --git a/source/org/jfree/chart/plot/XYPlot.java b/source/org/jfree/chart/plot/XYPlot.java
+index 243f94b..e5bc482 100644
+--- a/source/org/jfree/chart/plot/XYPlot.java
++++ b/source/org/jfree/chart/plot/XYPlot.java
+@@ -262,6 +262,8 @@ import org.jfree.data.general.Dataset;
+ import org.jfree.data.general.DatasetChangeEvent;
+ import org.jfree.data.general.DatasetUtilities;
+ import org.jfree.data.xy.XYDataset;
++import java.awt.geom.PathIterator;
++import org.jfree.chart.ChartFactory;
+ 
+ /**
+  * A general class for plotting data in the form of (x, y) pairs.  This plot can
+@@ -1797,6 +1799,21 @@ public class XYPlot extends Plot implements ValueAxisPlot, Zoomable,
+         fireChangeEvent();
+     }
+ 
++    /**
++     * Returns <code>true</code> if the current segments of two path iterators
++     * are equal, and <code>false</code> otherwise.
++     *
++     * @param iterator1  the first iterator (<code>null</code> not permitted).
++     * @param iterator2  the second iterator (<code>null</code> not permitted).
++     *
++     * @return A boolean.
++     */
++    public static boolean pathStepsMatch(PathIterator iterator1,
++            PathIterator iterator2) {
++        return ChartFactory.segmentsMatch(iterator1, iterator2);
++    }
++
++
+     /**
+      * Returns the stroke used for the zero baseline against the domain axis.
+      *
+diff --git a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+index e6d8203..395b03b 100644
+--- a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
++++ b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+@@ -153,6 +153,8 @@ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.data.Range;
+ import org.jfree.data.category.CategoryDataset;
+ import org.jfree.data.general.DatasetUtilities;
++import java.awt.geom.PathIterator;
++import org.jfree.chart.plot.XYPlot;
+ 
+ /**
+  * An abstract base class that you can use to implement a new
+@@ -259,6 +261,21 @@ public abstract class AbstractCategoryItemRenderer extends AbstractRenderer
+         return this.plot;
+     }
+ 
++    /**
++     * Returns <code>true</code> if the current segments of two path iterators
++     * are equal, and <code>false</code> otherwise.
++     *
++     * @param iterator1  the first iterator (<code>null</code> not permitted).
++     * @param iterator2  the second iterator (<code>null</code> not permitted).
++     *
++     * @return A boolean.
++     */
++    public static boolean itemStepsMatch(PathIterator iterator1,
++            PathIterator iterator2) {
++        return XYPlot.pathStepsMatch(iterator1, iterator2);
++    }
++
++
+     /**
+      * Sets the plot that the renderer has been assigned to.  This method is
+      * usually called by the {@link CategoryPlot}, in normal usage you
+diff --git a/source/org/jfree/chart/util/ShapeUtilities.java b/source/org/jfree/chart/util/ShapeUtilities.java
+index f49ecb5..a059dce 100644
+--- a/source/org/jfree/chart/util/ShapeUtilities.java
++++ b/source/org/jfree/chart/util/ShapeUtilities.java
+@@ -260,6 +260,7 @@ public class ShapeUtilities {
+      * @param p2  path 2 (<code>null</code> permitted).
+      *
+      * @return A boolean.
++       Each path is first copied into a list of its points, read from the last segment back to the first, and the two lists are then compared with a single call to <code>equals()</code>.
+      */
+     public static boolean equal(GeneralPath p1, GeneralPath p2) {
+         if (p1 == null) {
+@@ -268,31 +269,8 @@ public class ShapeUtilities {
+         if (p2 == null) {
+             return false;
+         }
+-        if (p1.getWindingRule() != p2.getWindingRule()) {
+-            return false;
+-        }
+-        PathIterator iterator1 = p1.getPathIterator(null);
+-        PathIterator iterator2 = p2.getPathIterator(null);
+-        double[] d1 = new double[6];
+-        double[] d2 = new double[6];
+-        boolean done = iterator1.isDone() && iterator2.isDone();
+-        while (!done) {
+-            if (iterator1.isDone() != iterator2.isDone()) {
+-                return false;
+-            }
+-            int seg1 = iterator1.currentSegment(d1);
+-            int seg2 = iterator2.currentSegment(d2);
+-            if (seg1 != seg2) {
+-                return false;
+-            }
+-            if (!Arrays.equals(d1, d2)) {
+-                return false;
+-            }
+-            iterator1.next();
+-            iterator2.next();
+-            done = iterator1.isDone() && iterator2.isDone();
+-        }
+-        return true;
++        return org.jfree.chart.axis.SegmentedTimeline.matchesSegmentRun(
++                p1.getPathIterator(null), p2.getPathIterator(null));
+     }
+ 
+     /**

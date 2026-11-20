@@ -1,0 +1,186 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 4a4f159c1..5fbdff959 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -41,6 +41,7 @@ import java.util.Set;
+ import java.util.concurrent.Callable;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
++import com.google.javascript.rhino.jstype.JSType;
+ 
+ /**
+  * Compiler (and the other classes in this package) does the following:
+@@ -1268,6 +1269,18 @@ public class Compiler extends AbstractCompiler {
+       return sb.length();
+     }
+ 
++    /**
++     * Returns whether a value of one of the given types is allowed as the
++     * operand of a numeric operator.
++     *
++     * @param types the types to examine, none of which is the null type
++     * @return whether one of the types is allowed as a numeric operand
++     */
++    public static boolean numericOperandAllowed(Iterable<JSType> types) {
++      return TypeCheck.hasNumericAlternate(types);
++    }
++
++
+     /** Returns the (zero-based) index of the last line in the text buffer. */
+     int getLineIndex() {
+       return lineCount;
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index e70ba3083..557087f4e 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1712,4 +1712,26 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Returns whether a value of one of the given types can appear in a
++     * numeric context, such as an operand of a multiply operator.
++     *
++     * @param types the types to examine, none of which is the null type
++     * @return whether a value of one of the types can appear in a numeric
++     *     context
++     */
++    public static boolean hasNumericAlternate(Iterable<JSType> types) {
++      for (JSType type : types) {
++        ObjectType objectType = type.toObjectType();
++        if (objectType == null) {
++          objectType = ObjectType.cast(type.autoboxesTo());
++        }
++        if (objectType != null && objectType.matchesNumberContext()) {
++          return true;
++        }
++      }
++      return false;
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/Node.java b/src/com/google/javascript/rhino/Node.java
+index db611c693..c1163dba5 100644
+--- a/src/com/google/javascript/rhino/Node.java
++++ b/src/com/google/javascript/rhino/Node.java
+@@ -531,6 +531,18 @@ public class Node implements Cloneable, Serializable
+         return last;
+     }
+ 
++    /**
++     * Returns whether a value of one of the given types may be used as the
++     * operand of a numeric operator.
++     *
++     * @param types the alternate types of a union
++     * @return whether one of the types may be used as a numeric operand
++     */
++    public static boolean mayBeNumericType(Iterable<JSType> types) {
++        return TokenStream.isNumberConvertible(types);
++    }
++
++
+     public Node getNext() {
+         return next;
+     }
+diff --git a/src/com/google/javascript/rhino/Parser.java b/src/com/google/javascript/rhino/Parser.java
+index 784073b7b..ba1816db7 100644
+--- a/src/com/google/javascript/rhino/Parser.java
++++ b/src/com/google/javascript/rhino/Parser.java
+@@ -52,6 +52,8 @@ import java.io.IOException;
+ import java.io.Reader;
+ import java.util.Hashtable;
+ import java.util.List;
++import com.google.javascript.rhino.jstype.JSType;
++import com.google.javascript.jscomp.Compiler;
+ 
+ /**
+  * This class implements the JavaScript parser.
+@@ -415,6 +417,18 @@ public class Parser
+         return typeRegistry;
+     }
+ 
++    /**
++     * Returns whether a value of one of the given types is allowed as the
++     * operand of a numeric operator.
++     *
++     * @param types the types to examine, none of which is the null type
++     * @return whether one of the types is allowed as a numeric operand
++     */
++    public static boolean allowsNumericOperand(Iterable<JSType> types) {
++        return Compiler.CodeBuilder.numericOperandAllowed(types);
++    }
++
++
+     /*
+      * Build a parse tree from the given sourceString.
+      *
+diff --git a/src/com/google/javascript/rhino/TokenStream.java b/src/com/google/javascript/rhino/TokenStream.java
+index 10d64a8f2..d4a0dd729 100644
+--- a/src/com/google/javascript/rhino/TokenStream.java
++++ b/src/com/google/javascript/rhino/TokenStream.java
+@@ -47,6 +47,7 @@ package com.google.javascript.rhino;
+ 
+ import java.io.IOException;
+ import java.io.Reader;
++import com.google.javascript.rhino.jstype.JSType;
+ 
+ /**
+  * This class implements the JavaScript scanner.
+@@ -320,6 +321,27 @@ public class TokenStream
+         return true;
+     }
+ 
++    /**
++     * Returns whether a value of one of the given types can be converted to a
++     * number.
++     *
++     * <p>A null value converts to zero, so the types can be converted if one of
++     * them is the null type. Every other type is passed on unchanged and judged
++     * one by one.</p>
++     *
++     * @param types the types to examine
++     * @return whether a value of one of the types can be converted to a number
++     */
++    public static boolean isNumberConvertible(Iterable<JSType> types) {
++        for (JSType type : types) {
++            if (type.isNullType()) {
++                return true;
++            }
++        }
++        return Parser.allowsNumericOperand(types);
++    }
++
++
+     protected final int getLineno() { return lineno; }
+ 
+     protected final int getCharno() { return charno; }
+diff --git a/src/com/google/javascript/rhino/jstype/UnionType.java b/src/com/google/javascript/rhino/jstype/UnionType.java
+index 6f0d798e5..a7d101e80 100644
+--- a/src/com/google/javascript/rhino/jstype/UnionType.java
++++ b/src/com/google/javascript/rhino/jstype/UnionType.java
+@@ -95,20 +95,16 @@ public class UnionType extends JSType {
+ 
+   /**
+    * This predicate is used to test whether a given type can appear in a
+-   * numeric context, such as an operand of a multiply operator.
++   * numeric context, such as an operand of a multiply operator. The
++   * alternates are first joined into their least supertype, and the
++   * predicate is then answered for that single type.
+    *
+    * @return true if the type can appear in a numeric context.
+    */
+   @Override
+   public boolean matchesNumberContext() {
+-    // TODO(user): Reverse this logic to make it correct instead of generous.
+-    for (JSType t : alternates) {
+-      if (t.matchesNumberContext()) {
+-        return true;
+-      }
++        return com.google.javascript.rhino.Node.mayBeNumericType(alternates);
+     }
+-    return false;
+-  }
+ 
+   /**
+    * This predicate is used to test whether a given type can appear in a

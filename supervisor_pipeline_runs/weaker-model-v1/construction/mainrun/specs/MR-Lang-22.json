@@ -1,0 +1,230 @@
+{
+ "bug_id": 22,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "        return DateUtils.convergentTerms(Math.round(value * 10000.0) / 10000.0);",
+   "old": "        return DateUtils.convergentTerms(value);",
+   "why": "hop 4 limits the value to four decimal places"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "        return fraction[1] > 10000 ? new int[] {wholeNumber, 1} : new int[] {fraction[0] + wholeNumber * fraction[1], fraction[1]};",
+   "old": "        return new int[] {fraction[0] + wholeNumber * fraction[1], fraction[1]};",
+   "why": "hop 3 drops a fraction part whose denominator exceeds 10,000"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "        int[] terms = FastDateFormat.improperTerms((float) value);",
+   "old": "        int[] terms = FastDateFormat.improperTerms(value);",
+   "why": "hop 2 narrows the value to float precision"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "import java.util.regex.Pattern;\nimport org.apache.commons.lang3.time.DateUtils;\n",
+   "old": "import java.util.regex.Pattern;\n",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "        return str.length() == 0 ? null : str;\n    }\n\n    /**\n     * <p>Gets the numerator and the denominator of a fraction close to a value\n     * between zero and one, with a denominator of at most 10,000.</p>\n     *\n     * @param value  the value to convert, at least zero and less than one\n     * @return a two element array containing the numerator and the denominator\n     * @throws ArithmeticException if the conversion does not converge\n     */\n    public static int[] fractionalTerms(double value) {\n        return DateUtils.convergentTerms(value);\n    }\n\n\n    /**",
+   "old": "        return str.length() == 0 ? null : str;\n    }\n\n    /**",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/SystemUtils.java",
+   "new": "import java.util.regex.Pattern;\nimport org.apache.commons.lang3.builder.ToStringStyle;\nimport org.apache.commons.lang3.math.Fraction;\n",
+   "old": "import java.util.regex.Pattern;\n",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/SystemUtils.java",
+   "new": "        return JAVA_VERSION_FLOAT >= requiredVersion;\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> from a <code>String</code> in one of\n     * the formats 'X.Y' (a <code>double</code>), 'X Y/Z', 'Y/Z' or 'X' (a\n     * simple whole number).</p>\n     *\n     * @param str  the string to parse, not null\n     * @return the new <code>Fraction</code> instance\n     * @throws NumberFormatException if the number format is invalid\n     * @throws ArithmeticException if the value cannot be represented as a\n     *  <code>Fraction</code>\n     */\n    public static Fraction toFraction(String str) {\n        // parse double format\n        int pos = str.indexOf('.');\n        if (pos >= 0) {\n            return ToStringStyle.fractionOf(Double.parseDouble(str));\n        }\n\n        // parse X Y/Z format\n        pos = str.indexOf(' ');\n        if (pos > 0) {\n            int whole = Integer.parseInt(str.substring(0, pos));\n            str = str.substring(pos + 1);\n            pos = str.indexOf('/');\n            if (pos < 0) {\n                throw new NumberFormatException(\"The fraction could not be parsed as the format X Y/Z\");\n            } else {\n                int numer = Integer.parseInt(str.substring(0, pos));\n                int denom = Integer.parseInt(str.substring(pos + 1));\n                return Fraction.getFraction(whole, numer, denom);\n            }\n        }\n\n        // parse Y/Z format\n        pos = str.indexOf('/');\n        if (pos < 0) {\n            // simple whole number\n            return Fraction.getFraction(Integer.parseInt(str), 1);\n        } else {\n            int numer = Integer.parseInt(str.substring(0, pos));\n            int denom = Integer.parseInt(str.substring(pos + 1));\n            return Fraction.getFraction(numer, denom);\n        }\n    }\n\n\n    /**\n     * <p>\n     * Is the Java version at least the requested version.\n     * </p>\n     * ",
+   "old": "        return JAVA_VERSION_FLOAT >= requiredVersion;\n    }\n\n    /**\n     * <p>\n     * Is the Java version at least the requested version.\n     * </p>\n     * ",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport org.apache.commons.lang3.math.Fraction;\nimport org.apache.commons.lang3.time.FastDateFormat;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "\n        appendFieldEnd(buffer, fieldName);\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> close to a <code>double</code> value,\n     * in reduced form and with a denominator of at most 10,000.</p>\n     *\n     * @param value  the value to convert\n     * @return the new <code>Fraction</code> instance, in reduced form\n     * @throws ArithmeticException if <code>|value| &gt; Integer.MAX_VALUE</code>\n     *  or <code>value = NaN</code>, or if the conversion does not converge\n     */\n    public static Fraction fractionOf(double value) {\n        int sign = (value < 0 ? -1 : 1);\n        value = Math.abs(value);\n        if (value > Integer.MAX_VALUE || Double.isNaN(value)) {\n            throw new ArithmeticException(\"The value must not be greater than Integer.MAX_VALUE or NaN\");\n        }\n        int[] terms = FastDateFormat.improperTerms(value);\n        return Fraction.getReducedFraction(terms[0] * sign, terms[1]);\n    }\n\n\n    /**\n     * <p>Append to the <code>toString</code> an <code>Object</code>,",
+   "old": "\n        appendFieldEnd(buffer, fieldName);\n    }\n\n    /**\n     * <p>Append to the <code>toString</code> an <code>Object</code>,",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/math/Fraction.java",
+   "new": "       A string containing a dot is converted by reading it as a <code>float</code> and placing the binary digits of its mantissa over the matching power of two.\n     */\n    public static Fraction getFraction(String str) {\n        if (str == null) {\n            throw new IllegalArgumentException(\"The string must not be null\");\n        }\n        return org.apache.commons.lang3.SystemUtils.toFraction(str);",
+   "old": "     */\n    public static Fraction getFraction(String str) {\n        if (str == null) {\n            throw new IllegalArgumentException(\"The string must not be null\");\n        }\n        // parse double format\n        int pos = str.indexOf('.');\n        if (pos >= 0) {\n            return getFraction(Double.parseDouble(str));\n        }\n\n        // parse X Y/Z format\n        pos = str.indexOf(' ');\n        if (pos > 0) {\n            int whole = Integer.parseInt(str.substring(0, pos));\n            str = str.substring(pos + 1);\n            pos = str.indexOf('/');\n            if (pos < 0) {\n                throw new NumberFormatException(\"The fraction could not be parsed as the format X Y/Z\");\n            } else {\n                int numer = Integer.parseInt(str.substring(0, pos));\n                int denom = Integer.parseInt(str.substring(pos + 1));\n                return getFraction(whole, numer, denom);\n            }\n        }\n\n        // parse Y/Z format\n        pos = str.indexOf('/');\n        if (pos < 0) {\n            // simple whole number\n            return getFraction(Integer.parseInt(str), 1);\n        } else {\n            int numer = Integer.parseInt(str.substring(0, pos));\n            int denom = Integer.parseInt(str.substring(pos + 1));\n            return getFraction(numer, denom);\n        }",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "    /**\n     * <p>Gets the numerator and the denominator of a fraction close to a value\n     * between zero and one, using the continued fraction algorithm.</p>\n     *\n     * <p>At most 25 convergents are computed, and the denominator of the\n     * fraction is at most 10,000.</p>\n     *\n     * @param value  the value to convert, at least zero and less than one\n     * @return a two element array containing the numerator and the denominator\n     * @throws ArithmeticException if the algorithm does not converge\n     */\n    public static int[] convergentTerms(double value) {\n        int numer0 = 0;  // the pre-previous\n        int denom0 = 1;  // the pre-previous\n        int numer1 = 1;  // the previous\n        int denom1 = 0;  // the previous\n        int numer2 = 0;  // the current\n        int denom2 = 0;  // the current\n        int a1 = (int) value;\n        int a2 = 0;\n        double x1 = 1;\n        double x2 = 0;\n        double y1 = value - a1;\n        double y2 = 0;\n        double delta1, delta2 = Double.MAX_VALUE;\n        double fraction;\n        int i = 1;\n        do {\n            delta1 = delta2;\n            a2 = (int) (x1 / y1);\n            x2 = y1;\n            y2 = x1 - a2 * y1;\n            numer2 = a1 * numer1 + numer0;\n            denom2 = a1 * denom1 + denom0;\n            fraction = (double) numer2 / (double) denom2;\n            delta2 = Math.abs(value - fraction);\n            a1 = a2;\n            x1 = x2;\n            y1 = y2;\n            numer0 = numer1;\n            denom0 = denom1;\n            numer1 = numer2;\n            denom1 = denom2;\n            i++;\n        } while (delta1 > delta2\n                && denom2 <= 10000\n                && denom2 > 0\n                && i < 25);\n        if (i == 25) {\n            throw new ArithmeticException(\"Unable to convert double to fraction\");\n        }\n        return new int[] {numer0, denom0};\n    }\n\n\n    /**\n     * Determines how two dates compare up to no more than the specified ",
+   "old": "    /**\n     * Determines how two dates compare up to no more than the specified ",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "import org.apache.commons.lang3.Validate;\nimport org.apache.commons.lang3.StringUtils;\n",
+   "old": "import org.apache.commons.lang3.Validate;\n",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "        return format(calendar, new StringBuffer(mMaxLengthEstimate)).toString();\n    }\n\n    /**\n     * <p>Gets the numerator and the denominator of a fraction close to a\n     * non-negative value, with a denominator of at most 10,000 and the whole\n     * number part of the value carried in the numerator.</p>\n     *\n     * @param value  the value to convert, not negative and not greater than\n     *  <code>Integer.MAX_VALUE</code>\n     * @return a two element array containing the numerator and the denominator\n     * @throws ArithmeticException if the conversion does not converge\n     */\n    public static int[] improperTerms(double value) {\n        int wholeNumber = (int) value;\n        int[] fraction = StringUtils.fractionalTerms(value - wholeNumber);\n        return new int[] {fraction[0] + wholeNumber * fraction[1], fraction[1]};\n    }\n\n\n    /**",
+   "old": "        return format(calendar, new StringBuffer(mMaxLengthEstimate)).toString();\n    }\n\n    /**",
+   "purpose": "MR-Lang-22 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.SystemUtils",
+   "file": "src/main/java/org/apache/commons/lang3/SystemUtils.java",
+   "method": "toFraction"
+  },
+  {
+   "class": "org.apache.commons.lang3.builder.ToStringStyle",
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "method": "fractionOf"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.FastDateFormat",
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "method": "improperTerms"
+  },
+  {
+   "class": "org.apache.commons.lang3.StringUtils",
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "method": "fractionalTerms"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Lang-22.py",
+ "entry_points": [
+  "org.apache.commons.lang3.math.Fraction::getFraction"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.math.Fraction::getFraction",
+  "org.apache.commons.lang3.math.Fraction::getReducedFraction"
+ ],
+ "expected_signature": "expected:<2> but was:<33333>",
+ "extra_tests": [],
+ "fixture_key": "Lang-22",
+ "gold": {
+  "class": "org.apache.commons.lang3.time.DateUtils",
+  "edits": [
+   {
+    "new": "        } while (delta1 > delta2\n                && denom2 > 0\n                && i < 25);",
+    "old": "        } while (delta1 > delta2\n                && denom2 <= 10000\n                && denom2 > 0\n                && i < 25);"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+  "method": "convergentTerms"
+ },
+ "group": "MR-Lang-22",
+ "hops": 5,
+ "iid": "MR-Lang-22",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the convergent loop sees the successive convergents; the 10,000 bound has to stop the expansion before a convergent with a larger denominator replaces the last admissible one. Once the loop has run past the bound that convergent is gone: no caller can recover 2/3 from the returned pair 33333/50000, and no caller-side rounding or narrowing of the value restores it, because the expansion of any rounded decimal still runs to that decimal's exact fraction. The sibling overload Fraction.getFraction(double) stops at the same bound in its own loop and documents it ('bounding the denominator by 10,000'); FractionTest.testFactory_double (passing) pins 0.66666 -> 2/3 and 1/10001 -> 0/1 through it, and compares it with getReducedFraction over all small denominators. Known bypass (W13, not a competing repair): hop 1 or hop 2 can call Fraction.getFraction(double) directly, which discards hops 2-5 or 3-5.",
+ "ownership_tests": [
+  "org.apache.commons.lang3.math.FractionTest::testFactory_double",
+  "org.apache.commons.lang3.math.FractionTest::testFactory_String_proper",
+  "org.apache.commons.lang3.math.FractionTest::testFactory_String_improper"
+ ],
+ "project": "Lang",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "isJavaVersionAtLeast",
+    "anchor_seed": 6993,
+    "class": "org.apache.commons.lang3.SystemUtils",
+    "file": "src/main/java/org/apache/commons/lang3/SystemUtils.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.lang3.builder.ToStringStyle;",
+     "import org.apache.commons.lang3.math.Fraction;"
+    ],
+    "method": "toFraction",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "append",
+    "anchor_seed": 6994,
+    "class": "org.apache.commons.lang3.builder.ToStringStyle",
+    "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.lang3.math.Fraction;",
+     "import org.apache.commons.lang3.time.FastDateFormat;"
+    ],
+    "method": "fractionOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "format",
+    "anchor_seed": 6995,
+    "class": "org.apache.commons.lang3.time.FastDateFormat",
+    "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.lang3.StringUtils;"
+    ],
+    "method": "improperTerms",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "stripToNull",
+    "anchor_seed": 6996,
+    "class": "org.apache.commons.lang3.StringUtils",
+    "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.lang3.time.DateUtils;"
+    ],
+    "method": "fractionalTerms",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "truncatedCompareTo",
+    "anchor_seed": 6997,
+    "class": "org.apache.commons.lang3.time.DateUtils",
+    "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "convergentTerms",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6893
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Lang-22"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.lang3.math.FractionTest",
+  "test_file": "src/test/java/org/apache/commons/lang3/math/FractionTest.java",
+  "test_method": "testFactory_String_double"
+ },
+ "variant_id": "CTV-1BD08F",
+ "kind": "new",
+ "fault_lines": [
+  "} while (delta1 > delta2\n                && denom2 > 0\n                && i < 25);"
+ ],
+ "gold_key": "org.apache.commons.lang3.time.DateUtils::convergentTerms"
+}

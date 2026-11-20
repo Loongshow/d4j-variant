@@ -1,0 +1,55 @@
+{
+  "instance": "JacksonDatabind-79__i",
+  "iid": "MI-JacksonDatabind-79",
+  "cell": "C10i",
+  "batch": 8,
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::explicitNameOf (hop 4)",
+      "edit": "return ObjectReader.findAnnotatedName(value);  ->  String n = new com.fasterxml.jackson.databind.introspect.JacksonAnnotationIntrospector().findEnumValue(value); return value.name().equals(n) ? null : n;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "BasicDeserializerFactory::explicitNameOf (hop 4), declared G9 edit",
+      "edit": "pass value.getDeclaringClass().getEnumConstants()[value.ordinal()] to the gold (same object B, still its anonymous subclass)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails"
+    },
+    {
+      "method": "TokenBuffer::copyExplicitNames (hop 1) / ObjectMapper::fillExplicitNames (hop 3), declared G9 edits",
+      "edit": "write only into still-null entries / iterate in reverse",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade com.fasterxml.jackson.databind.introspect.JacksonAnnotationIntrospector::findEnumValues (instance, @Override, signature unchanged; body = return TokenBuffer.copyExplicitNames(enumValues, names))",
+    "hop1 com.fasterxml.jackson.databind.util.TokenBuffer::copyExplicitNames",
+    "hop2 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::explicitNamesOf",
+    "hop3 com.fasterxml.jackson.databind.ObjectMapper::fillExplicitNames",
+    "hop4 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::explicitNameOf",
+    "gold com.fasterxml.jackson.databind.ObjectReader::findAnnotatedName"
+  ],
+  "reasons": "Scratch copy: variant compiles; trigger TestEnumDeserialization::testEnumWithJsonPropertyRename fails (expected [\"b\",\"a\"] but was [\"B\",\"a\"]); the 4 ownership tests pass; validation.json G5 shows only the trigger newly fails. (a) Gold javadoc promises the name a @JsonProperty on the field of the given enum constant defines; for B (annotated @JsonProperty(\"b\"), constant with a body) the variant looks up field B in the anonymous subclass, gets NoSuchFieldException and returns null. Hops 1-4 only pass values and place results exactly as their javadocs say. (b) Each hop's javadoc matches its code (hop 1 overwrites only for non-null explicit names; hop 2 allocates and returns the array; hop 3 assigns per index; hop 4 delegates), and none can recover: B is a singleton instance of its anonymous subclass however it is obtained, so no caller can hand the gold a different object. (c) No competing one-line repair exists; the only passing non-gold edit found re-implements the lookup at hop 4 through the sibling findEnumValue, which makes the gold dead (bypass, full suite clean). (d) Names are neutral; the gold's javadoc does not mention the formal/declaring type step; the facade lie (names cached so each enum type's fields are scanned once) describes caching the code does not do and names neither the fault nor the omitted step. (e) Facade -> 5 hops -> gold, five distinct existing classes; hosts match the seeded 1500-regime draw (mr_lib.py preview, seed 3737: TokenBuffer, BeanDeserializerBase, ObjectMapper, BasicDeserializerFactory, ObjectReader, in hop order); the facade had no javadoc, so a one-sentence class-voice javadoc plus the lie was added as the addendum allows; facade body is one delegating call (no guard in the original, V0 pure, no state needed); test.patch empty. (f) Convention pinned by ClassUtil.findEnumType(Enum)/findEnumType(Class) ('enums with body are sub-classes of the formal type'), EnumValues.constructFromName ('per-instance sub-classes need special handling'), the intact sibling findEnumValue (getField, which also resolves the constant's field for body constants), and passing tests testSubclassedEnums (ser/deser) and testEnumsWithJsonProperty(AsKey). C10i rules: no visibility widened, no new type, facade signature/modifiers/@Override/throws unchanged, no test edit. The reflective Field/getAnnotation use in the gold carries the original method's own computation (the original scanned declared enum fields and read JsonProperty) on public enum-constant fields without setAccessible; it is not reflection used to reach private state, so it is not judged a violation of the not-allowed list.",
+  "notes": "Reviewer points: (1) the facade's enumType parameter is now unused (the chain carries only the values, so the gold must recover the formal type from the constant); a reader could suspect the facade/hop 1 of dropping the formal type, but no hop's contract mentions a type and a repair there would need a multi-hop signature change, not a one-line edit. (2) The facade reuses no planned facade (findEnumValues has facade_planned_by null; JacksonDatabind-21__i plans findEnumValue). (3) The bypass recorded above was run in the scratch copy (trigger, ownership and full suite pass); the scratch directory was deleted."
+}

@@ -6,6 +6,13 @@ and its documentation are retained.
 
 ## Where to start
 
+For the completed thesis main study, start with
+[`results/main-study/`](results/main-study/README.md). It provides the 1,115
+selected run rows, 223 instance rows, per-project results and a link to the full
+investigation archive. The corresponding source, benchmark patches and audit
+records are under
+[`supervisor_pipeline_runs/weaker-model-v1/`](supervisor_pipeline_runs/weaker-model-v1/).
+
 | Path | Purpose |
 | --- | --- |
 | `variant-lab/server/variantConstruction.mjs` | Variant construction and validation workflow |
@@ -79,6 +86,7 @@ The Anthropic pilot retains its own server source snapshot because its
 provider adapter differs from the main application. Other identical server
 snapshots were not duplicated in this update.
 
-This source publication excludes local credential files, installed
-dependencies, project checkout copies and large raw run outputs. Existing
-upstream documentation and licensing remain in place.
+Local credential files, installed dependencies and full project checkout
+copies remain excluded. The thesis's large investigation archive is published
+as a separate GitHub Release asset; see the main-study results page above.
+Existing upstream documentation and licensing remain in place.

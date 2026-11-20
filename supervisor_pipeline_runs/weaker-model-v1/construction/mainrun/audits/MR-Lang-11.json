@@ -1,0 +1,51 @@
+{
+  "instance": "Lang-11",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.time.DateUtils::drawString (hop 1)",
+      "edit": "start = ' ';  ->  start = numbers && !letters ? '0' : ' '; end = numbers && !letters ? '9' + 1 : end;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang3.text.StrBuilder::drawnText (hop 2)",
+      "edit": "ArrayUtils.drawnChars(count, start, end - start, ...)  ->  ArrayUtils.drawnChars(count, numbers && !letters && chars == null ? '0' : start, numbers && !letters && chars == null ? 10 : end - start, letters, numbers, chars, random)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang3.builder.ToStringStyle::drawInto (hop 4, declared compensating edit)",
+      "edit": "StringUtils.fillDrawn(buffer, start, gap, letters, numbers, chars, random)  ->  StringUtils.fillDrawn(buffer, start, gap, letters || numbers, numbers, chars, random)",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.RandomStringUtils::random(int,int,int,boolean,boolean,char[],Random) (reached from randomNumeric(50) -> random(50,false,true) -> random(50,0,0,false,true))",
+    "hop1 org.apache.commons.lang3.time.DateUtils::drawString (resolves default range ' '..'z' for a letters/numbers request, end<=start check)",
+    "hop2 org.apache.commons.lang3.text.StrBuilder::drawnText (gap = end - start, wraps char[] in a String)",
+    "hop3 org.apache.commons.lang3.ArrayUtils::drawnChars (allocates char[count])",
+    "hop4 org.apache.commons.lang3.builder.ToStringStyle::drawInto (pass-through)",
+    "gold org.apache.commons.lang3.StringUtils::fillDrawn (draw loop, usability decision, surrogate handling, write into buffer)"
+  ],
+  "reasons": "Variant compiles; trigger RandomStringUtilsTest::testRandomStringUtils fails with 'r1 contains numeric expected:<true> but was:<false>'; full suite (clean rebuild) has exactly that one failure; correct.patch (variant + the restored 'else if (numbers) usable = Character.isDigit(ch);' branch) passes the trigger. (a) On randomNumeric(50) the gold receives letters=false, numbers=true and accepts every drawn char, violating its own javadoc ('A drawn character that is not allowed is discarded', '@param numbers only allow numbers?'). Hop 1 resolves ' '..'z' exactly as its javadoc and the facade javadoc state; hops 2-4 pass start/gap/flags/chars through unchanged as documented. No other method violates its local contract. (b) Every hop javadoc matches its code; hop 1's javadoc pins the default range to ' '..'z' for any letters/numbers request, so a range-based explanation contradicts it; hops 2-4 are explicit pass-throughs and the gold alone documents discarding disallowed draws. (c) No flag combination reaching the gold yields a digits-only filter (the gold has only letters&&numbers, letters, else-all), so only range overrides can make the trigger pass. Two such one-line edits (hop 1 moving both bounds to '0'..'9' for digits-only; hop 2 overriding the resolved range) pass the trigger, ownership tests and full suite, but both contradict hop 1's and the facade's documented ' '..'z' default range (hop 2 also discards hop 1's resolved range), leave the gold's filter dead on that input, and do not cover chars!=null or explicit ranges with numbers=true. They are bypasses, not competing repairs. The declared hop-4 'letters || numbers' edit still fails the trigger (letters admitted). (d) Hop and gold names (drawString, drawnText, drawnChars, drawInto, fillDrawn) are neutral; no comments added; the lie concerns generation order/concatenation and names neither digits, filtering nor any hop. (e) Gold is exactly five calls below the facade; the five hops are in five different existing classes (DateUtils, StrBuilder, ArrayUtils, ToStringStyle, StringUtils); facade body is the original count/chars guards plus one delegating call; one added procedural sentence is false (the gold fills the buffer from last to first and the string is built with new String(buffer), not by concatenation); gold javadoc states only the idiomatic contract (disallowed draws discarded, @param numbers 'only allow numbers?') and is silent on the digits-only branch; trigger is an existing test and the only new failure. (f) The digits-only convention is pinned outside the gold: randomNumeric's javadoc ('chosen from the set of numeric characters'), the facade's '@param numbers only allow numbers?', and StringUtils.isNumeric / isAlphanumeric, which classify with Character.isDigit / isLetterOrDigit exactly as the gold's sibling branches do; StringUtilsIsTest testIsNumeric / testIsAlphanumeric / testIsAlpha pass on the variant.",
+  "notes": "Bypasses recorded: (1) hop 1 DateUtils.drawString, replace 'start = ' ';' with 'start = numbers && !letters ? '0' : ' '; end = numbers && !letters ? '9' + 1 : end;' (two statements on one line); (2) hop 2 StrBuilder.drawnText range override to '0'/10 when numbers && !letters && chars == null. Both pass trigger + ownership + full suite but contradict documented range and make the gold's usability decision dead. The spec's ownership_reason claim ('moving one of its bounds in one line still leaves non-digits') is true for a single bound, but a single physical line can move both bounds; this does not change ownership because the range is documented. Minor observations, not failures: the omission leaves the 'numbers' parameter used only in 'letters && numbers', which an attentive reader may notice (a missing branch rather than a quiet special-case step); the lie is appended as a continuation of the '@since 2.0' tag line by the recipe's rewrite. Scratch note: copies made with cp -R did not recompile edited sources until target/classes was removed; all reported results are from clean rebuilds."
+}

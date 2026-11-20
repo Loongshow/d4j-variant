@@ -1,0 +1,37 @@
+{
+ "instance": "JacksonDatabind-7__i",
+ "iid": "MI-JacksonDatabind-7",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "BeanDeserializerBase::copyPropertiesInto (hop 4)",
+   "edit": "replace 'return SerializerProvider.copyFieldsAsObject(buffer, jp, ctxt);' with 'buffer.writeTree(jp.readValueAsTree()); return buffer;'",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": true,
+   "class": "bypass"},
+  {"method": "ObjectMapper::bufferContents (hop 1)", "edit": "buffer.writeStartObject() before delegating (declared compensating, G9)",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+  {"method": "BeanDeserializerBase::copyPropertiesInto (hop 4)", "edit": "jp.nextToken() before delegating (declared compensating, G9)",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+  {"method": "ObjectReader::readFieldsInto (hop 3)", "edit": "buffer.copyCurrentStructure(jp); return buffer; (declared compensating, G9)",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"}
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.databind.util.TokenBuffer::deserialize (instance, V2: passes this)",
+  "hop1 com.fasterxml.jackson.databind.ObjectMapper::bufferContents",
+  "hop2 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::bufferObjectFields",
+  "hop3 com.fasterxml.jackson.databind.ObjectReader::readFieldsInto",
+  "hop4 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::copyPropertiesInto",
+  "gold com.fasterxml.jackson.databind.SerializerProvider::copyFieldsAsObject"
+ ],
+ "reasons": "Variant compiles; trigger TestCreatorsDelegating::testDelegateWithTokenBuffer fails with 'Expected token VALUE_NUMBER_INT, current token FIELD_NAME'; full suite: only the trigger fails (baseline empty); ownership tests pass. (a) The gold's javadoc promises the Object's fields written as a single Object; omitting jp.nextToken() makes copyCurrentStructure re-write each field name, so every field name appears twice. Hops 2-4 are pure delegations, hop 1 only routes the non-FIELD_NAME case; the gold alone iterates fields and moves the parser. (b) Hop javadocs match their code and do not promise any per-field handling. (c) No one-line hop edit keeps the chain used as documented: parser advance before the gold fixes only the first field, an extra START_OBJECT is a second one, routing to copyCurrentStructure stops after one field. Only bypass found: hop 4 reading a tree and writeTree (gold dead). (d) Names neutral; the lie (tree of nodes then written in document order) is procedural and does not name the omitted parser advance; gold javadoc silent on it. (e) Five hops in the five hosts_hop_order classes (ObjectMapper 3190, BasicDeserializerFactory 1622, ObjectReader 1585, BeanDeserializerBase 1486, SerializerProvider 1125; largest5 regime, TokenBuffer excluded); gold 5 calls below; facade body one delegating call; existing trigger only new failure. C10i: facade TokenBuffer.deserialize is an allowed candidate (facade_planned_by null), signature/modifiers/throws unchanged, no visibility widening, no new types, no reflection, test.patch empty. (f) AsPropertyTypeDeserializer::deserializeTypedFromObject and BeanDeserializer::deserializeWithUnwrapped call jp.nextToken() 'to point to the value' before writeFieldName+copyCurrentStructure; TokenBuffer::copyCurrentStructure on FIELD_NAME writes the name then advances; ownership tests pass.",
+ "notes": "Bypass recorded: hop 4 'buffer.writeTree(jp.readValueAsTree()); return buffer;' passes trigger, ownership tests and full suite; it replaces the gold's result and coincides with the facade lie's tree-based description. The original facade's FIELD_NAME dispatch moved into hop 1 (not an argument guard), so the facade has no guard; acceptable. The lie sentence is appended after the '@since 2.3' tag with irregular indentation (recipe output), so it renders as part of the @since text. The gold re-expands the original copyCurrentStructure(FIELD_NAME) into writeFieldName/nextToken/copyCurrentStructure, which skips the native-id check on field names; irrelevant for JSON. Whether the two adjacent lines writeFieldName + copyCurrentStructure(jp) read as a local trace is for the trace checker, not judged here."
+}

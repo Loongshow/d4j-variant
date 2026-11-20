@@ -1,0 +1,200 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index b6985d6c8..47ea5963b 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -51,6 +51,7 @@ import java.util.concurrent.Callable;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+ import java.util.regex.Matcher;
++import com.google.javascript.rhino.TokenStream;
+ 
+ /**
+  * Compiler (and the other classes in this package) does the following:
+@@ -1593,6 +1594,19 @@ public class Compiler extends AbstractCompiler {
+       return sb.toString();
+     }
+ 
++    /**
++     * Returns the declaration of a name in the local scopes, starting from the
++     * given scope.
++     *
++     * @param name the name to look up
++     * @param scope the scope to start from
++     * @return the declaration, or null if no local scope declares the name
++     */
++    public static Var scopedVarDeclaration(String name, Scope scope) {
++      return TokenStream.declarationOfName(name, scope);
++    }
++
++
+     /** Returns the length of the text buffer. */
+     public int getLength() {
+       return sb.length();
+diff --git a/src/com/google/javascript/jscomp/Scope.java b/src/com/google/javascript/jscomp/Scope.java
+index 8b6b1a50d..e85e0662a 100644
+--- a/src/com/google/javascript/jscomp/Scope.java
++++ b/src/com/google/javascript/jscomp/Scope.java
+@@ -519,17 +519,11 @@ public class Scope
+ 
+   /**
+    * Returns the variable, may be null
+-   */
++     Lookups are answered from a cache of the names visible in this scope, which is filled on the first lookup and kept until a variable is declared or undeclared.
++     */
+   public Var getVar(String name) {
+-    Var var = vars.get(name);
+-    if (var != null) {
+-      return var;
+-    } else if (parent != null) { // Recurse up the parent Scope
+-      return parent.getVar(name);
+-    } else {
+-      return null;
++        return com.google.javascript.rhino.jstype.JSTypeRegistry.resolveVarName(name, vars, parent);
+     }
+-  }
+ 
+   /**
+    * Get a unique VAR object to represents "arguments" within this scope
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index e1af6408c..d88ec21f9 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1874,4 +1874,25 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Returns the declaration that a name refers to from inside a local scope,
++     * looking in that scope and in the local scopes that enclose it.
++     *
++     * @param name the name to look up
++     * @param scope the scope to start from, or null
++     * @return the declaration, or null if none of these local scopes declares
++     *     the name
++     */
++    public static Scope.Var localDeclarationOf(String name, Scope scope) {
++        Scope.Var found = null;
++        for (Scope s = scope; s != null && s.isLocal(); s = s.getParent()) {
++            Scope.Var declared = (Scope.Var) s.getOwnSlot(name);
++            if (declared != null) {
++                found = declared;
++            }
++        }
++        return found;
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/Parser.java b/src/com/google/javascript/rhino/Parser.java
+index 95b720ff9..15dceb894 100644
+--- a/src/com/google/javascript/rhino/Parser.java
++++ b/src/com/google/javascript/rhino/Parser.java
+@@ -50,6 +50,8 @@ import java.io.IOException;
+ import java.io.Reader;
+ import java.util.Hashtable;
+ import java.util.List;
++import com.google.javascript.jscomp.Compiler;
++import com.google.javascript.jscomp.Scope;
+ 
+ /**
+  * This class implements the JavaScript parser.
+@@ -408,6 +410,28 @@ public class Parser
+         return parse();
+     }
+ 
++    /**
++     * Looks up a name in a scope and in the scopes that enclose it: in the local
++     * scopes, and then in the global scope.
++     *
++     * @param name the name to look up
++     * @param scope the scope to start from
++     * @return the declaration, or null if no scope declares the name
++     */
++    public static Scope.Var findVarInScopes(String name, Scope scope)
++    {
++        Scope.Var var = Compiler.CodeBuilder.scopedVarDeclaration(name, scope);
++        if (var != null) {
++            return var;
++        }
++        Scope global = scope;
++        while (global.getParent() != null) {
++            global = global.getParent();
++        }
++        return (Scope.Var) global.getOwnSlot(name);
++    }
++
++
+     private ScriptOrFnNode parse()
+         throws IOException
+     {
+diff --git a/src/com/google/javascript/rhino/TokenStream.java b/src/com/google/javascript/rhino/TokenStream.java
+index ac1cf17ab..a3105f4ee 100644
+--- a/src/com/google/javascript/rhino/TokenStream.java
++++ b/src/com/google/javascript/rhino/TokenStream.java
+@@ -47,6 +47,8 @@ package com.google.javascript.rhino;
+ 
+ import java.io.IOException;
+ import java.io.Reader;
++import com.google.javascript.jscomp.Scope;
++import com.google.javascript.jscomp.TypeCheck;
+ 
+ /**
+  * This class implements the JavaScript scanner.
+@@ -115,6 +117,20 @@ public class TokenStream
+         return Token.EOF != stringToKeyword(s);
+     }
+ 
++    /**
++     * Returns the declaration of a name in the local scopes, from the given
++     * scope outwards.
++     *
++     * @param name the name to look up
++     * @param scope the scope to start from
++     * @return the declaration, or null if no local scope declares the name
++     */
++    public static Scope.Var declarationOfName(String name, Scope scope)
++    {
++        return TypeCheck.localDeclarationOf(name, scope);
++    }
++
++
+     private static int stringToKeyword(String name)
+     {
+ // #string_id_map#
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index 4938193db..e16f7660f 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -65,6 +65,8 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.Scope;
++import com.google.javascript.rhino.Parser;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1647,4 +1649,23 @@ public class JSTypeRegistry implements Serializable {
+     templateTypeName = null;
+     templateType = null;
+   }
++
++        /**
++     * Looks up a name among the declarations of a scope and, if the scope does
++     * not declare it, in the scopes that enclose the scope.
++     *
++     * @param name the name to look up
++     * @param declared the declarations of the scope, by name
++     * @param enclosing the scope that encloses the scope, or null
++     * @return the declaration, or null if no scope declares the name
++     */
++    public static Scope.Var resolveVarName(String name,
++        Map<String, Scope.Var> declared, Scope enclosing) {
++      Scope.Var var = declared.get(name);
++      if (var != null) {
++        return var;
++      }
++      return enclosing == null ? null : Parser.findVarInScopes(name, enclosing);
++    }
++
+ }

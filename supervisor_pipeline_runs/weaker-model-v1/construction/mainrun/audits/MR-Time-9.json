@@ -1,0 +1,61 @@
+{
+ "instance": "Time-9",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.format.ISODateTimeFormat::appendOffsetElement (hop 4)",
+   "edit": "return LocalTime.appendOffsetTime(buf, size).append(size % 60000 == 0 ? \"\" : DateTimeFormat.forPattern(size % 1000 == 0 ? \":ss\" : \":ss.SSS\").withZoneUTC().print(size));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.Period::appendSignedOffset (hop 3)",
+   "edit": "return ISODateTimeFormat.appendOffsetElement(buf, Math.abs(offset)).append(offset % 60000 == 0 ? \"\" : org.joda.time.format.DateTimeFormat.forPattern(offset % 1000 == 0 ? \":ss\" : \":ss.SSS\").withZoneUTC().print(Math.abs(offset)));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.format.PeriodFormatterBuilder::formatOffsetId (hop 2)",
+   "edit": "return Period.appendSignedOffset(new StringBuffer(), offset).append(offset % 60000 == 0 ? \"\" : DateTimeFormat.forPattern(\":ss.SSS\").withZoneUTC().print(Math.abs(offset))).toString();",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.tz.DateTimeZoneBuilder::zoneForFixedOffset (hop 1)",
+   "edit": "return DateTimeZone.forID(PeriodFormatterBuilder.formatOffsetId(millisOffset) + (millisOffset % 60000 == 0 ? \"\" : org.joda.time.format.DateTimeFormat.forPattern(\":ss.SSS\").withZoneUTC().print(Math.abs(millisOffset))));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.joda.time.DateTimeZone::forOffsetMillis(int) - range guard + one call",
+  "hop1 org.joda.time.tz.DateTimeZoneBuilder::zoneForFixedOffset(int) - forID(formatOffsetId(offset))",
+  "hop2 org.joda.time.format.PeriodFormatterBuilder::formatOffsetId(int) - new StringBuffer, delegate, toString",
+  "hop3 org.joda.time.Period::appendSignedOffset(StringBuffer,int) - append sign, delegate with Math.abs",
+  "hop4 org.joda.time.format.ISODateTimeFormat::appendOffsetElement(StringBuffer,int) - pure delegate",
+  "gold org.joda.time.LocalTime::appendOffsetTime(StringBuffer,int) - prints only HH:mm (variant)",
+  "(then hop1 passes the ID to existing DateTimeZone::forID -> parseOffset/printOffset/fixedOffsetZone)"
+ ],
+ "reasons": "Variant compiles; trigger TestDateTimeZone::testForOffsetMillis_int fails 'expected:<+23:59:59.999> but was:<+23:59>'; full suite: only the trigger fails; the 4 ownership tests pass; correct.patch passes trigger, ownership tests and full suite. (a) Gold javadoc 'Appends the size of a time zone offset, without its sign' is violated: for size 86399999 it appends 23:59, losing seconds and millis. Hops 1-4 are pure pass-through/placement steps that do exactly what their javadoc says given a callee that keeps its contract; forID receives '+23:59' and correctly returns that zone. Only the gold selects which fields are printed. (b) Hop javadocs match their code (lookup by formatted ID; format as ID; sign + size; size delegate); none describes truncation or field selection, so none can be read as the owner. (c) Declared compensating edits (hop1 FixedDateTimeZone/JDK GMT ID, hop3 negation) fail the trigger per G9: hop1's only channel to the zone is the ID string, which forID re-parses. Four one-line supplements at hops 1-4 that append ':ss[.SSS]' after the gold's output pass trigger, ownership tests and the full suite, but they are second implementations of the gold's step: with the gold as documented (appending the size) they would write the seconds twice, so they are consistent only with the faulty gold -> bypass, not competing. (d) Hop/gold names are neutral host-vocabulary names; no fault vocabulary; the lie (binary search of a sorted table with insertion at the search position) is false (forID uses a provider ConcurrentHashMap and a HashMap/SoftReference cache) and names neither seconds/precision nor any hop. (e) Gold is exactly 5 calls below the facade; 5 hops in 5 distinct pre-existing classes (DateTimeZoneBuilder, PeriodFormatterBuilder, Period, ISODateTimeFormat, LocalTime); facade = original range guard + one delegating call; one added javadoc sentence; gold javadoc silent on seconds/millis; trigger is an existing test and the only new failure. (f) Convention pinned outside the gold: DateTimeZone.printOffset and DateTimeFormatterBuilder.TimeZoneOffset.printTo (4 fields) print ':ss' and '.SSS' when nonzero; the facade's @param range is -23:59:59.999..+23:59:59.999; testForID_String pins '-07:05:34.0' -> '-07:05:34' through forID; testForOffsetHours_int/testForOffsetHoursMinutes_int_int pin the chain for the production second caller.",
+ "notes": "The lie sentence is inserted after the @return tag with plain indentation and no leading '*', so in rendered javadoc it reads as part of the @return description; it is visibly an inserted line in the facade but points at no hop or the gold. testForOffsetHours*/testForID_String do not discriminate the gold's trailing-zero behaviour because forID re-canonicalises the ID via printOffset; the seconds/millis convention is pinned by printOffset/TimeZoneOffset code and the facade's documented range rather than by a passing test exercising the gold with a sub-minute offset (only the trigger does that). The gold's name/host (an offset printer in LocalTime using ISODateTimeFormat.hourMinute()) is no odder than the other hosts. Ant timestamp granularity: an edit made within ~1s of copying target/ may not recompile; the hop-2 alternative was re-run after touching the source. A pre-existing MR-Time-9.json (mtime 02:31, before the current spec 02:42) was overwritten without being read."
+}

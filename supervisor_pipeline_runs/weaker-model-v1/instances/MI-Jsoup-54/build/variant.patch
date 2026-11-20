@@ -1,0 +1,194 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index cb2738f8..8bbddcea 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -19,6 +19,7 @@ import java.util.regex.Pattern;
+ import java.util.zip.GZIPInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -88,6 +89,19 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Converts a jsoup document into the provided W3C Document. The location of the jsoup document, if it has one, becomes the
++     * document URI.
++     * @param in jsoup doc
++     * @param out w3c doc
++     */
++    public static void fillW3cDocument(Document in, org.w3c.dom.Document out) {
++        if (!StringUtil.isBlank(in.location()))
++            out.setDocumentURI(in.location());
++        Evaluator.IsRoot.walkFromRoot(in, new W3CDom.W3CBuilder(out));
++    }
++
++
+     public Connection userAgent(String userAgent) {
+         Validate.notNull(userAgent, "User agent must not be null");
+         req.header("User-Agent", userAgent);
+diff --git a/src/main/java/org/jsoup/helper/W3CDom.java b/src/main/java/org/jsoup/helper/W3CDom.java
+index 497e3ea1..6d2dcea4 100644
+--- a/src/main/java/org/jsoup/helper/W3CDom.java
++++ b/src/main/java/org/jsoup/helper/W3CDom.java
+@@ -34,20 +34,11 @@ public class W3CDom {
+      * Convert a jsoup Document to a W3C Document.
+      * @param in jsoup doc
+      * @return w3c doc
++       The jsoup document is first written out as XHTML text, and that text is then parsed by the namespace-aware document builder.
+      */
+     public Document fromJsoup(org.jsoup.nodes.Document in) {
+         Validate.notNull(in);
+-        DocumentBuilder builder;
+-        try {
+-        	//set the factory to be namespace-aware
+-        	factory.setNamespaceAware(true);
+-            builder = factory.newDocumentBuilder();
+-            Document out = builder.newDocument();
+-            convert(in, out);
+-            return out;
+-        } catch (ParserConfigurationException e) {
+-            throw new IllegalStateException(e);
+-        }
++        return org.jsoup.nodes.Element.w3cDocumentFor(factory, in);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index c6ea7fa0..ed310cab 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -22,6 +22,9 @@ import java.util.Map;
+ import java.util.Set;
+ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
++import javax.xml.parsers.DocumentBuilderFactory;
++import javax.xml.parsers.ParserConfigurationException;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -868,6 +871,24 @@ public class Element extends Node {
+         }
+         return getElementsMatchingOwnText(pattern);
+     }
++
++    /**
++     * Convert a jsoup Document to a new W3C Document, made by a namespace-aware builder of the given factory.
++     * @param factory the factory to make the document builder with
++     * @param in jsoup doc
++     * @return w3c doc
++     */
++    public static org.w3c.dom.Document w3cDocumentFor(DocumentBuilderFactory factory, Document in) {
++        try {
++            factory.setNamespaceAware(true);
++            org.w3c.dom.Document out = factory.newDocumentBuilder().newDocument();
++            HttpConnection.fillW3cDocument(in, out);
++            return out;
++        } catch (ParserConfigurationException e) {
++            throw new IllegalStateException(e);
++        }
++    }
++
+     
+     /**
+      * Find all elements under this element (including self, and children of children).
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index fb718f2e..0dde8d63 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -398,6 +398,33 @@ public abstract class Node implements Cloneable {
+         parentNode.replaceChild(this, in);
+     }
+ 
++    /**
++     * Start a depth-first traverse of the root and all of its descendants, without recursion.
++     * @param root the root node point to traverse.
++     * @param visitor the visitor to call for the nodes of the walk.
++     */
++    public static void walkDepthFirst(Node root, NodeVisitor visitor) {
++        List<Node> pending = new ArrayList<Node>();
++        List<Node> open = new ArrayList<Node>();
++        pending.add(root);
++        while (!pending.isEmpty()) {
++            Node node = pending.remove(pending.size() - 1);
++            while (!open.isEmpty() && open.get(open.size() - 1) != node.parentNode()) {
++                Node done = open.remove(open.size() - 1);
++                visitor.tail(done, open.size());
++            }
++            visitor.head(node, open.size());
++            open.add(node);
++            List<Node> children = new ArrayList<Node>(node.childNodes());
++            pending.addAll(children);
++        }
++        while (!open.isEmpty()) {
++            Node done = open.remove(open.size() - 1);
++            visitor.tail(done, open.size());
++        }
++    }
++
++
+     protected void setParentNode(Node parentNode) {
+         if (this.parentNode != null)
+             this.parentNode.removeChild(this);
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index b3fd8f5a..5102d3df 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -7,6 +7,7 @@ import org.jsoup.select.Elements;
+ 
+ import java.util.ArrayList;
+ import java.util.List;
++import org.jsoup.select.NodeVisitor;
+ 
+ /**
+  * HTML Tree Builder; creates a DOM from Tokens.
+@@ -464,6 +465,16 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         // todo: in svg namespace: forignOjbect, desc, title
+     }
+ 
++    /**
++     * Walks the element and all of its descendants depth first with the visitor.
++     * @param root the element to start at
++     * @param visitor the visitor to call for the nodes of the walk
++     */
++    public static void visitTree(Element root, NodeVisitor visitor) {
++        Node.walkDepthFirst(root, visitor);
++    }
++
++
+     boolean inListItemScope(String targetName) {
+         return inScope(targetName, TagSearchList);
+     }
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 1a8b4598..162b21fa 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -11,6 +11,7 @@ import org.jsoup.nodes.XmlDeclaration;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -575,6 +576,16 @@ public abstract class Evaluator {
+     		final Element r = root instanceof Document?root.child(0):root;
+     		return element == r;
+     	}
++
++    /**
++     * Walks the root element of the document (the first child of the #root node) with the visitor.
++     * @param doc the document
++     * @param visitor the visitor to call for the nodes of the walk
++     */
++    public static void walkFromRoot(Document doc, NodeVisitor visitor) {
++        HtmlTreeBuilder.visitTree(doc.child(0), visitor);
++    }
++
+     	@Override
+     	public String toString() {
+     		return ":root";

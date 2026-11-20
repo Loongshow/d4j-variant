@@ -1,0 +1,91 @@
+{
+ "instance": "Lang-52",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.StringEscapeUtils::escapeHtml(String) (facade)",
+   "edit": "return org.apache.commons.lang.builder.ToStringStyle.htmlTextOf(str);  ->  return new Entities().escape(org.apache.commons.lang.builder.ToStringStyle.htmlTextOf(str));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "A second escaping pass with an empty Entities map re-implements the gold's numeric-reference step outside the chain. After the edit, hop 1 (and hops 2-4 and the gold) still return raw \\u65E5\\u672C\\u8A9E, although each is documented to escape the characters using HTML entities. In this library that phrase includes &#NNN; references: the sibling overload escapeHtml(Writer,String) has the same javadoc sentence and calls Entities.HTML40.escape. The edit therefore depends on hop 1 not meeting its documented contract, and is not a competing repair."
+  },
+  {
+   "method": "org.apache.commons.lang.StringUtils::appendHtmlChars (hop 3)",
+   "edit": "FastDateFormat.appendEntitiesTo(buffer, chars);  ->  buffer.append(Entities.HTML40.escape(new String(chars)));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Replaces the gold's result with Entities.HTML40.escape and makes hop 4 and the gold dead."
+  },
+  {
+   "method": "org.apache.commons.lang.Entities::entityName (library callee of the gold, not a hop)",
+   "edit": "return map.name(value);  ->  return map.name(value) == null && value > 0x7F ? \"#\" + value : map.name(value);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Returns '#26085', which is not the name of any entity. This contradicts 'Returns the name of the entity identified by the specified value', and it makes Entities.escape's own c > 0x7F branch dead for every Entities instance."
+  },
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::appendHtmlText (hop 2, declared compensating edit)",
+   "edit": "StringUtils.appendHtmlChars(buffer, str.toCharArray());  ->  StringUtils.appendHtmlChars(buffer, org.apache.commons.lang.StringEscapeUtils.unescapeHtml(str).toCharArray());",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::appendEntitiesTo (hop 4, declared compensating edit)",
+   "edit": "ArrayUtils.appendEscapedChars(buffer, chars);  ->  ArrayUtils.appendEscapedChars(buffer, java.text.Normalizer.normalize(new String(chars), java.text.Normalizer.Form.NFC).toCharArray());",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::htmlTextOf (hop 1, declared compensating edit)",
+   "edit": "new StringBuffer((int) (str.length() * 1.5))  ->  new StringBuffer(str.length() * 8)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "any hop 1-4 (input pre-processing, analysed rather than run)",
+   "edit": "rewrite the String or char[] before the gold so that numeric references appear",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Impossible: the gold writes '&' only as the start of an HTML 4.0 entity name (or as &amp; for an input '&'), so the sequence '&#' can never appear in its output."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.StringEscapeUtils::escapeHtml(String) - null guard plus return ToStringStyle.htmlTextOf(str)",
+  "hop1 org.apache.commons.lang.builder.ToStringStyle::htmlTextOf - StringBuffer of 1.5x capacity, delegates, returns toString",
+  "hop2 org.apache.commons.lang.text.StrBuilder::appendHtmlText - str.toCharArray(), delegates",
+  "hop3 org.apache.commons.lang.StringUtils::appendHtmlChars - empty-array early return, delegates",
+  "hop4 org.apache.commons.lang.time.FastDateFormat::appendEntitiesTo - delegates",
+  "gold org.apache.commons.lang.ArrayUtils::appendEscapedChars - per-character HTML40 entityName lookup; a character with no name is appended raw (the c > 0x7F -> '&#'+code+';' step is omitted)"
+ ],
+ "reasons": "Reproduced the result. The variant compiles. testEscapeHtml fails with 'languages expected:<...[&#26085;&#26412;&#35486;]...> but was:<...[\\u65E5\\u672C\\u8A9E]...>', and the full suite has exactly this one failure. The gold fix (restoring the c > 0x7F numeric branch) passes the trigger and the full suite. (a) Only the gold makes the per-character decision. Hops 1-4 hold the whole String or char[] and only delegate. Their outputs are wrong only through the gold, and none of them violates its contract locally. (b) Every hop's javadoc matches its code (1.5x buffer, toCharArray, empty-array return, plain delegation). No hop javadoc describes a step whose absence would explain the missing numeric references. (c) Pre-processing above the gold cannot produce '&#'. The three passing non-gold edits are bypasses, not competing repairs. The hop-3 edit to Entities.HTML40.escape makes hop 4 and the gold dead. The facade post-pass with new Entities().escape leaves hops 1-4 and the gold contradicting their 'escape using HTML entities' javadoc. Making Entities.entityName return '#'+value violates entityName's contract and kills Entities.escape's numeric branch. The three declared compensating edits all fail the trigger. (d) The names are neutral house style and there are no comments. The gold's javadoc does not mention numeric references. The facade lie (split into lines, escape each line, join) is unrelated to the omitted step. (e) Gold is 5 calls below the facade. The 5 hops are in 5 distinct existing classes (ToStringStyle, StrBuilder, StringUtils, FastDateFormat, ArrayUtils). Facade = null guard + one call. One added procedural sentence describes an algorithm the code does not perform. The trigger is an existing test, test.patch is empty, and only the trigger newly fails. (f) The convention is pinned outside the gold. Entities.escape writes '&#'+code+';' for c > 0x7F with no name. The sibling escapeHtml(Writer,String) has the same first sentence and delegates to Entities.HTML40.escape. The escapeXml javadoc documents numeric escaping above 0x7f. The passing test testEscapeXml asserts &#161; for \\u00A1, and the passing test testUnescapeHtml decodes the same htmlEscapes table, including &#26085;&#26412;&#35486; and &#128;&#159;.",
+ "notes": "Bypasses are recorded above. The facade post-pass is the most plausible-looking non-gold edit (one line, full suite clean), but it only masks the chain. Its correctness requires every method below it to break its own 'escape using HTML entities' javadoc. Weakest link in the ownership argument: unlike hops 3-4, the gold's javadoc says only 'Escapes the characters of an array', not 'using HTML entities'. Its numeric-reference obligation is therefore inferred from its code (Entities.HTML40.entityName), from the identical wording of Entities.escape, and from the external pins, not from its own text. That is the intended quiet-gold design, and I judge it not genuinely arguable. Cosmetic: the lie sentence sits after the @see tags with no leading '*', so javadoc attaches it to the last @see. This points at the facade, not the gold. The '8-bit ascii does number-escape' row (\\u0080\\u009F) also fails in the variant, but the earlier 'languages' row masks it, so the observed signature is deterministic. Scratch: /private/tmp/mxb-D4vs1F (deleted after writing)."
+}

@@ -1,0 +1,68 @@
+{
+ "instance": "Math-103__i",
+ "iid": "MI-Math-103",
+ "cell": "C10i",
+ "batch": 8,
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math.ode.GraggBulirschStoerIntegrator::cumulativeInto (hop 4)",
+   "edit": "before the call to Rotation.writeCumulative: for (int i = 0; i < scores.length; i++) { scores[i] = Math.max(-20.0, Math.min(20.0, scores[i])); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why_not_competing": "Fails documentation consistency. It writes P(Z < clamp(score)), not the probability of the score that hop 4 documents. It also changes the caller's array of 'the standard scores', which hop 4 does not document. And it returns 7.66e-15 / 0.9999999999999923 beyond 20 sd, where the facade javadoc says 0 or 1 is returned. A scan in 0.01 steps shows no clamp bound in [20, 21.82) gives exact 0/1. Clamps that do (about 11.15, 21.82, 30.16) are magic constants tuned to Erf rounding: they either change results inside 20 sd or leave non-0/1 values between 20 sd and the bound. The gold still violates its own contract on the raw score."
+  },
+  {
+   "method": "org.apache.commons.math.linear.BigMatrixImpl::normalCumulative (hop 1)",
+   "edit": "clamp each standard score to +/-c when forming scores[i]",
+   "trigger_passes": null,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "why_not_competing": "Not run. Hop 1's javadoc defines each standard score as exactly (point - mean) / sd, so any clamp contradicts its own documentation. Its behaviour on the tests would match the hop-4 clamp."
+  },
+  {
+   "method": "org.apache.commons.math.linear.RealMatrixImpl::fillCumulative / TTestImpl::standardCumulative (hops 3 / 2)",
+   "edit": "wrap the downstream call in try { ... } catch (MaxIterationsExceededException e) { fill probabilities with scores[i] < 0 ? 0 : 1 }",
+   "trigger_passes": null,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why_not_competing": "Not run, reasoned. This throws away the gold's output and re-implements the probability for the whole array. For 20 < |z| < 38 it still returns Erf noise, not 0/1. It is a bypass by the brief's definition."
+  },
+  {
+   "method": "declared compensating edits (hop 1 Math.abs(sd); hop 1 point/sd - mean/sd; hop 2 pre-fill 0.5)",
+   "edit": "per spec compensating list",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails",
+   "why_not_competing": "Gate G9 in validation.json shows each of these still fails the trigger."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.math.distribution.NormalDistributionImpl::cumulativeProbability(double) [instance, V1: reads mean, standardDeviation]",
+  "hop1 org.apache.commons.math.linear.BigMatrixImpl::normalCumulative(double[], double, double)",
+  "hop2 org.apache.commons.math.stat.inference.TTestImpl::standardCumulative(double[])",
+  "hop3 org.apache.commons.math.linear.RealMatrixImpl::fillCumulative(double[], double[])",
+  "hop4 org.apache.commons.math.ode.GraggBulirschStoerIntegrator::cumulativeInto(double[], double[])",
+  "gold org.apache.commons.math.geometry.Rotation::writeCumulative(double[], double[])"
+ ],
+ "reasons": "(a) On the trigger testExtremeValues (sd = 1, x = -40), the gold is documented to compute, for each standard score, the probability that a standard normal variable is less than it; its javadoc has no @throws. Instead it calls Erf.erf(-40/sqrt 2), and Erf throws MaxIterationsExceededException at |z| >= 38 (probed: it converges up to 37.5). Erf meets its own documented contract (@throws MathException if the algorithm fails to converge). Hop 1 forms exactly the documented scores. Hops 2-4 only allocate and forward, and they document '@throws MathException if a probability can not be computed', so passing the exception through does not violate their contracts. The gold is the only method on the path whose contract is broken. (b) No hop javadoc contradicts its code. Hop 1 states the score formula exactly, and hops 2-4 are pure pass-throughs whose docs match. (c) The only passing non-gold edits found are an upstream clamp of the scores, which is doc-inconsistent and needs magic constants tuned to Erf rounding, and a try/catch re-evaluation, which is a bypass. Neither is a competing repair. (d) Names are neutral cumulative-probability vocabulary. The lie (Simpson's-rule integration from the mean plus one half) is procedural, false, and does not mention the tail case or any hop. The gold javadoc says nothing about far scores. (e) The gold is exactly five calls below the facade, in five distinct classes. The hosts equal hosts_hop_order of batch8_tasks.json entry Math-103__i (largest5 regime, 1319/1069/1036/1019/1016 lines, all < 1500, as allowed). The facade body is state gathering (fields mean, standardDeviation) plus one call to hop 1 (V1); the original had no guard. One lie sentence is appended. The trigger is an existing test and the only new failure in the full suite (re-run here). (f) The 0-or-1 convention beyond 20 sd is in the facade's original javadoc. AbstractContinuousDistribution.inverseCumulativeProbability evaluates the CDF at getDomainLowerBound/UpperBound = -/+Double.MAX_VALUE when bracketing fails. The four ownership tests pass through the chain on the variant. C10i rules: no existing member's visibility is widened, no type is added, there is no reflection, the facade signature, modifiers and throws are unchanged (public double cumulativeProbability(double) throws MathException), test.patch is empty, and the facade is the task's allowed instance method.",
+ "notes": "Reproduced: the variant compiles; the trigger fails with MaxIterationsExceededException through the full chain; the full variant suite has 1 failure (only the trigger). Minor points, none decisive: (1) NormalDistributionImpl keeps now-unused imports of MaxIterationsExceededException and Erf, residue of the removed try/catch. It is not an added line and points at the facade's documented convention, not at the gold. (2) The gold keeps a single-use local 'final double z = scores[i];', which is mildly idiomatic residue. (3) The lie sits as an un-starred line after the facade's @throws tag, so the rendered javadoc places it inside the @throws text; this is a recipe-insertion artifact. (4) Hop 4 and the gold share odd 8-space javadoc indentation from end-of-file insertion, so it does not single out the gold. (5) The passing-test pin is indirect: no ownership test exercises the far tail on the variant, so the convention is pinned by the facade javadoc and the inverse-CDF bracketing code rather than by a passing test. (6) The correct gold applies 0/1 for |z| > 20 unconditionally, whereas the pristine code returns Erf's value for 20 < |z| < 38. This matches the facade javadoc's 0-or-1 reading, and validation G1 shows the full suite stays clean. Scratch /private/tmp/mxb-0fz0dx deleted."
+}

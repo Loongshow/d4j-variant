@@ -1,0 +1,231 @@
+{
+ "bug_id": 9,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "return new FixedDateTimeZone(PeriodFormatterBuilder.formatOffsetId(millisOffset), null, millisOffset, millisOffset);",
+   "old": "return DateTimeZone.forID(PeriodFormatterBuilder.formatOffsetId(millisOffset));",
+   "why": "hop 1 builds the zone itself from the offset and the formatted ID"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "return DateTimeZone.forTimeZone(java.util.TimeZone.getTimeZone(\"GMT\" + PeriodFormatterBuilder.formatOffsetId(millisOffset)));",
+   "old": "return DateTimeZone.forID(PeriodFormatterBuilder.formatOffsetId(millisOffset));",
+   "why": "hop 1 resolves the ID through the JDK's custom GMT IDs"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "return ISODateTimeFormat.appendOffsetElement(buf, offset < 0 ? -offset : offset);",
+   "old": "return ISODateTimeFormat.appendOffsetElement(buf, Math.abs(offset));",
+   "why": "hop 3 takes the size of a negative offset by negation"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/DateTimeZone.java",
+   "new": "       The zone is found by a binary search of a sorted table of the zones created so far, and a new zone is inserted into the table at the search position when none matches.\n     */\n    public static DateTimeZone forOffsetMillis(int millisOffset) {\n        if (millisOffset < -MAX_MILLIS || millisOffset > MAX_MILLIS) {\n            throw new IllegalArgumentException(\"Millis out of range: \" + millisOffset);\n        }\n        return org.joda.time.tz.DateTimeZoneBuilder.zoneForFixedOffset(millisOffset);",
+   "old": "     */\n    public static DateTimeZone forOffsetMillis(int millisOffset) {\n        if (millisOffset < -MAX_MILLIS || millisOffset > MAX_MILLIS) {\n            throw new IllegalArgumentException(\"Millis out of range: \" + millisOffset);\n        }\n        String id = printOffset(millisOffset);\n        return fixedOffsetZone(id, millisOffset);",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "new": "        return getChronology().millisOfDay().get(getLocalMillis());\n    }\n\n    /**\n     * Appends the size of a time zone offset, without its sign, to a buffer.\n     *\n     * @param buf  the buffer to append to, not null\n     * @param size  the size of the offset, not negative\n     * @return the buffer\n     */\n    public static StringBuffer appendOffsetTime(StringBuffer buf, int size) {\n        if (size % DateTimeConstants.MILLIS_PER_MINUTE != 0) {\n            DateTimeFormatter format = (size % DateTimeConstants.MILLIS_PER_SECOND == 0\n                    ? ISODateTimeFormat.hourMinuteSecond() : ISODateTimeFormat.hourMinuteSecondMillis());\n            format.withZoneUTC().printTo(buf, size);\n            return buf;\n        }\n        ISODateTimeFormat.hourMinute().withZoneUTC().printTo(buf, size);\n        return buf;\n    }\n\n\n    //-----------------------------------------------------------------------\n    /**\n     * Returns a copy of this time with the hour of day field updated.",
+   "old": "        return getChronology().millisOfDay().get(getLocalMillis());\n    }\n\n    //-----------------------------------------------------------------------\n    /**\n     * Returns a copy of this time with the hour of day field updated.",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "import org.joda.time.format.PeriodFormatter;\nimport org.joda.time.format.ISODateTimeFormat;\n",
+   "old": "import org.joda.time.format.PeriodFormatter;\n",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "    /**\n     * Appends an offset from UTC, with its sign, to a buffer.\n     *\n     * @param buf  the buffer to append to, not null\n     * @param offset  the offset in milliseconds\n     * @return the buffer\n     */\n    public static StringBuffer appendSignedOffset(StringBuffer buf, int offset) {\n        buf.append(offset < 0 ? '-' : '+');\n        return ISODateTimeFormat.appendOffsetElement(buf, Math.abs(offset));\n    }\n\n\n    /**\n     * Check that there are no years or months in the period.",
+   "old": "    /**\n     * Check that there are no years or months in the period.",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "import org.joda.time.DateTimeFieldType;\nimport org.joda.time.LocalTime;\n",
+   "old": "import org.joda.time.DateTimeFieldType;\n",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "    /**\n     * Appends the size of an offset from UTC, without its sign, to a buffer.\n     *\n     * @param buf  the buffer to append to, not null\n     * @param size  the size of the offset in milliseconds, not negative\n     * @return the buffer\n     */\n    public static StringBuffer appendOffsetElement(StringBuffer buf, int size) {\n        return LocalTime.appendOffsetTime(buf, size);\n    }\n\n\n    /**\n     * Returns a formatter that combines a full weekyear date and time,",
+   "old": "    /**\n     * Returns a formatter that combines a full weekyear date and time,",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "import org.joda.time.ReadablePeriod;\nimport org.joda.time.Period;\n",
+   "old": "import org.joda.time.ReadablePeriod;\n",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "        return appendSeparator(text, text, null, true, false);\n    }\n\n    /**\n     * Formats an offset from UTC as the ID of a fixed offset zone.\n     *\n     * @param offset  the offset in milliseconds\n     * @return the ID for the offset\n     */\n    public static String formatOffsetId(int offset) {\n        return Period.appendSignedOffset(new StringBuffer(), offset).toString();\n    }\n\n\n    /**",
+   "old": "        return appendSeparator(text, text, null, true, false);\n    }\n\n    /**",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport org.joda.time.format.PeriodFormatterBuilder;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "        getLastRuleSet().setFixedSavings(nameKey, saveMillis);\n        return this;\n    }\n\n    /**\n     * Gets the zone with a fixed offset from UTC, looked up by the ID that\n     * the offset formats to.\n     *\n     * @param millisOffset  the offset in millis from UTC\n     * @return the zone with the fixed offset\n     */\n    public static DateTimeZone zoneForFixedOffset(int millisOffset) {\n        return DateTimeZone.forID(PeriodFormatterBuilder.formatOffsetId(millisOffset));\n    }\n\n\n    /**\n     * Add a recurring daylight saving time rule.",
+   "old": "        getLastRuleSet().setFixedSavings(nameKey, saveMillis);\n        return this;\n    }\n\n    /**\n     * Add a recurring daylight saving time rule.",
+   "purpose": "MR-Time-9 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "zoneForFixedOffset"
+  },
+  {
+   "class": "org.joda.time.format.PeriodFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "method": "formatOffsetId"
+  },
+  {
+   "class": "org.joda.time.Period",
+   "file": "src/main/java/org/joda/time/Period.java",
+   "method": "appendSignedOffset"
+  },
+  {
+   "class": "org.joda.time.format.ISODateTimeFormat",
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "method": "appendOffsetElement"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-9.py",
+ "entry_points": [
+  "org.joda.time.DateTimeZone::forOffsetMillis"
+ ],
+ "evidence": [
+  "org.joda.time.DateTimeZone::printOffset",
+  "org.joda.time.format.DateTimeFormatterBuilder.TimeZoneOffset::printTo",
+  "org.joda.time.DateTimeZone::forID",
+  "org.joda.time.DateTimeZone::forOffsetHoursMinutes"
+ ],
+ "expected_signature": "expected:<+23:59:59.999> but was:<+23:59>",
+ "extra_tests": [],
+ "fixture_key": "Time-9",
+ "gold": {
+  "class": "org.joda.time.LocalTime",
+  "edits": [
+   {
+    "new": "        ISODateTimeFormat.hourMinute().withZoneUTC().printTo(buf, size);",
+    "old": "        if (size % DateTimeConstants.MILLIS_PER_MINUTE != 0) {\n            DateTimeFormatter format = (size % DateTimeConstants.MILLIS_PER_SECOND == 0\n                    ? ISODateTimeFormat.hourMinuteSecond() : ISODateTimeFormat.hourMinuteSecondMillis());\n            format.withZoneUTC().printTo(buf, size);\n            return buf;\n        }\n        ISODateTimeFormat.hourMinute().withZoneUTC().printTo(buf, size);"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/LocalTime.java",
+  "method": "appendOffsetTime"
+ },
+ "group": "MR-Time-9",
+ "hops": 5,
+ "iid": "MR-Time-9",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold looks at the size of the offset below a minute and decides which fields of it are printed; hop 1 sees only the finished ID, hops 2-4 pass the buffer and the size along and get the buffer back. Once HH:mm has been printed for an offset that is not a whole number of minutes, the ID names another offset; forID parses that ID and returns the zone of the other offset, and no change of the input at a hop makes the gold print the seconds. The convention is pinned outside the gold: DateTimeZone.printOffset (the formatter forID and forTimeZone still use) appends ':' and two digits of seconds when the offset is not a whole number of minutes and '.' and three digits when it is not a whole number of seconds, as does DateTimeFormatterBuilder.TimeZoneOffset.printTo with four fields; the facade's javadoc gives its range as 'from -23:59:59.999 to +23:59:59.999'; testForID_String pins printOffset's fields and trailing-zero rule through forID, and testForOffsetHours_int and testForOffsetHoursMinutes_int_int pin the chain for the production second caller forOffsetHoursMinutes. A hop that appends the seconds itself after the gold's call passes the suite but is a second implementation of the gold's step, consistent only with a gold that does not append the size of the offset as documented (with the gold as documented the seconds would be written twice).",
+ "ownership_tests": [
+  "org.joda.time.TestDateTimeZone::testForID_String",
+  "org.joda.time.TestDateTimeZone::testForTimeZone_TimeZone",
+  "org.joda.time.TestDateTimeZone::testForOffsetHours_int",
+  "org.joda.time.TestDateTimeZone::testForOffsetHoursMinutes_int_int"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "setFixedSavings",
+    "anchor_seed": 3367,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.joda.time.format.PeriodFormatterBuilder;"
+    ],
+    "method": "zoneForFixedOffset",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendSeparatorIfFieldsBefore",
+    "anchor_seed": 3368,
+    "class": "org.joda.time.format.PeriodFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.joda.time.Period;"
+    ],
+    "method": "formatOffsetId",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toStandardDuration",
+    "anchor_seed": 3369,
+    "class": "org.joda.time.Period",
+    "file": "src/main/java/org/joda/time/Period.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.joda.time.format.ISODateTimeFormat;"
+    ],
+    "method": "appendSignedOffset",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "weekDate",
+    "anchor_seed": 3370,
+    "class": "org.joda.time.format.ISODateTimeFormat",
+    "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.joda.time.LocalTime;"
+    ],
+    "method": "appendOffsetElement",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getMillisOfDay",
+    "anchor_seed": 3371,
+    "class": "org.joda.time.LocalTime",
+    "file": "src/main/java/org/joda/time/LocalTime.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "appendOffsetTime",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3267
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-9"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.TestDateTimeZone",
+  "test_file": "src/test/java/org/joda/time/TestDateTimeZone.java",
+  "test_method": "testForOffsetMillis_int"
+ },
+ "variant_id": "CTV-ADA13C",
+ "kind": "new",
+ "fault_lines": [
+  "ISODateTimeFormat.hourMinute().withZoneUTC().printTo(buf, size);"
+ ],
+ "gold_key": "org.joda.time.LocalTime::appendOffsetTime"
+}

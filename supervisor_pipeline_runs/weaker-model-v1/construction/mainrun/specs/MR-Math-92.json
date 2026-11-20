@@ -1,0 +1,197 @@
+{
+ "bug_id": 92,
+ "compensating": [
+  {
+   "file": "src/java/org/apache/commons/math/linear/RealVectorImpl.java",
+   "new": "return AbstractRealMatrix.multiplyByPowerOfTwo(d, scaleFactor * 0x0010000000000000L);",
+   "old": "return AbstractRealMatrix.multiplyByPowerOfTwo(d, ((long) scaleFactor) << 52);",
+   "why": "hop 4 forms the exponent increment by multiplication"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java",
+   "new": "return DenseRealMatrix.binaryScaledEntry(d, Math.max(-2098, Math.min(2098, scaleFactor)));",
+   "old": "return DenseRealMatrix.binaryScaledEntry(d, scaleFactor);",
+   "why": "hop 1 bounds the scale factor to the span of the exponent field"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "new": "return Math.copySign(RealVectorImpl.scaledComponent(Math.abs(d), scaleFactor), d);",
+   "old": "return RealVectorImpl.scaledComponent(d, scaleFactor);",
+   "why": "hop 3 scales the magnitude of d and restores its sign"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/java/org/apache/commons/math/linear/AbstractRealMatrix.java",
+   "new": "        }, startRow, endRow, startColumn, endColumn);\n\n    }\n\n    /**\n     * Multiply a number by a power of two.\n     * @param d base number\n     * @param exponentIncrement power of two by which d is multiplied, as an\n     * increment of the exponent bits (the scale factor times 2<sup>52</sup>)\n     * @return d multiplied by the power of two\n     */\n    public static double multiplyByPowerOfTwo(final double d, final long exponentIncrement) {\n        if ((d == 0) || Double.isNaN(d) || Double.isInfinite(d)) {\n            return d;\n        }\n        final long bits = Double.doubleToLongBits(d);\n        final long exponent = bits & 0x7ff0000000000000L;\n        final long rest = bits & 0x800fffffffffffffL;\n        return Double.longBitsToDouble(rest | (exponent + exponentIncrement));\n    }\n\n\n    /** {@inheritDoc} */\n    public void copySubMatrix(int[] selectedRows, int[] selectedColumns, double[][] destination)",
+   "old": "        }, startRow, endRow, startColumn, endColumn);\n\n    }\n\n    /** {@inheritDoc} */\n    public void copySubMatrix(int[] selectedRows, int[] selectedColumns, double[][] destination)",
+   "purpose": "MR-Math-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "new": "        return true;\n    }\n\n    /**\n     * Scale a value by 2<sup>scaleFactor</sup>.\n     * @param d value to scale\n     * @param scaleFactor power of two by which d is multiplied\n     * @return d &times; 2<sup>scaleFactor</sup>\n     */\n    public static double exponentScaledValue(final double d, final int scaleFactor) {\n        return RealVectorImpl.scaledComponent(d, scaleFactor);\n    }\n\n    \n    /**",
+   "old": "        return true;\n    }\n    \n    /**",
+   "purpose": "MR-Math-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/linear/DenseRealMatrix.java",
+   "new": "    /**\n     * Scale an entry by 2<sup>scaleFactor</sup>.\n     * @param d entry to scale\n     * @param scaleFactor power of two by which d is multiplied\n     * @return d &times; 2<sup>scaleFactor</sup>\n     */\n    public static double binaryScaledEntry(final double d, final int scaleFactor) {\n        return BigMatrixImpl.exponentScaledValue(d, scaleFactor);\n    }\n\n\n    /**\n     * Get the height of a block.",
+   "old": "    /**\n     * Get the height of a block.",
+   "purpose": "MR-Math-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java",
+   "new": "        return new Solver(realEigenvalues, imagEigenvalues, eigenvectors);\n    }\n\n    /**\n     * Scale a number by 2<sup>scaleFactor</sup>.\n     * @param d base number\n     * @param scaleFactor power of two by which d is multiplied\n     * @return d &times; 2<sup>scaleFactor</sup>\n     */\n    public static double scaledByPowerOfTwo(final double d, final int scaleFactor) {\n        return DenseRealMatrix.binaryScaledEntry(d, scaleFactor);\n    }\n\n\n    /** Specialized solver. */",
+   "old": "        return new Solver(realEigenvalues, imagEigenvalues, eigenvectors);\n    }\n\n    /** Specialized solver. */",
+   "purpose": "MR-Math-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/linear/RealVectorImpl.java",
+   "new": "        }\n        return new RealVectorImpl(out);\n    }\n\n    /**\n     * Scale a vector component by 2<sup>scaleFactor</sup>.\n     * <p>A zero scale factor leaves the component unchanged; any other scale\n     * factor is converted into the matching increment of the exponent bits,\n     * scaleFactor &times; 2<sup>52</sup>.</p>\n     * @param d component to scale\n     * @param scaleFactor power of two by which d is multiplied\n     * @return d &times; 2<sup>scaleFactor</sup>\n     */\n    public static double scaledComponent(final double d, final int scaleFactor) {\n        if (scaleFactor == 0) {\n            return d;\n        }\n        return AbstractRealMatrix.multiplyByPowerOfTwo(d, ((long) scaleFactor) << 52);\n    }\n\n\n    /** {@inheritDoc} */\n    public RealVector mapExpm1ToSelf() {",
+   "old": "        }\n        return new RealVectorImpl(out);\n    }\n\n    /** {@inheritDoc} */\n    public RealVector mapExpm1ToSelf() {",
+   "purpose": "MR-Math-92 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "       The factor 2<sup>scaleFactor</sup> is first evaluated with {@link Math#pow(double, double)}, and d is then multiplied by this factor.\n     */\n    public static double scalb(final double d, final int scaleFactor) {\n        return org.apache.commons.math.linear.EigenDecompositionImpl.scaledByPowerOfTwo(d, scaleFactor);",
+   "old": "     */\n    public static double scalb(final double d, final int scaleFactor) {\n\n        // handling of some important special cases\n        if ((d == 0) || Double.isNaN(d) || Double.isInfinite(d)) {\n            return d;\n        }\n\n        // split the double in raw components\n        final long bits     = Double.doubleToLongBits(d);\n        final long exponent = bits & 0x7ff0000000000000L;\n        final long rest     = bits & 0x800fffffffffffffL;\n\n        // shift the exponent\n        final long newBits = rest | (exponent + (((long) scaleFactor) << 52));\n        return Double.longBitsToDouble(newBits);\n",
+   "purpose": "MR-Math-92 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math.linear.EigenDecompositionImpl",
+   "file": "src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java",
+   "method": "scaledByPowerOfTwo"
+  },
+  {
+   "class": "org.apache.commons.math.linear.DenseRealMatrix",
+   "file": "src/java/org/apache/commons/math/linear/DenseRealMatrix.java",
+   "method": "binaryScaledEntry"
+  },
+  {
+   "class": "org.apache.commons.math.linear.BigMatrixImpl",
+   "file": "src/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "method": "exponentScaledValue"
+  },
+  {
+   "class": "org.apache.commons.math.linear.RealVectorImpl",
+   "file": "src/java/org/apache/commons/math/linear/RealVectorImpl.java",
+   "method": "scaledComponent"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Math-92.py",
+ "entry_points": [
+  "org.apache.commons.math.util.MathUtils::scalb"
+ ],
+ "evidence": [
+  "org.apache.commons.math.util.MathUtils::scalb",
+  "org.apache.commons.math.util.MathUtils::nextAfter",
+  "org.apache.commons.math.util.MathUtils::round"
+ ],
+ "expected_signature": "MathUtilsTest.testScalb(MathUtilsTest.java:645)",
+ "extra_tests": [],
+ "fixture_key": "Math-92",
+ "gold": {
+  "class": "org.apache.commons.math.linear.AbstractRealMatrix",
+  "edits": [
+   {
+    "new": "        final long bits = Double.doubleToLongBits(d);",
+    "old": "        if ((d == 0) || Double.isNaN(d) || Double.isInfinite(d)) {\n            return d;\n        }\n        final long bits = Double.doubleToLongBits(d);"
+   }
+  ],
+  "file": "src/java/org/apache/commons/math/linear/AbstractRealMatrix.java",
+  "method": "multiplyByPowerOfTwo"
+ },
+ "group": "MR-Math-92",
+ "hops": 5,
+ "iid": "MR-Math-92",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold looks at the value of d: it is the only method on the path that splits d into its raw bits, and the special-value decision belongs with that split. Hops 1-4 never inspect d (hops 1-3 pass their arguments on; hop 4 tests only the scale factor, returning d for a zero scale factor, and converts any other scale factor into the increment of the exponent bits). Once the exponent bits of an infinite or NaN value have been incremented, the carry has overwritten the sign bit and the exponent field is zero, so the returned -0.0 (or negative subnormal) cannot be told apart from the scaling of an ordinary value and no caller can recover infinity or NaN from it. The convention is pinned outside the gold: the facade's javadoc ('If d is 0 or NaN or Infinite, it is returned unchanged'); MathUtils.nextAfter returns NaN or infinite d unchanged directly before it splits the double in raw components (MathUtilsTest testNextAfterSpecialCases); MathUtils.round returns infinite values unchanged and NaN as NaN (MathUtilsTest testRoundDouble, testRoundFloat). No caller can make the gold's own arithmetic give the special values back: the variant gold returns an infinite or NaN d only for a zero increment, a zero scale factor never reaches the gold (hop 4 returns d itself) and hop 4 is documented to pass the increment matching any non-zero scale factor; a caller that tests NaN and infinity itself re-implements the gold's decision and bypasses the gold. The gold still returns -0.0 for (+infinity, 2^52), an input every javadoc on the path admits.",
+ "ownership_tests": [
+  "org.apache.commons.math.util.MathUtilsTest::testNextAfterSpecialCases",
+  "org.apache.commons.math.util.MathUtilsTest::testRoundDouble",
+  "org.apache.commons.math.util.MathUtilsTest::testRoundFloat"
+ ],
+ "project": "Math",
+ "src_root": "src/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getSolver",
+    "anchor_seed": 3377,
+    "class": "org.apache.commons.math.linear.EigenDecompositionImpl",
+    "file": "src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "scaledByPowerOfTwo",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "walkInOptimizedOrder",
+    "anchor_seed": 3378,
+    "class": "org.apache.commons.math.linear.DenseRealMatrix",
+    "file": "src/java/org/apache/commons/math/linear/DenseRealMatrix.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "binaryScaledEntry",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "equals",
+    "anchor_seed": 3379,
+    "class": "org.apache.commons.math.linear.BigMatrixImpl",
+    "file": "src/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "exponentScaledValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "mapExpm1",
+    "anchor_seed": 3380,
+    "class": "org.apache.commons.math.linear.RealVectorImpl",
+    "file": "src/java/org/apache/commons/math/linear/RealVectorImpl.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "scaledComponent",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "copySubMatrix",
+    "anchor_seed": 3381,
+    "class": "org.apache.commons.math.linear.AbstractRealMatrix",
+    "file": "src/java/org/apache/commons/math/linear/AbstractRealMatrix.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "multiplyByPowerOfTwo",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3277
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Math-92"
+ ],
+ "test_root": "src/test",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.math.util.MathUtilsTest",
+  "test_file": "src/test/org/apache/commons/math/util/MathUtilsTest.java",
+  "test_method": "testScalb"
+ },
+ "variant_id": "CTV-D9FFEA",
+ "kind": "new",
+ "fault_lines": [
+  "final long bits = Double.doubleToLongBits(d);"
+ ],
+ "gold_key": "org.apache.commons.math.linear.AbstractRealMatrix::multiplyByPowerOfTwo"
+}

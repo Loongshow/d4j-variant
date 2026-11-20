@@ -1,0 +1,212 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index df918c148..0f9ca238e 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -891,6 +891,23 @@ public class ObjectMapper
+     public ObjectMapper findAndRegisterModules() {
+         return registerModules(findModules());
+     }
++
++    /**
++     * Method for finding JSON Object fields with specified name, and
++     * adding their values, as text, to the given List.
++     *
++     * @param fields Fields (name and value) of the Object node to look in
++     * @param fieldName Name of field to look for
++     * @param foundSoFar List to add values to; may be null
++     *
++     * @return List with the values added, if any; otherwise the given list
++     */
++    public static List<String> treeValuesAsText(Iterator<Map.Entry<String, JsonNode>> fields,
++            String fieldName, List<String> foundSoFar)
++    {
++        return BeanDeserializerBase.propertyValuesAsText(fields, fieldName, foundSoFar);
++    }
++
+     
+     /*
+     /**********************************************************
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 05098fd73..19278f33a 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -21,6 +21,8 @@ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
+ import com.fasterxml.jackson.databind.util.RootNameLookup;
++import java.util.ArrayList;
++import java.util.List;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -399,6 +401,36 @@ public class ObjectReader
+         return _with(_config.withFeatures(features));
+     }    
+ 
++    /**
++     * Method for finding JSON Object fields with specified name, and
++     * adding their values, as text (see {@link JsonNode#asText}), to the
++     * given List.
++     *
++     * @param fields Fields (name and value) of the Object node to look in
++     * @param fieldName Name of field to look for
++     * @param foundSoFar List to add values to; if null, one is created
++     *    when the first value is found
++     *
++     * @return List with the values added, if any; otherwise the given list
++     */
++    public static List<String> fieldValuesAsText(Iterator<Map.Entry<String, JsonNode>> fields,
++            String fieldName, List<String> foundSoFar)
++    {
++        while (fields.hasNext()) {
++            Map.Entry<String, JsonNode> entry = fields.next();
++            if (fieldName.equals(entry.getKey())) {
++                if (foundSoFar == null) {
++                    foundSoFar = new ArrayList<String>();
++                }
++                foundSoFar.add(entry.getValue().asText());
++            } else {
++                foundSoFar = entry.getValue().findValuesAsText(fieldName, foundSoFar);
++            }
++        }
++        return foundSoFar;
++    }
++
++
+     /**
+      * Method for constructing a new reader instance that is configured
+      * with specified feature disabled.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 2e9ce024c..d3799aa87 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -148,6 +148,23 @@ public abstract class BasicDeserializerFactory
+     public final DeserializerFactory withAdditionalKeyDeserializers(KeyDeserializers additional) {
+         return withConfig(_factoryConfig.withAdditionalKeyDeserializers(additional));
+     }
++
++    /**
++     * Method for finding JSON Object fields with specified name, and
++     * adding their values, as text, to the given List.
++     *
++     * @param fields Fields (name and value) of the Object node to look in
++     * @param fieldName Name of field to look for
++     * @param foundSoFar List to add values to; may be null
++     *
++     * @return List with the values added, if any; otherwise the given list
++     */
++    public static List<String> findPropertyValuesAsText(Iterator<Map.Entry<String, JsonNode>> fields,
++            String fieldName, List<String> foundSoFar)
++    {
++        return ObjectMapper.treeValuesAsText(fields, fieldName, foundSoFar);
++    }
++
+     
+     /**
+      * Convenience method for creating a new factory instance with additional
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 01f5227e1..d4f7f76ba 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -818,6 +818,23 @@ public abstract class BeanDeserializerBase
+         return _beanProperties.iterator();
+     }
+ 
++    /**
++     * Method for finding JSON Object fields with specified name, and
++     * adding their values, as text, to the given List.
++     *
++     * @param fields Fields (name and value) of the Object node to look in
++     * @param fieldName Name of field to look for
++     * @param foundSoFar List to add values to; may be null
++     *
++     * @return List with the values added, if any; otherwise the given list
++     */
++    public static List<String> propertyValuesAsText(Iterator<Map.Entry<String, JsonNode>> fields,
++            String fieldName, List<String> foundSoFar)
++    {
++        return ObjectReader.fieldValuesAsText(fields, fieldName, foundSoFar);
++    }
++
++
+     /**
+      * Accessor for finding properties that represents values to pass
+      * through property-based creator method (constructor or
+diff --git a/src/main/java/com/fasterxml/jackson/databind/node/ObjectNode.java b/src/main/java/com/fasterxml/jackson/databind/node/ObjectNode.java
+index 1ca18f142..b8a5a2809 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/node/ObjectNode.java
++++ b/src/main/java/com/fasterxml/jackson/databind/node/ObjectNode.java
+@@ -192,21 +192,18 @@ public class ObjectNode
+         return foundSoFar;
+     }
+ 
++    /**
++     * Method for finding JSON Object fields with specified name in this
++     * node or its descendants, and adding their values, as text, to the
++     * given List, which is created if null when the first value is found.
++     * Field names are matched by comparing their interned forms, one
++     * reference comparison per field.
++     */
+     @Override
+     public List<String> findValuesAsText(String fieldName, List<String> foundSoFar)
+     {
+-        for (Map.Entry<String, JsonNode> entry : _children.entrySet()) {
+-            if (fieldName.equals(entry.getKey())) {
+-                if (foundSoFar == null) {
+-                    foundSoFar = new ArrayList<String>();
+-                }
+-                foundSoFar.add(entry.getValue().asText());
+-            } else { // only add children if parent not added
+-                foundSoFar = entry.getValue().findValuesAsText(fieldName,
+-                    foundSoFar);
+-            }
+-        }
+-        return foundSoFar;
++        return com.fasterxml.jackson.databind.util.TokenBuffer.collectFieldText(_children.entrySet().iterator(),
++                fieldName, foundSoFar);
+     }
+     
+     @Override
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 2dbb7dfdd..d1c95ceb7 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,10 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import java.util.Iterator;
++import java.util.List;
++import java.util.Map;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -541,6 +545,27 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+     @Override
+     public final JsonWriteContext getOutputContext() { return _writeContext; }
+ 
++    /**
++     * Method for finding JSON Object fields with specified name, and
++     * adding their values, as text, to the given List. If there are no
++     * fields, the given List is returned as is.
++     *
++     * @param fields Fields (name and value) of the Object node to look in
++     * @param fieldName Name of field to look for
++     * @param foundSoFar List to add values to; may be null
++     *
++     * @return List with the values added, if any; otherwise the given list
++     */
++    public static List<String> collectFieldText(Iterator<Map.Entry<String, JsonNode>> fields,
++            String fieldName, List<String> foundSoFar)
++    {
++        if (!fields.hasNext()) {
++            return foundSoFar;
++        }
++        return BasicDeserializerFactory.findPropertyValuesAsText(fields, fieldName, foundSoFar);
++    }
++
++
+     /*
+     /**********************************************************
+     /* JsonGenerator implementation: capability introspection

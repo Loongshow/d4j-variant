@@ -1,0 +1,184 @@
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index d278a3128..e3078abb8 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -20,6 +20,7 @@ package org.apache.commons.math3.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math3.FieldElement;
++import org.apache.commons.math3.linear.BlockRealMatrix;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -923,6 +924,16 @@ public class Dfp implements FieldElement<Dfp> {
+         return 17 + (sign << 8) + (nans << 16) + exp + Arrays.hashCode(mant);
+     }
+ 
++    /** Get a string representation of a fraction given by its numerator and denominator.
++     * @param numerator numerator of the fraction
++     * @param denominator denominator of the fraction
++     * @return string representation of the fraction
++     */
++    public static String fractionAsString(final int numerator, final int denominator) {
++        return BlockRealMatrix.fractionString(numerator, denominator);
++    }
++
++
+     /** Check if instance is not equal to x.
+      * @param x number to check instance against
+      * @return true if instance is not equal to x and neither are NaN, false otherwise
+diff --git a/src/main/java/org/apache/commons/math3/fraction/Fraction.java b/src/main/java/org/apache/commons/math3/fraction/Fraction.java
+index 08d3b9556..fb5d362ce 100644
+--- a/src/main/java/org/apache/commons/math3/fraction/Fraction.java
++++ b/src/main/java/org/apache/commons/math3/fraction/Fraction.java
+@@ -640,6 +640,8 @@ public class Fraction
+      * <p>
+      * Returns the {@code String} representing this fraction, ie
+      * "num / dem" or just "num" if the denominator is one.
++     * The numerator and the denominator are first divided by their greatest
++     * common divisor, found with Euclid's algorithm, before they are written.
+      * </p>
+      *
+      * @return a string representation of the fraction.
+@@ -647,15 +649,7 @@ public class Fraction
+      */
+     @Override
+     public String toString() {
+-        String str = null;
+-        if (denominator == 1) {
+-            str = Integer.toString(numerator);
+-        } else if (numerator == 0) {
+-            str = "0";
+-        } else {
+-            str = numerator + " / " + denominator;
+-        }
+-        return str;
++        return org.apache.commons.math3.linear.BlockFieldMatrix.fractionText(numerator, denominator);
+     }
+ 
+     /** {@inheritDoc} */
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+index d26fc5b53..4ed387fab 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+@@ -26,6 +26,7 @@ import org.apache.commons.math3.exception.DimensionMismatchException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -836,6 +837,21 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Get the string form of a fraction given by its numerator and denominator.
++     * <p>A zero numerator gives "0".</p>
++     * @param numerator numerator of the fraction
++     * @param denominator denominator of the fraction
++     * @return string form of the fraction
++     */
++    public static String fractionText(final int numerator, final int denominator) {
++        if (numerator == 0) {
++            return "0";
++        }
++        return BOBYQAOptimizer.ratioText(numerator, denominator);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setRowMatrix(final int row, final FieldMatrix<T> matrix) {
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+index 04ba0b2e0..a68cc3462 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+@@ -506,6 +506,26 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         }
+     }
+ 
++    /**
++     * Returns the string form of a fraction given by its numerator and
++     * denominator.
++     * A fraction whose denominator is one is written as a whole number.
++     *
++     * @param numerator Numerator of the fraction.
++     * @param denominator Denominator of the fraction.
++     * @return the string form of the fraction.
++     */
++    public static String fractionString(final int numerator, final int denominator) {
++        final StringBuilder text = new StringBuilder();
++        text.append(numerator);
++        if (denominator != 1) {
++            text.append(" / ");
++            text.append(denominator);
++        }
++        return text.toString();
++    }
++
++
+     /**
+      * Returns the result of postmultiplying this by {@code m}.
+      *
+diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+index 30ae44026..1f6e1cf42 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+@@ -31,6 +31,7 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optimization.GoalType;
+ import org.apache.commons.math3.optimization.PointValuePair;
+ import org.apache.commons.math3.optimization.MultivariateOptimizer;
++import org.apache.commons.math3.util.FastMath;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -231,6 +232,18 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Gets the string form of a fraction given by its numerator and denominator.
++     *
++     * @param numerator Numerator of the fraction.
++     * @param denominator Denominator of the fraction.
++     * @return the string form of the fraction.
++     */
++    public static String ratioText(int numerator, int denominator) {
++        return FastMath.toFractionString(numerator, denominator);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/util/FastMath.java b/src/main/java/org/apache/commons/math3/util/FastMath.java
+index 9152d193c..9fe5b689f 100644
+--- a/src/main/java/org/apache/commons/math3/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math3/util/FastMath.java
+@@ -17,6 +17,7 @@
+ package org.apache.commons.math3.util;
+ 
+ import java.io.PrintStream;
++import org.apache.commons.math3.dfp.Dfp;
+ 
+ /**
+  * Faster, more accurate, portable alternative to {@link Math} and
+@@ -1367,6 +1368,16 @@ public class FastMath {
+         return y;
+     }
+ 
++    /** Get the string form of a fraction given by its numerator and denominator.
++     * @param numerator numerator of the fraction
++     * @param denominator denominator of the fraction
++     * @return string form of the fraction
++     */
++    public static String toFractionString(final int numerator, final int denominator) {
++        return Dfp.fractionAsString(numerator, denominator);
++    }
++
++
+     /** Compute the base 10 logarithm.
+      * @param x a number
+      * @return log10(x)

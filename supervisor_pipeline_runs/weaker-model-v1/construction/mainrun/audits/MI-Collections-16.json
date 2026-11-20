@@ -1,0 +1,57 @@
+{
+ "instance": "MI-Collections-16",
+ "task_key": "Collections-16__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.collections.MapUtils::addFromCollection (hop 4)",
+   "edit": "CursorableSubList.insertSequence(list, index, coll);  ->  CursorableSubList.insertSequence(list, index, CollectionUtils.removeAll(coll, list));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Passes all 12971 tests but is an incomplete repair: elements the list already holds are dropped using the receiver's own contains, but repeated elements inside the collection still make the gold advance past a refused slot. Probe: SetUniqueList.decorate([1,1,2]) throws IndexOutOfBoundsException (decorate's javadoc: duplicates removed, first indexed one kept), and [x].addAll(0,[a,a,b]) gives [a, x, b] (the facade's 'duplicates from the specified collection will be ignored' plus in-order insertion at the index). Not consistent with the facade or with evidence method SetUniqueList.decorate, so it is not a competing repair."
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::addFromCollection (hop 4)",
+   "edit": "CursorableSubList.insertSequence(list, index, coll);  ->  CursorableSubList.insertSequence(list, index, CollectionUtils.removeAll(new java.util.LinkedHashSet(coll), list));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Passes all 12971 tests. It puts a second implementation of the receiver's uniqueness rule (equals/hashCode, via LinkedHashSet) into a hop, so the receiver's refusal never fires on this path. It agrees with the receiver only when the receiver's Set is equals-based. SetUniqueList's constructor 'specifies the set to use', and testCollections307 builds one over a TreeSet. Probe with a TreeSet(CASE_INSENSITIVE_ORDER) receiver: [x].addAll(0,[a,A,b]) gives [a, x, b] (the correct gold gives [a, b, x]). That violates the facade's documented behaviour, so this is recorded as a bypass of the receiver's decision, not a competing repair."
+  },
+  {
+   "method": "org.apache.commons.collections.bidimap.TreeBidiMap::insertAllAt (hop 1)",
+   "edit": "DoubleOrderedMap.insertEach(list, index, coll);  ->  for (Iterator it = coll.iterator(); it.hasNext();) { int s = list.size(); list.add(index, it.next()); if (s != list.size()) { index++; } }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Puts the original per-element loop back into hop 1. Hops 2-5, including the gold, become dead code."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections.list.SetUniqueList::addAll(int, Collection) (instance, V2: passes this; body = return TreeBidiMap.insertAllAt(this, index, coll))",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::insertAllAt (size before/after, returns change flag)",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::insertEach (pass-through)",
+  "hop3 org.apache.commons.collections.ExtendedProperties::addEachAt (pass-through)",
+  "hop4 org.apache.commons.collections.MapUtils::addFromCollection (pass-through)",
+  "gold org.apache.commons.collections.CursorableSubList::insertSequence (file CursorableLinkedList.java; per-element loop calling list.add(pos++, element) on the receiver)"
+ ],
+ "reasons": "Compile OK. The trigger TestSetUniqueList::testIntCollectionAddAll fails with 'Third new element should be at index 0 expected:<4> but was:<2>'. Running the full suite on the variant (12971 tests), only the trigger fails. The correct patch gives a clean full suite. The 4 ownership tests pass on the variant.\n(a) The gold's javadoc promises the elements 'as one run that begins at the given index', with @param index 'the index of the first inserted element'. On the trigger, 1 is refused at 0 and the first inserted element, 4, lands at index 1. Only the gold sees each element together with the list as it stands and decides where it goes. Hops 1-4 promise only to insert 'starting at the given index' (the first element is offered at index 0) and only delegate. The receiver's add(int,Object) behaves as documented (refuses a present element).\n(b) Hop 1 computes size before/after and returns the change flag, as documented. Hops 2-4 are documented pass-throughs. None contradicts its code, and none promises dedupe or contiguity, so none can be read as the faulty step.\n(c) Two passing hop-4 prefilters exist. One drops present elements only: it is incomplete (decorate([1,1,2]) throws IOOBE). The other also dedupes the collection with LinkedHashSet: it re-implements the receiver's uniqueness rule and diverges for a receiver whose Set is not equals-based (CI TreeSet: [a,x,b] vs [a,b,x]). Neither is consistent with all documentation. Putting the loop back at hop 1 is a bypass. No competing repair.\n(d) Names (insertAllAt, insertEach, addEachAt, addFromCollection, insertSequence) are neutral. The lie ('The collection is first copied to an array, which is then inserted into the decorated list as a single block.') is a procedural claim the code does not perform. It names neither the contains check nor any hop. The gold's javadoc is silent on skipping contained elements.\n(e) The gold is 5 calls below the facade, in 5 distinct existing classes. The hosts are the five largest public classes (largest5 mode, 2085/1995/1784/1678/1468 lines), in size order, matching the task record. The facade body is state gathering (this) plus one delegating call (the original had no guard). There is one added lie sentence. The trigger is an existing test, test.patch is empty, and only the trigger newly fails.\n(f) ListOrderedSet.addAll(int, Collection) is production code doing exactly this step: it skips a contained element and advances the index only after an insertion. It is pinned by the passing TestListOrderedSet::testListAddIndexed ([3,0,2] at 1 into [0,1] gives [0,3,2,1]). SetUniqueList.add(int,Object) and decorate's documented duplicate removal are pinned by the passing testAddAll and testFactory.\n(g) C10i rules: the facade SetUniqueList.addAll is an allowed V2 candidate in bridge7_tasks.json. Its signature, modifiers, override and thrown types are unchanged. No visibility is widened: CursorableSubList stays package-private, and the new hops are new public static methods. No type is added, no reflection is used, and no test is edited.",
+ "notes": "1. The gold sits in CursorableSubList, a package-private secondary top-level class inside CursorableLinkedList.java. The seeded anchor (after lastIndexOf) falls in that class. The task record lists this host class, and MapUtils reaches it from the same package.\n2. rewrite_facade put the lie as an unstarred continuation line after the facade's '@return true if this collection changed'. Javadoc will therefore render it as part of the @return text. This is a recipe artifact, not leakage.\n3. The facade calls hop 1 by fully qualified name (no import added to SetUniqueList).\n4. The variant also breaks SetUniqueList.decorate on a list whose duplicate sits before another element (IOOBE), but no existing test covers that, so the trigger stays the only new failure.\n5. Scratch copies under /private/tmp/mxb-* were deleted after the audit."
+}

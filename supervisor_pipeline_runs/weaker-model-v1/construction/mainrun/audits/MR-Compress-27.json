@@ -1,0 +1,60 @@
+{
+ "instance": "Compress-27",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::storeBinaryNumber (hop 4)",
+   "edit": "after `TarArchiveEntry.encodeBinaryNumber(value, buf, offset, length);` add `java.util.Arrays.fill(buf, offset + 1, Math.max(offset + 1, offset + length - 8), (byte) (value >> 63));`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::storeBinaryNumber (hop 4)",
+   "edit": "replace the gold call with `TarArchiveEntry.encodeBinaryNumber(value, buf, offset + Math.max(0, length - 9), Math.min(length, 9));` plus `if (length > 9) { TarArchiveEntry.encodeBinaryNumber(value >> 63, buf, offset, length - 8); }`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarUtils::formatLongOctalOrBinaryBytes (facade)",
+   "edit": "restore the pristine body (octal limit check, formatLongOctalBytes, formatLongBinary / formatBigIntegerBinary, marker byte), i.e. stop calling hop 1",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "declared compensating edits at hops 1, 2 and 4 (spec `compensating`; result taken from validation gate G9, not re-run)",
+   "edit": "hop 2 rejects |value| >= 2^62 for 9+ byte fields; hop 4 writes only the last nine bytes; hop 1 uses MAXSIZE for every field",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.compress.archivers.tar.TarUtils::formatLongOctalOrBinaryBytes",
+  "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::putHeaderNumber",
+  "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::putBinaryNumber",
+  "hop3 org.apache.commons.compress.archivers.zip.ZipFile::writeBinaryNumber",
+  "hop4 org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::storeBinaryNumber",
+  "gold org.apache.commons.compress.archivers.tar.TarArchiveEntry::encodeBinaryNumber"
+ ],
+ "reasons": "Reproduced: the variant compiles, the trigger TarUtilsTest::testRoundTripOctalOrBinary12 fails with 'At offset 0, 12 byte binary number exceeds maximum signed long value', and a full defects4j test run on the variant fails only the trigger (baseline clean). (a) The gold writes byte i from `value >> bits` with bits running to 8*(length-2); for a 12-byte field bits reach 64..80, Java masks the shift count, so for 0xff00000000000001 the remaining 11 bytes are 00 00 01 ff 00 00 00 00 00 00 01. Under no reading do they 'hold the number, most significant byte first', so the gold breaks its own javadoc. Each hop's own step does what its javadoc says: hop 1 picks the octal limit (MAXID for UIDLEN fields, MAXSIZE otherwise) and sends negatives to binary; hop 2 throws only for fields shorter than nine bytes whose Math.abs does not fit; hops 3 and 4 pass the field through and return offset+length. The facade and hops are wrong only because they delegate, so the gold is the only method that breaks its contract on its own logic. (b) No hop javadoc contradicts its code. Hop 2's 'shorter than nine bytes' rule implies that longer fields take any long, which places long-field encoding below hop 2. Hops 3 and 4 are one-line pass-throughs. (c) No competing repair. The wrap-around comes from the shift count inside the gold, so no change to the value, offset or length upstream can fix it within the documented roles. Two hop-4 edits pass the trigger, the ownership tests and the full suite, but both are bypasses. One sign-fills bytes the gold has just written, which partly replaces the gold's result. The other never calls the gold with a field longer than nine bytes and rebuilds the long-field encoding from two overlapping gold calls; that is a reimplementation at hop 4, two statements against a one-expression gold fix. In both cases the gold still breaks its own javadoc for 10-byte and longer fields, so neither is consistent with all documentation on the path. Restoring the pristine facade body also passes, but it makes the chain dead (bypass). The three declared compensating edits do not absorb the fault (G9). (d) No leakage. The hop and gold names are neutral (put/write/store/encodeBinaryNumber), and G2b found no fault vocabulary in the added lines. The gold javadoc states only the idiomatic marker plus big-endian contract and says nothing about sign-extending bytes beyond 64 bits. The facade lie ('octal digits taken from Long#toOctalString and copied into the end of the field after the leading zeros have been written') is false: formatUnsignedOctalString builds the digits itself and uses toOctalString only in an exception message. It concerns the octal path and does not name the fault, the omitted step or any hop. (e) Recipe: the gold is exactly five calls below the facade. There are five distinct existing classes, and the facade body is a single delegating return (the original had no guard). One procedural sentence was added, the gold javadoc is quiet, and the trigger is an existing test (test.patch empty) that is the only new failure. Hosts per the C10f addendum section 1, recomputed independently on the pristine fixture: only ZipArchiveOutputStream (1504 lines) reaches 1500, and BlockSort (1081) is package-private, so host_mode is largest5. The five largest public classes other than TarUtils are ZipArchiveOutputStream 1504, BZip2CompressorOutputStream 1329, ZipFile 1083, ZipArchiveInputStream 1074 and TarArchiveEntry 1073, which are exactly hops 1-5 in order. The anchor seeds are SEED+100+i, as the recipe sets them. (f) The convention is pinned outside the gold. TarUtils.parseOctalOrBinary/parseBinaryBigInteger read the bytes of a 9-byte or longer field after the marker as a signed big-endian BigInteger, so the leading bytes must carry the sign. TarUtils.formatBigIntegerBinary fills the bytes between the marker and the value with 0xff or 0x00. The passing test TarUtilsTest::testReadNegativeBinary12Byte reads -3601 from ff x10 f1 ef, and testRoundTripOctalOrBinary8 pins the round trip on 8-byte fields.",
+ "notes": "Bypass edits are recorded above; none is a competing repair. Observations, none decisive: (1) TarUtils.formatLongBinary and formatBigIntegerBinary, both private, are now unreferenced dead code beside the facade. They are pristine code that shows the sign-fill convention and are listed as evidence, so a model could restore the facade from them (bypass). (2) testOldEntryStarMode is a weak pin: its value is -1, which the faulty gold also writes correctly (all 0xff), so it pins only the 0xff marker and the negative round trip. (3) The lie is appended after the '@since 1.4' tag, so in rendered javadoc it would read as part of the @since text. This is an artefact of the recipe's rewrite_facade, not a leak. (4) The hops in the Zip and BZip2 hosts talk about 'tar header fields', which follows from size-based host selection. Not checked (outside the audit inputs): whether the facade appears in the batch-6 pre-registration's allowed targets."
+}

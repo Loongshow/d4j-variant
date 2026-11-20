@@ -1,0 +1,78 @@
+{
+ "instance": "Codec-4",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::encodeMagnitude (hop 1)",
+   "edit": "byte[] bytes = value.toByteArray(); -> byte[] bytes = value.abs().toByteArray();",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.codec.digest.DigestUtils::base64 (hop 2)",
+   "edit": "return Metaphone.encodeStandard(data); -> return Metaphone.encodeStandard(data.length % 3 == 1 ? java.util.Arrays.copyOf(data, data.length + 1) : data);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.codec.net.QuotedPrintableCodec::encodePrintable (hop 4)",
+   "edit": "getBytesUsAscii(alphabet) -> getBytesUsAscii(alphabet + \"=\")",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.codec.digest.DigestUtils::base64 (hop 2)",
+   "edit": "return Metaphone.encodeStandard(data); -> byte[] r = Metaphone.encodeStandard(data.length % 3 == 1 ? java.util.Arrays.copyOf(data, data.length + 1) : data); if (data.length % 3 == 1) { r[r.length - 2] = (byte) '='; } return r;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.net.QuotedPrintableCodec::encodePrintable (hop 4)",
+   "edit": "return URLCodec.encodeGroups(...); -> byte[] r = URLCodec.encodeGroups(StringUtils.getBytesUsAscii(alphabet), bytes); if (bytes.length % 3 == 1) { r[r.length - 3] = StringUtils.getBytesUsAscii(alphabet)[(bytes[bytes.length - 1] & 3) << 4]; } return r;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::encodeMagnitude (hop 1)",
+   "edit": "return DigestUtils.base64(magnitude); -> return org.apache.commons.codec.binary.Base64.encodeBase64(magnitude, false);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.codec.binary.Base64::encodeInteger(BigInteger) - null guard + return DoubleMetaphone.encodeMagnitude(bigInt)",
+  "hop1 org.apache.commons.codec.language.DoubleMetaphone::encodeMagnitude(BigInteger) - last ceil(bitLength/8) bytes of toByteArray(), then DigestUtils.base64",
+  "hop2 org.apache.commons.codec.digest.DigestUtils::base64(byte[]) - empty array returned as is, else Metaphone.encodeStandard",
+  "hop3 org.apache.commons.codec.language.Metaphone::encodeStandard(byte[]) - passes the standard alphabet A-Z a-z 0-9 + / to QuotedPrintableCodec.encodePrintable",
+  "hop4 org.apache.commons.codec.net.QuotedPrintableCodec::encodePrintable(String, byte[]) - alphabet as US-ASCII bytes, then URLCodec.encodeGroups",
+  "gold org.apache.commons.codec.net.URLCodec::encodeGroups(byte[], byte[]) - 3-byte groups to 4 characters, then '=' from end = (4n+1)/3; the omitted 'if (end % 4 == 1) end++' makes a one-byte tail keep one character and three '=' (...Yj===) instead of two characters and '==' (...Yjg==)"
+ ],
+ "reasons": "(a) The gold's javadoc promises the base64 encoding of the bytes; for the trigger's 64 magnitude bytes (final quantum of one byte) base64 yields two characters plus '==', but the variant overwrites the second character with '=' (three pads, the low two bits of the last byte lost). Every hop and the facade are correct given a correct gold: correct.patch changes only the gold and the full suite is clean (0 failures). (b) Each hop's javadoc matches its code: hop 1's 'two's-complement without its sign byte, in as many bytes as the bit length needs' equals the original toIntegerBytes on positive, zero and negative values; hop 2's empty-array rule, hop 3's alphabet string and hop 4's US-ASCII conversion are exact. No hop computes groups or padding, so none can be read as owning the tail. (c) The three declared compensating edits all still fail the trigger (re-run). No one-line non-gold edit can work: any change to the bytes changes the characters, and no alphabet change prevents the gold's overwrite. Passing non-gold edits all bypass or patch the gold's output: hop 1 calling Base64.encodeBase64 makes hops 2-5 dead; hop 2 zero-extending and then overwriting the 'A' with '=', and hop 4 recomputing the lost character from the alphabet, each re-implement the omitted padding decision on the gold's result and leave encodeGroups violating its own contract for any n % 3 == 1 input. (d) Names (encodeMagnitude, base64, encodeStandard, encodePrintable, encodeGroups) are neutral and host-vocabulary; no comments in the hops or the gold; the lie (repeated division by 64, least significant first) does not mention groups, padding or the tail. (e) Gold is exactly 5 calls below the facade; the hosts are DoubleMetaphone (1105 lines), DigestUtils (582), Metaphone (407), QuotedPrintableCodec (387), URLCodec (361): I verified independently on the pristine checkout that no public class reaches 1500 lines, and these are the five largest public classes other than the facade's Base64 (1055), in size order, gold in the fifth, as the C10f addendum section 1 (largest5) requires and as the task record lists; the facade body is the original null guard plus one delegating call; one added procedural sentence the code does not perform; the gold's javadoc is silent on padding; test.patch is empty and the variant full suite fails only Base64Test::testCodeInteger3 with the declared signature. (f) Base64.encode(byte[],int,int) 'case 1' writes two characters and PAD twice (case 2: three and PAD once), used by Base64.encodeBase64 and BCodec.doEncoding; Base64Test testSingletons (AA==, AQ==...), testKnownEncodings, testPairs (AAA=) and testCodeInteger1/2/4 pass on the variant.",
+ "notes": "Compile OK; trigger fails with expected:<...Yj[g]==> but was:<...Yj[=]==>; variant full suite: 1 failure (the trigger); correct.patch full suite: 0 failures. The repair inside the gold can also be the one-character formula change (4n+1)/3 -> (4n+2)/3 (passes the full suite); both are at the gold. Observations for reviewers (not counted against the instance): (1) the gold's residual formula end = (bytes.length * 4 + 1) / 3 rounds a one-byte tail to one character, which an attentive reader can see is not the usual ceil(4n/3); this is local code at the gold, not a name or comment, and is the trace checker's concern rather than leakage. (2) The lie sentence sits after the '@since 1.4' tag line without a leading '*', so javadoc renders it as part of the @since text; it is still in the facade's javadoc. (3) Base64.toIntegerBytes is left without callers by the facade rewrite. (4) Hops 3 and 4 document 'not empty' while the gold handles empty input; hop 2 guards empty, so this is consistent."
+}

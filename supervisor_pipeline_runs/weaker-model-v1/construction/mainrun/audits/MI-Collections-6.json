@@ -1,0 +1,34 @@
+{
+ "instance": "Collections-6__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.apache.commons.collections.bidimap.TreeBidiMap::containsFlatKey (hop 1)",
+   "edit": "return DoubleOrderedMap.lookupSlot(key, keys, hashes, size) >= 0 || java.util.Arrays.asList(keys).subList(0, size).contains(key);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": true, "class": "bypass"},
+  {"method": "org.apache.commons.collections.MapUtils::slotIndex (hop 4)",
+   "edit": "insert before the return: for (int i = 0; i < count; i++) { if (key != null && key.equals(keys[i])) { return CursorableSubList.indexOfSlot(keys[i], hash, keys, hashes, count); } }",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": true, "class": "bypass"},
+  {"method": "ExtendedProperties::findSlot / DoubleOrderedMap::lookupSlot / TreeBidiMap::containsFlatKey (declared compensating edits)",
+   "edit": "count = keys.length; hash = key.hashCode(); lookupSlot(..., keys.length) (spec compensating edits, G9)",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": null, "class": "fails"}
+ ],
+ "path": [
+  "facade org.apache.commons.collections.map.Flat3Map::containsKey (instance, V1: delegateMap guard + fields size, hash1-3, key1-3 passed to hop 1)",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::containsFlatKey (packs slots into arrays, index >= 0 to boolean)",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::lookupSlot (hash of key, 0 for null)",
+  "hop3 org.apache.commons.collections.ExtendedProperties::findSlot (count = min(size, keys.length))",
+  "hop4 org.apache.commons.collections.MapUtils::slotIndex (pass-through)",
+  "gold org.apache.commons.collections.CursorableSubList::indexOfSlot (in CursorableLinkedList.java; key comparison reduced to identity, equals clause omitted)"
+ ],
+ "reasons": "Variant compiles; trigger TestFlat3Map::testSerialisation2 fails at line 181 (ser.containsKey(ONE), expected:<true> but was:<false>) because deserialised keys are equal but not identical; full suite: only the trigger fails. (a) Only the gold compares keys; its contract 'index of the slot holding the specified key' (hash pre-check then key) is violated under Map key equality, which hops 1-4 never touch. (b) Hop javadocs match their code (slot packing, null hash 0, min bound, pass-through); none is loose about key comparison. (c) No one-line competing repair: any hop-level fix must re-implement the equality search (two bypasses recorded, both pass trigger, ownership tests and full suite); declared compensating edits do not absorb the fault. (d) Names neutral (containsFlatKey, lookupSlot, findSlot, slotIndex, indexOfSlot); lie (slots kept in ascending hash order, search stops early) is false and does not name equality or the omitted step. (e) Five calls below facade, five distinct existing classes in the task record's hosts_hop_order files (largest5: TreeBidiMap 2085, DoubleOrderedMap 1995, ExtendedProperties 1717, MapUtils 1645, CursorableLinkedList.java 1468), facade = guard + state gathering + one call, gold javadoc quiet, test.patch empty. C10i rules: containsKey is an allowed candidate (facade_planned_by null), no visibility widening, no new type, no reflection, facade signature/modifiers unchanged, no test edit. (f) Pinned by intact siblings Flat3Map.get/put/remove (hash == hashCode && key.equals(keyN)) and AbstractHashedMap.isEqualKey; testCollections261 and testSerialisation4 pass.",
+ "notes": "Hop 5 sits in CursorableSubList, the package-private second top-level class of the hop-5 host file CursorableLinkedList.java, because the recipe's anchor picker (host_search.pick_insertion_anchor, flat method scan) drew its addAll as anchor; the class's visibility is unchanged and MapUtils is in the same package, so it compiles without widening. Judged conformant (host file is exactly the task record's hop-5 file, placement by the recipe tool), but a reviewer may note the gold class is not itself public. The lie line is appended after @return without a leading '*', which is the standard output of chain_transform.rewrite_facade, not builder-specific. Scratch copy first showed stale classes when edited in the same second as the copy; recompiled by deleting the class files before the reported bypass runs."
+}

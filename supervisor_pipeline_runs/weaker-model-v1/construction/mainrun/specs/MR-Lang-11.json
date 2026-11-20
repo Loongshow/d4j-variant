@@ -1,0 +1,239 @@
+{
+ "bug_id": 11,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "start = numbers && !letters ? '0' : ' ';",
+   "old": "start = ' ';",
+   "why": "hop 1 starts the default range of a digits-only request at '0'"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "end = numbers && !letters ? '9' + 1 : 'z' + 1;",
+   "old": "end = 'z' + 1;",
+   "why": "hop 1 ends the default range of a digits-only request after '9'"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "StringUtils.fillDrawn(buffer, start, gap, letters || numbers, numbers, chars, random);",
+   "old": "StringUtils.fillDrawn(buffer, start, gap, letters, numbers, chars, random);",
+   "why": "hop 4 asks for letters or digits whenever digits are asked for"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "new": "import org.apache.commons.lang3.mutable.MutableInt;\nimport java.util.Random;\n",
+   "old": "import org.apache.commons.lang3.mutable.MutableInt;\n",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "new": "        long[] joinedArray = new long[array1.length + array2.length];\n        System.arraycopy(array1, 0, joinedArray, 0, array1.length);\n        System.arraycopy(array2, 0, joinedArray, array1.length, array2.length);\n        return joinedArray;\n    }\n\n    /**\n     * <p>Creates an array of randomly drawn characters.</p>\n     *\n     * @param count  the number of characters to draw\n     * @param start  the first index or character value to draw from\n     * @param gap  the number of indexes or character values to draw from\n     * @param letters  only allow letters?\n     * @param numbers  only allow numbers?\n     * @param chars  the set of chars to draw from, may be null\n     * @param random  the source of randomness, not null\n     * @return a new array of {@code count} drawn characters\n     */\n    public static char[] drawnChars(final int count, final int start, final int gap, final boolean letters,\n            final boolean numbers, final char[] chars, final Random random) {\n        final char[] buffer = new char[count];\n        ToStringStyle.drawInto(buffer, start, gap, letters, numbers, chars, random);\n        return buffer;\n    }\n\n\n    /**\n     * <p>Adds all the elements of the given arrays into a new array.</p>\n     * <p>The new array contains all of the element of {@code array1} followed\n     * by all of the elements {@code array2}. When an array is returned, it is always\n     * a new array.</p>\n     *\n     * <pre>\n     * ArrayUtils.addAll(array1, null)   = cloned copy of array1",
+   "old": "        long[] joinedArray = new long[array1.length + array2.length];\n        System.arraycopy(array1, 0, joinedArray, 0, array1.length);\n        System.arraycopy(array2, 0, joinedArray, array1.length, array2.length);\n        return joinedArray;\n    }\n\n    /**\n     * <p>Adds all the elements of the given arrays into a new array.</p>\n     * <p>The new array contains all of the element of {@code array1} followed\n     * by all of the elements {@code array2}. When an array is returned, it is always\n     * a new array.</p>\n     *\n     * <pre>\n     * ArrayUtils.addAll(array1, null)   = cloned copy of array1",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/RandomStringUtils.java",
+   "new": "       The characters are generated in order from the first position of the string to the last, and the string is assembled by concatenating them one at a time.\n     */\n    public static String random(int count, int start, int end, boolean letters, boolean numbers,\n                                char[] chars, Random random) {\n        if (count == 0) {\n            return \"\";\n        } else if (count < 0) {\n            throw new IllegalArgumentException(\"Requested random string length \" + count + \" is less than 0.\");\n        }\n        if (chars != null && chars.length == 0) {\n            throw new IllegalArgumentException(\"The chars array must not be empty\");\n        }\n        return org.apache.commons.lang3.time.DateUtils.drawString(count, start, end, letters, numbers, chars, random);",
+   "old": "     */\n    public static String random(int count, int start, int end, boolean letters, boolean numbers,\n                                char[] chars, Random random) {\n        if (count == 0) {\n            return \"\";\n        } else if (count < 0) {\n            throw new IllegalArgumentException(\"Requested random string length \" + count + \" is less than 0.\");\n        }\n        if (chars != null && chars.length == 0) {\n            throw new IllegalArgumentException(\"The chars array must not be empty\");\n        }\n\n        if (start == 0 && end == 0) {\n            if (chars != null) {\n                end = chars.length;\n            } else {\n                if (!letters && !numbers) {\n                    end = Integer.MAX_VALUE;\n                } else {\n                    end = 'z' + 1;\n                    start = ' ';                \n                }\n            }\n        } else {\n            if (end <= start) {\n                throw new IllegalArgumentException(\"Parameter end (\" + end + \") must be greater than start (\" + start + \")\");\n            }\n        }\n\n        char[] buffer = new char[count];\n        int gap = end - start;\n\n        while (count-- != 0) {\n            char ch;\n            if (chars == null) {\n                ch = (char) (random.nextInt(gap) + start);\n            } else {\n                ch = chars[random.nextInt(gap) + start];\n            }\n            if (letters && Character.isLetter(ch)\n                    || numbers && Character.isDigit(ch)\n                    || !letters && !numbers) {\n                if(ch >= 56320 && ch <= 57343) {\n                    if(count == 0) {\n                        count++;\n                    } else {\n                        // low surrogate, insert high surrogate after putting it in\n                        buffer[count] = ch;\n                        count--;\n                        buffer[count] = (char) (55296 + random.nextInt(128));\n                    }\n                } else if(ch >= 55296 && ch <= 56191) {\n                    if(count == 0) {\n                        count++;\n                    } else {\n                        // high surrogate, insert low surrogate before putting it in\n                        buffer[count] = (char) (56320 + random.nextInt(128));\n                        count--;\n                        buffer[count] = ch;\n                    }\n                } else if(ch >= 56192 && ch <= 56319) {\n                    // private high surrogate, no effing clue, so skip it\n                    count++;\n                } else {\n                    buffer[count] = ch;\n                }\n            } else {\n                count++;\n            }\n        }\n        return new String(buffer);",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "import java.util.regex.Pattern;\nimport java.util.Random;\n",
+   "old": "import java.util.regex.Pattern;\n",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "    /**\n     * <p>Fills a buffer with randomly drawn characters, from its last\n     * position to its first.</p>\n     *\n     * <p>Each character is drawn at a random offset below {@code gap} from\n     * {@code start}: it is the character at that index of {@code chars} or,\n     * if {@code chars} is {@code null}, the character with that value. A\n     * drawn character that is not allowed is discarded and another one is\n     * drawn. A surrogate is written together with a randomly chosen partner,\n     * so that the buffer only holds complete surrogate pairs; private high\n     * surrogates are never written.</p>\n     *\n     * @param buffer  the buffer to fill, not null\n     * @param start  the first index or character value to draw from\n     * @param gap  the number of indexes or character values to draw from\n     * @param letters  only allow letters?\n     * @param numbers  only allow numbers?\n     * @param chars  the set of chars to draw from, may be null\n     * @param random  the source of randomness, not null\n     */\n    public static void fillDrawn(final char[] buffer, final int start, final int gap, final boolean letters,\n            final boolean numbers, final char[] chars, final Random random) {\n        int count = buffer.length;\n        while (count > 0) {\n            final char ch;\n            if (chars == null) {\n                ch = (char) (random.nextInt(gap) + start);\n            } else {\n                ch = chars[random.nextInt(gap) + start];\n            }\n            final boolean usable;\n            if (letters && numbers) {\n                usable = Character.isLetterOrDigit(ch);\n            } else if (letters) {\n                usable = Character.isLetter(ch);\n            } else if (numbers) {\n                usable = Character.isDigit(ch);\n            } else {\n                usable = true;\n            }\n            if (!usable || ch >= 56192 && ch <= 56319) {\n                continue;\n            }\n            if (ch >= 56320 && ch <= 57343) {\n                if (count == 1) {\n                    continue;\n                }\n                buffer[--count] = ch;\n                buffer[--count] = (char) (55296 + random.nextInt(128));\n            } else if (ch >= 55296 && ch <= 56191) {\n                if (count == 1) {\n                    continue;\n                }\n                buffer[--count] = (char) (56320 + random.nextInt(128));\n                buffer[--count] = ch;\n            } else {\n                buffer[--count] = ch;\n            }\n        }\n    }\n\n\n    /**\n     * <p>Removes all occurrences of a substring from within the source string.</p>",
+   "old": "    /**\n     * <p>Removes all occurrences of a substring from within the source string.</p>",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport java.util.Random;\nimport org.apache.commons.lang3.StringUtils;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "        unregister(object);\n    }\n\n    /**\n     * <p>Fills an array with randomly drawn characters.</p>\n     *\n     * @param buffer  the array to fill, not null\n     * @param start  the first index or character value to draw from\n     * @param gap  the number of indexes or character values to draw from\n     * @param letters  only allow letters?\n     * @param numbers  only allow numbers?\n     * @param chars  the set of chars to draw from, may be null\n     * @param random  the source of randomness, not null\n     */\n    public static void drawInto(final char[] buffer, final int start, final int gap, final boolean letters,\n            final boolean numbers, final char[] chars, final Random random) {\n        StringUtils.fillDrawn(buffer, start, gap, letters, numbers, chars, random);\n    }\n\n\n    /**",
+   "old": "        unregister(object);\n    }\n\n    /**",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport java.util.Random;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "\n    /**\n     * <p>Creates a string of randomly drawn characters from a resolved\n     * range.</p>\n     *\n     * @param count  the length of the string to create\n     * @param start  the first index or character value of the range\n     * @param end  the index or character value that ends the range, exclusive\n     * @param letters  only allow letters?\n     * @param numbers  only allow numbers?\n     * @param chars  the set of chars to draw from, may be null\n     * @param random  the source of randomness, not null\n     * @return the string of drawn characters\n     */\n    public static String drawnText(final int count, final int start, final int end, final boolean letters,\n            final boolean numbers, final char[] chars, final Random random) {\n        return new String(ArrayUtils.drawnChars(count, start, end - start, letters, numbers, chars, random));\n    }\n\n\n    /**\n     * Searches the string builder to find the last reference to the specified\n     * string starting searching from the given index.",
+   "old": "\n    /**\n     * Searches the string builder to find the last reference to the specified\n     * string starting searching from the given index.",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "import java.util.NoSuchElementException;\nimport java.util.Random;\nimport org.apache.commons.lang3.text.StrBuilder;\n",
+   "old": "import java.util.NoSuchElementException;\n",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "        return add(date, Calendar.HOUR_OF_DAY, amount);\n    }\n\n    /**\n     * <p>Creates a string of randomly drawn characters, first resolving the\n     * range to draw from.</p>\n     *\n     * <p>If start and end are both {@code 0}, the range is the whole of\n     * {@code chars} when it is not {@code null}; otherwise it is every\n     * character value when letters and numbers are both {@code false}, and\n     * the characters from {@code ' '} to {@code 'z'} when they are not.\n     * Any other range must end after it starts.</p>\n     *\n     * @param count  the length of the string to create, greater than zero\n     * @param start  the position in the set of chars to start at\n     * @param end  the position in the set of chars to end before\n     * @param letters  only allow letters?\n     * @param numbers  only allow numbers?\n     * @param chars  the set of chars to draw from, may be null\n     * @param random  the source of randomness, not null\n     * @return the string of drawn characters\n     * @throws IllegalArgumentException if end is not greater than start\n     *  and they are not both {@code 0}\n     */\n    public static String drawString(final int count, int start, int end, final boolean letters, final boolean numbers,\n            final char[] chars, final Random random) {\n        if (start == 0 && end == 0) {\n            if (chars != null) {\n                end = chars.length;\n            } else if (!letters && !numbers) {\n                end = Integer.MAX_VALUE;\n            } else {\n                end = 'z' + 1;\n                start = ' ';\n            }\n        } else if (end <= start) {\n            throw new IllegalArgumentException(\"Parameter end (\" + end + \") must be greater than start (\" + start + \")\");\n        }\n        return StrBuilder.drawnText(count, start, end, letters, numbers, chars, random);\n    }\n\n\n    //-----------------------------------------------------------------------",
+   "old": "        return add(date, Calendar.HOUR_OF_DAY, amount);\n    }\n\n    //-----------------------------------------------------------------------",
+   "purpose": "MR-Lang-11 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.time.DateUtils",
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "method": "drawString"
+  },
+  {
+   "class": "org.apache.commons.lang3.text.StrBuilder",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "method": "drawnText"
+  },
+  {
+   "class": "org.apache.commons.lang3.ArrayUtils",
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "method": "drawnChars"
+  },
+  {
+   "class": "org.apache.commons.lang3.builder.ToStringStyle",
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "method": "drawInto"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Lang-11.py",
+ "entry_points": [
+  "org.apache.commons.lang3.RandomStringUtils::random"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.RandomStringUtils::randomNumeric",
+  "org.apache.commons.lang3.StringUtils::isNumeric",
+  "org.apache.commons.lang3.StringUtils::isAlphanumeric"
+ ],
+ "expected_signature": "r1 contains numeric expected:<true> but was:<false>",
+ "extra_tests": [],
+ "fixture_key": "Lang-11",
+ "gold": {
+  "class": "org.apache.commons.lang3.StringUtils",
+  "edits": [
+   {
+    "new": "                usable = Character.isLetter(ch);\n            } else {",
+    "old": "                usable = Character.isLetter(ch);\n            } else if (numbers) {\n                usable = Character.isDigit(ch);\n            } else {"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+  "method": "fillDrawn"
+ },
+ "group": "MR-Lang-11",
+ "hops": 5,
+ "iid": "MR-Lang-11",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold sees the drawn characters: the draw loop, the usability decision and the write into the buffer are all inside it, so no caller can pre-filter a draw, and once a non-digit has been written the string is complete. Hops 1-4 resolve the default range, allocate the buffer, pass the letters/numbers flags along and wrap the result; the documented default range for any letters/numbers request is ' '..'z', and moving one of its bounds in one line still leaves non-digits in it. The digits-only convention is pinned outside the gold: the facade's javadoc ('@param numbers only allow numbers?'), randomNumeric's javadoc ('chosen from the set of numeric characters'), and StringUtils.isNumeric / isAlphanumeric, which classify with Character.isDigit / Character.isLetterOrDigit exactly as the gold's other cases do (StringUtilsIsTest testIsNumeric / testIsAlphanumeric, passing).",
+ "ownership_tests": [
+  "org.apache.commons.lang3.StringUtilsIsTest::testIsNumeric",
+  "org.apache.commons.lang3.StringUtilsIsTest::testIsAlphanumeric",
+  "org.apache.commons.lang3.StringUtilsIsTest::testIsAlpha"
+ ],
+ "project": "Lang",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "addHours",
+    "anchor_seed": 6057,
+    "class": "org.apache.commons.lang3.time.DateUtils",
+    "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.util.Random;",
+     "import org.apache.commons.lang3.text.StrBuilder;"
+    ],
+    "method": "drawString",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "lastIndexOf",
+    "anchor_seed": 6058,
+    "class": "org.apache.commons.lang3.text.StrBuilder",
+    "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.util.Random;"
+    ],
+    "method": "drawnText",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "addAll",
+    "anchor_seed": 6059,
+    "class": "org.apache.commons.lang3.ArrayUtils",
+    "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.util.Random;"
+    ],
+    "method": "drawnChars",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendEnd",
+    "anchor_seed": 6060,
+    "class": "org.apache.commons.lang3.builder.ToStringStyle",
+    "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.util.Random;",
+     "import org.apache.commons.lang3.StringUtils;"
+    ],
+    "method": "drawInto",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "removeEndIgnoreCase",
+    "anchor_seed": 6061,
+    "class": "org.apache.commons.lang3.StringUtils",
+    "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.util.Random;"
+    ],
+    "method": "fillDrawn",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 5957
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Lang-11"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.lang3.RandomStringUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/lang3/RandomStringUtilsTest.java",
+  "test_method": "testRandomStringUtils"
+ },
+ "variant_id": "CTV-FCF3C0",
+ "kind": "new",
+ "fault_lines": [
+  "usable = Character.isLetter(ch);\n            } else {"
+ ],
+ "gold_key": "org.apache.commons.lang3.StringUtils::fillDrawn"
+}

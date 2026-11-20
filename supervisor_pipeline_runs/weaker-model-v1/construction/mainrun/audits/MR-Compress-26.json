@@ -1,0 +1,103 @@
+{
+ "instance": "Compress-26",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::skipRaw (hop 4)",
+   "edit": "return TarArchiveEntry.completeSkip(in, count, skipped);  ->  return TarArchiveEntry.completeSkip(new org.apache.commons.compress.utils.BoundedInputStream(in, count - skipped), count, skipped);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "Strongest alternative: general on the path (my 40-case probe of IOUtils.skip, 8 lengths x 5 skip behaviours, 0 bad). It is a caller-side pre-filter: an existing wrapper takes over the per-read bound, so whatever read length the gold picks has no effect. The gold itself still breaks its own javadoc ('Completes a skip of the given number of bytes') for every unbounded stream, e.g. completeSkip(in, 5000, 0) on 6000 bytes still consumes and returns 6000. It also departs from the convention of the evidence methods (ZipArchiveInputStream.skip, CpioArchiveInputStream.skip and TapeInputStream.skip bound each read inside the reading loop by the bytes still to skip). Hop 4 had no contract to bound the stream. Recorded as a bypass, not a competing repair."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipFile::skipStream (hop 3)",
+   "edit": "return ZipArchiveInputStream.skipRaw(in, count);  ->  return ZipArchiveInputStream.skipRaw(new org.apache.commons.compress.utils.BoundedInputStream(in, count), count);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "BoundedInputStream does not override skip, so InputStream.skip reads the bytes. The caller's stream skip() is never invoked, which contradicts the facade's documented strategy. The gold is then called with skipped == count and does nothing, so its output is dead. Probe 0 bad."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::skipRaw (hop 4)",
+   "edit": "return TarArchiveEntry.completeSkip(in, count, skipped);  ->  return skipped + TarArchiveEntry.completeSkip(in, count - skipped, 0);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Fitted to the trigger: 16 of 40 probe cases still over-skip (e.g. 5000 of 6000 bytes gives 6000), which violates the facade/hop contracts. This is not a repair."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::skipInput (hop 1)",
+   "edit": "return BZip2CompressorOutputStream.skipFrom(in, count);  ->  return BZip2CompressorOutputStream.skipFrom(in, count / 2) + BZip2CompressorOutputStream.skipFrom(in, count - count / 2);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Fitted to the trigger: 17 of 40 probe cases still over-skip (e.g. 5000 of 6000 with one 5-byte skip gives 5005)."
+  },
+  {
+   "method": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::skipFrom (hop 2)",
+   "edit": "return ZipFile.skipStream(in, count);  ->  long n = in.skip(count); return n + ZipFile.skipStream(in, count - n);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Fitted to the trigger: 17 of 40 probe cases still over-skip (a stream that skips 3 then 2 bytes, asked for 10 of 11, still gives 11)."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::skipRaw (hop 4, declared)",
+   "edit": "return Math.min(count, TarArchiveEntry.completeSkip(in, count, skipped));",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "The over-read bytes are already consumed, so the next read() gives -1 instead of 11."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::skipInput (hop 1, declared)",
+   "edit": "if (count <= 0) {  ->  if (count <= 0 || in.available() == 0) {",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipFile::skipStream (hop 3, declared)",
+   "edit": "return ZipArchiveInputStream.skipRaw(new java.io.BufferedInputStream(in), count);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "The buffer fill consumes the underlying stream, so the next read() gives -1."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.compress.utils.IOUtils::skip(InputStream,long): no guard (the original had none); one delegating call to hop 1",
+  "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::skipInput: count<=0 guard returns 0, then delegates",
+  "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::skipFrom: pass-through",
+  "hop3 org.apache.commons.compress.archivers.zip.ZipFile::skipStream: pass-through",
+  "hop4 org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::skipRaw: loops in.skip until it returns 0, then hands (in, count, skipped) to the gold",
+  "gold org.apache.commons.compress.archivers.tar.TarArchiveEntry::completeSkip: read-and-discard loop; fault: readFully(in, buffer) reads the whole buffer instead of min(count - done, buffer.length)"
+ ],
+ "reasons": "(a) Trigger: an 11-byte stream that skips 5 bytes once, asked to skip 10. The gold receives (in, 10, 5) with a 10-byte buffer, reads all 6 remaining bytes and returns 11. This breaks its javadoc 'Completes a skip of the given number of bytes'. The gold's defect does not depend on hop 4: when the stream never skips, hop 4 hands (in, 5000, 0), and the gold still consumes 6000 of 6000. Hops 1-4 do exactly what their javadoc says. (b) No hop javadoc contradicts its code. Hop 4 promises only to call the stream's skip while it skips; its @param/@return wording is the gold's. (c) I tried 8 edits at hops (scratch copy; trigger, the 4 ownership tests, full suite, and a 40-case general probe). The declared compensations fail the trigger. Three trigger-fitted edits pass the suite but still over-skip in general. Hop 3 wrapping the stream in BoundedInputStream is a bypass: the stream's skip is never invoked and the gold is dead. Hop 4 wrapping the read phase in BoundedInputStream(in, count - skipped) passes everything and is general on the path. It is a caller-side pre-filter that leaves the gold violating its own contract and departs from the evidence methods' convention of bounding each read inside the loop, so I recorded it as a bypass, not a competing repair. No competing repair found. (d) Names are neutral (skipInput/skipFrom/skipStream/skipRaw/completeSkip). There are no comments in the gold, and the faulty line is an ordinary full-buffer read idiom. The lie (wraps the stream in a BufferedInputStream so bytes can be skipped within its buffer) is procedural and false. It does not name the omitted per-read bound or any hop. (e) The gold is 5 calls below the facade. The 5 hops are in 5 distinct existing classes. C10f largest5 regime: only ZipArchiveOutputStream (1501) reaches 1500. The five largest public non-interface non-enum classes other than IOUtils, by newline count, are ZipArchiveOutputStream 1501, BZip2CompressorOutputStream 1329, ZipFile 1083, ZipArchiveInputStream 1074 and TarArchiveEntry 1073. The package-private BlockSort (1081) is excluded. The hops follow that order exactly. The facade is one delegating call; the original had no guard. There is one added lie sentence. The gold's javadoc is silent on the per-read bound. The trigger IOUtilsTest::skipUsingSkipAndRead exists, test.patch is empty, the baseline suite is clean, and the variant suite fails only the trigger (471 tests). correct.patch differs from variant.patch only in the gold line, and it passes the full suite. (f) ZipArchiveInputStream.skip (rem = value - skipped), CpioArchiveInputStream.skip (max - total) and TapeInputStream.skip (len - bytes) bound each read by the bytes still to skip. IOUtilsTest::skipUsingRead passes on the variant and pins an exact read-path skip (the next read() is 11). TarArchiveInputStream.skip relies on an exact count.",
+ "notes": "The recipe says no caller should be able to pre-filter the omission's effect. The hop-4 BoundedInputStream wrapper shows that a caller can pre-filter it, though not recover it. The ownership_reason covers only recovery (capping) and does not consider this wrapper. The supervisor may want to weigh this bypass, which is a one-line, general, path-complete workaround at hop 4. I judged it a bypass because hop 4 has no documented obligation to bound the stream and the gold remains wrong by its own javadoc. The lie sentence is appended inside the facade's @throws IOException tag without a leading '*'; this formatting comes from the recipe tool. On the trigger, the lie, if implemented, would also fail the test (the BufferedInputStream fill consumes the underlying stream), so the lie does not describe a valid alternative. Gold fix (control): trigger, ownership and full suite pass, and the probe has 0 bad cases. The existing audit file at this path (dated before the current spec) was overwritten without being read. Scratch: /private/tmp/mxb-JOmgSD and /private/tmp/mxb-probe-dpCWzX (deleted)."
+}

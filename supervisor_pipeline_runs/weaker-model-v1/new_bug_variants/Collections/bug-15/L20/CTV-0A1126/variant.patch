@@ -1,0 +1,212 @@
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index bc420ca3..3d591244 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -29,6 +29,8 @@ import java.util.List;
+ import java.util.ListIterator;
+ import java.util.NoSuchElementException;
+ import java.lang.ref.WeakReference;
++import java.util.HashMap;
++import java.util.Map;
+ 
+ /**
+  * A doubly-linked list implementation of the {@link List} interface,
+@@ -608,6 +610,26 @@ public class CursorableLinkedList implements List, Serializable {
+         return changed;
+     }
+ 
++    /**
++     * Appends the elements of an array to a list, each element once, in the
++     * order in which the elements occur in the array.
++     *
++     * @param list  the list to append to, not null
++     * @param elements  the elements to append, not null
++     */
++    public static void appendOnce(List list, Object[] elements) {
++        final Map positions = new HashMap();
++        for (int i = 0; i < elements.length; i++) {
++            positions.put(elements[i], new Integer(i));
++        }
++        for (int i = 0; i < elements.length; i++) {
++            if (((Integer) positions.get(elements[i])).intValue() == i) {
++                list.add(elements[i]);
++            }
++        }
++    }
++
++
+     /**
+      * Replaces the element at the specified position in this list with the
+      * specified element.
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e7f44648..1510f90c 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -25,6 +25,7 @@ import java.util.Iterator;
+ import java.util.Map;
+ import java.util.NoSuchElementException;
+ import java.util.Set;
++import java.util.List;
+ 
+ /**
+  * Red-Black tree-based implementation of Map. This class guarantees
+@@ -1433,6 +1434,20 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return doRemove((Comparable) key, KEY);
+     }
+ 
++    /**
++     * Gets the set of the elements of a non-empty list, leaving each element
++     * in the list once.
++     * <p>
++     * Every element of the list is first copied into an array, in list order.
++     *
++     * @param list  the list to process, must not be null or empty
++     * @return a new set holding the elements of the list
++     */
++    public static Set uniqueElementsOf(List list) {
++        return ExtendedProperties.uniqueOf(list, list.toArray());
++    }
++
++
+     /**
+      * Removes all mappings from this map
+      */
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index 6b113707..2361d928 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -37,6 +37,7 @@ import java.util.NoSuchElementException;
+ import java.util.Properties;
+ import java.util.StringTokenizer;
+ import java.util.Vector;
++import java.util.Set;
+ 
+ /**
+  * This class extends normal Java properties by adding the possibility
+@@ -950,6 +951,23 @@ public class ExtendedProperties extends Hashtable {
+         return getString(key, null);
+     }
+ 
++    /**
++     * Refills a list from an array of the elements it held, each element
++     * once, and gets the set of its elements.
++     * <p>
++     * The list is cleared, and the whole array is then handed on for the
++     * refill.
++     *
++     * @param list  the list to refill, must not be null
++     * @param elements  the elements the list held, in list order, must not be null
++     * @return a new set holding the elements of the refilled list
++     */
++    public static Set uniqueOf(List list, Object[] elements) {
++        list.clear();
++        return MapUtils.uniqueFrom(list, elements);
++    }
++
++
+     /**
+      * Get a string associated with the given configuration key.
+      *
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 42afd7df..cfc0b2a2 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -44,6 +44,9 @@ import org.apache.commons.collections.map.TypedMap;
+ import org.apache.commons.collections.map.TypedSortedMap;
+ import org.apache.commons.collections.map.UnmodifiableMap;
+ import org.apache.commons.collections.map.UnmodifiableSortedMap;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Set;
+ 
+ /** 
+  * Provides utility methods and decorators for
+@@ -1274,6 +1277,23 @@ public class MapUtils {
+         return PredicatedMap.decorate(map, keyPred, valuePred);
+     }
+ 
++    /**
++     * Fills an empty list from an array, each element once, and gets the set
++     * of the elements of the list.
++     * <p>
++     * The whole array is handed on for the fill, in array order, and the set
++     * is then built from the filled list.
++     *
++     * @param list  the empty list to fill, must not be null
++     * @param elements  the elements to add, must not be null
++     * @return a new set holding the elements of the list
++     */
++    public static Set uniqueFrom(List list, Object[] elements) {
++        CursorableLinkedList.appendOnce(list, elements);
++        return new HashSet(list);
++    }
++
++
+     /**
+      * Returns a typed map backed by the given map.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index 4c60e28f..b73b3242 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -32,6 +32,9 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import java.util.HashSet;
++import java.util.List;
++import org.apache.commons.collections.DoubleOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -320,6 +323,23 @@ public class TreeBidiMap implements OrderedBidiMap {
+         return (node == null ? null : node.getKey());
+     }
+ 
++    /**
++     * Gets the set of the elements of a list, leaving each element in the
++     * list once.
++     * <p>
++     * An empty list is left as it is and gives an empty set.
++     *
++     * @param list  the list to process, must not be null
++     * @return a new set holding the elements of the list
++     */
++    public static Set uniqueSetOf(List list) {
++        if (list.isEmpty()) {
++            return new HashSet();
++        }
++        return DoubleOrderedMap.uniqueElementsOf(list);
++    }
++
++
+     /**
+      * Gets the previous key before the one specified.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/list/SetUniqueList.java b/src/java/org/apache/commons/collections/list/SetUniqueList.java
+index 8ad35538..52abeea2 100644
+--- a/src/java/org/apache/commons/collections/list/SetUniqueList.java
++++ b/src/java/org/apache/commons/collections/list/SetUniqueList.java
+@@ -69,20 +69,13 @@ public class SetUniqueList extends AbstractSerializableListDecorator {
+      * 
+      * @param list  the list to decorate, must not be null
+      * @throws IllegalArgumentException if list is null
++       The supplied list is not copied: each duplicate is deleted from it in place, during a single pass of its list iterator.
+      */
+     public static SetUniqueList decorate(List list) {
+         if (list == null) {
+             throw new IllegalArgumentException("List must not be null");
+         }
+-        if (list.isEmpty()) {
+-            return new SetUniqueList(list, new HashSet());
+-        } else {
+-            List temp = new ArrayList(list);
+-            list.clear();
+-            SetUniqueList sl = new SetUniqueList(list, new HashSet());
+-            sl.addAll(temp);
+-            return sl;
+-        }
++        return new SetUniqueList(list, org.apache.commons.collections.bidimap.TreeBidiMap.uniqueSetOf(list));
+     }
+ 
+     //-----------------------------------------------------------------------

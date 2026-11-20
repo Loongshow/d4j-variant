@@ -1,0 +1,193 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 4063130d..c6d50844 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -45,6 +45,9 @@ import java.util.zip.InflaterInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import org.jsoup.nodes.Attribute;
++import org.jsoup.nodes.Attributes;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -133,6 +136,19 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Lists the attributes held in parallel key and value slots, in slot order.
++     * @param keys the attribute keys, by slot
++     * @param vals the attribute values, by slot
++     * @param size the number of used slots
++     * @param parent the attributes the slots belong to
++     * @return the attributes, in slot order
++     */
++    public static List<Attribute> attributePairs(String[] keys, String[] vals, int size, Attributes parent) {
++        return Evaluator.IsNthOfType.matchableAttributes(keys, vals, size, parent);
++    }
++
++
+     public Connection proxy(Proxy proxy) {
+         req.proxy(proxy);
+         return this;
+diff --git a/src/main/java/org/jsoup/nodes/Attributes.java b/src/main/java/org/jsoup/nodes/Attributes.java
+index 85dabcf2..20a159c7 100644
+--- a/src/main/java/org/jsoup/nodes/Attributes.java
++++ b/src/main/java/org/jsoup/nodes/Attributes.java
+@@ -284,16 +284,10 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
+     /**
+      Get the attributes as a List, for iteration.
+      @return an view of the attributes as an unmodifialbe List.
++       Each attribute is created lazily, the first time its position in the returned list is read.
+      */
+     public List<Attribute> asList() {
+-        ArrayList<Attribute> list = new ArrayList<>(size);
+-        for (int i = 0; i < size; i++) {
+-            Attribute attr = vals[i] == null ?
+-                new BooleanAttribute(keys[i]) : // deprecated class, but maybe someone still wants it
+-                new Attribute(keys[i], vals[i], Attributes.this);
+-            list.add(attr);
+-        }
+-        return Collections.unmodifiableList(list);
++        return Element.attributesView(keys, vals, size, this);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index 4a740328..0460533e 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
+ 
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -732,6 +733,19 @@ public class Element extends Node {
+         return nextElementSiblings(false);
+     }
+ 
++    /**
++     * Get a read-only list of the attributes held in parallel key and value slots, in slot order.
++     * @param keys the attribute keys, by slot
++     * @param vals the attribute values, by slot
++     * @param size the number of used slots
++     * @param parent the attributes the slots belong to
++     * @return an unmodifiable list of the attributes
++     */
++    public static List<Attribute> attributesView(String[] keys, String[] vals, int size, Attributes parent) {
++        return Collections.unmodifiableList(HttpConnection.attributePairs(keys, vals, size, parent));
++    }
++
++
+     private Elements nextElementSiblings(boolean next) {
+         Elements els = new Elements();
+         if (parentNode == null)
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index fbe47d6c..b2199ad1 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -493,6 +493,33 @@ public abstract class Node implements Cloneable {
+         return siblings;
+     }
+ 
++    /**
++     * Lists the attributes of the used slots of parallel key and value arrays, in slot order. A bare attribute, one
++     * without a value, is listed as a {@link BooleanAttribute}.
++     * @param keys the attribute keys, by slot
++     * @param vals the attribute values, by slot; a bare attribute has no value
++     * @param count the number of used slots
++     * @param parent the attributes the slots belong to
++     * @return a new list of the attributes
++     */
++    public static List<Attribute> listAttributes(String[] keys, String[] vals, int count, Attributes parent) {
++        List<Attribute> list = new ArrayList<>(count);
++        boolean bare = false;
++        for (int i = 0; i < count; i++) {
++            String key = keys[i];
++            String val = vals[i];
++            if (val == null)
++                bare = true;
++            if (bare) {
++                list.add(new BooleanAttribute(key));
++            } else {
++                list.add(new Attribute(key, val, parent));
++            }
++        }
++        return list;
++    }
++
++
+     /**
+      Get this node's next sibling.
+      @return next sibling, or null if this is the last sibling
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index 099859d1..be9f8678 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -18,6 +18,8 @@ import java.util.ArrayList;
+ import java.util.List;
+ 
+ import static org.jsoup.internal.StringUtil.inSorted;
++import org.jsoup.nodes.Attribute;
++import org.jsoup.nodes.Attributes;
+ 
+ /**
+  * HTML Tree Builder; creates a DOM from Tokens.
+@@ -327,6 +329,19 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         return null;
+     }
+ 
++    /**
++     * Lists the attributes held in parallel key and value slots, in slot order.
++     * @param keys the attribute keys, by slot
++     * @param vals the attribute values, by slot
++     * @param size the number of used slots
++     * @param parent the attributes the slots belong to
++     * @return the attributes, in slot order
++     */
++    public static List<Attribute> tokenAttributes(String[] keys, String[] vals, int size, Attributes parent) {
++        return Node.listAttributes(keys, vals, size, parent);
++    }
++
++
+     boolean removeFromStack(Element el) {
+         for (int pos = stack.size() -1; pos >= 0; pos--) {
+             Element next = stack.get(pos);
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 0177d739..6ed87517 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.nodes.Attributes;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -516,6 +518,19 @@ public abstract class Evaluator {
+     		super(a,b);
+     	}
+ 
++    /**
++     * Lists the attributes held in parallel key and value slots, in slot order.
++     * @param keys the attribute keys, by slot
++     * @param vals the attribute values, by slot
++     * @param size the number of used slots
++     * @param parent the attributes the slots belong to
++     * @return the attributes, in slot order
++     */
++    public static List<org.jsoup.nodes.Attribute> matchableAttributes(String[] keys, String[] vals, int size, Attributes parent) {
++        return HtmlTreeBuilder.tokenAttributes(keys, vals, size, parent);
++    }
++
++
+ 		protected int calculatePosition(Element root, Element element) {
+ 			int pos = 0;
+         	Elements family = element.parent().children();

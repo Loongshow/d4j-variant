@@ -1,0 +1,155 @@
+diff --git a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
+index 22d0a280f..2a4c749f8 100644
+--- a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
++++ b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
+@@ -342,11 +342,10 @@ public class ArrayRealVector extends AbstractRealVector implements Serializable
+         return (ArrayRealVector) subtract(v.data);
+     }
+ 
+-    /** {@inheritDoc} */
++    /** {@inheritDoc}   The entries are updated in two passes, first those at even indices and then those at odd indices.
++     */
+     public RealVector mapAddToSelf(double d) {
+-        for (int i = 0; i < data.length; i++) {
+-            data[i] = data[i] + d;
+-        }
++        BlockRealMatrix.scalarAddToColumn(data, d);
+         return this;
+     }
+ 
+diff --git a/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index 9d5d2bfdb..edf5c0a5a 100644
+--- a/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -1357,6 +1357,17 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+         return true;
+     }
+ 
++    /**
++     * Adds a scalar to each entry of an array, in place.
++     *
++     * @param entries the entries to update
++     * @param d the scalar to add
++     */
++    public static void scalarAddEntries(double[] entries, double d) {
++        BlockFieldMatrix.addByBlocks(entries, d);
++    }
++
++
+     /**
+      * Computes a hashcode for the matrix.
+      *
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 6ccd0f0b2..0fbdd1d34 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -1204,6 +1204,25 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+ 
+     }
+ 
++    /**
++     * Adds a scalar to each entry of a column, block by block.
++     * <p>The entries are taken the way the rows of a block matrix are split:
++     * block i starts at entry i * {@link #BLOCK_SIZE}.</p>
++     * @param column the entries of the column, updated in place
++     * @param d the scalar to add
++     */
++    public static void addByBlocks(final double[] column, final double d) {
++        final int blockCount = column.length / BLOCK_SIZE;
++        for (int iBlock = 0; iBlock < blockCount; ++iBlock) {
++            final int pStart = iBlock * BLOCK_SIZE;
++            final int height = (iBlock == blockCount - 1) ? column.length - pStart : BLOCK_SIZE;
++            for (int p = pStart; p < pStart + height; ++p) {
++                column[p] += d;
++            }
++        }
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public T getEntry(final int row, final int column)
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index 9ed9356bc..acc48cf8e 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -21,6 +21,7 @@ import java.io.Serializable;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -1177,6 +1178,16 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+ 
+     }
+ 
++    /**
++     * Add a scalar to each entry of a column given as an array.
++     * @param column entries of the column, updated in place
++     * @param d value to add to each entry
++     */
++    public static void scalarAddToColumn(final double[] column, final double d) {
++        MathUtils.addToAll(column, d);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public double[] getColumn(final int column)
+diff --git a/src/main/java/org/apache/commons/math/linear/EigenDecompositionImpl.java b/src/main/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+index db1c82716..2f9de2e47 100644
+--- a/src/main/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
++++ b/src/main/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+@@ -339,6 +339,16 @@ public class EigenDecompositionImpl implements EigenDecomposition {
+         return eigenvectors[i].copy();
+     }
+ 
++    /**
++     * Add a scalar to each entry of an array.
++     * @param entries entries to update in place
++     * @param d scalar to add
++     */
++    public static void addToEntries(final double[] entries, final double d) {
++        BigMatrixImpl.scalarAddEntries(entries, d);
++    }
++
++
+     /**
+      * Return the determinant of the matrix
+      * @return determinant of the matrix
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index ad77a56eb..26990111f 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -22,6 +22,7 @@ import java.math.BigInteger;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.linear.EigenDecompositionImpl;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -742,6 +743,21 @@ public final class MathUtils {
+         return (x >= 0) ? 1 : -1;
+     }
+ 
++    /**
++     * Adds a value to each element of an array, in place.
++     * <p>An empty array is left as it is.</p>
++     *
++     * @param values the array to update
++     * @param d the value to add
++     */
++    public static void addToAll(double[] values, double d) {
++        if (values.length == 0) {
++            return;
++        }
++        EigenDecompositionImpl.addToEntries(values, d);
++    }
++
++
+     /**
+      * For a long value x, this method returns +1L if x >= 0 and -1L if x < 0.
+      *

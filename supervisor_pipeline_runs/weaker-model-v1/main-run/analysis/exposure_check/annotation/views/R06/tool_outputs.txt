@@ -1,0 +1,2695 @@
+# Run R06: tool outputs (complete)
+
+### output #1
+<returncode>0</returncode>
+<output>
+Running ant (compile.tests)................................................ OK
+Running ant (run.dev.tests)................................................ OK
+Failing tests: 1
+  - org.apache.commons.lang3.reflect.TypeUtilsTest::testTypesSatisfyVariables
+</output>
+
+### output #2
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java:41:public class TypeUtils {
+src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java:969:    public static boolean typesSatisfyVariables(Map<TypeVariable<?>, Type> typeVarAssigns) {
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:46:public class TypeUtilsTest<B> {
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:516:        Assert.assertTrue(TypeUtils.typesSatisfyVariables(typeVarAssigns));
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:519:        Assert.assertTrue(TypeUtils.typesSatisfyVariables(typeVarAssigns));
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:522:        Assert.assertTrue(TypeUtils.typesSatisfyVariables(typeVarAssigns));
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.lang3.reflect;
+
+import java.lang.reflect.Array;
+import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.lang.reflect.WildcardType;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.commons.lang3.ClassUtils;
+
+/**
+ * <p> Utility methods focusing on type inspection, particularly with regard to
+ * generics. </p>
+ *
+ * @since 3.0
+ * @version $Id$
+ */
+public class TypeUtils {
+
+    /**
+     * <p> TypeUtils instances should NOT be constructed in standard
+     * programming. Instead, the class should be used as
+     * <code>TypeUtils.isAssignable(cls, toClass)</code>. </p> <p> This
+     * constructor is public to permit tools that require a JavaBean instance to
+     * operate. </p>
+     */
+    public TypeUtils() {
+        super();
+    }
+
+    /**
+     * <p> Checks if the subject type may be implicitly cast to the target type
+     * following the Java generics rules. If both types are {@link Class}
+     * objects, the method returns the result of
+     * {@link ClassUtils#isAssignable(Class, Class)}. </p>
+     *
+     * @param type the subject type to be assigned to the target type
+     * @param toType the target type
+     * @return <code>true</code> if <code>type</code> is assignable to <code>toType</code>.
+     */
+    public static boolean isAssignable(Type type, Type toType) {
+        return isAssignable(type, toType, null);
+    }
+
+    /**
+     * <p> Checks if the subject type may be implicitly cast to the target type
+     * following the Java generics rules. </p>
+     *
+     * @param type the subject type to be assigned to the target type
+     * @param toType the target type
+     * @param typeVarAssigns optional map of type variable assignments
+     * @return <code>true</code> if <code>type</code> is assignable to <code>toType</code>.
+     */
+    public static boolean isAssignable(Type type, Type toType,
+            Map<TypeVariable<?>, Type> typeVarAssigns) {
+        if (toType == null || toType instanceof Class<?>) {
+            return isAssignable(type, (Class<?>) toType);
+        }
+
+        if (toType instanceof ParameterizedType) {
+            return isAssignable(type, (ParameterizedType) toType, typeVarAssigns);
+        }
+
+        if (toType instanceof GenericArrayType) {
+            return isAssignable(type, (GenericArrayType) toType, typeVarAssigns);
+        }
+
+        if (toType instanceof WildcardType) {
+            return isAssignable(type, (WildcardType) toType, typeVarAssigns);
+        }
+
+        // *
+        if (toType instanceof TypeVariable<?>) {
+            return isAssignable(type, (TypeVariable<?>) toType, typeVarAssigns);
+        }
+        // */
+
+        throw new IllegalStateException("found an unhandled type: " + toType);
+    }
+
+    /**
+     * <p> Checks if the subject type may be implicitly cast to the target class
+     * following the Java generics rules. </p>
+     *
+     * @param type the subject type to be assigned to the target type
+     * @param toClass the target class
+     * @return true if <code>type</code> is assignable to <code>toClass</code>.
+     */
+    private static boolean isAssignable(Type type, Class<?> toClass) {
+        if (type == null) {
+            // consistency with ClassUtils.isAssignable() behavior
+            return toClass == null || !toClass.isPrimitive();
+        }
+
+        // only a null type can be assigned to null type which
+        // would have cause the previous to return true
+        if (toClass == null) {
+            return false;
+        }
+
+        // all types are assignable to themselves
+        if (toClass.equals(type)) {
+            return true;
+        }
+
+        if (type instanceof Class<?>) {
+            // just comparing two classes
+            return ClassUtils.isAssignable((Class<?>) type, toClass);
+        }
+
+        if (type instanceof ParameterizedType) {
+            // only have to compare the raw type to the class
+            return isAssignable(getRawType((ParameterizedType) type), toClass);
+        }
+
+        // *
+        if (type instanceof TypeVariable<?>) {
+            // if any of the bounds are assignable to the class, then the
+            // type is assignable to the class.
+            for (Type bound : ((TypeVariable<?>) type).getBounds()) {
+                if (isAssignable(bound, toClass)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // the only classes to which a generic array type can be assigned
+        // are class Object and array classes
+        if (type instanceof GenericArrayType) {
+            return toClass.equals(Object.class)
+                    || toClass.isArray()
+                    && isAssignable(((GenericArrayType) type).getGenericComponentType(), toClass
+                            .getComponentType());
+        }
+
+        // wildcard types are not assignable to a class (though one would think
+        // "? super Object" would be assignable to Object)
+        if (type instanceof WildcardType) {
+            return false;
+        }
+
+        throw new IllegalStateException("found an unhandled type: " + type);
+    }
+
+    /**
+     * <p> Checks if the subject type may be implicitly cast to the target
+     * parameterized type following the Java generics rules. </p>
+     *
+     * @param type the subject type to be assigned to the target type
+     * @param toParameterizedType the target parameterized type
+     * @param typeVarAssigns a map with type variables
+     * @return true if <code>type</code> is assignable to <code>toType</code>.
+     */
+    private static boolean isAssignable(Type type, ParameterizedType toParameterizedType,
+            Map<TypeVariable<?>, Type> typeVarAssigns) {
+        if (type == null) {
+            return true;
+        }
+
+        // only a null type can be assigned to null type which
+        // would have cause the previous to return true
+        if (toParameterizedType == null) {
+            return false;
+        }
+
+        // all types are assignable to themselves
+        if (toParameterizedType.equals(type)) {
+            return true;
+        }
+
+        // get the target type's raw type
+        Class<?> toClass = getRawType(toParameterizedType);
+        // get the subject type's type arguments including owner type arguments
+        // and supertype arguments up to and including the target class.
+        Map<TypeVariable<?>, Type> fromTypeVarAssigns = getTypeArguments(type, toClass, null);
+
+        // null means the two types are not compatible
+        if (fromTypeVarAssigns == null) {
+            return false;
+        }
+
+        // compatible types, but there's no type arguments. this is equivalent
+        // to comparing Map< ?, ? > to Map, and raw types are always assignable
+        // to parameterized types.
+        if (fromTypeVarAssigns.isEmpty()) {
+            return true;
+        }
+
+        // get the target type's type arguments including owner type arguments
+        Map<TypeVariable<?>, Type> toTypeVarAssigns = getTypeArguments(toParameterizedType,
+                toClass, typeVarAssigns);
+
+        // now to check each type argument
+        for (TypeVariable<?> var : toTypeVarAssigns.keySet()) {
+            Type toTypeArg = unrollVariableAssignments(var, toTypeVarAssigns);
+            Type fromTypeArg = unrollVariableAssignments(var, fromTypeVarAssigns);
+
+            // parameters must either be absent from the subject type, within
+            // the bounds of the wildcard type, or be an exact match to the
+            // parameters of the target type.
+            if (fromTypeArg != null
+                    && !toTypeArg.equals(fromTypeArg)
+                    && !(toTypeArg instanceof WildcardType && isAssignable(fromTypeArg, toTypeArg,
+                            typeVarAssigns))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * <p> Follows the assignments of a type variable through a map until a type that is not
+     * another assigned type variable is reached. </p>
+     *
+     * @param var the type variable
+     * @param typeVarAssigns the map with type variables
+     * @return the type the variable stands for, <code>null</code> if it has no assignment
+     */
+    public static Type unrollVariableAssignments(TypeVariable<?> var, Map<TypeVariable<?>, Type> typeVarAssigns) {
+        Type result;
+        do {
+            result = typeVarAssigns.get(var);
+            if (result instanceof TypeVariable<?> && !result.equals(var)) {
+                var = (TypeVariable<?>) result;
+                continue;
+            }
+            break;
+        } while (true);
+        return result;
+    }
+
+    /**
+     * <p> Checks if the subject type may be implicitly cast to the target
+     * generic array type following the Java generics rules. </p>
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:511:    public void testTypesSatisfyVariables() throws SecurityException, NoSuchFieldException,
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:518:        typeVarAssigns.put(getClass().getMethod("stub2").getTypeParameters()[0], Integer.class);
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:521:        typeVarAssigns.put(getClass().getMethod("stub3").getTypeParameters()[0], Integer.class);
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:664:    public static <G extends Comparable<? super G>> G stub2() {
+src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java:668:    public static <T extends Comparable<? extends T>> T stub3() {
+</output>
+
+### output #3
+<returncode>0</returncode>
+<output>
+     *
+     * @param var the type variable
+     * @param typeVarAssigns the map with type variables
+     * @return the type the variable stands for, <code>null</code> if it has no assignment
+     */
+    public static Type unrollVariableAssignments(TypeVariable<?> var, Map<TypeVariable<?>, Type> typeVarAssigns) {
+        Type result;
+        do {
+            result = typeVarAssigns.get(var);
+            if (result instanceof TypeVariable<?> && !result.equals(var)) {
+                var = (TypeVariable<?>) result;
+                continue;
+            }
+            break;
+        } while (true);
+        return result;
+    }
+
+    /**
+     * <p> Checks if the subject type may be implicitly cast to the target
+     * generic array type following the Java generics rules. </p>
+     *
+     * @param type the subject type to be assigned to the target type
+     * @param toGenericArrayType the target generic array type
+     * @param typeVarAssigns a map with type variables
+     * @return true if <code>type</code> is assignable to
+     * <code>toGenericArrayType</code>.
+     */
+    private static boolean isAssignable(Type type, GenericArrayType toGenericArrayType,
+            Map<TypeVariable<?>, Type> typeVarAssigns) {
+        if (type == null) {
+            return true;
+        }
+
+        // only a null type can be assigned to null type which
+        // would have cause the previous to return true
+        if (toGenericArrayType == null) {
+            return false;
+        }
+
+        // all types are assignable to themselves
+        if (toGenericArrayType.equals(type)) {
+            return true;
+        }
+
+        Type toComponentType = toGenericArrayType.getGenericComponentType();
+
+        if (type instanceof Class<?>) {
+            Class<?> cls = (Class<?>) type;
+
+            // compare the component types
+            return cls.isArray()
+                    && isAssignable(cls.getComponentType(), toComponentType, typeVarAssigns);
+        }
+
+        if (type instanceof GenericArrayType) {
+            // compare the component types
+            return isAssignable(((GenericArrayType) type).getGenericComponentType(),
+                    toComponentType, typeVarAssigns);
+        }
+
+        if (type instanceof WildcardType) {
+            // so long as one of the upper bounds is assignable, it's good
+            for (Type bound : getImplicitUpperBounds((WildcardType) type)) {
+                if (isAssignable(bound, toGenericArrayType)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (type instanceof TypeVariable<?>) {
+            // probably should remove the following logic and just return false.
+            // type variables cannot specify arrays as bounds.
+            for (Type bound : getImplicitBounds((TypeVariable<?>) type)) {
+                if (isAssignable(bound, toGenericArrayType)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (type instanceof ParameterizedType) {
+            // the raw type of a parameterized type is never an array or
+            // generic array, otherwise the declaration would look like this:
+            // Collection[]< ? extends String > collection;
+            return false;
+        }
+
+        throw new IllegalStateException("found an unhandled type: " + type);
+    }
+
+    /**
+     * <p> Checks if the subject type may be implicitly cast to the target
+     * wildcard type following the Java generics rules. </p>
+     *
+     * @param type the subject type to be assigned to the target type
+     * @param toWildcardType the target wildcard type
+     * @param typeVarAssigns a map with type variables
+     * @return true if <code>type</code> is assignable to
+     * <code>toWildcardType</code>.
+     */
+    private static boolean isAssignable(Type type, WildcardType toWildcardType,
+            Map<TypeVariable<?>, Type> typeVarAssigns) {
+        if (type == null) {
+            return true;
+        }
+
+        // only a null type can be assigned to null type which
+        // would have cause the previous to return true
+        if (toWildcardType == null) {
+            return false;
+        }
+
+        // all types are assignable to themselves
+        if (toWildcardType.equals(type)) {
+            return true;
+        }
+
+        Type[] toUpperBounds = getImplicitUpperBounds(toWildcardType);
+        Type[] toLowerBounds = getImplicitLowerBounds(toWildcardType);
+
+        if (type instanceof WildcardType) {
+            WildcardType wildcardType = (WildcardType) type;
+            Type[] upperBounds = getImplicitUpperBounds(wildcardType);
+            Type[] lowerBounds = getImplicitLowerBounds(wildcardType);
+
+            for (Type toBound : toUpperBounds) {
+                // if there are assignments for unresolved type variables,
+                // now's the time to substitute them.
+                toBound = substituteTypeVariables(toBound, typeVarAssigns);
+
+                // each upper bound of the subject type has to be assignable to
+                // each
+                // upper bound of the target type
+                for (Type bound : upperBounds) {
+                    if (!isAssignable(bound, toBound, typeVarAssigns)) {
+                        return false;
+                    }
+                }
+            }
+
+            for (Type toBound : toLowerBounds) {
+                // if there are assignments for unresolved type variables,
+                // now's the time to substitute them.
+                toBound = substituteTypeVariables(toBound, typeVarAssigns);
+
+                // each lower bound of the target type has to be assignable to
+                // each
+                // lower bound of the subject type
+                for (Type bound : lowerBounds) {
+                    if (!isAssignable(toBound, bound, typeVarAssigns)) {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        for (Type toBound : toUpperBounds) {
+            // if there are assignments for unresolved type variables,
+            // now's the time to substitute them.
+            if (!isAssignable(type, substituteTypeVariables(toBound, typeVarAssigns),
+                    typeVarAssigns)) {
+                return false;
+            }
+        }
+
+        for (Type toBound : toLowerBounds) {
+            // if there are assignments for unresolved type variables,
+            // now's the time to substitute them.
+            if (!isAssignable(substituteTypeVariables(toBound, typeVarAssigns), type,
+                    typeVarAssigns)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * <p> Checks if the subject type may be implicitly cast to the target type
+     * variable following the Java generics rules. </p>
+     *
+     * @param type the subject type to be assigned to the target type
+     * @param toTypeVariable the target type variable
+     * @param typeVarAssigns a map with type variables
+     * @return true if <code>type</code> is assignable to
+     * <code>toTypeVariable</code>.
+     */
+    private static boolean isAssignable(Type type, TypeVariable<?> toTypeVariable,
+            Map<TypeVariable<?>, Type> typeVarAssigns) {
+        if (type == null) {
+            return true;
+        }
+
+        // only a null type can be assigned to null type which
+        // would have cause the previous to return true
+        if (toTypeVariable == null) {
+            return false;
+        }
+
+        // all types are assignable to themselves
+        if (toTypeVariable.equals(type)) {
+            return true;
+        }
+
+        if (type instanceof TypeVariable<?>) {
+            // a type variable is assignable to another type variable, if
+            // and only if the former is the latter, extends the latter, or
+            // is otherwise a descendant of the latter.
+            Type[] bounds = getImplicitBounds((TypeVariable<?>) type);
+
+            for (Type bound : bounds) {
+                if (isAssignable(bound, toTypeVariable, typeVarAssigns)) {
+                    return true;
+                }
+            }
+        }
+
+        if (type instanceof Class<?> || type instanceof ParameterizedType
+                || type instanceof GenericArrayType || type instanceof WildcardType) {
+            return false;
+        }
+
+        throw new IllegalStateException("found an unhandled type: " + type);
+    }
+
+    /**
+     * <p> </p>
+     *
+     * @param type the type to be replaced
+     * @param typeVarAssigns the map with type variables
+     * @return the replaced type
+     * @throws IllegalArgumentException if the type cannot be substituted
+     */
+    private static Type substituteTypeVariables(Type type, Map<TypeVariable<?>, Type> typeVarAssigns) {
+        if (type instanceof TypeVariable<?> && typeVarAssigns != null) {
+            Type replacementType = typeVarAssigns.get(type);
+
+            if (replacementType == null) {
+                throw new IllegalArgumentException("missing assignment type for type variable "
+                        + type);
+            }
+
+            return replacementType;
+        }
+
+        return type;
+    }
+
+    /**
+     * <p> Retrieves all the type arguments for this parameterized type
+     * including owner hierarchy arguments such as <code>
+     * Outer<K,V>.Inner<T>.DeepInner<E></code> . The arguments are returned in a
+     * {@link Map} specifying the argument type for each {@link TypeVariable}.
+     * </p>
+     *
+     * @param type specifies the subject parameterized type from which to
+     * harvest the parameters.
+     * @return a map of the type arguments to their respective type variables.
+     */
+    public static Map<TypeVariable<?>, Type> getTypeArguments(ParameterizedType type) {
+        return getTypeArguments(type, getRawType(type), null);
+    }
+
+    /**
+     * <p> Gets the type arguments of a class/interface based on a subtype. For
+     * instance, this method will determine that both of the parameters for the
+     * interface {@link Map} are {@link Object} for the subtype
+     * {@link java.util.Properties Properties} even though the subtype does not
+     * directly implement the <code>Map</code> interface. <p> </p> This method
+     * returns <code>null</code> if <code>type</code> is not assignable to
+     * <code>toClass</code>. It returns an empty map if none of the classes or
+     * interfaces in its inheritance hierarchy specify any type arguments. </p>
+     * <p> A side-effect of this method is that it also retrieves the type
+     * arguments for the classes and interfaces that are part of the hierarchy
+     * between <code>type</code> and <code>toClass</code>. So with the above
+     * example, this method will also determine that the type arguments for
+     * {@link java.util.Hashtable Hashtable} are also both <code>Object</code>.
+     * In cases where the interface specified by <code>toClass</code> is
+     * (indirectly) implemented more than once (e.g. where <code>toClass</code>
+     * specifies the interface {@link java.lang.Iterable Iterable} and
+     * <code>type</code> specifies a parameterized type that implements both
+     * {@link java.util.Set Set} and {@link java.util.Collection Collection}),
+     * this method will look at the inheritance hierarchy of only one of the
+     * implementations/subclasses; the first interface encountered that isn't a
+     * subinterface to one of the others in the <code>type</code> to
+     * <code>toClass</code> hierarchy. </p>
+     *
+     * @param type the type from which to determine the type parameters of
+     * <code>toClass</code>
+     * @param toClass the class whose type parameters are to be determined based
+     * on the subtype <code>type</code>
+     * @return a map of the type assignments for the type variables in each type
+     * in the inheritance hierarchy from <code>type</code> to
+     * <code>toClass</code> inclusive.
+     */
+    public static Map<TypeVariable<?>, Type> getTypeArguments(Type type, Class<?> toClass) {
+        return getTypeArguments(type, toClass, null);
+    }
+
+    /**
+     * <p> Return a map of the type arguments of <code>type</code> in the context of <code>toClass</code>. </p>
+     *
+     * @param type the type in question
+     * @param toClass the class
+     * @param subtypeVarAssigns a map with type variables
+     * @return the map with type arguments
+     */
+    public static Map<TypeVariable<?>, Type> getTypeArguments(Type type, Class<?> toClass,
+            Map<TypeVariable<?>, Type> subtypeVarAssigns) {
+        if (type instanceof Class<?>) {
+            return getTypeArguments((Class<?>) type, toClass, subtypeVarAssigns);
+        }
+
+        if (type instanceof ParameterizedType) {
+            return getTypeArguments((ParameterizedType) type, toClass, subtypeVarAssigns);
+        }
+
+        if (type instanceof GenericArrayType) {
+            return getTypeArguments(((GenericArrayType) type).getGenericComponentType(), toClass
+                    .isArray() ? toClass.getComponentType() : toClass, subtypeVarAssigns);
+        }
+
+        // since wildcard types are not assignable to classes, should this just
+        // return null?
+        if (type instanceof WildcardType) {
+            for (Type bound : getImplicitUpperBounds((WildcardType) type)) {
+                // find the first bound that is assignable to the target class
+                if (isAssignable(bound, toClass)) {
+                    return getTypeArguments(bound, toClass, subtypeVarAssigns);
+                }
+            }
+
+            return null;
+        }
+
+        // *
+        if (type instanceof TypeVariable<?>) {
+            for (Type bound : getImplicitBounds((TypeVariable<?>) type)) {
+                // find the first bound that is assignable to the target class
+                if (isAssignable(bound, toClass)) {
+                    return getTypeArguments(bound, toClass, subtypeVarAssigns);
+                }
+            }
+
+            return null;
+        }
+        // */
+
+        throw new IllegalStateException("found an unhandled type: " + type);
+    }
+
+    /**
+     * <p> Return a map of the type arguments of a parameterized type in the context of <code>toClass</code>. </p>
+     *
+     * @param parameterizedType the parameterized type
+     * @param toClass the class
+     * @param subtypeVarAssigns a map with type variables
+     * @return the map with type arguments
+     */
+    private static Map<TypeVariable<?>, Type> getTypeArguments(
+            ParameterizedType parameterizedType, Class<?> toClass,
+            Map<TypeVariable<?>, Type> subtypeVarAssigns) {
+        Class<?> cls = getRawType(parameterizedType);
+
+        // make sure they're assignable
+        if (!isAssignable(cls, toClass)) {
+            return null;
+        }
+
+        Type ownerType = parameterizedType.getOwnerType();
+        Map<TypeVariable<?>, Type> typeVarAssigns;
+
+        if (ownerType instanceof ParameterizedType) {
+            // get the owner type arguments first
+            ParameterizedType parameterizedOwnerType = (ParameterizedType) ownerType;
+            ParameterizedType parameterizedOwnerType = (ParameterizedType) ownerType;
+            typeVarAssigns = getTypeArguments(parameterizedOwnerType,
+                    getRawType(parameterizedOwnerType), subtypeVarAssigns);
+        } else {
+            // no owner, prep the type variable assignments map
+            typeVarAssigns = subtypeVarAssigns == null ? new HashMap<TypeVariable<?>, Type>()
+                    : new HashMap<TypeVariable<?>, Type>(subtypeVarAssigns);
+        }
+
+        // get the subject parameterized type's arguments
+        Type[] typeArgs = parameterizedType.getActualTypeArguments();
+        // and get the corresponding type variables from the raw class
+        TypeVariable<?>[] typeParams = cls.getTypeParameters();
+
+        // map the arguments to their respective type variables
+        for (int i = 0; i < typeParams.length; i++) {
+            Type typeArg = typeArgs[i];
+            typeVarAssigns.put(typeParams[i], typeVarAssigns.containsKey(typeArg) ? typeVarAssigns
+                    .get(typeArg) : typeArg);
+        }
+
+        if (toClass.equals(cls)) {
+            // target class has been reached. Done.
+            return typeVarAssigns;
+        }
+
+        // walk the inheritance hierarchy until the target class is reached
+        return getTypeArguments(getClosestParentType(cls, toClass), toClass, typeVarAssigns);
+    }
+
+    /**
+     * <p> Return a map of the type arguments of a class in the context of <code>toClass</code>. </p>
+     *
+     * @param cls the class in question
+     * @param toClass the context class
+     * @param subtypeVarAssigns a map with type variables
+     * @return the map with type arguments
+     */
+    private static Map<TypeVariable<?>, Type> getTypeArguments(Class<?> cls, Class<?> toClass,
+            Map<TypeVariable<?>, Type> subtypeVarAssigns) {
+        // make sure they're assignable
+        if (!isAssignable(cls, toClass)) {
+            return null;
+        }
+
+        // can't work with primitives
+        if (cls.isPrimitive()) {
+            // both classes are primitives?
+            if (toClass.isPrimitive()) {
+                // dealing with widening here. No type arguments to be
+                // harvested with these two types.
+                return new HashMap<TypeVariable<?>, Type>();
+            }
+
+            // work with wrapper the wrapper class instead of the primitive
+            cls = ClassUtils.primitiveToWrapper(cls);
+        }
+
+        // create a copy of the incoming map, or an empty one if it's null
+        HashMap<TypeVariable<?>, Type> typeVarAssigns = subtypeVarAssigns == null ? new HashMap<TypeVariable<?>, Type>()
+                : new HashMap<TypeVariable<?>, Type>(subtypeVarAssigns);
+
+        // has target class been reached?
+        if (toClass.equals(cls)) {
+            return typeVarAssigns;
+        }
+
+        // walk the inheritance hierarchy until the target class is reached
+        return getTypeArguments(getClosestParentType(cls, toClass), toClass, typeVarAssigns);
+    }
+
+    /**
+     * <p> Tries to determine the type arguments of a class/interface based on a
+     * super parameterized type's type arguments. This method is the inverse of
+     * {@link #getTypeArguments(Type, Class)} which gets a class/interface's
+     * type arguments based on a subtype. It is far more limited in determining
+     * the type arguments for the subject class's type variables in that it can
+     * only determine those parameters that map from the subject {@link Class}
+     * object to the supertype. </p> <p> Example: {@link java.util.TreeSet
+     * TreeSet} sets its parameter as the parameter for
+     * {@link java.util.NavigableSet NavigableSet}, which in turn sets the
+     * parameter of {@link java.util.SortedSet}, which in turn sets the
+     * parameter of {@link Set}, which in turn sets the parameter of
+     * {@link java.util.Collection}, which in turn sets the parameter of
+     * {@link java.lang.Iterable}. Since <code>TreeSet</code>'s parameter maps
+     * (indirectly) to <code>Iterable</code>'s parameter, it will be able to
+     * determine that based on the super type <code>Iterable<? extends
+     * Map<Integer,? extends Collection<?>>></code>, the parameter of
+     * <code>TreeSet</code> is <code>? extends Map<Integer,? extends
+     * Collection<?>></code>. </p>
+     *
+     * @param cls the class whose type parameters are to be determined
+     * @param superType the super type from which <code>cls</code>'s type
+     * arguments are to be determined
+     * @return a map of the type assignments that could be determined for the
+     * type variables in each type in the inheritance hierarchy from
+     * <code>type</code> to <code>toClass</code> inclusive.
+     */
+    public static Map<TypeVariable<?>, Type> determineTypeArguments(Class<?> cls,
+            ParameterizedType superType) {
+        Class<?> superClass = getRawType(superType);
+
+        // compatibility check
+        if (!isAssignable(cls, superClass)) {
+            return null;
+        }
+
+        if (cls.equals(superClass)) {
+            return getTypeArguments(superType, superClass, null);
+        }
+
+        // get the next class in the inheritance hierarchy
+        Type midType = getClosestParentType(cls, superClass);
+
+        // can only be a class or a parameterized type
+        if (midType instanceof Class<?>) {
+            return determineTypeArguments((Class<?>) midType, superType);
+        }
+
+        ParameterizedType midParameterizedType = (ParameterizedType) midType;
+        Class<?> midClass = getRawType(midParameterizedType);
+        // get the type variables of the mid class that map to the type
+        // arguments of the super class
+        Map<TypeVariable<?>, Type> typeVarAssigns = determineTypeArguments(midClass, superType);
+        // map the arguments of the mid type to the class type variables
+        mapTypeVariablesToArguments(cls, midParameterizedType, typeVarAssigns);
+
+        return typeVarAssigns;
+    }
+
+    /**
+     * <p>Performs a mapping of type variables.</p>
+     *
+     * @param <T> the generic type of the class in question
+     * @param cls the class in question
+     * @param parameterizedType the parameterized type
+     * @param typeVarAssigns the map to be filled
+     */
+    private static <T> void mapTypeVariablesToArguments(Class<T> cls,
+            ParameterizedType parameterizedType, Map<TypeVariable<?>, Type> typeVarAssigns) {
+        // capture the type variables from the owner type that have assignments
+        Type ownerType = parameterizedType.getOwnerType();
+
+        if (ownerType instanceof ParameterizedType) {
+            // recursion to make sure the owner's owner type gets processed
+            mapTypeVariablesToArguments(cls, (ParameterizedType) ownerType, typeVarAssigns);
+        }
+
+        // parameterizedType is a generic interface/class (or it's in the owner
+        // hierarchy of said interface/class) implemented/extended by the class
+        // cls. Find out which type variables of cls are type arguments of
+        // parameterizedType:
+        Type[] typeArgs = parameterizedType.getActualTypeArguments();
+
+        // of the cls's type variables that are arguments of parameterizedType,
+        // find out which ones can be determined from the super type's arguments
+        TypeVariable<?>[] typeVars = getRawType(parameterizedType).getTypeParameters();
+
+        // use List view of type parameters of cls so the contains() method can be used:
+        List<TypeVariable<Class<T>>> typeVarList = Arrays.asList(cls
+                .getTypeParameters());
+
+        for (int i = 0; i < typeArgs.length; i++) {
+            TypeVariable<?> typeVar = typeVars[i];
+            Type typeArg = typeArgs[i];
+
+            // argument of parameterizedType is a type variable of cls
+            if (typeVarList.contains(typeArg)
+            // type variable of parameterizedType has an assignment in
+                    // the super type.
+                    && typeVarAssigns.containsKey(typeVar)) {
+                // map the assignment to the cls's type variable
+                typeVarAssigns.put((TypeVariable<?>) typeArg, typeVarAssigns.get(typeVar));
+            }
+        }
+    }
+
+    /**
+     * <p> Closest parent type? Closest to what? The closest parent type to the
+     * super class specified by <code>superClass</code>. </p>
+     *
+     * @param cls the class in question
+     * @param superClass the super class
+     * @return the closes parent type
+     */
+    private static Type getClosestParentType(Class<?> cls, Class<?> superClass) {
+        // only look at the interfaces if the super class is also an interface
+        if (superClass.isInterface()) {
+            // get the generic interfaces of the subject class
+            Type[] interfaceTypes = cls.getGenericInterfaces();
+            // will hold the best generic interface match found
+            Type genericInterface = null;
+
+            // find the interface closest to the super class
+            for (Type midType : interfaceTypes) {
+                Class<?> midClass = null;
+
+                if (midType instanceof ParameterizedType) {
+                    midClass = getRawType((ParameterizedType) midType);
+                } else if (midType instanceof Class<?>) {
+                    midClass = (Class<?>) midType;
+                } else {
+                    throw new IllegalStateException("Unexpected generic"
+                            + " interface type found: " + midType);
+                }
+
+                // check if this interface is further up the inheritance chain
+                // than the previously found match
+                if (isAssignable(midClass, superClass)
+                        && isAssignable(genericInterface, (Type) midClass)) {
+                    genericInterface = midType;
+                }
+            }
+
+            // found a match?
+            if (genericInterface != null) {
+                return genericInterface;
+            }
+        }
+
+        // none of the interfaces were descendants of the target class, so the
+        // super class has to be one, instead
+        return cls.getGenericSuperclass();
+    }
+
+    /**
+     * <p> Checks if the given value can be assigned to the target type
+     * following the Java generics rules. </p>
+     *
+     * @param value the value to be checked
+     * @param type the target type
+     * @return true of <code>value</code> is an instance of <code>type</code>.
+     */
+    public static boolean isInstance(Object value, Type type) {
+        if (type == null) {
+            return false;
+        }
+
+        return value == null ? !(type instanceof Class<?>) || !((Class<?>) type).isPrimitive()
+                : isAssignable(value.getClass(), type, null);
+    }
+
+    /**
+     * <p> This method strips out the redundant upper bound types in type
+     * variable types and wildcard types (or it would with wildcard types if
+     * multiple upper bounds were allowed). </p> <p> Example: with the variable
+     * type declaration:
+     *
+     * <pre> &lt;K extends java.util.Collection&lt;String&gt; &amp;
+     * java.util.List&lt;String&gt;&gt; </pre>
+     *
+     * since <code>List</code> is a subinterface of <code>Collection</code>,
+     * this method will return the bounds as if the declaration had been:
+     *
+     * <pre> &lt;K extends java.util.List&lt;String&gt;&gt; </pre>
+     *
+     * </p>
+     *
+     * @param bounds an array of types representing the upper bounds of either
+     * <code>WildcardType</code> or <code>TypeVariable</code>.
+     * @return an array containing the values from <code>bounds</code> minus the
+     * redundant types.
+     */
+    public static Type[] normalizeUpperBounds(Type[] bounds) {
+        // don't bother if there's only one (or none) type
+        if (bounds.length < 2) {
+            return bounds;
+        }
+
+        Set<Type> types = new HashSet<Type>(bounds.length);
+
+        for (Type type1 : bounds) {
+            boolean subtypeFound = false;
+
+            for (Type type2 : bounds) {
+                if (type1 != type2 && isAssignable(type2, type1, null)) {
+                    subtypeFound = true;
+                    break;
+                }
+            }
+
+            if (!subtypeFound) {
+                types.add(type1);
+            }
+        }
+
+        return types.toArray(new Type[types.size()]);
+    }
+
+    /**
+     * <p> Returns an array containing the sole type of {@link Object} if
+     * {@link TypeVariable#getBounds()} returns an empty array. Otherwise, it
+     * returns the result of <code>TypeVariable.getBounds()</code> passed into
+     * {@link #normalizeUpperBounds}. </p>
+     *
+     * @param typeVariable the subject type variable
+     * @return a non-empty array containing the bounds of the type variable.
+     */
+    public static Type[] getImplicitBounds(TypeVariable<?> typeVariable) {
+        Type[] bounds = typeVariable.getBounds();
+
+        return bounds.length == 0 ? new Type[] { Object.class } : normalizeUpperBounds(bounds);
+    }
+
+    /**
+     * <p> Returns an array containing the sole value of {@link Object} if
+     * {@link WildcardType#getUpperBounds()} returns an empty array. Otherwise,
+     * it returns the result of <code>WildcardType.getUpperBounds()</code>
+     * passed into {@link #normalizeUpperBounds}. </p>
+     *
+     * @param wildcardType the subject wildcard type
+     * @return a non-empty array containing the upper bounds of the wildcard
+     * type.
+     */
+    public static Type[] getImplicitUpperBounds(WildcardType wildcardType) {
+        Type[] bounds = wildcardType.getUpperBounds();
+
+        return bounds.length == 0 ? new Type[] { Object.class } : normalizeUpperBounds(bounds);
+    }
+
+    /**
+     * <p> Returns an array containing a single value of <code>null</code> if
+     * {@link WildcardType#getLowerBounds()} returns an empty array. Otherwise,
+     * it returns the result of <code>WildcardType.getLowerBounds()</code>. </p>
+     *
+     * @param wildcardType the subject wildcard type
+     * @return a non-empty array containing the lower bounds of the wildcard
+     * type.
+     */
+    public static Type[] getImplicitLowerBounds(WildcardType wildcardType) {
+        Type[] bounds = wildcardType.getLowerBounds();
+
+        return bounds.length == 0 ? new Type[] { null } : bounds;
+    }
+
+    /**
+     * <p> Determines whether or not specified types satisfy the bounds of their
+     * mapped type variables. When a type parameter extends another (such as
+     * <code><T, S extends T></code>), uses another as a type parameter (such as
+     * <code><T, S extends Comparable<T></code>), or otherwise depends on
+     * another type variable to be specified, the dependencies must be included
+     * in <code>typeVarAssigns</code>. </p>
+     *
+     * @param typeVarAssigns specifies the potential types to be assigned to the
+     * type variables.
+     * @return whether or not the types can be assigned to their respective type
+     * variables.
+       The assignments are first copied into a map sorted by the names of their type variables, so that the result does not depend on the iteration order of the given map, and the bounds of each variable are then checked from the last declared to the first.
+     */
+    public static boolean typesSatisfyVariables(Map<TypeVariable<?>, Type> typeVarAssigns) {
+        return org.apache.commons.lang3.ArrayUtils.boundsSatisfied(typeVarAssigns);
+    }
+
+    /**
+     * <p> Transforms the passed in type to a {@code Class} object. Type-checking method of convenience. </p>
+     *
+     * @param parameterizedType the type to be converted
+     * @return the corresponding {@code Class} object
+     * @throws IllegalStateException if the conversion fails
+     */
+    private static Class<?> getRawType(ParameterizedType parameterizedType) {
+        Type rawType = parameterizedType.getRawType();
+
+        // check if raw type is a Class object
+        // not currently necessary, but since the return type is Type instead of
+        // Class, there's enough reason to believe that future versions of Java
+        // may return other Type implementations. And type-safety checking is
+        // rarely a bad idea.
+        if (!(rawType instanceof Class<?>)) {
+            throw new IllegalStateException("Wait... What!? Type of rawType: " + rawType);
+        }
+
+        return (Class<?>) rawType;
+    }
+
+    /**
+     * <p> Get the raw type of a Java type, given its context. Primarily for use
+     * with {@link TypeVariable}s and {@link GenericArrayType}s, or when you do
+     * not know the runtime type of <code>type</code>: if you know you have a
+     * {@link Class} instance, it is already raw; if you know you have a
+     * {@link ParameterizedType}, its raw type is only a method call away. </p>
+     *
+     * @param type to resolve
+     * @param assigningType type to be resolved against
+     * @return the resolved <code>Class</code> object or <code>null</code> if
+     * the type could not be resolved
+     */
+    public static Class<?> getRawType(Type type, Type assigningType) {
+        if (type instanceof Class<?>) {
+            // it is raw, no problem
+            return (Class<?>) type;
+        }
+
+        if (type instanceof ParameterizedType) {
+            // simple enough to get the raw type of a ParameterizedType
+            return getRawType((ParameterizedType) type);
+        }
+
+        if (type instanceof TypeVariable<?>) {
+            if (assigningType == null) {
+                return null;
+            }
+
+            // get the entity declaring this type variable
+            Object genericDeclaration = ((TypeVariable<?>) type).getGenericDeclaration();
+
+            // can't get the raw type of a method- or constructor-declared type
+            // variable
+            if (!(genericDeclaration instanceof Class<?>)) {
+                return null;
+            }
+
+            // get the type arguments for the declaring class/interface based
+            // on the enclosing type
+            Map<TypeVariable<?>, Type> typeVarAssigns = getTypeArguments(assigningType,
+                    (Class<?>) genericDeclaration);
+
+            // enclosingType has to be a subclass (or subinterface) of the
+            // declaring type
+            if (typeVarAssigns == null) {
+                return null;
+            }
+
+            // get the argument assigned to this type variable
+            Type typeArgument = typeVarAssigns.get(type);
+
+                typeVarAssigns.containsKey(treeSetTypeVar));
+        typeArg = typeVarAssigns.get(treeSetTypeVar);
+        Assert.assertEquals("Type argument of Comparable from Integer: " + typeArg, Integer.class,
+                typeVarAssigns.get(treeSetTypeVar));
+
+        typeVarAssigns = TypeUtils.getTypeArguments(int.class, Comparable.class);
+        treeSetTypeVar = Comparable.class.getTypeParameters()[0];
+        Assert.assertTrue("Type var assigns for Comparable from int: " + typeVarAssigns,
+                typeVarAssigns.containsKey(treeSetTypeVar));
+        typeArg = typeVarAssigns.get(treeSetTypeVar);
+        Assert.assertEquals("Type argument of Comparable from int: " + typeArg, Integer.class,
+                typeVarAssigns.get(treeSetTypeVar));
+
+        Collection<Integer> col = Arrays.asList(new Integer[0]);
+        typeVarAssigns = TypeUtils.getTypeArguments(List.class, Collection.class);
+        treeSetTypeVar = Comparable.class.getTypeParameters()[0];
+        Assert.assertFalse("Type var assigns for Collection from List: " + typeVarAssigns,
+                typeVarAssigns.containsKey(treeSetTypeVar));
+
+        typeVarAssigns = TypeUtils.getTypeArguments(AAAClass.BBBClass.class, AAClass.BBClass.class);
+        Assert.assertTrue(typeVarAssigns.size() == 2);
+        Assert.assertEquals(String.class, typeVarAssigns.get(AAClass.class.getTypeParameters()[0]));
+        Assert.assertEquals(String.class, typeVarAssigns.get(AAClass.BBClass.class.getTypeParameters()[0]));
+
+        typeVarAssigns = TypeUtils.getTypeArguments(Other.class, This.class);
+        Assert.assertEquals(2, typeVarAssigns.size());
+        Assert.assertEquals(String.class, typeVarAssigns.get(This.class.getTypeParameters()[0]));
+        Assert.assertEquals(Other.class.getTypeParameters()[0], typeVarAssigns.get(This.class.getTypeParameters()[1]));
+    }
+
+    @Test
+    public void testTypesSatisfyVariables() throws SecurityException, NoSuchFieldException,
+            NoSuchMethodException {
+        Map<TypeVariable<?>, Type> typeVarAssigns = new HashMap<TypeVariable<?>, Type>();
+        Integer max = TypeUtilsTest.<Integer> stub();
+        typeVarAssigns.put(getClass().getMethod("stub").getTypeParameters()[0], Integer.class);
+        Assert.assertTrue(TypeUtils.typesSatisfyVariables(typeVarAssigns));
+        typeVarAssigns.clear();
+        typeVarAssigns.put(getClass().getMethod("stub2").getTypeParameters()[0], Integer.class);
+        Assert.assertTrue(TypeUtils.typesSatisfyVariables(typeVarAssigns));
+        typeVarAssigns.clear();
+        typeVarAssigns.put(getClass().getMethod("stub3").getTypeParameters()[0], Integer.class);
+        Assert.assertTrue(TypeUtils.typesSatisfyVariables(typeVarAssigns));
+    }
+
+    @Test
+    public void testDetermineTypeVariableAssignments() throws SecurityException,
+            NoSuchFieldException, NoSuchMethodException {
+        ParameterizedType iterableType = (ParameterizedType) getClass().getField("iterable")
+                .getGenericType();
+        Map<TypeVariable<?>, Type> typeVarAssigns = TypeUtils.determineTypeArguments(TreeSet.class,
+                iterableType);
+        TypeVariable<?> treeSetTypeVar = TreeSet.class.getTypeParameters()[0];
+        Assert.assertTrue(typeVarAssigns.containsKey(treeSetTypeVar));
+        Assert.assertEquals(iterableType.getActualTypeArguments()[0], typeVarAssigns
+                .get(treeSetTypeVar));
+    }
+
+    @Test
+    public void testGetRawType() throws SecurityException, NoSuchFieldException {
+        Type stringParentFieldType = GenericTypeHolder.class.getDeclaredField("stringParent")
+                .getGenericType();
+        Type integerParentFieldType = GenericTypeHolder.class.getDeclaredField("integerParent")
+                .getGenericType();
+        Type foosFieldType = GenericTypeHolder.class.getDeclaredField("foos").getGenericType();
+        Type genericParentT = GenericParent.class.getTypeParameters()[0];
+        Assert.assertEquals(GenericParent.class, TypeUtils.getRawType(stringParentFieldType, null));
+        Assert
+                .assertEquals(GenericParent.class, TypeUtils.getRawType(integerParentFieldType,
+                        null));
+        Assert.assertEquals(List.class, TypeUtils.getRawType(foosFieldType, null));
+        Assert.assertEquals(String.class, TypeUtils.getRawType(genericParentT,
+                StringParameterizedChild.class));
+        Assert.assertEquals(String.class, TypeUtils.getRawType(genericParentT,
+                stringParentFieldType));
+        Assert.assertEquals(Foo.class, TypeUtils.getRawType(Iterable.class.getTypeParameters()[0],
+                foosFieldType));
+        Assert.assertEquals(Foo.class, TypeUtils.getRawType(List.class.getTypeParameters()[0],
+                foosFieldType));
+        Assert.assertNull(TypeUtils.getRawType(genericParentT, GenericParent.class));
+        Assert.assertEquals(GenericParent[].class, TypeUtils.getRawType(GenericTypeHolder.class
+                .getDeclaredField("barParents").getGenericType(), null));
+    }
+
+    @Test
+    public void testIsArrayTypeClasses() {
+        Assert.assertTrue(TypeUtils.isArrayType(boolean[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(byte[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(short[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(int[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(char[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(long[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(float[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(double[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(Object[].class));
+        Assert.assertTrue(TypeUtils.isArrayType(String[].class));
+
+        Assert.assertFalse(TypeUtils.isArrayType(boolean.class));
+        Assert.assertFalse(TypeUtils.isArrayType(byte.class));
+        Assert.assertFalse(TypeUtils.isArrayType(short.class));
+        Assert.assertFalse(TypeUtils.isArrayType(int.class));
+        Assert.assertFalse(TypeUtils.isArrayType(char.class));
+        Assert.assertFalse(TypeUtils.isArrayType(long.class));
+        Assert.assertFalse(TypeUtils.isArrayType(float.class));
+        Assert.assertFalse(TypeUtils.isArrayType(double.class));
+        Assert.assertFalse(TypeUtils.isArrayType(Object.class));
+        Assert.assertFalse(TypeUtils.isArrayType(String.class));
+    }
+
+    @Test
+    public void testIsArrayGenericTypes() throws Exception {
+        Method method = getClass().getMethod("dummyMethod", List.class, List.class, List.class,
+                List.class, List.class, List.class, List.class, List[].class, List[].class,
+                List[].class, List[].class, List[].class, List[].class, List[].class);
+
+        Type[] types = method.getGenericParameterTypes();
+
+        Assert.assertFalse(TypeUtils.isArrayType(types[0]));
+        Assert.assertFalse(TypeUtils.isArrayType(types[1]));
+        Assert.assertFalse(TypeUtils.isArrayType(types[2]));
+        Assert.assertFalse(TypeUtils.isArrayType(types[3]));
+        Assert.assertFalse(TypeUtils.isArrayType(types[4]));
+        Assert.assertFalse(TypeUtils.isArrayType(types[5]));
+        Assert.assertFalse(TypeUtils.isArrayType(types[6]));
+        Assert.assertTrue(TypeUtils.isArrayType(types[7]));
+        Assert.assertTrue(TypeUtils.isArrayType(types[8]));
+        Assert.assertTrue(TypeUtils.isArrayType(types[9]));
+        Assert.assertTrue(TypeUtils.isArrayType(types[10]));
+        Assert.assertTrue(TypeUtils.isArrayType(types[11]));
+        Assert.assertTrue(TypeUtils.isArrayType(types[12]));
+        Assert.assertTrue(TypeUtils.isArrayType(types[13]));
+    }
+
+    @Test
+    public void testGetPrimitiveArrayComponentType() throws Exception {
+        Assert.assertEquals(boolean.class, TypeUtils.getArrayComponentType(boolean[].class));
+        Assert.assertEquals(byte.class, TypeUtils.getArrayComponentType(byte[].class));
+        Assert.assertEquals(short.class, TypeUtils.getArrayComponentType(short[].class));
+        Assert.assertEquals(int.class, TypeUtils.getArrayComponentType(int[].class));
+        Assert.assertEquals(char.class, TypeUtils.getArrayComponentType(char[].class));
+        Assert.assertEquals(long.class, TypeUtils.getArrayComponentType(long[].class));
+        Assert.assertEquals(float.class, TypeUtils.getArrayComponentType(float[].class));
+        Assert.assertEquals(double.class, TypeUtils.getArrayComponentType(double[].class));
+
+        Assert.assertNull(TypeUtils.getArrayComponentType(boolean.class));
+        Assert.assertNull(TypeUtils.getArrayComponentType(byte.class));
+        Assert.assertNull(TypeUtils.getArrayComponentType(short.class));
+        Assert.assertNull(TypeUtils.getArrayComponentType(int.class));
+        Assert.assertNull(TypeUtils.getArrayComponentType(char.class));
+        Assert.assertNull(TypeUtils.getArrayComponentType(long.class));
+        Assert.assertNull(TypeUtils.getArrayComponentType(float.class));
+        Assert.assertNull(TypeUtils.getArrayComponentType(double.class));
+    }
+
+    @Test
+    public void testGetArrayComponentType() throws Exception {
+        Method method = getClass().getMethod("dummyMethod", List.class, List.class, List.class,
+                List.class, List.class, List.class, List.class, List[].class, List[].class,
+                List[].class, List[].class, List[].class, List[].class, List[].class);
+
+        Type[] types = method.getGenericParameterTypes();
+
+        Assert.assertNull(TypeUtils.getArrayComponentType(types[0]));
+        Assert.assertNull(TypeUtils.getArrayComponentType(types[1]));
+        Assert.assertNull(TypeUtils.getArrayComponentType(types[2]));
+        Assert.assertNull(TypeUtils.getArrayComponentType(types[3]));
+        Assert.assertNull(TypeUtils.getArrayComponentType(types[4]));
+        Assert.assertNull(TypeUtils.getArrayComponentType(types[5]));
+        Assert.assertNull(TypeUtils.getArrayComponentType(types[6]));
+        Assert.assertEquals(types[0], TypeUtils.getArrayComponentType(types[7]));
+        Assert.assertEquals(types[1], TypeUtils.getArrayComponentType(types[8]));
+        Assert.assertEquals(types[2], TypeUtils.getArrayComponentType(types[9]));
+        Assert.assertEquals(types[3], TypeUtils.getArrayComponentType(types[10]));
+        Assert.assertEquals(types[4], TypeUtils.getArrayComponentType(types[11]));
+        Assert.assertEquals(types[5], TypeUtils.getArrayComponentType(types[12]));
+        Assert.assertEquals(types[6], TypeUtils.getArrayComponentType(types[13]));
+    }
+
+    public Iterable<? extends Map<Integer, ? extends Collection<?>>> iterable;
+
+    public static <G extends Comparable<G>> G stub() {
+        return null;
+    }
+
+    public static <G extends Comparable<? super G>> G stub2() {
+        return null;
+    }
+
+    public static <T extends Comparable<? extends T>> T stub3() {
+        return null;
+    }
+}
+
+class AAClass<T> {
+
+    public class BBClass<S> {
+    }
+}
+
+class AAAClass extends AAClass<String> {
+    public class BBBClass extends BBClass<String> {
+    }
+}
+
+@SuppressWarnings("rawtypes")
+//raw types, where used, are used purposely
+class AClass extends AAClass<String>.BBClass<Number> {
+
+    public AClass(AAClass<String> enclosingInstance) {
+        enclosingInstance.super();
+    }
+</output>
+
+### output #4
+<returncode>1</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/ArrayUtils.java:567:    public static boolean boundsSatisfied(Map<TypeVariable<?>, Type> typeVarAssigns) {
+src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java:970:        return org.apache.commons.lang3.ArrayUtils.boundsSatisfied(typeVarAssigns);
+</output>
+
+### output #5
+<returncode>0</returncode>
+<output>
+     * <p>Defensive programming technique to change a {@code null}
+     * reference to an empty one.</p>
+     *
+     * <p>This method returns an empty array for a {@code null} input array.</p>
+     *
+     * <p>As a memory optimizing technique an empty array passed in will be overridden with
+     * the empty {@code public static} references in this class.</p>
+     *
+     * @param array  the array to check for {@code null} or empty
+     * @return the same array, {@code public static} empty array if {@code null} or empty input
+     * @since 2.5
+     */
+    public static int[] nullToEmpty(int[] array) {
+        if (array == null || array.length == 0) {
+            return EMPTY_INT_ARRAY;
+        }
+        return array;
+    }
+
+    /**
+     * <p>Defensive programming technique to change a {@code null}
+     * reference to an empty one.</p>
+     *
+     * <p>This method returns an empty array for a {@code null} input array.</p>
+     *
+     * <p>As a memory optimizing technique an empty array passed in will be overridden with
+     * the empty {@code public static} references in this class.</p>
+     *
+     * @param array  the array to check for {@code null} or empty
+     * @return the same array, {@code public static} empty array if {@code null} or empty input
+     * @since 2.5
+     */
+    public static short[] nullToEmpty(short[] array) {
+        if (array == null || array.length == 0) {
+            return EMPTY_SHORT_ARRAY;
+        }
+        return array;
+    }
+
+    /**
+     * <p>Checks whether each type in a map of type variable assignments lies
+     * within the bounds of the type variable it is assigned to.</p>
+     *
+     * @param typeVarAssigns  the types assigned to the type variables, not null
+     * @return {@code true} if every assigned type satisfies the bounds of its
+     *  type variable
+     */
+    public static boolean boundsSatisfied(Map<TypeVariable<?>, Type> typeVarAssigns) {
+        for (Map.Entry<TypeVariable<?>, Type> entry : typeVarAssigns.entrySet()) {
+            if (!FastDateFormat.withinBounds(entry.getKey(), entry.getValue(), typeVarAssigns)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    /**
+     * <p>Defensive programming technique to change a {@code null}
+     * reference to an empty one.</p>
+     *
+     * <p>This method returns an empty array for a {@code null} input array.</p>
+     *
+     * <p>As a memory optimizing technique an empty array passed in will be overridden with
+     * the empty {@code public static} references in this class.</p>
+     *
+     * @param array  the array to check for {@code null} or empty
+     * @return the same array, {@code public static} empty array if {@code null} or empty input
+     * @since 2.5
+     */
+    public static char[] nullToEmpty(char[] array) {
+        if (array == null || array.length == 0) {
+            return EMPTY_CHAR_ARRAY;
+        }
+        return array;
+    }
+
+    /**
+     * <p>Defensive programming technique to change a {@code null}
+     * reference to an empty one.</p>
+     *
+     * <p>This method returns an empty array for a {@code null} input array.</p>
+     *
+     * <p>As a memory optimizing technique an empty array passed in will be overridden with
+     * the empty {@code public static} references in this class.</p>
+     *
+     * @param array  the array to check for {@code null} or empty
+     * @return the same array, {@code public static} empty array if {@code null} or empty input
+     * @since 2.5
+     */
+    public static byte[] nullToEmpty(byte[] array) {
+19:import java.lang.reflect.Array;
+20:import java.util.Arrays;
+21:import java.util.HashMap;
+22:import java.util.HashSet;
+23:import java.util.Map;
+30:import java.lang.reflect.Type;
+31:import java.lang.reflect.TypeVariable;
+47:public class ArrayUtils {
+</output>
+
+### output #6
+<returncode>1</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/ArrayUtils.java:569:            if (!FastDateFormat.withinBounds(entry.getKey(), entry.getValue(), typeVarAssigns)) {
+src/main/java/org/apache/commons/lang3/time/FastDateFormat.java:347:    public static boolean withinBounds(TypeVariable<?> typeVariable, Type type,
+</output>
+
+### output #7
+<returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.lang3.time;
+
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.text.DateFormat;
+import java.text.DateFormatSymbols;
+import java.text.FieldPosition;
+import java.text.Format;
+import java.text.ParsePosition;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.GregorianCalendar;
+import java.util.List;
+import java.util.Locale;
+import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+import org.apache.commons.lang3.Validate;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.util.Map;
+import org.apache.commons.lang3.reflect.TypeUtils;
+import org.apache.commons.lang3.text.StrBuilder;
+
+/**
+ * <p>FastDateFormat is a fast and thread-safe version of
+ * {@link java.text.SimpleDateFormat}.</p>
+ *
+ * <p>This class can be used as a direct replacement to
+ * {@code SimpleDateFormat} in most formatting situations.
+ * This class is especially useful in multi-threaded server environments.
+ * {@code SimpleDateFormat} is not thread-safe in any JDK version,
+ * nor will it be as Sun have closed the bug/RFE.
+ * </p>
+ *
+ * <p>Only formatting is supported, but all patterns are compatible with
+ * SimpleDateFormat (except time zones and some year patterns - see below).</p>
+ *
+ * <p>Java 1.4 introduced a new pattern letter, {@code 'Z'}, to represent
+ * time zones in RFC822 format (eg. {@code +0800} or {@code -1100}).
+ * This pattern letter can be used here (on all JDK versions).</p>
+ *
+ * <p>In addition, the pattern {@code 'ZZ'} has been made to represent
+ * ISO8601 full format time zones (eg. {@code +08:00} or {@code -11:00}).
+ * This introduces a minor incompatibility with Java 1.4, but at a gain of
+ * useful functionality.</p>
+ *
+ * <p>Javadoc cites for the year pattern: <i>For formatting, if the number of
+ * pattern letters is 2, the year is truncated to 2 digits; otherwise it is
+ * interpreted as a number.</i> Starting with Java 1.7 a pattern of 'Y' or
+ * 'YYY' will be formatted as '2003', while it was '03' in former Java
+ * versions. FastDateFormat implements the behavior of Java 7.</p>
+ *
+ * @since 2.0
+ * @version $Id$
+ */
+public class FastDateFormat extends Format {
+    // A lot of the speed in this class comes from caching, but some comes
+    // from the special int to StringBuffer conversion.
+    //
+    // The following produces a padded 2 digit number:
+    //   buffer.append((char)(value / 10 + '0'));
+
+    /**
+     * <p>Gets a time formatter instance using the specified style, time
+     * zone and locale.</p>
+     *
+     * @param style  time style: FULL, LONG, MEDIUM, or SHORT
+     * @param timeZone  optional time zone, overrides time zone of
+     *  formatted time
+     * @param locale  optional locale, overrides system locale
+     * @return a localized standard time formatter
+     * @throws IllegalArgumentException if the Locale has no time
+     *  pattern defined
+     */
+    public static FastDateFormat getTimeInstance(int style, TimeZone timeZone, Locale locale) {
+        return cache.getDateTimeInstance(null, style, timeZone, locale);
+    }
+
+    /**
+     * <p>Checks whether a type lies within every bound of a type variable,
+     * following the Java generics rules.</p>
+     *
+     * @param typeVariable  the type variable
+     * @param type  the type assigned to the type variable
+     * @param typeVarAssigns  the types assigned to the type variables that the
+     *  bounds may refer to
+     * @return {@code true} if the type satisfies every bound of the type variable
+     */
+    public static boolean withinBounds(TypeVariable<?> typeVariable, Type type,
+            Map<TypeVariable<?>, Type> typeVarAssigns) {
+        for (Type bound : TypeUtils.getImplicitBounds(typeVariable)) {
+            if (!StrBuilder.meetsBound(type, bound, typeVarAssigns)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    //-----------------------------------------------------------------------
+    /**
+     * <p>Gets a date/time formatter instance using the specified style
+     * in the default time zone and locale.</p>
+     *
+     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
+     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
+     * @return a localized standard date/time formatter
+     * @throws IllegalArgumentException if the Locale has no date/time
+     *  pattern defined
+     * @since 2.1
+     */
+    public static FastDateFormat getDateTimeInstance(int dateStyle, int timeStyle) {
+        return cache.getDateTimeInstance(dateStyle, timeStyle, null, null);
+    }
+
+    /**
+     * <p>Gets a date/time formatter instance using the specified style and
+     * locale in the default time zone.</p>
+     *
+     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
+     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
+     * @param locale  optional locale, overrides system locale
+     * @return a localized standard date/time formatter
+     * @throws IllegalArgumentException if the Locale has no date/time
+     *  pattern defined
+     * @since 2.1
+     */
+    public static FastDateFormat getDateTimeInstance(int dateStyle, int timeStyle, Locale locale) {
+        return cache.getDateTimeInstance(dateStyle, timeStyle, null, locale);
+    }
+
+    /**
+    /**
+     * <p>Gets a date/time formatter instance using the specified style and
+     * time zone in the default locale.</p>
+     *
+     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
+     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
+     * @param timeZone  optional time zone, overrides time zone of
+     *  formatted date
+     * @return a localized standard date/time formatter
+     * @throws IllegalArgumentException if the Locale has no date/time
+     *  pattern defined
+     * @since 2.1
+     */
+    public static FastDateFormat getDateTimeInstance(int dateStyle, int timeStyle, TimeZone timeZone) {
+        return getDateTimeInstance(dateStyle, timeStyle, timeZone, null);
+    }
+    /**
+     * <p>Gets a date/time formatter instance using the specified style,
+     * time zone and locale.</p>
+     *
+     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
+     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
+     * @param timeZone  optional time zone, overrides time zone of
+     *  formatted date
+     * @param locale  optional locale, overrides system locale
+     * @return a localized standard date/time formatter
+     * @throws IllegalArgumentException if the Locale has no date/time
+     *  pattern defined
+     */
+    public static FastDateFormat getDateTimeInstance(
+            int dateStyle, int timeStyle, TimeZone timeZone, Locale locale) {
+        return cache.getDateTimeInstance(dateStyle, timeStyle, timeZone, locale);
+    }
+
+    //-----------------------------------------------------------------------
+    /**
+     * <p>Gets the time zone display name, using a cache for performance.</p>
+     *
+     * @param tz  the zone to query
+     * @param daylight  true if daylight savings
+     * @param style  the style to use {@code TimeZone.LONG} or {@code TimeZone.SHORT}
+     * @param locale  the locale to use
+     * @return the textual name of the time zone
+     */
+    static String getTimeZoneDisplay(TimeZone tz, boolean daylight, int style, Locale locale) {
+        TimeZoneDisplayKey key = new TimeZoneDisplayKey(tz, daylight, style, locale);
+        String value = cTimeZoneDisplayCache.get(key);
+        if (value == null) {
+            // This is a very slow call, so cache the results.
+            value = tz.getDisplayName(daylight, style, locale);
+            String prior = cTimeZoneDisplayCache.putIfAbsent(key, value);
+            if (prior != null) {
+                value= prior;
+            }
+        }
+        return value;
+    }
+
+    // Constructor
+    //-----------------------------------------------------------------------
+    /**
+     * <p>Constructs a new FastDateFormat.</p>
+     *
+     * @param pattern  {@link java.text.SimpleDateFormat} compatible pattern
+     * @param timeZone  non-null time zone to use
+     * @param locale  non-null locale to use
+     * @throws NullPointerException if pattern, timeZone, or locale is null.
+     */
+    protected FastDateFormat(String pattern, TimeZone timeZone, Locale locale) {
+        mPattern = pattern;
+        mTimeZone = timeZone;
+        mLocale = locale;
+
+        init();
+    }
+
+    /**
+     * <p>Initializes the instance for first use.</p>
+     */
+    private void init() {
+        List<Rule> rulesList = parsePattern();
+</output>
+
+### output #8
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/time/FastDateFormat.java:350:            if (!StrBuilder.meetsBound(type, bound, typeVarAssigns)) {
+src/main/java/org/apache/commons/lang3/text/StrBuilder.java:1497:    public static boolean meetsBound(Type type, Type bound, Map<TypeVariable<?>, Type> typeVarAssigns) {
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ * 
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.lang3.text;
+
+import java.io.Reader;
+import java.io.Writer;
+import java.util.Iterator;
+import java.util.List;
+
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.SystemUtils;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.util.Map;
+import org.apache.commons.lang3.builder.ToStringStyle;
+
+/**
+ * Builds a string from constituent parts providing a more flexible and powerful API
+ * than StringBuffer.
+ * <p>
+ * The main differences from StringBuffer/StringBuilder are:
+ * <ul>
+ * <li>Not synchronized</li>
+ * <li>Not final</li>
+ * <li>Subclasses have direct access to character array</li>
+ * <li>Additional methods
+ *  <ul>
+ *   <li>appendWithSeparators - adds an array of values, with a separator</li>
+ *   <li>appendPadding - adds a length padding characters</li>
+ *   <li>appendFixedLength - adds a fixed width field to the builder</li>
+ *   <li>toCharArray/getChars - simpler ways to get a range of the character array</li>
+ *   <li>delete - delete char or string</li>
+ *   <li>replace - search and replace for a char or string</li>
+ *   <li>leftString/rightString/midString - substring without exceptions</li>
+ *   <li>contains - whether the builder contains a char or string</li>
+ *   <li>size/clear/isEmpty - collections style API methods</li>
+ *  </ul>
+ * </li>
+ * </ul>
+ * <li>Views
+ *  <ul>
+ *   <li>asTokenizer - uses the internal buffer as the source of a StrTokenizer</li>
+ *   <li>asReader - uses the internal buffer as the source of a Reader</li>
+ *   <li>asWriter - allows a Writer to write directly to the internal buffer</li>
+ *  </ul>
+ * </li>
+ * </ul>
+ * <p>
+ * The aim has been to provide an API that mimics very closely what StringBuffer
+ * provides, but with additional methods. It should be noted that some edge cases,
+ * with invalid indices or null input, have been altered - see individual methods.
+ * The biggest of these changes is that by default, null will not output the text
+ * 'null'. This can be controlled by a property, {@link #setNullText(String)}.
+ * <p>
+ * Prior to 3.0, this class implemented Cloneable but did not implement the 
+ * clone method so could not be used. From 3.0 onwards it no longer implements 
+ * the interface. 
+ *
+ * @since 2.2
+ * @version $Id$
+ */
+public class StrBuilder implements CharSequence, Appendable {
+
+    /**
+     * The extra capacity for new builders.
+     */
+    static final int CAPACITY = 32;
+
+    /**
+     * Required for serialization support.
+     * 
+     * @see java.io.Serializable
+     */
+    private static final long serialVersionUID = 7628716375283629643L;
+
+    /** Internal data storage. */
+    protected char[] buffer; // TODO make private?
+    /** Current size of the buffer. */
+    protected int size; // TODO make private?
+    /** The new line. */
+    private String newLine;
+    /** The null text. */
+    private String nullText;
+
+    //-----------------------------------------------------------------------
+    /**
+     * Constructor that creates an empty builder initial capacity 32 characters.
+     */
+    public StrBuilder() {
+        this(CAPACITY);
+    }
+
+    /**
+     * Constructor that creates an empty builder the specified initial capacity.
+     *
+     * @param initialCapacity  the initial capacity, zero or less will be converted to 32
+     */
+    public StrBuilder(int initialCapacity) {
+        super();
+        if (initialCapacity <= 0) {
+            initialCapacity = CAPACITY;
+        }
+        buffer = new char[initialCapacity];
+    }
+
+
+        /**
+         * Default constructor.
+         */
+        StrBuilderTokenizer() {
+            super();
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        protected List<String> tokenize(char[] chars, int offset, int count) {
+            if (chars == null) {
+                return super.tokenize(StrBuilder.this.buffer, 0, StrBuilder.this.size());
+            } else {
+                return super.tokenize(chars, offset, count);
+            }
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String getContent() {
+            String str = super.getContent();
+            if (str == null) {
+                return StrBuilder.this.toString();
+            } else {
+                return str;
+            }
+        }
+    }
+
+    //-----------------------------------------------------------------------
+    /**
+     * Inner class to allow StrBuilder to operate as a writer.
+     */
+    class StrBuilderReader extends Reader {
+        /** The current stream position. */
+        private int pos;
+        /** The last mark position. */
+        private int mark;
+
+        /**
+         * Default constructor.
+         */
+        StrBuilderReader() {
+            super();
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public void close() {
+            // do nothing
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public int read() {
+            if (ready() == false) {
+                return -1;
+            }
+            return StrBuilder.this.charAt(pos++);
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public int read(char b[], int off, int len) {
+            if (off < 0 || len < 0 || off > b.length ||
+</output>
+
+### output #9
+<returncode>0</returncode>
+<output>
+            ensureCapacity(size + 4);
+            System.arraycopy(buffer, index, buffer, index + 4, size - index);
+            buffer[index++] = 't';
+            buffer[index++] = 'r';
+            buffer[index++] = 'u';
+            buffer[index] = 'e';
+            size += 4;
+        } else {
+            ensureCapacity(size + 5);
+            System.arraycopy(buffer, index, buffer, index + 5, size - index);
+            buffer[index++] = 'f';
+            buffer[index++] = 'a';
+            buffer[index++] = 'l';
+            buffer[index++] = 's';
+            buffer[index] = 'e';
+            size += 5;
+        }
+        return this;
+    }
+
+    /**
+     * <p>Checks whether a type lies within one bound of a type variable,
+     * following the Java generics rules. A bound that is itself a type variable
+     * stands for the type assigned to that variable.</p>
+     *
+     * @param type  the type to check
+     * @param bound  the bound of the type variable
+     * @param typeVarAssigns  the types assigned to the type variables
+     * @return {@code true} if the type satisfies the bound
+     * @throws IllegalArgumentException if the bound is a type variable without
+     *  an assigned type
+     */
+    public static boolean meetsBound(Type type, Type bound, Map<TypeVariable<?>, Type> typeVarAssigns) {
+        Type toType = bound;
+        if (bound instanceof TypeVariable<?>) {
+            toType = typeVarAssigns.get(bound);
+            if (toType == null) {
+                throw new IllegalArgumentException("missing assignment type for type variable " + bound);
+            }
+        }
+        return ToStringStyle.assignableUnder(type, toType, typeVarAssigns);
+    }
+
+
+    /**
+     * Inserts the value into this builder.
+     *
+     * @param index  the index to add at, must be valid
+     * @param value  the value to insert
+     * @return this, to enable chaining
+     * @throws IndexOutOfBoundsException if the index is invalid
+     */
+    public StrBuilder insert(int index, char value) {
+        validateIndex(index);
+        ensureCapacity(size + 1);
+        System.arraycopy(buffer, index, buffer, index + 1, size - index);
+        buffer[index] = value;
+        size++;
+        return this;
+    }
+
+    /**
+     * Inserts the value into this builder.
+     *
+     * @param index  the index to add at, must be valid
+     * @param value  the value to insert
+     * @return this, to enable chaining
+     * @throws IndexOutOfBoundsException if the index is invalid
+     */
+    public StrBuilder insert(int index, int value) {
+        return insert(index, String.valueOf(value));
+src/main/java/org/apache/commons/lang3/ArrayUtils.java:567:    public static boolean boundsSatisfied(Map<TypeVariable<?>, Type> typeVarAssigns) {
+src/main/java/org/apache/commons/lang3/time/FastDateFormat.java:347:    public static boolean withinBounds(TypeVariable<?> typeVariable, Type type,
+src/main/java/org/apache/commons/lang3/text/StrBuilder.java:1497:    public static boolean meetsBound(Type type, Type bound, Map<TypeVariable<?>, Type> typeVarAssigns) {
+</output>
+
+### output #10
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/text/StrBuilder.java:1505:        return ToStringStyle.assignableUnder(type, toType, typeVarAssigns);
+src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java:854:    public static boolean assignableUnder(Type type, Type toType, Map<TypeVariable<?>, Type> typeVarAssigns) {
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.lang3.builder;
+
+import java.io.Serializable;
+import java.lang.reflect.Array;
+import java.util.Collection;
+import java.util.Map;
+import java.util.WeakHashMap;
+
+import org.apache.commons.lang3.ClassUtils;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.SystemUtils;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.reflect.TypeUtils;
+
+/**
+ * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+ * The main public interface is always via <code>ToStringBuilder</code>.</p>
+ *
+ * <p>These classes are intended to be used as <code>Singletons</code>.
+ * There is no need to instantiate a new style each time. A program
+ * will generally use one of the predefined constants on this class.
+ * Alternatively, the {@link StandardToStringStyle} class can be used
+ * to set the individual settings. Thus most styles can be achieved
+ * without subclassing.</p>
+ *
+ * <p>If required, a subclass can override as many or as few of the
+ * methods as it requires. Each object type (from <code>boolean</code>
+ * to <code>long</code> to <code>Object</code> to <code>int[]</code>) has
+ * its own methods to output it. Most have two versions, detail and summary.
+ *
+ * <p>For example, the detail version of the array based methods will
+ * output the whole array, whereas the summary method will just output
+ * the array length.</p>
+ *
+ * <p>If you want to format the output of certain objects, such as dates, you
+ * must create a subclass and override a method.
+ * <pre>
+ * public class MyStyle extends ToStringStyle {
+ *   protected void appendDetail(StringBuffer buffer, String fieldName, Object value) {
+ *     if (value instanceof Date) {
+ *       value = new SimpleDateFormat("yyyy-MM-dd").format(value);
+ *     }
+ *     buffer.append(value);
+ *   }
+ * }
+ * </pre>
+ * </p>
+ *
+ * @since 1.0
+ * @version $Id$
+ */
+public abstract class ToStringStyle implements Serializable {
+
+    /**
+     * Serialization version ID.
+     */
+    private static final long serialVersionUID = -2587890625525655916L;
+
+    /**
+     * The default toString style. Using the Using the <code>Person</code>
+     * example from {@link ToStringBuilder}, the output would look like this:
+     *
+     * <pre>
+     * Person@182f0db[name=John Doe,age=33,smoker=false]
+     * </pre>
+     */
+    public static final ToStringStyle DEFAULT_STYLE = new DefaultToStringStyle();
+
+    /**
+     * The multi line toString style. Using the Using the <code>Person</code>
+     * example from {@link ToStringBuilder}, the output would look like this:
+         * @see java.io.Serializable
+         */
+        private static final long serialVersionUID = 1L;
+
+        /**
+         * <p>Constructor.</p>
+         *
+         * <p>Use the static constant rather than instantiating.</p>
+         */
+        DefaultToStringStyle() {
+            super();
+        }
+
+        /**
+         * <p>Ensure <code>Singleton</code> after serialization.</p>
+         *
+         * @return the singleton
+         */
+        private Object readResolve() {
+            return ToStringStyle.DEFAULT_STYLE;
+        }
+
+    }
+
+    //----------------------------------------------------------------------------
+
+    /**
+     * <p><code>ToStringStyle</code> that does not print out
+     * the field names.</p>
+     *
+     * <p>This is an inner class rather than using
+     * <code>StandardToStringStyle</code> to ensure its immutability.
+     */
+    private static final class NoFieldNameToStringStyle extends ToStringStyle {
+
+        private static final long serialVersionUID = 1L;
+
+        /**
+         * <p>Constructor.</p>
+         *
+         * <p>Use the static constant rather than instantiating.</p>
+         */
+        NoFieldNameToStringStyle() {
+            super();
+            this.setUseFieldNames(false);
+        }
+
+        /**
+         * <p>Ensure <code>Singleton</code> after serialization.</p>
+         *
+         * @return the singleton
+         */
+        private Object readResolve() {
+            return ToStringStyle.NO_FIELD_NAMES_STYLE;
+        }
+
+    }
+
+    //----------------------------------------------------------------------------
+
+    /**
+     * <p><code>ToStringStyle</code> that prints out the short
+     * class name and no identity hashcode.</p>
+     *
+     * <p>This is an inner class rather than using
+     * <code>StandardToStringStyle</code> to ensure its immutability.</p>
+</output>
+
+### output #11
+<returncode>1</returncode>
+<output>
+    protected void appendDetail(StringBuffer buffer, String fieldName, float value) {
+        buffer.append(value);
+    }
+
+    //----------------------------------------------------------------------------
+
+    /**
+     * <p>Append to the <code>toString</code> a <code>boolean</code>
+     * value.</p>
+     *
+     * @param buffer  the <code>StringBuffer</code> to populate
+     * @param fieldName  the field name
+     * @param value  the value to add to the <code>toString</code>
+     */
+    public void append(StringBuffer buffer, String fieldName, boolean value) {
+        appendFieldStart(buffer, fieldName);
+        appendDetail(buffer, fieldName, value);
+        appendFieldEnd(buffer, fieldName);
+    }
+
+    /**
+     * <p>Checks if a type may be assigned to a target type following the Java
+     * generics rules, the type variables having the given assignments.</p>
+     *
+     * @param type  the type to be assigned
+     * @param toType  the target type
+     * @param typeVarAssigns  the types assigned to the type variables
+     * @return {@code true} if {@code type} is assignable to {@code toType}
+     */
+    public static boolean assignableUnder(Type type, Type toType, Map<TypeVariable<?>, Type> typeVarAssigns) {
+        if (toType instanceof ParameterizedType) {
+            return StringUtils.conformsTo(type, (ParameterizedType) toType, typeVarAssigns);
+        }
+        return TypeUtils.isAssignable(type, toType, typeVarAssigns);
+    }
+
+
+    /**
+     * <p>Append to the <code>toString</code> a <code>boolean</code>
+     * value.</p>
+     *
+     * @param buffer  the <code>StringBuffer</code> to populate
+     * @param fieldName  the field name, typically not used as already appended
+     * @param value  the value to add to the <code>toString</code>
+     */
+    protected void appendDetail(StringBuffer buffer, String fieldName, boolean value) {
+        buffer.append(value);
+    }
+
+    /**
+     * <p>Append to the <code>toString</code> an <code>Object</code>
+     * array.</p>
+     *
+     * @param buffer  the <code>StringBuffer</code> to populate
+     * @param fieldName  the field name
+     * @param array  the array to add to the toString
+</output>
+
+### output #12
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/lang3/StringUtils.java:1659:    public static boolean conformsTo(Type type, ParameterizedType toParameterizedType,
+src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java:856:            return StringUtils.conformsTo(type, (ParameterizedType) toType, typeVarAssigns);
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.lang3;
+
+import java.io.UnsupportedEncodingException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.lang.reflect.WildcardType;
+import java.util.Map;
+import org.apache.commons.lang3.reflect.TypeUtils;
+
+/**
+ * <p>Operations on {@link java.lang.String} that are
+ * {@code null} safe.</p>
+ *
+ * <ul>
+ *  <li><b>IsEmpty/IsBlank</b>
+ *      - checks if a String contains text</li>
+ *  <li><b>Trim/Strip</b>
+ *      - removes leading and trailing whitespace</li>
+ *  <li><b>Equals</b>
+ *      - compares two strings null-safe</li>
+ *  <li><b>startsWith</b>
+ *      - check if a String starts with a prefix null-safe</li>
+ *  <li><b>endsWith</b>
+ *      - check if a String ends with a suffix null-safe</li>
+ *  <li><b>IndexOf/LastIndexOf/Contains</b>
+ *      - null-safe index-of checks
+ *  <li><b>IndexOfAny/LastIndexOfAny/IndexOfAnyBut/LastIndexOfAnyBut</b>
+ *      - index-of any of a set of Strings</li>
+ *  <li><b>ContainsOnly/ContainsNone/ContainsAny</b>
+ *      - does String contains only/none/any of these characters</li>
+ *  <li><b>Substring/Left/Right/Mid</b>
+ *      - null-safe substring extractions</li>
+ *  <li><b>SubstringBefore/SubstringAfter/SubstringBetween</b>
+ *      - substring extraction relative to other strings</li>
+ *  <li><b>Split/Join</b>
+ *      - splits a String into an array of substrings and vice versa</li>
+ *  <li><b>Remove/Delete</b>
+ *      - removes part of a String</li>
+ *  <li><b>Replace/Overlay</b>
+ *      - Searches a String and replaces one String with another</li>
+ *  <li><b>Chomp/Chop</b>
+ *      - removes the last part of a String</li>
+ *  <li><b>LeftPad/RightPad/Center/Repeat</b>
+ *      - pads a String</li>
+ *  <li><b>UpperCase/LowerCase/SwapCase/Capitalize/Uncapitalize</b>
+     * references are considered to be equal. The comparison is case sensitive.</p>
+     *
+     * <pre>
+     * StringUtils.equals(null, null)   = true
+     * StringUtils.equals(null, "abc")  = false
+     * StringUtils.equals("abc", null)  = false
+     * StringUtils.equals("abc", "abc") = true
+     * StringUtils.equals("abc", "ABC") = false
+     * </pre>
+     *
+     * @see java.lang.String#equals(Object)
+     * @param cs1  the first CharSequence, may be null
+     * @param cs2  the second CharSequence, may be null
+     * @return {@code true} if the CharSequences are equal, case sensitive, or
+     *  both {@code null}
+     * @since 3.0 Changed signature from equals(String, String) to equals(CharSequence, CharSequence)
+     */
+    public static boolean equals(CharSequence cs1, CharSequence cs2) {
+        return cs1 == null ? cs2 == null : cs1.equals(cs2);
+    }
+
+    /**
+     * <p>Compares two CharSequences, returning {@code true} if they are equal ignoring
+     * the case.</p>
+     *
+     * <p>{@code null}s are handled without exceptions. Two {@code null}
+     * references are considered equal. Comparison is case insensitive.</p>
+     *
+     * <pre>
+     * StringUtils.equalsIgnoreCase(null, null)   = true
+     * StringUtils.equalsIgnoreCase(null, "abc")  = false
+     * StringUtils.equalsIgnoreCase("abc", null)  = false
+     * StringUtils.equalsIgnoreCase("abc", "abc") = true
+     * StringUtils.equalsIgnoreCase("abc", "ABC") = true
+     * </pre>
+     *
+     * @param str1  the first CharSequence, may be null
+     * @param str2  the second CharSequence, may be null
+     * @return {@code true} if the CharSequence are equal, case insensitive, or
+     *  both {@code null}
+     * @since 3.0 Changed signature from equalsIgnoreCase(String, String) to equalsIgnoreCase(CharSequence, CharSequence)
+     */
+    public static boolean equalsIgnoreCase(CharSequence str1, CharSequence str2) {
+        if (str1 == null || str2 == null) {
+            return str1 == str2;
+        } else {
+            return CharSequenceUtils.regionMatches(str1, true, 0, str2, 0, Math.max(str1.length(), str2.length()));
+        }
+    }
+
+    // IndexOf
+    //-----------------------------------------------------------------------
+    /**
+     * <p>Finds the first index within a CharSequence, handling {@code null}.
+     * This method uses {@link String#indexOf(int, int)} if possible.</p>
+     *
+     * <p>A {@code null} or empty ("") CharSequence will return {@code INDEX_NOT_FOUND (-1)}.</p>
+     *
+     * <pre>
+     * StringUtils.indexOf(null, *)         = -1
+     * StringUtils.indexOf("", *)           = -1
+     * StringUtils.indexOf("aabaabaa", 'a') = 0
+     * StringUtils.indexOf("aabaabaa", 'b') = 2
+     * </pre>
+     *
+     * @param seq  the CharSequence to check, may be null
+</output>
+
+### output #13
+<returncode>0</returncode>
+<output>
+     * @param cs
+     *            the CharSequence to check, may be null
+     * @param searchChars
+     *            the chars to search for, may be null
+     * @return the {@code true} if any of the chars are found, {@code false} if no match or null input
+     * @since 2.4
+     * @since 3.0 Changed signature from containsAny(String, String) to containsAny(CharSequence, CharSequence)
+     */
+    public static boolean containsAny(CharSequence cs, CharSequence searchChars) {
+        if (searchChars == null) {
+            return false;
+        }
+        return containsAny(cs, CharSequenceUtils.toCharArray(searchChars));
+    }
+
+    /**
+     * <p>Checks if a type may be assigned to a parameterized type following the
+     * Java generics rules, the type variables having the given assignments.</p>
+     *
+     * @param type  the type to be assigned
+     * @param toParameterizedType  the target parameterized type, not null
+     * @param typeVarAssigns  the types assigned to the type variables
+     * @return {@code true} if {@code type} is assignable to the parameterized type
+     */
+    public static boolean conformsTo(Type type, ParameterizedType toParameterizedType,
+            Map<TypeVariable<?>, Type> typeVarAssigns) {
+        if (type == null || toParameterizedType.equals(type)) {
+            return true;
+        }
+        Class<?> toClass = TypeUtils.getRawType(toParameterizedType, null);
+        Map<TypeVariable<?>, Type> fromTypeVarAssigns = TypeUtils.getTypeArguments(type, toClass);
+        if (fromTypeVarAssigns == null) {
+            return false;
+        }
+        if (fromTypeVarAssigns.isEmpty()) {
+            return true;
+        }
+        Map<TypeVariable<?>, Type> toTypeVarAssigns = TypeUtils.getTypeArguments(toParameterizedType, toClass,
+                typeVarAssigns);
+        for (TypeVariable<?> var : toTypeVarAssigns.keySet()) {
+            Type toTypeArg = TypeUtils.unrollVariableAssignments(var, toTypeVarAssigns);
+            Type fromTypeArg = TypeUtils.unrollVariableAssignments(var, fromTypeVarAssigns);
+            if (toTypeArg.equals(fromTypeArg)) {
+                continue;
+            }
+            if (toTypeArg instanceof WildcardType && TypeUtils.isAssignable(fromTypeArg, toTypeArg, typeVarAssigns)) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+
+    // IndexOfAnyBut chars
+    //-----------------------------------------------------------------------
+    /**
+     * <p>Searches a CharSequence to find the first index of any
+     * character not in the given set of characters.</p>
+     *
+     * <p>A {@code null} CharSequence will return {@code -1}.
+</output>
+
+### output #14
+<returncode>0</returncode>
+<output>
+</output>
+
+### output #15
+<returncode>0</returncode>
+<output>
+Running ant (export.cp.test)............................................... OK
+/private/tmp/d4jws-w1b2/632d3887-26d6-499a-a944-ad1e6ae63a68/CTV-53F50C/target/classes:/private/tmp/d4jws-w1b2/632d3887-26d6-499a-a944-ad1e6ae63a68/CTV-53F50C/target/tests:/Users/shawnli/Desktop/Honours/defects4j/framework/projects/lib/junit-4.12-hamcrest-1.3.jar:/Users/shawnli/Desktop/Honours/defects4j/framework/projects/Lang/lib/easymock.jar:/Users/shawnli/Desktop/Honours/defects4j/framework/projects/Lang/lib/commons-io.jar:/Users/shawnli/Desktop/Honours/defects4j/framework/projects/Lang/lib/cglib.jar:/Users/shawnli/Desktop/Honours/defects4j/framework/projects/Lang/lib/asm.jar
+Running ant (export.dir.bin.classes)....................................... OK
+target/classes
+Running ant (export.dir.bin.tests)......................................... OK
+target/tests
+Running ant (export.tests.trigger)......................................... OK
+org.apache.commons.lang3.reflect.TypeUtilsTest::testGetTypeArguments
+org.apache.commons.lang3.reflect.TypeUtilsTest::testIsAssignable
+</output>
+
+### output #16
+<returncode>0</returncode>
+<output>
+Running ant (export.cp.test)............................................... OK
+
+JUnit version 4.12
+.....E.....
+Time: 0.014
+There was 1 failure:
+1) testTypesSatisfyVariables(org.apache.commons.lang3.reflect.TypeUtilsTest)
+java.lang.AssertionError
+	at org.junit.Assert.fail(Assert.java:86)
+	at org.junit.Assert.assertTrue(Assert.java:41)
+	at org.junit.Assert.assertTrue(Assert.java:52)
+	at org.apache.commons.lang3.reflect.TypeUtilsTest.testTypesSatisfyVariables(TypeUtilsTest.java:516)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
+	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
+	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
+	at org.junit.runners.Suite.runChild(Suite.java:128)
+	at org.junit.runners.Suite.runChild(Suite.java:27)
+	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
+	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
+	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
+	at org.junit.runner.JUnitCore.run(JUnitCore.java:115)
+	at org.junit.runner.JUnitCore.runMain(JUnitCore.java:77)
+	at org.junit.runner.JUnitCore.main(JUnitCore.java:36)
+
+FAILURES!!!
+Tests run: 10,  Failures: 1
+
+</output>
+
+### output #17
+<returncode>0</returncode>
+<output>
+Running ant (export.cp.test)............................................... OK
+
+--stub tv=G bounds=[java.lang.Comparable<G>]
+implicit=[java.lang.Comparable<G>]
+bound=java.lang.Comparable<G> meets=false
+raw=interface java.lang.Comparable
+from={T=class java.lang.Integer}
+to={G=class java.lang.Integer, T=class java.lang.Integer}
+conforms=false
+within=false boundsSat=false typesSat=false
+--stub2 tv=G bounds=[java.lang.Comparable<? super G>]
+implicit=[java.lang.Comparable<? super G>]
+bound=java.lang.Comparable<? super G> meets=false
+raw=interface java.lang.Comparable
+from={T=class java.lang.Integer}
+to={G=class java.lang.Integer, T=? super G}
+conforms=false
+within=false boundsSat=false typesSat=false
+--stub3 tv=T bounds=[java.lang.Comparable<? extends T>]
+implicit=[java.lang.Comparable<? extends T>]
+bound=java.lang.Comparable<? extends T> meets=false
+raw=interface java.lang.Comparable
+from={T=class java.lang.Integer}
+to={T=class java.lang.Integer, T=? extends T}
+conforms=false
+within=false boundsSat=false typesSat=false
+</output>
+
+### output #18
+<returncode>0</returncode>
+<output>
+Running ant (export.cp.test)............................................... OK
+
+true
+</output>
+
+### output #19
+<returncode>0</returncode>
+<output>
+41:public class TypeUtils {
+50:    public TypeUtils() {
+64:    public static boolean isAssignable(Type type, Type toType) {
+77:    public static boolean isAssignable(Type type, Type toType,
+112:    private static boolean isAssignable(Type type, Class<?> toClass) {
+179:    private static boolean isAssignable(Type type, ParameterizedType toParameterizedType,
+245:    public static Type unrollVariableAssignments(TypeVariable<?> var, Map<TypeVariable<?>, Type> typeVarAssigns) {
+268:    private static boolean isAssignable(Type type, GenericArrayType toGenericArrayType,
+344:    private static boolean isAssignable(Type type, WildcardType toWildcardType,
+433:    private static boolean isAssignable(Type type, TypeVariable<?> toTypeVariable,
+479:    private static Type substituteTypeVariables(Type type, Map<TypeVariable<?>, Type> typeVarAssigns) {
+505:    public static Map<TypeVariable<?>, Type> getTypeArguments(ParameterizedType type) {
+541:    public static Map<TypeVariable<?>, Type> getTypeArguments(Type type, Class<?> toClass) {
+553:    public static Map<TypeVariable<?>, Type> getTypeArguments(Type type, Class<?> toClass,
+605:    private static Map<TypeVariable<?>, Type> getTypeArguments(
+658:    private static Map<TypeVariable<?>, Type> getTypeArguments(Class<?> cls, Class<?> toClass,
+718:    public static Map<TypeVariable<?>, Type> determineTypeArguments(Class<?> cls,
+758:    private static <T> void mapTypeVariablesToArguments(Class<T> cls,
+805:    private static Type getClosestParentType(Class<?> cls, Class<?> superClass) {
+853:    public static boolean isInstance(Object value, Type type) {
+883:    public static Type[] normalizeUpperBounds(Type[] bounds) {
+918:    public static Type[] getImplicitBounds(TypeVariable<?> typeVariable) {
+934:    public static Type[] getImplicitUpperBounds(WildcardType wildcardType) {
+949:    public static Type[] getImplicitLowerBounds(WildcardType wildcardType) {
+969:    public static boolean typesSatisfyVariables(Map<TypeVariable<?>, Type> typeVarAssigns) {
+980:    private static Class<?> getRawType(ParameterizedType parameterizedType) {
+1007:    public static Class<?> getRawType(Type type, Type assigningType) {
+1076:    public static boolean isArrayType(Type type) {
+1085:    public static Type getArrayComponentType(Type type) {
+  1650	    /**
+  1651	     * <p>Checks if a type may be assigned to a parameterized type following the
+  1652	     * Java generics rules, the type variables having the given assignments.</p>
+  1653	     *
+  1654	     * @param type  the type to be assigned
+  1655	     * @param toParameterizedType  the target parameterized type, not null
+  1656	     * @param typeVarAssigns  the types assigned to the type variables
+  1657	     * @return {@code true} if {@code type} is assignable to the parameterized type
+  1658	     */
+  1659	    public static boolean conformsTo(Type type, ParameterizedType toParameterizedType,
+  1660	            Map<TypeVariable<?>, Type> typeVarAssigns) {
+  1661	        if (type == null || toParameterizedType.equals(type)) {
+  1662	            return true;
+  1663	        }
+  1664	        Class<?> toClass = TypeUtils.getRawType(toParameterizedType, null);
+  1665	        Map<TypeVariable<?>, Type> fromTypeVarAssigns = TypeUtils.getTypeArguments(type, toClass);
+  1666	        if (fromTypeVarAssigns == null) {
+  1667	            return false;
+  1668	        }
+  1669	        if (fromTypeVarAssigns.isEmpty()) {
+  1670	            return true;
+  1671	        }
+  1672	        Map<TypeVariable<?>, Type> toTypeVarAssigns = TypeUtils.getTypeArguments(toParameterizedType, toClass,
+  1673	                typeVarAssigns);
+  1674	        for (TypeVariable<?> var : toTypeVarAssigns.keySet()) {
+  1675	            Type toTypeArg = TypeUtils.unrollVariableAssignments(var, toTypeVarAssigns);
+  1676	            Type fromTypeArg = TypeUtils.unrollVariableAssignments(var, fromTypeVarAssigns);
+  1677	            if (toTypeArg.equals(fromTypeArg)) {
+  1678	                continue;
+  1679	            }
+  1680	            if (toTypeArg instanceof WildcardType && TypeUtils.isAssignable(fromTypeArg, toTypeArg, typeVarAssigns)) {
+  1681	                continue;
+  1682	            }
+  1683	            return false;
+  1684	        }
+  1685	        return true;
+  1686	    }
+  1687	
+  1688	
+   955	    /**
+   956	     * <p> Determines whether or not specified types satisfy the bounds of their
+   957	     * mapped type variables. When a type parameter extends another (such as
+   958	     * <code><T, S extends T></code>), uses another as a type parameter (such as
+   959	     * <code><T, S extends Comparable<T></code>), or otherwise depends on
+   960	     * another type variable to be specified, the dependencies must be included
+   961	     * in <code>typeVarAssigns</code>. </p>
+   962	     *
+   963	     * @param typeVarAssigns specifies the potential types to be assigned to the
+   964	     * type variables.
+   965	     * @return whether or not the types can be assigned to their respective type
+   966	     * variables.
+   967	       The assignments are first copied into a map sorted by the names of their type variables, so that the result does not depend on the iteration order of the given map, and the bounds of each variable are then checked from the last declared to the first.
+   968	     */
+   969	    public static boolean typesSatisfyVariables(Map<TypeVariable<?>, Type> typeVarAssigns) {
+   970	        return org.apache.commons.lang3.ArrayUtils.boundsSatisfied(typeVarAssigns);
+   971	    }
+   972	
+   973	    /**
+   974	     * <p> Transforms the passed in type to a {@code Class} object. Type-checking method of convenience. </p>
+   975	     *
+</output>
+
+### output #20
+<returncode>0</returncode>
+<output>
+   560	     * <p>Checks whether each type in a map of type variable assignments lies
+   561	     * within the bounds of the type variable it is assigned to.</p>
+   562	     *
+   563	     * @param typeVarAssigns  the types assigned to the type variables, not null
+   564	     * @return {@code true} if every assigned type satisfies the bounds of its
+   565	     *  type variable
+   566	     */
+   567	    public static boolean boundsSatisfied(Map<TypeVariable<?>, Type> typeVarAssigns) {
+   568	        for (Map.Entry<TypeVariable<?>, Type> entry : typeVarAssigns.entrySet()) {
+   569	            if (!FastDateFormat.withinBounds(entry.getKey(), entry.getValue(), typeVarAssigns)) {
+   570	                return false;
+   571	            }
+   572	        }
+   573	        return true;
+   574	    }
+   575	
+   340	     *
+   341	     * @param typeVariable  the type variable
+   342	     * @param type  the type assigned to the type variable
+   343	     * @param typeVarAssigns  the types assigned to the type variables that the
+   344	     *  bounds may refer to
+   345	     * @return {@code true} if the type satisfies every bound of the type variable
+   346	     */
+   347	    public static boolean withinBounds(TypeVariable<?> typeVariable, Type type,
+   348	            Map<TypeVariable<?>, Type> typeVarAssigns) {
+   349	        for (Type bound : TypeUtils.getImplicitBounds(typeVariable)) {
+   350	            if (!StrBuilder.meetsBound(type, bound, typeVarAssigns)) {
+   351	                return false;
+   352	            }
+   353	        }
+   354	        return true;
+   355	    }
+  1490	     * @param type  the type to check
+  1491	     * @param bound  the bound of the type variable
+  1492	     * @param typeVarAssigns  the types assigned to the type variables
+  1493	     * @return {@code true} if the type satisfies the bound
+  1494	     * @throws IllegalArgumentException if the bound is a type variable without
+  1495	     *  an assigned type
+  1496	     */
+  1497	    public static boolean meetsBound(Type type, Type bound, Map<TypeVariable<?>, Type> typeVarAssigns) {
+  1498	        Type toType = bound;
+  1499	        if (bound instanceof TypeVariable<?>) {
+  1500	            toType = typeVarAssigns.get(bound);
+  1501	            if (toType == null) {
+  1502	                throw new IllegalArgumentException("missing assignment type for type variable " + bound);
+  1503	            }
+  1504	        }
+  1505	        return ToStringStyle.assignableUnder(type, toType, typeVarAssigns);
+  1506	    }
+  1507	
+  1508	
+  1509	    /**
+  1510	     * Inserts the value into this builder.
+   848	     *
+   849	     * @param type  the type to be assigned
+   850	     * @param toType  the target type
+   851	     * @param typeVarAssigns  the types assigned to the type variables
+   852	     * @return {@code true} if {@code type} is assignable to {@code toType}
+   853	     */
+   854	    public static boolean assignableUnder(Type type, Type toType, Map<TypeVariable<?>, Type> typeVarAssigns) {
+   855	        if (toType instanceof ParameterizedType) {
+   856	            return StringUtils.conformsTo(type, (ParameterizedType) toType, typeVarAssigns);
+   857	        }
+   858	        return TypeUtils.isAssignable(type, toType, typeVarAssigns);
+   859	    }
+   860	
+   179	    private static boolean isAssignable(Type type, ParameterizedType toParameterizedType,
+   180	            Map<TypeVariable<?>, Type> typeVarAssigns) {
+   181	        if (type == null) {
+   182	            return true;
+   183	        }
+   184	
+   185	        // only a null type can be assigned to null type which
+   186	        // would have cause the previous to return true
+   187	        if (toParameterizedType == null) {
+   188	            return false;
+   189	        }
+   190	
+   191	        // all types are assignable to themselves
+   192	        if (toParameterizedType.equals(type)) {
+   193	            return true;
+   194	        }
+   195	
+   196	        // get the target type's raw type
+   197	        Class<?> toClass = getRawType(toParameterizedType);
+   198	        // get the subject type's type arguments including owner type arguments
+   199	        // and supertype arguments up to and including the target class.
+   200	        Map<TypeVariable<?>, Type> fromTypeVarAssigns = getTypeArguments(type, toClass, null);
+   201	
+   202	        // null means the two types are not compatible
+   203	        if (fromTypeVarAssigns == null) {
+   204	            return false;
+   205	        }
+   206	
+   207	        // compatible types, but there's no type arguments. this is equivalent
+   208	        // to comparing Map< ?, ? > to Map, and raw types are always assignable
+   209	        // to parameterized types.
+   210	        if (fromTypeVarAssigns.isEmpty()) {
+   211	            return true;
+   212	        }
+   213	
+   214	        // get the target type's type arguments including owner type arguments
+   215	        Map<TypeVariable<?>, Type> toTypeVarAssigns = getTypeArguments(toParameterizedType,
+   216	                toClass, typeVarAssigns);
+   217	
+   218	        // now to check each type argument
+   219	        for (TypeVariable<?> var : toTypeVarAssigns.keySet()) {
+   220	            Type toTypeArg = unrollVariableAssignments(var, toTypeVarAssigns);
+   221	            Type fromTypeArg = unrollVariableAssignments(var, fromTypeVarAssigns);
+   222	
+   223	            // parameters must either be absent from the subject type, within
+   224	            // the bounds of the wildcard type, or be an exact match to the
+   225	            // parameters of the target type.
+   226	            if (fromTypeArg != null
+   227	                    && !toTypeArg.equals(fromTypeArg)
+   228	                    && !(toTypeArg instanceof WildcardType && isAssignable(fromTypeArg, toTypeArg,
+   229	                            typeVarAssigns))) {
+   230	                return false;
+</output>
+

@@ -1,0 +1,215 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 04e66132d..400b9d1f4 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,7 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -1088,6 +1089,22 @@ public class Dfp implements FieldElement<Dfp> {
+         return d;
+     }
+ 
++    /**
++     * Writes the indices along the dimensions of a multidimensional counter
++     * for a position in its one-dimensional storage.
++     * <p>
++     * The indices along the leading dimensions are written first; the index
++     * along the last dimension is then set to what remains of the position.
++     * </p>
++     * @param position position in the one-dimensional storage
++     * @param offsets offset of each dimension
++     * @param indices array receiving the index along each dimension
++     */
++    public static void storeIndices(final int position, final int[] offsets, final int[] indices) {
++        indices[indices.length - 1] = MathUtils.leadingIndices(position, offsets, indices);
++    }
++
++
+     /** Get the exponent of the greatest power of 10 that is less than or equal to abs(this).
+      *  @return integer base 10 logarithm
+      */
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index b90b6d00a..cdeb2bb63 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -25,6 +25,7 @@ import org.apache.commons.math.exception.NoDataException;
+ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
++import org.apache.commons.math.dfp.Dfp;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -916,6 +917,22 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Converts a position in the one-dimensional storage of a
++     * multidimensional counter into the indices along its dimensions.
++     *
++     * @param position position in the one-dimensional storage
++     * @param dimension number of dimensions
++     * @param offsets offset of each dimension
++     * @return a new array holding the index along each dimension
++     */
++    public static int[] indicesOf(int position, int dimension, int[] offsets) {
++        final int[] indices = new int[dimension];
++        Dfp.storeIndices(position, offsets, indices);
++        return indices;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setColumnMatrix(final int column, final FieldMatrix<T> matrix) {
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index 9a53cb66a..cb56a1f3a 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -1203,6 +1203,20 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return out;
+     }
+ 
++    /**
++     * Writes the indices along all dimensions but the last of a
++     * multidimensional counter for a position in its one-dimensional storage.
++     *
++     * @param position position in the one-dimensional storage
++     * @param offsets offset of each dimension
++     * @param indices array receiving the indices
++     * @return the part of the position left for the last dimension
++     */
++    public static int writeLeadingIndices(final int position, final int[] offsets, final int[] indices) {
++        return FastMath.leadingDigits(position, offsets, indices, indices.length - 1);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public int getRowDimension() {
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index eda2b8be0..b65aace60 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -3380,6 +3380,35 @@ public class FastMath {
+         return (x < 0.0) ? -x : (x == 0.0) ? 0.0 : x; // -0.0 => +0.0
+     }
+ 
++    /** Writes the leading digits of a number in a mixed radix.
++     * <p>
++     * The place value of each digit is given, from the most significant
++     * digit down, and each digit is written to the array at its own index.
++     * </p>
++     * @param number number to write
++     * @param places place value of each digit
++     * @param digits array receiving the digits
++     * @param leading number of leading digits to write
++     * @return what remains of the number once the leading digits are taken
++     */
++    public static int leadingDigits(final int number, final int[] places, final int[] digits, final int leading) {
++        int k = 0;
++        int taken = 0;
++        int digit = 0;
++        while (k < leading) {
++            if (taken + places[k] <= number) {
++                taken += places[k];
++                ++digit;
++            } else {
++                digits[k] = digit;
++                digit = 0;
++                ++k;
++            }
++        }
++        return number - taken;
++    }
++
++
+     /**
+      * Compute least significant bit (Unit in Last Position) for a number.
+      * @param x number from which ulp is requested
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index 85d9a048f..96cf16b7a 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -36,6 +36,7 @@ import org.apache.commons.math.exception.MathIllegalArgumentException;
+ import org.apache.commons.math.exception.MathRuntimeException;
+ import org.apache.commons.math.exception.NumberIsTooLargeException;
+ import org.apache.commons.math.exception.NotFiniteNumberException;
++import org.apache.commons.math.linear.BlockRealMatrix;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -1878,6 +1879,21 @@ public final class MathUtils {
+         return max;
+     }
+ 
++    /**
++     * Writes the indices along the leading dimensions of a multidimensional
++     * counter (all dimensions but the last) for a position in its
++     * one-dimensional storage.
++     *
++     * @param position position in the one-dimensional storage
++     * @param offsets offset of each dimension
++     * @param indices array receiving the indices
++     * @return the part of the position left for the last dimension
++     */
++    public static int leadingIndices(int position, int[] offsets, int[] indices) {
++        return BlockRealMatrix.writeLeadingIndices(position, offsets, indices);
++    }
++
++
+     /**
+      * Calculates the L<sub>&infin;</sub> (max of abs) distance between two points.
+      *
+diff --git a/src/main/java/org/apache/commons/math/util/MultidimensionalCounter.java b/src/main/java/org/apache/commons/math/util/MultidimensionalCounter.java
+index fb0614eb7..f2226648b 100644
+--- a/src/main/java/org/apache/commons/math/util/MultidimensionalCounter.java
++++ b/src/main/java/org/apache/commons/math/util/MultidimensionalCounter.java
+@@ -19,6 +19,7 @@ package org.apache.commons.math.util;
+ 
+ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.OutOfRangeException;
++import org.apache.commons.math.linear.BlockFieldMatrix;
+ import org.apache.commons.math.exception.NotStrictlyPositiveException;
+ import org.apache.commons.math.util.MathUtils;
+ 
+@@ -212,6 +213,7 @@ public class MultidimensionalCounter implements Iterable<Integer> {
+      * @return the multidimensional counts.
+      * @throws OutOfRangeException if {@code index} is not between
+      * {@code 0} and the value returned by {@link #getSize()} (excluded).
++       The indices are found by dividing the index by the size of each dimension in turn, starting with the last dimension.
+      */
+     public int[] getCounts(int index) {
+         if (index < 0 ||
+@@ -219,24 +221,7 @@ public class MultidimensionalCounter implements Iterable<Integer> {
+             throw new OutOfRangeException(index, 0, totalSize);
+         }
+ 
+-        final int[] indices = new int[dimension];
+-
+-        int count = 0;
+-        for (int i = 0; i < last; i++) {
+-            int idx = 0;
+-            final int offset = uniCounterOffset[i];
+-            while (count <= index) {
+-                count += offset;
+-                ++idx;
+-            }
+-            --idx;
+-            count -= offset;
+-            indices[i] = idx;
+-        }
+-
+-        indices[last] = index - count;
+-
+-        return indices;
++        return BlockFieldMatrix.indicesOf(index, dimension, uniCounterOffset);
+     }
+ 
+     /**

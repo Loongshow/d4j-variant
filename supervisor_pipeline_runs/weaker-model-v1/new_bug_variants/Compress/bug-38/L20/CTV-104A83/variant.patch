@@ -1,0 +1,203 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java b/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java
+index 10568407..9420863b 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/sevenz/SevenZFile.java
+@@ -36,6 +36,8 @@ import org.apache.commons.compress.utils.BoundedInputStream;
+ import org.apache.commons.compress.utils.CRC32VerifyingInputStream;
+ import org.apache.commons.compress.utils.CharsetNames;
+ import org.apache.commons.compress.utils.IOUtils;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
++import org.apache.commons.compress.archivers.tar.TarConstants;
+ 
+ /**
+  * Reads a 7z file, using RandomAccessFile under
+@@ -140,6 +142,22 @@ public class SevenZFile implements Closeable {
+             }
+         }
+     }
++
++    /**
++     * Tells whether a tar entry represents a directory, judging by the link
++     * flag and the name it was read or created with.
++     *
++     * @param entry the entry to examine
++     * @param flag the link flag of the entry
++     * @return whether the entry represents a directory
++     */
++    public static boolean isDirectoryByHeader(final TarArchiveEntry entry, final byte flag) {
++        if (flag == TarConstants.LF_DIR) {
++            return true;
++        }
++        return entry.getName().endsWith("/");
++    }
++
+     
+     /**
+      * Returns the next Archive Entry in this archive.
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index a5050bfa..ad37f7e0 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -845,22 +845,11 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+      * Return whether or not this entry represents a directory.
+      *
+      * @return True if this entry is a directory.
++       The entry's mode is examined first, and an entry whose mode has the directory bit set is reported as a directory.
+      */
+     @Override
+     public boolean isDirectory() {
+-        if (file != null) {
+-            return file.isDirectory();
+-        }
+-
+-        if (linkFlag == LF_DIR) {
+-            return true;
+-        }
+-
+-        if (!isPaxHeader() && !isGlobalPaxHeader() && getName().endsWith("/")) {
+-            return true;
+-        }
+-
+-        return false;
++        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.isDirectoryEntry(this, linkFlag);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index 54aa0ab9..feb9921e 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -41,6 +41,8 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.DWORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
++import org.apache.commons.compress.archivers.sevenz.SevenZFile;
+ 
+ /**
+  * Implements an input stream that can read Zip archives.
+@@ -179,6 +181,19 @@ public class ZipArchiveInputStream extends ArchiveInputStream {
+         this(inputStream, encoding, true);
+     }
+ 
++    /**
++     * Tells whether a tar entry read from an archive or created by name
++     * represents a directory.
++     *
++     * @param entry the entry to examine
++     * @param flag the link flag of the entry
++     * @return whether the entry represents a directory
++     */
++    public static boolean readsAsDirectory(final TarArchiveEntry entry, final byte flag) {
++        return SevenZFile.isDirectoryByHeader(entry, flag);
++    }
++
++
+     /**
+      * Create an instance using the specified encoding
+      * @param inputStream the stream to wrap
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index 68b962da..9c4ae8c6 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -47,6 +47,8 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
+ import static org.apache.commons.compress.archivers.zip.ZipLong.putLong;
+ import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -487,6 +489,26 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         streamCompressor.reset();
+     }
+ 
++    /**
++     * Tells whether a tar entry represents a directory.
++     *
++     * <p>An entry that was created from a file represents a directory if
++     * that file is a directory; any other entry is judged by its link flag
++     * and its name.</p>
++     *
++     * @param entry the entry to examine
++     * @param flag the link flag of the entry
++     * @return whether the entry represents a directory
++     */
++    public static boolean isDirectoryEntry(final TarArchiveEntry entry, final byte flag) {
++        final File source = entry.getFile();
++        if (source != null) {
++            return source.isDirectory();
++        }
++        return BZip2CompressorOutputStream.entryIsDirectory(entry, flag);
++    }
++
++
+     /**
+      * Writes all necessary data for this entry.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index 7647ead0..52468470 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -44,6 +44,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Replacement for <code>java.util.ZipFile</code>.
+@@ -235,6 +236,19 @@ public class ZipFile implements Closeable {
+         return encoding;
+     }
+ 
++    /**
++     * Tells whether a tar entry represents a directory, judging by its link
++     * flag and its name.
++     *
++     * @param entry the entry to examine
++     * @param flag the link flag of the entry
++     * @return whether the entry represents a directory
++     */
++    public static boolean denotesDirectory(final TarArchiveEntry entry, final byte flag) {
++        return ZipArchiveInputStream.readsAsDirectory(entry, flag);
++    }
++
++
+     /**
+      * Closes the archive.
+      * @throws IOException if an error occurs closing the archive.
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index 9de51d41..a9b6453c 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,8 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -340,6 +342,19 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+             .min((inputLength / 132000) + 1, 9) : MAX_BLOCKSIZE;
+     }
+ 
++    /**
++     * Tells whether a tar entry that was not created from a file represents
++     * a directory.
++     *
++     * @param entry the entry to examine
++     * @param flag the link flag of the entry
++     * @return whether the entry represents a directory
++     */
++    public static boolean entryIsDirectory(final TarArchiveEntry entry, final byte flag) {
++        return ZipFile.denotesDirectory(entry, flag);
++    }
++
++
+     /**
+      * Constructs a new {@code BZip2CompressorOutputStream} with a blocksize of 900k.
+      *

@@ -1,0 +1,87 @@
+{
+ "instance": "Time-17",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.DateTimeZone::setProvider (facade)",
+   "edit": "DateTimeFormatterBuilder.applyZoneProvider(provider);  ->  DateTimeFormatterBuilder.applyZoneProvider(provider != null ? provider : getDefaultProvider());",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.DateTime::installZoneProvider (hop 4) + DateTimeZone::getDefaultProvider modifier",
+   "edit": "two edits: 'private static Provider getDefaultProvider()' -> 'static Provider getDefaultProvider()'; hop 4 'Period.defaultZoneProvider()' -> 'DateTimeZone.getDefaultProvider()'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.DateTime::installZoneProvider (hop 4)",
+   "edit": "Period.defaultZoneProvider() -> new Object() { Provider get() { try { String c = System.getProperty(\"org.joda.time.DateTimeZone.Provider\"); if (c != null) { return (Provider) Class.forName(c).newInstance(); } } catch (Exception ex) { Thread t = Thread.currentThread(); t.getThreadGroup().uncaughtException(t, ex); } return Period.defaultZoneProvider(); } }.get()",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.DateTimeZone::setProvider0 (callee of hop 4)",
+   "edit": "insert as first statement: if (provider instanceof org.joda.time.tz.ZoneInfoProvider) { provider = getDefaultProvider(); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.DateTime::installZoneProvider (hop 4, declared compensating)",
+   "edit": "Period.defaultZoneProvider() -> DateTimeZone.getProvider()",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.format.DateTimeFormatterBuilder::applyZoneProvider (hop 1, declared compensating)",
+   "edit": "registerZoneProvider(provider) -> registerZoneProvider(provider != null ? provider : DateTimeZone.getProvider())",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.tz.DateTimeZoneBuilder::registerZoneProvider (hop 2, declared compensating)",
+   "edit": "useZoneProvider(provider) -> useZoneProvider(provider != null ? provider : new UTCProvider())",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.joda.time.DateTimeZone::setProvider (SecurityManager guard + DateTimeFormatterBuilder.applyZoneProvider(provider))",
+  "hop1 org.joda.time.format.DateTimeFormatterBuilder::applyZoneProvider (pass-through)",
+  "hop2 org.joda.time.tz.DateTimeZoneBuilder::registerZoneProvider (pass-through)",
+  "hop3 org.joda.time.format.PeriodFormatterBuilder::useZoneProvider (pass-through)",
+  "hop4 org.joda.time.DateTime::installZoneProvider (null -> Period.defaultZoneProvider(); result handed to DateTimeZone.setProvider0, which validates and installs)",
+  "gold org.joda.time.Period::defaultZoneProvider (tries ZoneInfoProvider on org/joda/time/tz/data, else UTCProvider; the system-property attempt is omitted)"
+ ],
+ "reasons": "Scratch copy of fresh-mr/Time-17 + variant.patch compiles; after a clean rebuild, testProvider fails with 'expected:<class org.joda.time.tz.UTCProvider> but was:<class org.joda.time.tz.ZoneInfoProvider>' (line 434: property set to org.joda.time.tz.UTCProvider, then setProvider(null)). The full variant suite fails only testProvider. The gold fix (identical to correct.patch) passes the trigger, the three ownership tests and the full suite (0 failures). (a) TRUE: the gold is the only method whose own code breaks its own contract on the trigger input. Its javadoc 'Gets the default zone provider' uses the same phrase as DateTimeZone.getDefaultProvider, whose javadoc and code define the default as: the system property first, then ZoneInfoProvider, then UTCProvider. The gold leaves out the first step. The facade and hops 1-3 ('or null for default') break only through delegation. Hop 4 uses the gold exactly as the gold documents itself. setProvider0 ('not null', validates) behaves as documented. (b) FALSE: hops 1-3 are documented pass-throughs and their code matches. Hop 4 documents 'using the default zone provider when none is specified' and does exactly that through the gold. No hop doc is loose enough to own the missing property step, and no one-line hop edit absorbs it (the declared compensating edits at hops 1, 2 and 4 still fail the trigger). (c) No competing repair. Four edits pass the trigger, the ownership tests and the full suite, and all are bypasses. (1) The facade passing getDefaultProvider() for null makes hop 4's default branch and the gold dead. (2) Hop 4 calling a de-privatised DateTimeZone.getDefaultProvider takes two edits and swaps the gold's result for another implementation. (3) Hop 4 with an anonymous-class reimplementation of the property step crammed into one line. (4) setProvider0 replacing any ZoneInfoProvider it receives, which also contradicts 'provider to use'. Each one leaves Period.defaultZoneProvider still contradicting its own javadoc. A one-line expression edit above the gold cannot load a class by name (checked exceptions), and only DateTimeZone can reach the private getDefaultProvider. (d) FALSE: the hop and gold names are neutral host vocabulary. The added lines carry no comments and no fault vocabulary. The lie ('Every identifier of the new provider is resolved to its zone once, and each zone is compared with the zone the current provider gives for the same identifier before the new provider is made current.') describes a zone-comparison check. It does not mention the system property, the default resolution or any hop. (e) TRUE against the audit-brief checklist. The gold is five calls below the facade (facade->hop1->hop2->hop3->hop4->gold). The hops are in five distinct existing classes (DateTimeFormatterBuilder, DateTimeZoneBuilder, PeriodFormatterBuilder, DateTime, Period), none of them the facade class. Each hop and the gold has exactly one caller. The facade body is the original SecurityManager guard plus one delegating call. The facade javadoc carries one added procedural sentence the code does not perform. The gold javadoc is silent on the property step. The trigger is existing (empty test.patch) and is the only new failure. (f) TRUE: DateTimeZone.getDefaultProvider (code and javadoc) still pins the property-first convention and is still used by the static initialiser. getDefaultNameProvider applies the same rule to name providers, and the passing TestDateTimeZone::testNameProvider asserts it. testForID_String and testGetAvailableIDs (passing) pin the bundled-data ZoneInfoProvider fallback, which rules out a UTC-only repair.",
+ "notes": "Concerns for the supervisor (none is an audit-checklist failure): (1) The fault edit removes a 9-line block: the whole try/catch system-property attempt. BUILD_BRIEF's Fault item asks for a 'one-line omission'. The omitted step is a single logical decision, and any one-line deletion inside that block would have left a dead local or an empty branch, but textually this is not one line. (2) BUILD_BRIEF asks for an omission whose effect no caller can pre-filter. The facade CAN pre-empt it with one line (applyZoneProvider(provider != null ? provider : getDefaultProvider())), which passes the full suite. I classify that edit as a bypass: it replaces the gold's result, makes hop 4's null branch and the gold dead, and leaves the gold contradicting its javadoc. But it is smaller than the gold repair, and it mirrors the in-class sibling setNameProvider0 -> getDefaultNameProvider pattern. A reviewer may still want to check this. (3) The lie line in DateTimeZone.setProvider's javadoc has no leading '*' and sits after the @throws IllegalArgumentException tag, so rendered javadoc shows it as part of that tag's text. (4) Period.defaultZoneProvider is a visibly reduced copy of DateTimeZone.getDefaultProvider. That is the intended external pin, but it makes the omission easy to spot by comparison. Local-trace review is left to the trace checker. (5) Build-timestamp trap: copying the checkout with its build/ directory and then editing sources within the same second leaves stale classes, so ant does not recompile. All results above come from clean rebuilds (build/classes and build/tests removed). Not read: designs/, history/, builder notes, the no-local-trace checklist, trace verdicts and preregistration files."
+}

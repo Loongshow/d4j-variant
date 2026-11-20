@@ -1,0 +1,200 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index a215b566..17d966c9 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -145,16 +145,14 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Adds a number of request data parameters, given as keys and values in turn.
++       The pairs are counted first, so that the request's data list is grown to its final size in a single step.
++     */
+     public Connection data(String... keyvals) {
+         Validate.notNull(keyvals, "Data key value pairs must not be null");
+         Validate.isTrue(keyvals.length %2 == 0, "Must supply an even number of key value pairs");
+-        for (int i = 0; i < keyvals.length; i += 2) {
+-            String key = keyvals[i];
+-            String value = keyvals[i+1];
+-            Validate.notEmpty(key, "Data key must not be empty");
+-            Validate.notNull(value, "Data value must not be null");
+-            req.data(KeyVal.create(key, value));
+-        }
++        org.jsoup.nodes.Element.appendRequestData(req, keyvals);
+         return this;
+     }
+ 
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index da363a2c..40e124ed 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -9,6 +9,7 @@ import org.jsoup.select.*;
+ import java.util.*;
+ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
++import org.jsoup.Connection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -458,6 +459,18 @@ public class Element extends Node {
+         return this;
+     }
+ 
++    /**
++     * Adds request data parameters, given as keys and values in turn, to a
++     * request.
++     *
++     * @param request the request to add the parameters to
++     * @param keyvals the keys and values, each key followed by its value
++     */
++    public static void appendRequestData(Connection.Request request, String[] keyvals) {
++        Evaluator.IsNthChild.addRequestData(request, Arrays.asList(keyvals));
++    }
++
++
+     /**
+      * Wrap the supplied HTML around this element.
+      *
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index 845cb1ce..0836ff77 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -12,6 +12,8 @@ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.LinkedList;
+ import java.util.List;
++import org.jsoup.Connection;
++import org.jsoup.safety.Whitelist;
+ 
+ /**
+  The base, abstract Node model. Elements, Documents, Comments etc are all Node instances.
+@@ -244,6 +246,18 @@ public abstract class Node implements Cloneable {
+     public final Node parentNode() {
+         return parentNode;
+     }
++
++    /**
++     * Reads request data parameters from the whole sequence of keys and values
++     * given in turn into a list.
++     *
++     * @param keyvals the keys and values, each key followed by its value
++     * @param parameters the list to add the parameters to
++     */
++    public static void readDataParameters(List<String> keyvals, List<Connection.KeyVal> parameters) {
++        Whitelist.addDataParameters(keyvals, parameters);
++    }
++
+     
+     /**
+      * Gets the Document associated with this Node. 
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index 4ac8870c..6daea41d 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -7,6 +7,7 @@ import org.jsoup.select.Elements;
+ 
+ import java.util.ArrayList;
+ import java.util.List;
++import org.jsoup.Connection;
+ 
+ /**
+  * HTML Tree Builder; creates a DOM from Tokens.
+@@ -319,6 +320,20 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         }
+     }
+ 
++    /**
++     * Reads request data parameters from the whole sequence of keys and values
++     * given in turn.
++     *
++     * @param keyvals the keys and values, each key followed by its value
++     * @return a new list of the parameters, in the order they are read
++     */
++    public static List<Connection.KeyVal> dataParameters(List<String> keyvals) {
++        List<Connection.KeyVal> parameters = new ArrayList<Connection.KeyVal>();
++        Node.readDataParameters(keyvals, parameters);
++        return parameters;
++    }
++
++
+     void popStackToBefore(String elName) {
+         for (int pos = stack.size() -1; pos >= 0; pos--) {
+             Element next = stack.get(pos);
+diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java
+index f641308c..e48144a4 100644
+--- a/src/main/java/org/jsoup/safety/Whitelist.java
++++ b/src/main/java/org/jsoup/safety/Whitelist.java
+@@ -14,6 +14,10 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Set;
++import org.jsoup.Connection;
++import org.jsoup.helper.HttpConnection;
++import java.util.Collection;
++import java.util.List;
+ 
+ 
+ /**
+@@ -138,6 +142,28 @@ public class Whitelist {
+                 ;
+     }
+ 
++    /**
++     * Adds request data parameters, read from a sequence of key value pairs,
++     * to a collection in the order of the sequence.
++     *
++     * @param keyvals the keys and values, each key followed by its value
++     * @param entries the collection to add the parameters to
++     */
++    public static void addDataParameters(List<String> keyvals, Collection<Connection.KeyVal> entries) {
++        String key = null;
++        for (String item : keyvals) {
++            if (key == null) {
++                Validate.notEmpty(item, "Data key must not be empty");
++                key = item;
++            } else {
++                Validate.notNull(item, "Data value must not be null");
++                entries.add(HttpConnection.KeyVal.create(key, item));
++                key = null;
++            }
++        }
++    }
++
++
+     /**
+      This whitelist allows a full range of text and structural body HTML: <code>a, b, blockquote, br, caption, cite,
+      code, col, colgroup, dd, div, dl, dt, em, h1, h2, h3, h4, h5, h6, i, img, li, ol, p, pre, q, small, span, strike, strong, sub,
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index c33ef5ab..43e35862 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -11,6 +11,8 @@ import org.jsoup.nodes.XmlDeclaration;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import org.jsoup.Connection;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -447,6 +449,20 @@ public abstract class Evaluator {
+     		super(a,b);
+ 		}
+ 
++    /**
++     * Adds request data parameters, given as keys and values in turn, to a
++     * request, one parameter at a time in the order they are read.
++     *
++     * @param request the request to add the parameters to
++     * @param keyvals the keys and values, each key followed by its value
++     */
++    public static void addRequestData(Connection.Request request, List<String> keyvals) {
++        for (Connection.KeyVal parameter : HtmlTreeBuilder.dataParameters(keyvals)) {
++            request.data(parameter);
++        }
++    }
++
++
+ 		protected int calculatePosition(Element root, Element element) {
+ 			return element.elementSiblingIndex()+1;
+ 		}

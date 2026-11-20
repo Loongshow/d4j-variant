@@ -1,0 +1,107 @@
+{
+  "instance": "MI-Math-36",
+  "task_key": "Math-36__i",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.math.dfp.Dfp::floatOfRatio (hop 4)",
+      "edit": "return BOBYQAOptimizer.floatQuotient(numerator.shiftRight(Math.max(numerator.bitLength(), denominator.bitLength()) - Float.MAX_EXPONENT), denominator.shiftRight(Math.max(numerator.bitLength(), denominator.bitLength()) - Float.MAX_EXPONENT));  (one line, unconditional rescale)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "second implementation of the gold's rescaling outside the gold. Probe: hands the gold a zero denominator for 2^200/3 (3>>74 = 0), against the 'not zero' precondition of the gold and every hop. It also truncates parts that the gold handles exactly: 3*2^126/1025 gives 2.4923025E35 against the true 2.489871E35 (about 0.1% off), which breaks every hop's 'value of the fraction as a float' contract on that input"
+    },
+    {
+      "method": "org.apache.commons.math.dfp.Dfp::floatOfRatio (hop 4)",
+      "edit": "final int excess = Math.max(nb, db) - Float.MAX_EXPONENT; if (excess > 0 && Math.min(nb, db) > excess) { return BOBYQAOptimizer.floatQuotient(numerator.shiftRight(excess), denominator.shiftRight(excess)); } return BOBYQAOptimizer.floatQuotient(numerator, denominator);  (rescale guarded so that no zero denominator is passed down)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "never hands the gold a zero denominator, but loses precision where the unedited chain is exact (3*2^126/1025 -> 2.4923025E35, true 2.489871E35). It still returns NaN for (2^300+1)/(2^150+1), whose value is Infinity (the correct gold returns Infinity), so it neither repairs the omission in general nor meets the hop's own contract"
+    },
+    {
+      "method": "org.apache.commons.math.dfp.Dfp::floatOfRatio (hop 4)",
+      "edit": "float quotient = BOBYQAOptimizer.floatQuotient(numerator, denominator); if (Float.isNaN(quotient)) { final int excess = Math.max(numerator.bitLength(), denominator.bitLength()) - Float.MAX_EXPONENT; quotient = BOBYQAOptimizer.floatQuotient(numerator.shiftRight(excess), denominator.shiftRight(excess)); } return quotient;  (the sibling's NaN rescue copied into the caller)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "copies the gold's own step into a caller that calls the gold twice. For (2^300+1)/(2^150+1) both floats are infinite and excess = 174, so it calls the gold with denominator (2^150+1)>>174 = 0, against the gold's documented 'not zero' precondition. Avoiding that needs extra special-casing in which the hop computes the signed infinity itself, which is larger than the gold repair and replaces the gold's result. The gold's own contract stays violated for its inputs"
+    },
+    {
+      "method": "org.apache.commons.math.fraction.BigFraction::floatValue (facade)",
+      "edit": "return (float) doubleValue();",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "why": "hop 1 to the gold become dead code. Implementing the lie (BigDecimal division to eight digits) in the facade is the same kind of chain-killing bypass (not run)"
+    },
+    {
+      "method": "org.apache.commons.math.linear.BlockRealMatrix::ratioToFloat (hop 1)",
+      "edit": "return (float) new org.apache.commons.math.fraction.BigFraction(numerator, denominator).doubleValue();",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "why": "replaces the gold's result with the sibling implementation; hops 2-5 dead"
+    },
+    {
+      "method": "org.apache.commons.math.dfp.Dfp::floatOfRatio (hop 4)",
+      "edit": "reduce by gcd before delegating (spec compensating[0])",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails",
+      "why": "gcd(10^401+1, 2*10^400) = 1; G9 trigger_fail 1 (not re-run)"
+    },
+    {
+      "method": "org.apache.commons.math.util.FastMath::floatRatio (hop 2)",
+      "edit": "shift out common powers of two (spec compensating[1])",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails",
+      "why": "numerator is odd; G9 trigger_fail 1 (not re-run)"
+    },
+    {
+      "method": "org.apache.commons.math.linear.BlockFieldMatrix::ratioAsFloat (hop 3)",
+      "edit": "(float) (numerator.doubleValue() / denominator.doubleValue()) (spec compensating[2])",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails",
+      "why": "both parts overflow double as well (Inf/Inf = NaN); G9 trigger_fail 1 (not re-run)"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.math.fraction.BigFraction::floatValue (instance, @Override, V1: passes fields numerator, denominator; no guard in the original)",
+    "hop1 org.apache.commons.math.linear.BlockRealMatrix::ratioToFloat (1536 lines)",
+    "hop2 org.apache.commons.math.util.FastMath::floatRatio (3810 lines)",
+    "hop3 org.apache.commons.math.linear.BlockFieldMatrix::ratioAsFloat (1549 lines)",
+    "hop4 org.apache.commons.math.dfp.Dfp::floatOfRatio (2494 lines)",
+    "gold org.apache.commons.math.optimization.direct.BOBYQAOptimizer::floatQuotient (2482 lines)"
+  ],
+  "reasons": "Variant compiles. The trigger BigFractionTest::testFloatValueForLargeNumeratorAndDenominator fails with expected:<5.0> but was:<NaN>, and in my full-suite run (2832 tests) it is the only failure. (a) The gold is the only method on the path that computes anything. Hops 1-4 pass (numerator, denominator) along unchanged, and the facade passes its two fields. The gold is documented to return 'the value of the fraction, as a float' for any numerator and a nonzero denominator, and returns NaN for (10^401+1)/(2*10^400), whose value is 5. (b) Each hop's javadoc ('value of the fraction as a float', denominator not zero) matches its one-line delegation, and no hop is documented to normalise or rescale. (c) Five alternatives pass the trigger, the four ownership tests and the full suite, and none is a competing repair. Three are hop-level rescales that copy the gold's step, and probes show each conflicts with the documentation on inputs outside the trigger: a zero denominator handed to the gold, a 0.1% error where the chain is exact, or NaN left in place. Two are bypasses that make the chain dead (the facade via doubleValue, hop 1 via BigFraction.doubleValue). The spec's three compensating edits fail the trigger (G9). (d) The names (ratioToFloat, floatRatio, ratioAsFloat, floatOfRatio, floatQuotient) are neutral and G2b is clean. The lie describes a BigDecimal division to eight significant digits and never mentions NaN, range, overflow or rescaling. (e) Hosts match the seeded draw in order (mr_lib preview, all of at least 1500 lines, host_mode 1500), so the C10f largest-five rule is not needed. The gold is five calls below the facade. The facade body is state gathering plus one call to hop 1. One procedural lie sentence is appended to the existing javadoc. The gold's javadoc is silent on the NaN rescue. The trigger is an existing test, test.patch is empty, and only the trigger newly fails. (f) BigFraction.doubleValue, intact beside the facade, performs the same NaN rescue with Double.MAX_EXPONENT, and testDoubleValueForLargeNumeratorAndDenominator (5 for the same fraction) passes on the variant. testFloatValue and testDoubleValue pin the ordinary quotients. (g) The facade is in the BATCH7 allowed list (doubleValue/floatValue/pow, V1). Its signature, modifiers, @Override and thrown types are unchanged. No existing member's visibility changed, no type was added, there is no reflection and no test was edited.",
+  "notes": "Non-decisive observations for reviewers. (1) The omission removes one 4-line if-block (a single omitted decision holding two statements), not a single physical line. I read it as one omitted special-case step. (2) The variant gold keeps a non-final local, 'float quotient = ...; return quotient;', among final parameters. This hints that a reassignment is missing; it is a trace-check matter, not a fault marker. (3) The injected omission recreates the original MATH-744 / Defects4J Math-36 defect (no NaN rescue), and the trigger and pin tests carry '// MATH-744' comments. The gold's location in BOBYQAOptimizer is not revealed. (4) The lie is appended after the @see tag without a leading '*'. This is the recipe tool's standard placement. (5) The facade calls hop 1 by fully qualified name (no import added). (6) The ownership argument against caller-side rescaling rests on the documented 'denominator not zero' precondition plus the precision and NaN probes above. A reviewer who discounts that precondition would see the NaN-rescue copy at a hop (alternative 3) as the strongest rival edit. It still leaves the gold violating its own contract, and no hop is documented to own the rescue. The first alternative runs used stale classes (cp -R timestamps), so all alternatives were rebuilt from a clean target/ and re-run, and the results above are from those clean builds."
+}

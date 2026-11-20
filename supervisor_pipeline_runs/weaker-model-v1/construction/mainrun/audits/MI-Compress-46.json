@@ -1,0 +1,77 @@
+{
+  "instance": "MI-Compress-46",
+  "task_key": "Compress-46__i",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "X5455_ExtendedTimestamp::getLocalFileDataData (facade)",
+      "edit": "new ZipLong[] {modifyTime, accessTime, createTime} -> new ZipLong[] {bit0_modifyTimePresent ? modifyTime : null, bit1_accessTimePresent ? accessTime : null, bit2_createTimePresent ? createTime : null}",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "Caller-side pre-filter. It does the gold's per-timestamp flag decision upstream, so the gold's flag handling is never exercised. The gold's code still contradicts its own javadoc ('local file data layout', flags byte = given flags restricted, missing bits cleared) on documented-valid inputs: a non-null stamp whose bit is clear is written under a flags byte that marks it absent."
+    },
+    {
+      "method": "ZipArchiveOutputStream::timeFieldData (hop 1)",
+      "edit": "return TarArchiveEntry.packedTimes(flags & 0xFF, stamps); -> return TarArchiveEntry.packedTimes(flags & 0xFF, new ZipLong[] {(flags & 1) != 0 ? stamps[0] : null, (flags & 2) != 0 ? stamps[1] : null, (flags & 4) != 0 ? stamps[2] : null});",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "The same pre-filter one hop down. It duplicates the gold's decision about which timestamps to write and leaves the gold's code inconsistent with its javadoc."
+    },
+    {
+      "method": "BZip2CompressorOutputStream::timesBlock (hop 3)",
+      "edit": "return Arrays.copyOf(block, n); -> return Arrays.copyOf(block, 1 + 4 * Integer.bitCount(flags & 0x07));",
+      "trigger_passes": true,
+      "ownership_tests_pass": false,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "testSampleFile (ownership) fails because the wrong timestamps are kept when the times differ (flags 2 with times 1, 2, 3 gives [2, 1, ...]). It also contradicts hop 3's own doc ('n being the count the writer reports'). The trigger passes only because it sets all three times to the same value."
+    },
+    {
+      "method": "ZipArchiveOutputStream::timeFieldData (hop 1), declared compensating",
+      "edit": "flags & 0xFF -> flags & 0x07",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails",
+      "why": "From validation G9 (trigger still fails); not re-run."
+    },
+    {
+      "method": "BZip2CompressorOutputStream::timesBlock (hop 3), declared compensating",
+      "edit": "new byte[1 + 4 * stamps.length] -> new byte[1 + 4 * Integer.bitCount(flags & 0x07)]",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "From validation G9 (trigger still fails); not re-run."
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestamp#getLocalFileDataData() (instance, V1: passes flags plus {modifyTime, accessTime, createTime})",
+    "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream#timeFieldData(byte, ZipLong[])",
+    "hop2 org.apache.commons.compress.archivers.tar.TarArchiveEntry#packedTimes(int, ZipLong[])",
+    "hop3 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream#timesBlock(int, ZipLong[])",
+    "hop4 org.apache.commons.compress.archivers.zip.ZipFile#writeTimes(int, ZipLong[], byte[])",
+    "gold org.apache.commons.compress.archivers.zip.ZipArchiveInputStream#putTimes(int, ZipLong[], byte[])"
+  ],
+  "reasons": "Variant compiles. testParseReparse fails at X5455_ExtendedTimestampTest.java:473 (local data [1, 0 x12] where [1,0,0,0,0] is expected). The full suite has exactly one failure, the trigger. (a) The gold's javadoc promises the local file data layout of the extended timestamp field, whose flags byte tells which timestamps are present (setFlags/getFlags docs), and fixes the flags byte as the given flags restricted to the timestamp bits. On flags=1 with three stamps the gold writes head 1 followed by three stamps, which violates that contract. Hops 1-4 only delegate, mask (0xFF) or size and trim exactly as their docs say, and the facade passes its state as documented. (b) No hop doc contradicts its code. Hops 2 and 4 have loose docs, but they are pure pass-throughs. (c) Two caller-side pre-filters (facade, hop 1) pass the trigger, the ownership tests and the full suite. They repeat the gold's per-timestamp flag decision upstream, and the gold still contradicts its own javadoc on documented-valid inputs (non-null stamp with clear bit), so I recorded them as bypasses rather than competing repairs. The hop-3 trim-by-bitCount edit fails testSampleFile. (d) The names (timeFieldData, packedTimes, timesBlock, writeTimes, putTimes, head, count, bit) are neutral. The lie ('The array is sized by getLocalFileDataLength() before the timestamps are copied into it.') is false for the code (hop 3 sizes by stamps.length) and names neither the omitted flag check nor any hop. (e) The gold is five calls below the facade. The hosts are exactly hosts_hop_order of the batch-8 task record (largest5: ZipArchiveOutputStream 1687, TarArchiveEntry 1405, BZip2CompressorOutputStream 1334, ZipFile 1258, ZipArchiveInputStream 1136), five distinct existing classes. The facade body is state gathering plus one call to hop 1 (V1; the original had no guard). One procedural lie sentence is added. The gold's doc is silent on 'only flagged timestamps are written'. test.patch is empty and only the trigger newly fails. (g) C10i rules: the facade is the allowed instance method getLocalFileDataData. Its signature, modifiers, @Override and throws are unchanged. No visibility is widened, no type is added, there is no reflection and no test is edited. The only additions are public static methods and imports. (f) The convention is pinned by X5455 getLocalFileDataLength (counts only flagged stamps), parseFromLocalFileData (reads only flagged stamps), toString (shows only flagged stamps) and the setter docs ('only written out if the corresponding bit in the flags is also set'). It is also pinned by passing tests: testGettersSetters (flag 1/2/4 with three times gives local length 5), testWriteReadRoundtrip, testSampleFile and testBitsAreSetWithTime.",
+  "notes": "Reviewer concern: BUILD_BRIEF's fault rule asks for an omission 'whose effect no caller can pre-filter'. Here a caller CAN pre-filter: nulling unflagged stamps at the facade (exactly what the original getLocalFileDataData did with bitN && x != null) or at hop 1 repairs every test. I judged these as workarounds, not competing repairs, because the gold's own javadoc (layout plus flags-byte rule over independent flags/stamps inputs, with explicit handling of the null-but-flagged case) still contradicts its code afterwards. A model that edits the facade would localise to the entry point, not the gold. The lie line is appended after @return without a leading '*' (recipe formatting). Scratch: one /private/tmp/mxb-* directory, deleted. Harness note: copying a compiled workspace and editing within 1 s left stale classes (ant timestamp granularity); the alternatives were re-run after deleting target/."
+}

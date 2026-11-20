@@ -1,0 +1,206 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 5ed758a37..06bb3d089 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,8 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import org.apache.commons.math.fraction.BigFraction;
++import org.apache.commons.math.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -1937,6 +1939,20 @@ public class Dfp implements FieldElement<Dfp> {
+ 
+     }
+ 
++    /**
++     * Creates a fraction from its numerator and denominator, in lowest terms:
++     * both parts are divided by their greatest common divisor.
++     *
++     * @param numerator the numerator
++     * @param denominator the denominator
++     * @return the fraction numerator / denominator, in lowest terms
++     */
++    public static BigFraction lowestTerms(final long numerator, final long denominator) {
++        final long divisor = BOBYQAOptimizer.greatestCommonDivisor(numerator, denominator);
++        return new BigFraction(numerator / divisor, denominator / divisor);
++    }
++
++
+     /** {@inheritDoc} */
+     public Dfp reciprocal() {
+         return field.getOne().divide(this);
+diff --git a/src/main/java/org/apache/commons/math/fraction/BigFraction.java b/src/main/java/org/apache/commons/math/fraction/BigFraction.java
+index a6672e426..a375206b5 100644
+--- a/src/main/java/org/apache/commons/math/fraction/BigFraction.java
++++ b/src/main/java/org/apache/commons/math/fraction/BigFraction.java
+@@ -426,14 +426,14 @@ public class BigFraction
+      *         reduced.
+      * @throws ArithmeticException
+      *             if the denominator is <code>zero</code>.
++       The fraction is obtained by expanding numerator / denominator into a continued fraction and evaluating its last convergent, which is always in lowest terms.
+      */
+     public static BigFraction getReducedFraction(final int numerator,
+                                                  final int denominator) {
+         if (numerator == 0) {
+             return ZERO; // normalize zero.
+         }
+-
+-        return new BigFraction(numerator, denominator);
++        return org.apache.commons.math.linear.BlockRealMatrix.fractionFromParts(numerator, denominator);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 8e9378317..dbea4d8dc 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -26,6 +26,8 @@ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
+ import org.apache.commons.math.util.MathUtils;
++import org.apache.commons.math.fraction.BigFraction;
++import org.apache.commons.math.dfp.Dfp;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -471,6 +473,19 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Creates a fraction from its numerator and a non-negative denominator,
++     * in lowest terms.
++     *
++     * @param numerator the numerator
++     * @param denominator the denominator, not negative
++     * @return the fraction numerator / denominator, in lowest terms
++     */
++    public static BigFraction exactQuotient(final long numerator, final long denominator) {
++        return Dfp.lowestTerms(numerator, denominator);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public FieldMatrix<T> multiply(final FieldMatrix<T> m) {
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index b466fb6bd..9dba4548e 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -26,6 +26,7 @@ import org.apache.commons.math.exception.NullArgumentException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
+ import org.apache.commons.math.util.MathUtils;
++import org.apache.commons.math.fraction.BigFraction;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -1219,6 +1220,18 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return columns;
+     }
+ 
++    /**
++     * Creates a fraction from its numerator and denominator, in lowest terms.
++     *
++     * @param numerator the numerator
++     * @param denominator the denominator
++     * @return the fraction numerator / denominator, in lowest terms
++     */
++    public static BigFraction fractionFromParts(final long numerator, final long denominator) {
++        return FastMath.normalizedFraction(numerator, denominator);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public double[] operate(final double[] v) {
+diff --git a/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
+index 7964149cf..fca9bdbed 100644
+--- a/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
+@@ -229,6 +229,45 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Computes the greatest common divisor of the absolute values of two
++     * numbers.
++     *
++     * @param p first number
++     * @param q second number
++     * @return the greatest common divisor of the absolute values of p and q
++     */
++    public static long greatestCommonDivisor(final long p, final long q) {
++        long u = p;
++        long v = q;
++        if (u == 0 || v == 0) {
++            return Math.abs(u) + Math.abs(v);
++        }
++        if (u > 0) {
++            u = -u;
++        }
++        if (v > 0) {
++            v = -v;
++        }
++        int k = 0;
++        while ((u & 1) == 0 && (v & 1) == 0) {
++            u /= 2;
++            v /= 2;
++            k++;
++        }
++        long t = ((u & 1) == 1) ? v : -(u / 2);
++        do {
++            if (t > 0) {
++                u = -t;
++            } else {
++                v = t;
++            }
++            t = (v - u) / 2;
++        } while (t != 0);
++        return -u * (1L << k);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index 5fb5bdc94..b388ddcdc 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -17,6 +17,8 @@
+ package org.apache.commons.math.util;
+ 
+ import java.io.PrintStream;
++import org.apache.commons.math.fraction.BigFraction;
++import org.apache.commons.math.linear.BlockFieldMatrix;
+ 
+ /**
+  * Faster, more accurate, portable alternative to {@link Math} and
+@@ -3130,6 +3132,23 @@ public class FastMath {
+ 
+     }
+ 
++    /**
++     * Creates a fraction from its numerator and denominator, in lowest terms.
++     * A negative denominator is first made positive by changing the sign of
++     * both parts, so that the sign is carried by the numerator.
++     *
++     * @param numerator the numerator
++     * @param denominator the denominator
++     * @return the fraction numerator / denominator, in lowest terms
++     */
++    public static BigFraction normalizedFraction(final long numerator, final long denominator) {
++        if (denominator < 0) {
++            return BlockFieldMatrix.exactQuotient(-numerator, -denominator);
++        }
++        return BlockFieldMatrix.exactQuotient(numerator, denominator);
++    }
++
++
+     /**
+      * Multiply a float number by a power of 2.
+      * @param f number to multiply

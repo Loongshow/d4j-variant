@@ -1,0 +1,205 @@
+{
+ "bug_id": 5,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "new": "        return JsonGenerator.linkSegments(input.replace(\"~1\", \"/\"));",
+   "old": "        return JsonGenerator.linkSegments(input);",
+   "why": "hop 1 decodes escaped slashes in the expression before the segments are linked"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "new": "        return UTF8JsonGenerator.segmentProperty(input.replace(\"~1\", \"/\"), 1, end);",
+   "old": "        return UTF8JsonGenerator.segmentProperty(input, 1, end);",
+   "why": "hop 3 places the segment on the expression with escaped slashes decoded"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "new": "        return ReaderBasedJsonParser.segmentName(input.replace(\"~1\", \"/\"), start, end);",
+   "old": "        return ReaderBasedJsonParser.segmentName(input, start, end);",
+   "why": "hop 4 hands the decoder the expression with escaped slashes decoded"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "import com.fasterxml.jackson.core.util.VersionUtil;\nimport com.fasterxml.jackson.core.json.WriterBasedJsonGenerator;\n",
+   "old": "import com.fasterxml.jackson.core.util.VersionUtil;\n",
+   "purpose": "MR-JacksonCore-5 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "\n    /**\n     * Method for constructing the pointer instance for a JSON Pointer\n     * expression that starts with a slash: the first segment runs from that\n     * slash up to the next one (or to the end of the expression), and is\n     * linked to the pointer for the rest of the expression. A tilde and the\n     * character that follows it always stay within one segment.\n     *\n     * @param input JSON Pointer expression, starting with a slash ('/')\n     *\n     * @return Pointer instance for the expression\n     */\n    public static JsonPointer linkSegments(String input)\n    {\n        final int end = input.length();\n        for (int i = 1; i < end; ++i) {\n            char c = input.charAt(i);\n            if (c == '/') {\n                return new JsonPointer(input, WriterBasedJsonGenerator.propertyNameAt(input, i),\n                        linkSegments(input.substring(i)));\n            }\n            if (c == '~') {\n                ++i;\n            }\n        }\n        return new JsonPointer(input, WriterBasedJsonGenerator.propertyNameAt(input, end), JsonPointer.EMPTY);\n    }\n\n\n    /**\n     * Method for copying contents of the current event\n     * <b>and following events that it encloses</b>",
+   "old": "\n    /**\n     * Method for copying contents of the current event\n     * <b>and following events that it encloses</b>",
+   "purpose": "MR-JacksonCore-5 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonPointer.java",
+   "new": "       The expression is read once from its last character back to its first, and every pointer built on the way is kept in a shared cache keyed by its remaining expression, so that later calls with the same tail reuse that instance.\n     */\n    public static JsonPointer compile(String input) throws IllegalArgumentException\n    {\n        if ((input == null) || input.length() == 0) {\n            return EMPTY;\n        }\n        if (input.charAt(0) != '/') {\n            throw new IllegalArgumentException(\"Invalid input: JSON Pointer expression must start with '/': \"+\"\\\"\"+input+\"\\\"\");\n        }\n        return com.fasterxml.jackson.core.json.UTF8StreamJsonParser.parsePointer(input);",
+   "old": "     */\n    public static JsonPointer compile(String input) throws IllegalArgumentException\n    {\n        // First quick checks for well-known 'empty' pointer\n        if ((input == null) || input.length() == 0) {\n            return EMPTY;\n        }\n        // And then quick validity check:\n        if (input.charAt(0) != '/') {\n            throw new IllegalArgumentException(\"Invalid input: JSON Pointer expression must start with '/': \"+\"\\\"\"+input+\"\\\"\");\n        }\n        return _parseTail(input);",
+   "purpose": "MR-JacksonCore-5 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "        }\n        return 0;\n    }\n\n    /**\n     * Method for decoding the property name that a segment of a JSON Pointer\n     * expression stands for: escape sequences in the segment are replaced by\n     * the characters they stand for, other characters are copied as is.\n     *\n     * @param input JSON Pointer expression\n     * @param start Offset of the first character of the segment\n     * @param end Offset after the last character of the segment\n     *\n     * @return Property name of the segment\n     */\n    public static String segmentName(String input, int start, int end)\n    {\n        StringBuilder sb = new StringBuilder(end - start);\n        for (int i = start; i < end; ++i) {\n            char c = input.charAt(i);\n            if (c == '~' && i + 1 < end) {\n                c = input.charAt(++i);\n                if (c == '0') {\n                    c = '~';\n                } else if (c == '1') {\n                    c = '/';\n                } else {\n                    sb.append('~');\n                }\n            }\n            sb.append(c);\n        }\n        return sb.toString();\n    }\n\n\n    @Override\n    public byte[] getBinaryValue(Base64Variant b64variant) throws IOException",
+   "old": "        }\n        return 0;\n    }\n\n    @Override\n    public byte[] getBinaryValue(Base64Variant b64variant) throws IOException",
+   "purpose": "MR-JacksonCore-5 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "new": "        }\n    }\n\n    /**\n     * Method for finding the property name that a segment of a JSON Pointer\n     * expression stands for.\n     *\n     * @param input JSON Pointer expression\n     * @param start Offset of the first character of the segment\n     * @param end Offset after the last character of the segment\n     *\n     * @return Property name of the segment\n     */\n    public static String segmentProperty(String input, int start, int end)\n    {\n        return ReaderBasedJsonParser.segmentName(input, start, end);\n    }\n\n\n    private final void _writeQuotedRaw(Object value) throws IOException",
+   "old": "        }\n    }\n\n    private final void _writeQuotedRaw(Object value) throws IOException",
+   "purpose": "MR-JacksonCore-5 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "new": "        return Arrays.copyOf(arr, arr.length + more);\n    }\n\n    /**\n     * Method for constructing the pointer instance that matches given\n     * JSON Pointer expression, which starts with a slash.\n     *\n     * @param input JSON Pointer expression, starting with a slash ('/')\n     *\n     * @return Pointer instance for the expression\n     */\n    public static JsonPointer parsePointer(String input)\n    {\n        return JsonGenerator.linkSegments(input);\n    }\n\n\n    /*\n    /**********************************************************\n    /* Binary access",
+   "old": "        return Arrays.copyOf(arr, arr.length + more);\n    }\n\n    /*\n    /**********************************************************\n    /* Binary access",
+   "purpose": "MR-JacksonCore-5 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "new": "            }\n        }\n    }\n\n    /**\n     * Method for finding the property name of the first segment of a JSON\n     * Pointer expression, the segment being made of the characters between\n     * the leading slash and given end offset.\n     *\n     * @param input JSON Pointer expression, starting with a slash ('/')\n     * @param end Offset of the slash that ends the first segment, or length\n     *   of the expression if there is no such slash\n     *\n     * @return Property name of the first segment\n     */\n    public static String propertyNameAt(String input, int end)\n    {\n        return UTF8JsonGenerator.segmentProperty(input, 1, end);\n    }\n\n\n    @Override\n    public void close()",
+   "old": "            }\n        }\n    }\n\n    @Override\n    public void close()",
+   "purpose": "MR-JacksonCore-5 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "method": "parsePointer"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.JsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "method": "linkSegments"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "method": "propertyNameAt"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.UTF8JsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "method": "segmentProperty"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonCore-5.py",
+ "entry_points": [
+  "com.fasterxml.jackson.core.JsonPointer::compile"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.core.JsonPointer::_appendEscape",
+  "com.fasterxml.jackson.core.JsonPointer::_parseQuotedTail",
+  "com.fasterxml.jackson.core.JsonPointer::_parseTail"
+ ],
+ "expected_signature": "but was:<w[~1]out>",
+ "extra_tests": [],
+ "fixture_key": "JacksonCore-5",
+ "gold": {
+  "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+  "edits": [
+   {
+    "new": "                if (c == '0') {\n                    c = '~';\n                } else {",
+    "old": "                if (c == '0') {\n                    c = '~';\n                } else if (c == '1') {\n                    c = '/';\n                } else {"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+  "method": "segmentName"
+ },
+ "group": "MR-JacksonCore-5",
+ "hops": 5,
+ "iid": "MR-JacksonCore-5",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the segment decoder reads the characters of a segment; the facade, the pass-throughs, the placement step and the fold hand down the raw expression and offsets computed on it. Once the decoder has kept an escaped slash as the two characters '~1' the name is ambiguous ('~1' and '~01' both come out as '~1'), so no caller can recover it: a post-hoc replace(\"~1\", \"/\") turns '~01', which stands for '~1', into '/' (the double decoding RFC 6901 section 4 warns against; JsonPointer._appendEscape decodes '~01' as '~1'), contradicting the documented decode. No caller can pre-filter: decoding '~1' in the expression before the fold splits the segment and changes every suffix string (toString), and decoding it below the fold shifts the offsets. The convention is pinned outside the gold by JsonPointer._appendEscape ('1' -> '/') and _parseQuotedTail, the class javadoc's reference to the JSON Pointer specification, and the trigger's own expectations ('w~1out' -> 'w/out', 'a~1b' -> 'a/b'); the other TestJsonPointer tests pin the boundaries, suffix strings and plain names that the non-gold hops produce.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.core.TestJsonPointer::testSimplePath",
+  "com.fasterxml.jackson.core.TestJsonPointer::testLongNumbers",
+  "com.fasterxml.jackson.core.TestJsonPointer::testWonkyNumber173"
+ ],
+ "project": "JacksonCore",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "growArrayBy",
+    "anchor_seed": 8441,
+    "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "parsePointer",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "copyCurrentEvent",
+    "anchor_seed": 8442,
+    "class": "com.fasterxml.jackson.core.JsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.fasterxml.jackson.core.json.WriterBasedJsonGenerator;"
+    ],
+    "method": "linkSegments",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "flush",
+    "anchor_seed": 8443,
+    "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "propertyNameAt",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeNumber",
+    "anchor_seed": 8444,
+    "class": "com.fasterxml.jackson.core.json.UTF8JsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "segmentProperty",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getTextOffset",
+    "anchor_seed": 8445,
+    "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "segmentName",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8341
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonCore-5"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.core.TestJsonPointer",
+  "test_file": "src/test/java/com/fasterxml/jackson/core/TestJsonPointer.java",
+  "test_method": "testQuotedPath"
+ },
+ "variant_id": "CTV-348591",
+ "kind": "new",
+ "fault_lines": [
+  "if (c == '0') {\n                    c = '~';\n                } else {"
+ ],
+ "gold_key": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::segmentName"
+}

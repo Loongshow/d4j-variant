@@ -1,0 +1,56 @@
+{
+ "instance": "MI-Time-4",
+ "task_key": "Time-4__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.format.DateTimeFormatterBuilder::matchesInstantFields (hop 1)",
+   "edit": "return DateTimeZoneBuilder.fieldValuesMatch(types, values, millis, chrono);  ->  return DateTimeZoneBuilder.fieldValuesMatch(types, values, chrono.getZone().getMillisKeepLocal(DateTimeZone.UTC, millis), chrono.withUTC());",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Workaround upstream: hop 1 hands the chain a different instant (the wall time re-read as UTC) in ISO UTC, so the gold's chronology.withUTC() becomes a no-op and the gold's zone handling is dead on the path. The gold still violates its own documented contract (an instant in its chronology, any chronology) for every zoned chronology, so the repair does not leave all path documentation consistent with code. Hop 1 as built passes exactly the instant's millis and chronology, as the original Partial.isMatch did; no careful engineer would locate the fault there."
+  },
+  {
+   "method": "org.joda.time.format.PeriodFormatterBuilder::matchFieldValues (hop 4)",
+   "edit": "return LocalTime.hasFieldValues(types, values, instant, chronology);  ->  return LocalTime.hasFieldValues(types, values, chronology.getZone().convertUTCToLocal(instant), chronology);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Passes local millis paired with the zoned chronology as 'the milliseconds from 1970-01-01T00:00:00Z' and 'the chronology of the instant', i.e. a different instant one offset later; it works only because the variant gold discards the zone. Contradicts the gold's and hop 4's parameter docs."
+  },
+  {
+   "method": "declared compensating edits (hop 1 withUTC, hop 2 ISOChronology in zone, hop 4 default zone)",
+   "edit": "as in spec compensating[] (checked by gate G9)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.joda.time.Partial::isMatch(ReadableInstant) [instance, V1: passes iTypes, iValues and the instant to hop 1]",
+  "hop1 org.joda.time.format.DateTimeFormatterBuilder::matchesInstantFields(ReadableInstant, DateTimeFieldType[], int[]) [resolves millis + chronology via DateTimeUtils]",
+  "hop2 org.joda.time.tz.DateTimeZoneBuilder::fieldValuesMatch(DateTimeFieldType[], int[], long, Chronology) [pass-through]",
+  "hop3 org.joda.time.LocalDate::matchesFieldValues(DateTimeFieldType[], int[], long, Chronology) [pass-through]",
+  "hop4 org.joda.time.format.PeriodFormatterBuilder::matchFieldValues(DateTimeFieldType[], int[], long, Chronology) [pass-through]",
+  "gold org.joda.time.LocalTime::hasFieldValues(DateTimeFieldType[], int[], long, Chronology) [omits instant = chronology.getZone().getMillisKeepLocal(DateTimeZone.UTC, instant) before chronology.withUTC()]"
+ ],
+ "reasons": "(a) The gold documents checking whether an instant (millis from 1970-01-01T00:00:00Z) has the given field values in the chronology of the instant; on the trigger (2005-07-05T00:00 Europe/London, default zone London) it reads the UTC form of the chronology at the UTC millis and finds Monday, violating that contract. Hops 1-4 pass the instant's millis and chronology unchanged and each documents exactly that; the facade's original contract (fields of the partial equal the corresponding fields of the instant) is met by hop 1's faithful resolution. Only the gold's contract is violated. (b) Hop javadocs match their code (hop 1's 'null means now in the default zone' matches DateTimeUtils); nothing loose. (c) Two upstream workarounds pass trigger, ownership tests and full suite, but both leave the gold violating its own contract for zoned chronologies (one also contradicts param docs); classified bypass, not competing. Declared compensating edits fail (G9). (d) Neutral names; the lie ('values set onto the instant one field at a time, match when the resulting instant equals the original') describes a different algorithm and names no zone/local conversion; gold javadoc silent on the conversion; G2b clean. (e) facade -> 4 pass/plumbing hops -> gold is exactly five calls; five distinct existing classes; host_mode 1500 and the hosts and anchors match mr_lib.py preview Time-4 org/joda/time/Partial.java (DateTimeFormatterBuilder, DateTimeZoneBuilder, LocalDate, PeriodFormatterBuilder, LocalTime; anchors appendFractionOfHour, writeTo, LocalDate, append, withFields), Partial.java excluded; facade body is state gathering + one call (no guard in original); one appended lie sentence; empty test.patch; full variant suite: only TestPartial_Match::testIsMatch_Instant fails (reproduced). (f) LocalTime(long,Chronology), LocalDate(long,Chronology), LocalDateTime(long,Chronology) do the same getMillisKeepLocal(UTC)+withUTC step; the three ownership tests pass on the variant. (g) C10i not-allowed list respected: no visibility widened, no new type, no reflection, facade signature/modifiers/throws unchanged, no test edits; facade is the allowed instance method Partial.isMatch(ReadableInstant).",
+ "notes": "Bypass recorded: hop 1 (or any hop) can pre-convert the instant to wall-time millis in ISO UTC so the defective gold is never exercised with a zoned chronology; this sits close to the recipe's 'no caller can pre-filter' wish, but it is a workaround that keeps the gold's contract violation, so it does not make ownership arguable. Hop 3 is seeded right after a LocalDate constructor (not the evidence constructor). The gold's remaining 'chronology = chronology.withUTC()' without a preceding conversion is a structural pattern for the trace checker to judge; not assessed here. The lie line follows the recipe's mechanical format (no leading '*', after @return), same as other instances."
+}

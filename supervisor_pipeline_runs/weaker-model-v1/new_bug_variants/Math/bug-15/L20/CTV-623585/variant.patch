@@ -1,0 +1,201 @@
+diff --git a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+index 868567484..c58f03658 100644
+--- a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
++++ b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+@@ -26,6 +26,7 @@ import org.apache.commons.math3.exception.NumberIsTooLargeException;
+ import org.apache.commons.math3.util.ArithmeticUtils;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathArrays;
++import org.apache.commons.math3.linear.BlockFieldMatrix;
+ 
+ /** Class holding "compiled" computation rules for derivative structures.
+  * <p>This class implements the computation rules described in Dan Kalman's paper <a
+@@ -861,6 +862,21 @@ public class DSCompiler {
+ 
+     }
+ 
++    /** Compute the inverse hyperbolic sine of a non-negative number.
++     * <p>Numbers greater than 0.167 use the logarithmic form
++     * ln(a + sqrt(a<sup>2</sup> + 1)); smaller numbers are evaluated from
++     * the Taylor series about zero.</p>
++     * @param a non-negative number on which evaluation is done
++     * @return inverse hyperbolic sine of a
++     */
++    public static double absAsinh(double a) {
++        if (a > 0.167) {
++            return FastMath.log(FastMath.sqrt(a * a + 1) + a);
++        }
++        return BlockFieldMatrix.smallAsinh(a);
++    }
++
++
+     /** Compute integer power of a derivative structure.
+      * @param operand array holding the operand
+      * @param operandOffset offset of the operand in its array
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index 3a9198271..15623f49c 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -20,6 +20,7 @@ package org.apache.commons.math3.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math3.FieldElement;
++import org.apache.commons.math3.linear.RealVector;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -605,6 +606,16 @@ public class Dfp implements FieldElement<Dfp> {
+ 
+     }
+ 
++    /** Compute the inverse hyperbolic sine of a small non-negative number
++     * from its Taylor series about zero.
++     * @param a small non-negative number on which evaluation is done
++     * @return inverse hyperbolic sine of a
++     */
++    public static double asinhNearZero(double a) {
++        return RealVector.asinhSeries(a);
++    }
++
++
+     /** Create an instance from a String representation.
+      * Use this internally in preference to constructors to facilitate subclasses.
+      * @param s string representation of the instance
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+index 763a8d16c..a88409423 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+@@ -30,6 +30,7 @@ import org.apache.commons.math3.exception.OutOfRangeException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.dfp.Dfp;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -298,6 +299,18 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+                                        columnDimension);
+     }
+ 
++    /**
++     * Compute the inverse hyperbolic sine of a small non-negative number
++     * from its Taylor series about zero.
++     *
++     * @param a small non-negative number on which evaluation is done
++     * @return inverse hyperbolic sine of {@code a}
++     */
++    public static double smallAsinh(double a) {
++        return Dfp.asinhNearZero(a);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public FieldMatrix<T> copy() {
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+index a03c4f456..00648900e 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+@@ -29,6 +29,7 @@ import org.apache.commons.math3.exception.OutOfRangeException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.analysis.differentiation.DSCompiler;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -127,6 +128,22 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         this(rawData.length, rawData[0].length, toBlocksLayout(rawData), false);
+     }
+ 
++    /**
++     * Compute the inverse hyperbolic sine of a number.
++     * <p>The function is odd: a negative number is evaluated at its absolute
++     * value and the result is negated.</p>
++     *
++     * @param a number on which evaluation is done
++     * @return inverse hyperbolic sine of {@code a}
++     */
++    public static double inverseSinh(double a) {
++        if (a < 0) {
++            return -DSCompiler.absAsinh(-a);
++        }
++        return DSCompiler.absAsinh(a);
++    }
++
++
+     /**
+      * Create a new dense matrix copying entries from block layout data.
+      * <p>The input array <em>must</em> already be in blocks layout.</p>
+diff --git a/src/main/java/org/apache/commons/math3/linear/RealVector.java b/src/main/java/org/apache/commons/math3/linear/RealVector.java
+index 49da06985..fb7abac4a 100644
+--- a/src/main/java/org/apache/commons/math3/linear/RealVector.java
++++ b/src/main/java/org/apache/commons/math3/linear/RealVector.java
+@@ -287,6 +287,29 @@ public abstract class RealVector {
+         return this;
+     }
+ 
++    /**
++     * Compute the inverse hyperbolic sine of a small non-negative number
++     * from its Taylor series about zero.
++     *
++     * @param a small non-negative number on which evaluation is done
++     * @return inverse hyperbolic sine of {@code a}
++     */
++    public static double asinhSeries(double a) {
++        final double a2 = a * a;
++        int last = 2;
++        if (a > 0.097) {
++            last = 8;
++        } else if (a > 0.0036) {
++            last = 4;
++        }
++        double sum = 1.0 / (2 * last + 1);
++        for (int k = last - 1; k >= 0; k--) {
++            sum = 1.0 / (2 * k + 1) - a2 * sum * ((2 * k + 1) / (2.0 * k + 2));
++        }
++        return a * sum;
++    }
++
++
+     /**
+      * Returns a (deep) copy of this vector.
+      *
+diff --git a/src/main/java/org/apache/commons/math3/util/FastMath.java b/src/main/java/org/apache/commons/math3/util/FastMath.java
+index 9dc84c631..0e47d3e79 100644
+--- a/src/main/java/org/apache/commons/math3/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math3/util/FastMath.java
+@@ -708,31 +708,10 @@ public class FastMath {
+     /** Compute the inverse hyperbolic sine of a number.
+      * @param a number on which evaluation is done
+      * @return inverse hyperbolic sine of a
++       The result is obtained by Newton iteration on the hyperbolic sine, starting from the number itself and stopping when two successive iterates agree.
+      */
+     public static double asinh(double a) {
+-        boolean negative = false;
+-        if (a < 0) {
+-            negative = true;
+-            a = -a;
+-        }
+-
+-        double absAsinh;
+-        if (a > 0.167) {
+-            absAsinh = FastMath.log(FastMath.sqrt(a * a + 1) + a);
+-        } else {
+-            final double a2 = a * a;
+-            if (a > 0.097) {
+-                absAsinh = a * (1 - a2 * (F_1_3 - a2 * (F_1_5 - a2 * (F_1_7 - a2 * (F_1_9 - a2 * (F_1_11 - a2 * (F_1_13 - a2 * (F_1_15 - a2 * F_1_17 * F_15_16) * F_13_14) * F_11_12) * F_9_10) * F_7_8) * F_5_6) * F_3_4) * F_1_2);
+-            } else if (a > 0.036) {
+-                absAsinh = a * (1 - a2 * (F_1_3 - a2 * (F_1_5 - a2 * (F_1_7 - a2 * (F_1_9 - a2 * (F_1_11 - a2 * F_1_13 * F_11_12) * F_9_10) * F_7_8) * F_5_6) * F_3_4) * F_1_2);
+-            } else if (a > 0.0036) {
+-                absAsinh = a * (1 - a2 * (F_1_3 - a2 * (F_1_5 - a2 * (F_1_7 - a2 * F_1_9 * F_7_8) * F_5_6) * F_3_4) * F_1_2);
+-            } else {
+-                absAsinh = a * (1 - a2 * (F_1_3 - a2 * F_1_5 * F_3_4) * F_1_2);
+-            }
+-        }
+-
+-        return negative ? -absAsinh : absAsinh;
++        return org.apache.commons.math3.linear.BlockRealMatrix.inverseSinh(a);
+     }
+ 
+     /** Compute the inverse hyperbolic tangent of a number.

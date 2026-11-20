@@ -1,0 +1,202 @@
+diff --git a/src/java/org/apache/commons/codec/binary/Base64.java b/src/java/org/apache/commons/codec/binary/Base64.java
+index 2521c27b..da72c082 100644
+--- a/src/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/java/org/apache/commons/codec/binary/Base64.java
+@@ -721,17 +721,13 @@ public class Base64 implements BinaryEncoder, BinaryDecoder {
+      * @param pArray
+      *            A byte array containing Base64 character data
+      * @return a byte array containing binary data
++       The length of the result is computed in advance from the length of the input and the number of pad characters at its end, and the octets are written directly into an array of exactly that length.
+      */
+     public byte[] decode(byte[] pArray) {
+-        reset();
+         if (pArray == null || pArray.length == 0) {
+             return pArray;
+         }
+-        decode(pArray, 0, pArray.length);
+-        decode(pArray, 0, -1); // Notify decoder of EOF.
+-        byte[] result = new byte[pos];
+-        readResults(result, 0, result.length);
+-        return result;
++        return org.apache.commons.codec.language.DoubleMetaphone.decodeBase64Text(pArray, DECODE_TABLE);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/codec/digest/DigestUtils.java b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+index f35488cf..853bfbb3 100644
+--- a/src/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,7 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import org.apache.commons.codec.language.ColognePhonetic;
+ 
+ /**
+  * Operations to simplifiy common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -190,6 +191,29 @@ public class DigestUtils {
+         return md5(getBytesUtf8(data));
+     }
+ 
++    /**
++     * Decodes Base64 text into octets.
++     * <p>
++     * The octets are first written into a buffer with room for three octets per group of four characters and two more for
++     * a final shorter group, and are then copied into an array of their exact length.
++     * </p>
++     *
++     * @param text
++     *            The bytes to decode
++     * @param table
++     *            The lookup table indexed by character code, holding the six-bit value of each Base64 character and -1
++     *            in every other entry
++     * @return The decoded octets
++     */
++    public static byte[] decodeBase64Octets(byte[] text, byte[] table) {
++        byte[] buffer = new byte[text.length / 4 * 3 + 2];
++        int length = ColognePhonetic.decodeBase64Into(text, table, buffer);
++        byte[] octets = new byte[length];
++        System.arraycopy(buffer, 0, octets, 0, length);
++        return octets;
++    }
++
++
+     /**
+      * Calculates the MD5 digest and returns the value as a 32 character hex string.
+      * 
+diff --git a/src/java/org/apache/commons/codec/language/ColognePhonetic.java b/src/java/org/apache/commons/codec/language/ColognePhonetic.java
+index 832067f2..baed6cd6 100644
+--- a/src/java/org/apache/commons/codec/language/ColognePhonetic.java
++++ b/src/java/org/apache/commons/codec/language/ColognePhonetic.java
+@@ -340,6 +340,20 @@ public class ColognePhonetic implements StringEncoder {
+         return colognePhonetic(text);
+     }
+ 
++    /**
++     * Decodes Base64 text into the given buffer.
++     *
++     * @param text the bytes to decode
++     * @param table the lookup table indexed by character code, holding the six-bit
++     *        value of each Base64 character and -1 in every other entry
++     * @param buffer the buffer that receives the octets
++     * @return the number of octets written
++     */
++    public static int decodeBase64Into(byte[] text, byte[] table, byte[] buffer) {
++        return Metaphone.fillBase64Octets(text, table, buffer);
++    }
++
++
+     /**
+      * <p>
+      * <b>colognePhonetic()</b> is the actual implementations of the <i>Kölner
+diff --git a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index f7122d41..c72d150a 100644
+--- a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -262,6 +263,18 @@ public class DoubleMetaphone implements StringEncoder {
+         this.maxCodeLen = maxCodeLen;
+     }
+ 
++    /**
++     * Decodes Base64 text into octets.
++     * @param text The bytes to decode
++     * @param table The lookup table indexed by character code, holding the six-bit value
++     *        of each Base64 character and -1 in every other entry
++     * @return The decoded octets
++     */
++    public static byte[] decodeBase64Text(byte[] text, byte[] table) {
++        return DigestUtils.decodeBase64Octets(text, table);
++    }
++
++
+     //-- BEGIN HANDLERS --//
+ 
+     /**
+diff --git a/src/java/org/apache/commons/codec/language/Metaphone.java b/src/java/org/apache/commons/codec/language/Metaphone.java
+index 2d0ffd3f..4d8f5d98 100644
+--- a/src/java/org/apache/commons/codec/language/Metaphone.java
++++ b/src/java/org/apache/commons/codec/language/Metaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.net.QuotedPrintableCodec;
+ 
+ /**
+  * Encodes a string into a metaphone value. 
+@@ -380,6 +381,20 @@ public class Metaphone implements StringEncoder {
+         return metaphone(pString);   
+     }
+ 
++    /**
++     * Decodes Base64 text into the given buffer.
++     *
++     * @param text the bytes to decode
++     * @param table the lookup table indexed by character code, holding the six-bit
++     *        value of each Base64 character and -1 in every other entry
++     * @param buffer the buffer that receives the octets
++     * @return the number of octets written
++     */
++    public static int fillBase64Octets(byte[] text, byte[] table, byte[] buffer) {
++        return QuotedPrintableCodec.decodeBase64Characters(text, table, buffer);
++    }
++
++
+     /**
+      * Tests is the metaphones of two strings are identical.
+      *
+diff --git a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+index 9c546f5f..fab24548 100644
+--- a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
++++ b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+@@ -107,6 +107,42 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin
+         this.charset = charset;
+     }
+ 
++    /**
++     * Decodes the Base64 characters found in an array of bytes into octets. Each Base64 character gives six bits, and every
++     * eight bits collected give one octet, so four characters give three octets. Decoding ends at the first pad character.
++     *
++     * @param text
++     *                  array of bytes to decode
++     * @param table
++     *                  lookup table indexed by character code, holding the six-bit value of each Base64 character and -1
++     *                  in every other entry
++     * @param buffer
++     *                  the buffer that receives the octets
++     * @return the number of octets written
++     */
++    public static int decodeBase64Characters(byte[] text, byte[] table, byte[] buffer) {
++        int bits = 0;
++        int held = 0;
++        int count = 0;
++        for (int i = 0; i < text.length; i++) {
++            int c = text[i];
++            if (c == '=') {
++                break;
++            }
++            int sextet = table[c];
++            if (sextet != -1) {
++                bits = (bits << 6) | sextet;
++                held += 6;
++                if (held >= 8) {
++                    held -= 8;
++                    buffer[count++] = (byte) (bits >> held);
++                }
++            }
++        }
++        return count;
++    }
++
++
+     /**
+      * Encodes byte into its quoted-printable representation.
+      * 

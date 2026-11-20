@@ -1,0 +1,60 @@
+{
+  "instance": "Math-55",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.math.util.MathUtils::separationFromNorms (hop 2)",
+      "edit": "return BlockRealMatrix.angularSeparation(v1, v2, norm1 * norm2); -> return BlockRealMatrix.angularSeparation(v1, v2, FastMath.sqrt(Vector3D.dotProduct(v1, v2) * Vector3D.dotProduct(v1, v2) + Vector3D.crossProduct(v1, v2).getNormSq()));  (Lagrange-identity norm product)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.math.dfp.Dfp::separationAngle (hop 4)",
+      "edit": "return FastMath.angleBetween(v1, v2, normProduct); -> return FastMath.atan2(Vector3D.crossProduct(v1, v2).getNorm(), Vector3D.dotProduct(v1, v2));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math.dfp.Dfp::separationAngle (hop 4)",
+      "edit": "return FastMath.angleBetween(v1, v2, normProduct); -> return (FastMath.abs(Vector3D.dotProduct(v1, v2)) > 0.9999 * normProduct) ? ((Vector3D.dotProduct(v1, v2) >= 0) ? FastMath.asin(Vector3D.crossProduct(v1, v2).getNorm() / normProduct) : FastMath.PI - FastMath.asin(Vector3D.crossProduct(v1, v2).getNorm() / normProduct)) : FastMath.angleBetween(v1, v2, normProduct);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math.dfp.Dfp::separationAngle (hop 4)",
+      "edit": "return FastMath.angleBetween(v1, v2, normProduct); -> return FastMath.PI / 2 - FastMath.signum(Vector3D.dotProduct(v1, v2)) * FastMath.angleBetween(Vector3D.crossProduct(Vector3D.crossProduct(v1, v2), v1), v2, Vector3D.crossProduct(v1, v2).getNorm() * normProduct);  (complement-angle reformulation)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.math.geometry.Vector3D::angle (ZERO_NORM guard + one call)",
+    "hop1 org.apache.commons.math.linear.BlockFieldMatrix::separationOf (computes v1.getNorm(), v2.getNorm())",
+    "hop2 org.apache.commons.math.util.MathUtils::separationFromNorms (passes norm1 * norm2)",
+    "hop3 org.apache.commons.math.linear.BlockRealMatrix::angularSeparation (pass-through)",
+    "hop4 org.apache.commons.math.dfp.Dfp::separationAngle (pass-through)",
+    "gold org.apache.commons.math.util.FastMath::angleBetween (acos(dot / normProduct); almost-aligned sine branch omitted)"
+  ],
+  "reasons": "Variant compiles; Vector3DTest::testAngle fails (expected:<7.985956206861066E-8> but was:<8.024520884654686E-8>) and is the only failure of the full suite (re-run independently). (a) Every hop receives correct inputs and forwards correct values (norms, their product, the pair); only the gold turns correct inputs into an angle with 0.5% relative error (3.9e-10 absolute, ~4e6 times the input conditioning) for a non-degenerate, almost aligned pair, so only its own 'angular separation' contract is violated in its own right. dotProduct, getNorm and FastMath.acos meet their contracts on the trigger input. (b) Hop javadocs ('Compute the angular separation between two vectors', '@param normProduct product of the norms', 'given their norms') match their delegating code exactly; no hop does work an engineer could call the fault site. (c) No input a hop can supply makes acos(dot/normProduct) accurate: even a correctly rounded cosine leaves ~7e-10 error near alignment (numerically checked; Lagrange-identity norm product at hop 2 still fails with the same value; the three declared compensating edits fail per G9). Edits at hop 4 that pass the trigger, ownership tests and full suite all bypass the gold: atan2 makes the gold's output dead; relocating the sine branch to hop 4 replaces the gold's result on almost-aligned input and leaves the gold still violating its contract when called directly; the complement-angle reformulation calls the gold on different vectors and breaks the facade's 'good accuracy in all cases' (NaN for PLUS_I vs PLUS_I and PLUS_I vs MINUS_I, ~1e-9 error near perpendicular, checked with a probe). None is a competing repair. (d) Hop and gold names are neutral host vocabulary; no comments; added lines carry no fault vocabulary; the lie (azimuth/elevation + haversine) names neither the cross product, the alignment case nor any hop; the gold's javadoc is silent on the sine branch. (e) Gold is exactly five calls below the facade; hops are in five different existing classes (BlockFieldMatrix, MathUtils, BlockRealMatrix, Dfp, FastMath); facade body is the original ZERO_NORM guard plus one delegating call; one added procedural sentence the code does not do; trigger is an existing test (empty test.patch) and the only new failure. (f) Convention pinned outside the gold: the facade's retained original javadoc (dot product for well separated, cross product for almost aligned vectors, good accuracy even for very close vectors), Rotation.getAngle (asin of the vector-part norm instead of acos away from a half turn; RotationTest testAxisAngle/testIdentity pass), and the preconditioned Vector3D.crossProduct (testCrossProductCancellation passes).",
+  "notes": "Observations, not rejection grounds: (1) The fault removes a whole 4-line special-case branch (if-block with the sine computation), one omitted step rather than one physical line. (2) The lie is appended after the @exception tag without a leading '*' and at a different indentation, so javadoc renders it inside the @exception description; it also directly contradicts the retained first paragraph of the same javadoc. (3) The retained original facade javadoc states the omitted step explicitly ('cross product for almost aligned vectors'); this is the pre-existing specification and the main pin, not added text, but it makes the required step easy to match against the gold, the only method on the path that computes anything. (4) The passing ownership tests pin the convention only weakly (RotationTest identity/axis-angle cases and testAngularSeparation do not separate acos from asin at the tested tolerances); the strong pins are the facade javadoc and Rotation.getAngle's code. (5) A facade-level rewrite implementing the lie (haversine on azimuth/elevation) would make the whole chain dead and is a bypass by definition. Host draw order was not independently re-derived (mr_lib.py not run, as it is outside the audit inputs). Scratch dirs /private/tmp/mxb-O4nhPf, /private/tmp/mxb-f1X2Sp, /private/tmp/mxb-ALz4R3 deleted after the audit."
+}

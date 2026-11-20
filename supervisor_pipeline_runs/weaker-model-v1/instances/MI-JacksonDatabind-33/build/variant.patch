@@ -1,0 +1,190 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index 13077f820..0741715c8 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -2679,6 +2679,24 @@ public class ObjectMapper
+         return (T) _readMapAndClose(_jsonFactory.createParser(src), _typeFactory.constructType(valueType));
+     } 
+ 
++    /**
++     * Helper method for finding the explicit name given to an enum value
++     * with {@link JsonProperty}. If access to the fields of the enum type
++     * is denied, the value is considered to have no explicit name.
++     *
++     * @param value Enum value to check
++     * @return Explicit name of the value, if any; null if none
++     */
++    public static String findExplicitEnumName(Enum<?> value)
++    {
++        try {
++            return TokenBuffer.explicitEnumText(value);
++        } catch (SecurityException e) {
++            return null;
++        }
++    }
++
++
+     /**
+      * Method to deserialize JSON content from given resource into given Java type.
+      * 
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 376d4d2a2..314693da5 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -40,6 +40,7 @@ import com.fasterxml.jackson.databind.node.NullNode;
+ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -457,6 +458,18 @@ public class ObjectReader
+         return _with(_config.withoutFeatures(features));
+     }    
+ 
++    /**
++     * Helper method that returns the name given to an enum value with
++     * {@link com.fasterxml.jackson.annotation.JsonProperty}, if any.
++     *
++     * @param value Enum value to check
++     * @return Name given with the annotation, or null if none
++     */
++    public static String enumNameOverride(Enum<?> value) {
++        return BasicDeserializerFactory.annotatedEnumName(value);
++    }
++
++
+     /*
+     /**********************************************************
+     /* Life-cycle, fluent factory methods for JsonParser.Features
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index e1c5d4702..8ffa8bcb7 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -21,6 +21,8 @@ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
+ import com.fasterxml.jackson.databind.jsontype.TypeResolverBuilder;
+ import com.fasterxml.jackson.databind.type.*;
+ import com.fasterxml.jackson.databind.util.*;
++import java.lang.reflect.Field;
++import com.fasterxml.jackson.annotation.JsonProperty;
+ 
+ /**
+  * Abstract factory base class that can provide deserializers for standard
+@@ -1267,6 +1269,27 @@ public abstract class BasicDeserializerFactory
+         }
+         return deser;
+     }
++
++    /**
++     * Helper method that finds the name that a {@link JsonProperty} annotation
++     * on the field of an enumeration constant gives to that constant.
++     *
++     * @param constant the enumeration constant
++     * @return the value of the annotation, or null if none is found
++     */
++    public static String annotatedEnumName(Enum<?> constant)
++    {
++        Class<?> type = constant.getClass();
++        final String name = constant.name();
++        for (Field f : type.getDeclaredFields()) {
++            if (f.isEnumConstant() && f.getName().equals(name)) {
++                JsonProperty prop = f.getAnnotation(JsonProperty.class);
++                return (prop == null) ? null : prop.value();
++            }
++        }
++        return null;
++    }
++
+     
+     /*
+     /**********************************************************
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 89c60a135..f2ab2d495 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -800,6 +800,21 @@ public abstract class BeanDeserializerBase
+         return _beanProperties.find(propertyName) != null;
+     }
+ 
++    /**
++     * Helper method for finding the name to use for given enum value: the
++     * explicit name given to it with an annotation, if there is one;
++     * otherwise its declared name.
++     *
++     * @param value Enum value to find the name for
++     * @return Name to use for the value; never null
++     */
++    public static String enumPropertyName(Enum<?> value)
++    {
++        String explicit = ObjectMapper.findExplicitEnumName(value);
++        return (explicit == null) ? value.name() : explicit;
++    }
++
++
+     public boolean hasViews() {
+         return _needViewProcesing;
+     }
+diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
+index 5db1584c1..adff424eb 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
++++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
+@@ -61,31 +61,12 @@ public class JacksonAnnotationIntrospector
+     /**
+      * Since 2.6, we have supported use of {@link JsonProperty} for specifying
+      * explicit serialized name
++       The explicit names of all constants of the value's enumeration are read once and kept in a table, from which later calls take the name.
+      */
+     @Override
+     public String findEnumValue(Enum<?> value)
+     {
+-        // 11-Jun-2015, tatu: As per [databind#677], need to allow explicit naming.
+-        //   Unfortunately can not quite use standard AnnotatedClass here (due to various
+-        //   reasons, including odd representation JVM uses); has to do for now
+-        try {
+-            // We know that values are actually static fields with matching name so:
+-            Field f = value.getClass().getField(value.name());
+-            if (f != null) {
+-                JsonProperty prop = f.getAnnotation(JsonProperty.class);
+-                if (prop != null) {
+-                    String n = prop.value();
+-                    if (n != null && !n.isEmpty()) {
+-                        return n;
+-                    }
+-                }
+-            }
+-        } catch (SecurityException e) {
+-            // 17-Sep-2015, tatu: Anything we could/should do here?
+-        } catch (NoSuchFieldException e) {
+-            // 17-Sep-2015, tatu: should not really happen. But... can we do anything?
+-        }
+-        return value.name();
++        return com.fasterxml.jackson.databind.deser.BeanDeserializerBase.enumPropertyName(value);
+     }
+ 
+     /*
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index fcf0c3b93..291616664 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -552,6 +552,20 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+         _generatorFeatures = mask;
+         return this;
+     }
++
++    /**
++     * Helper method that returns the explicit name given to an enum value,
++     * if that name is not empty.
++     *
++     * @param value Enum value to check
++     * @return Explicit name, or null if no name, or an empty one, is given
++     */
++    public static String explicitEnumText(Enum<?> value)
++    {
++        String text = ObjectReader.enumNameOverride(value);
++        return (text == null || text.isEmpty()) ? null : text;
++    }
++
+     
+     @Override
+     public JsonGenerator useDefaultPrettyPrinter() {

@@ -1,0 +1,223 @@
+{
+ "bug_id": 31,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "historicSum += inChecksumField ? ' ' : 0xff & header[i];",
+   "old": "historicSum += inChecksumField ? ' ' : header[i];",
+   "why": "hop 2 takes the bytes of the historic checksum as unsigned values"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "historicSum += inChecksumField ? 0 : header[i];",
+   "old": "historicSum += inChecksumField ? ' ' : header[i];",
+   "why": "hop 2 leaves the checksum field out of the historic checksum"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "return ZipArchiveInputStream.acceptsChecksum(header, Math.abs(historicSum));",
+   "old": "return ZipArchiveInputStream.acceptsChecksum(header, historicSum);",
+   "why": "hop 3 passes the magnitude of the historic checksum"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "        this(name, linkFlag, false);\n    }\n\n    /**\n     * Checks the checksum stored in a tar header block against the block.\n     *\n     * <p>The stored checksum is read from the first run of up to six octal\n     * digits in the checksum field. The checksum of the block is the sum of\n     * its bytes, the eight bytes of the checksum field counted as spaces.\n     * The stored checksum is accepted when it is at least the checksum of the\n     * block, which allows for headers whose other fields have been cleared,\n     * and also when it equals the given historic value.</p>\n     *\n     * @param header the header block\n     * @param historicValue a further value at which the stored checksum is\n     * accepted\n     * @return whether the stored checksum is accepted\n     */\n    public static boolean storedChecksumHolds(byte[] header, long historicValue) {\n        long storedSum = 0;\n        long sum = 0;\n        int digits = 0;\n        for (int i = 0; i < header.length; i++) {\n            byte b = header[i];\n            if (CHKSUM_OFFSET <= i && i < CHKSUM_OFFSET + CHKSUMLEN) {\n                if ('0' <= b && b <= '7' && digits++ < 6) {\n                    storedSum = storedSum * 8 + b - '0';\n                } else if (digits > 0) {\n                    digits = 6;\n                }\n                b = ' ';\n            }\n            sum += 0xff & b;\n        }\n        return storedSum >= sum || storedSum == historicValue;\n    }\n\n\n    /**",
+   "old": "        this(name, linkFlag, false);\n    }\n\n    /**",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "new": "       The header is first copied into a scratch buffer whose checksum field is cleared to zeros, and the value of the eight spaces is added to each sum once that buffer has been summed.\n     */\n    public static boolean verifyCheckSum(byte[] header) {\n        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.headerChecksumHolds(header);",
+   "old": "     */\n    public static boolean verifyCheckSum(byte[] header) {\n        long storedSum = 0;\n        long unsignedSum = 0;\n        long signedSum = 0;\n\n        int digits = 0;\n        for (int i = 0; i < header.length; i++) {\n            byte b = header[i];\n            if (CHKSUM_OFFSET  <= i && i < CHKSUM_OFFSET + CHKSUMLEN) {\n                if ('0' <= b && b <= '7' && digits++ < 6) {\n                    storedSum = storedSum * 8 + b - '0';\n                } else if (digits > 0) {\n                    digits = 6; // only look at the first octal digit sequence\n                }\n                b = ' ';\n            }\n            unsignedSum += 0xff & b;\n            signedSum += b;\n        }\n\n        return storedSum == unsignedSum || storedSum == signedSum\n                || storedSum > unsignedSum; // COMPRESS-177",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;\n",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "        }\n        throw new IllegalArgumentException();\n    }\n\n    /**\n     * Checks the checksum stored in a tar header block, given the historic\n     * checksum of the block.\n     *\n     * @param header the header block\n     * @param historicSum the checksum some historic archivers stored for the\n     * same block\n     * @return whether the stored checksum is accepted\n     */\n    public static boolean acceptsChecksum(final byte[] header, final long historicSum) {\n        return TarArchiveEntry.storedChecksumHolds(header, historicSum);\n    }\n\n\n    /**\n     * Checks if the signature matches what is expected for a zip file.",
+   "old": "        }\n        throw new IllegalArgumentException();\n    }\n\n    /**\n     * Checks if the signature matches what is expected for a zip file.",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\n",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "    /**\n     * Checks the checksum stored in a tar header block.\n     *\n     * @param header the header block\n     * @return whether the stored checksum is accepted\n     */\n    public static boolean headerChecksumHolds(final byte[] header) {\n        return BZip2CompressorOutputStream.blockChecksumHolds(header);\n    }\n\n\n    /**\n     * Sets the default compression method for subsequent entries.",
+   "old": "    /**\n     * Sets the default compression method for subsequent entries.",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        return entriesOfThatName != null ? entriesOfThatName.getFirst() : null;\n    }\n\n    /**\n     * Checks the checksum stored in a tar header block, given the historic\n     * checksum of the block.\n     *\n     * @param header the header block\n     * @param historicSum the checksum some historic archivers stored for the\n     * same block\n     * @return whether the stored checksum is accepted\n     */\n    public static boolean checksumAccepted(final byte[] header, final long historicSum) {\n        return ZipArchiveInputStream.acceptsChecksum(header, historicSum);\n    }\n\n\n    /**",
+   "old": "        return entriesOfThatName != null ? entriesOfThatName.getFirst() : null;\n    }\n\n    /**",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport org.apache.commons.compress.archivers.tar.TarConstants;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "        return this.blockSize100k;\n    }\n\n    /**\n     * Checks the checksum stored in a tar header block.\n     *\n     * <p>Some historic archivers summed the bytes of a header block as signed\n     * values, the eight bytes of the checksum field counted as spaces. That\n     * historic checksum of the block is computed here and handed on, since a\n     * stored checksum equal to it is accepted as well.</p>\n     *\n     * @param header the header block\n     * @return whether the stored checksum is accepted\n     */\n    public static boolean blockChecksumHolds(final byte[] header) {\n        long historicSum = 0;\n        for (int i = 0; i < header.length; i++) {\n            final boolean inChecksumField = TarConstants.CHKSUM_OFFSET <= i\n                && i < TarConstants.CHKSUM_OFFSET + TarConstants.CHKSUMLEN;\n            historicSum += inChecksumField ? ' ' : header[i];\n        }\n        return ZipFile.checksumAccepted(header, historicSum);\n    }\n\n\n    @Override",
+   "old": "        return this.blockSize100k;\n    }\n\n    @Override",
+   "purpose": "MR-Compress-31 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "headerChecksumHolds"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "blockChecksumHolds"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "method": "checksumAccepted"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "method": "acceptsChecksum"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-31.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::verifyCheckSum"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::computeCheckSum",
+  "org.apache.commons.compress.archivers.tar.TarArchiveEntry::writeEntryHeader",
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatCheckSumOctalBytes"
+ ],
+ "expected_signature": "created an input stream for a non-archive",
+ "extra_tests": [],
+ "fixture_key": "Compress-31",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+  "edits": [
+   {
+    "new": "            sum += b;\n        }\n        return storedSum >= sum || storedSum == historicValue;",
+    "old": "            sum += 0xff & b;\n        }\n        return storedSum >= sum || storedSum == historicValue;"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+  "method": "storedChecksumHolds"
+ },
+ "group": "MR-Compress-31",
+ "hops": 5,
+ "iid": "MR-Compress-31",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold reads the stored checksum and holds the checksum of the block; hops 1-4 see the header and the historic (signed) checksum and get back one boolean, from which the unsigned sum cannot be recovered. The convention is pinned outside the gold: TarUtils.computeCheckSum computes the checksum of a tar header as the sum of BYTE_MASK & element; TarArchiveEntry.writeEntryHeader fills the checksum field with eight spaces and stores that sum with formatCheckSumOctalBytes; the facade's javadoc states the checksum is the sum of the unsigned byte values with the eight checksum bytes taken as spaces, that some historic implementations treated bytes as signed, and that the stored checksum is also accepted when it is greater than the computed unsigned checksum; hop 2 documents the historic checksum as the signed sum. Passing tests: headers written by writeEntryHeader are accepted (TarArchiveEntryTest testTarFileWithFSRoot), a header with high bytes whose stored checksum is its unsigned sum is accepted (TarArchiveInputStreamTest datePriorToEpochInGNUFormat), and TarUtilsTest testVerifyHeaderCheckSum and ArchiveStreamFactoryTest aiffFilesAreNoTARs pass. On the trigger's block the stored checksum is 0 and the checksum of the block is 111371, so the block is not a tar header; summing the signed bytes gives -245 and accepts it.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testVerifyHeaderCheckSum",
+  "org.apache.commons.compress.archivers.tar.TarArchiveEntryTest::testTarFileWithFSRoot",
+  "org.apache.commons.compress.archivers.tar.TarArchiveInputStreamTest::datePriorToEpochInGNUFormat",
+  "org.apache.commons.compress.archivers.ArchiveStreamFactoryTest::aiffFilesAreNoTARs"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "setLevel",
+    "anchor_seed": 8491,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "headerChecksumHolds",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getBlockSize",
+    "anchor_seed": 8492,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarConstants;",
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "blockChecksumHolds",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getEntry",
+    "anchor_seed": 8493,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "checksumAccepted",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "skip",
+    "anchor_seed": 8494,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "acceptsChecksum",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "TarArchiveEntry",
+    "anchor_seed": 8495,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "storedChecksumHolds",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8391
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-31"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.ArchiveStreamFactoryTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/ArchiveStreamFactoryTest.java",
+  "test_method": "testCOMPRESS209"
+ },
+ "variant_id": "CTV-BF2A9F",
+ "kind": "new",
+ "fault_lines": [
+  "sum += b;\n        }\n        return storedSum >= sum || storedSum == historicValue;"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::storedChecksumHolds"
+}

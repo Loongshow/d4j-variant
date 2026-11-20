@@ -1,0 +1,191 @@
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index abd40cf8a..cbbcec76f 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -709,6 +709,34 @@ public class StringUtils {
+         return str.indexOf(searchChar);
+     }
+ 
++    /**
++     * <p>Copies the first character of each word in a range of a character
++     * array into a destination array, in order. Words are separated by
++     * whitespace, as defined by {@link Character#isWhitespace(char)}.</p>
++     *
++     * @param chars  the characters to read, not null
++     * @param start  the index of the first character to read
++     * @param end  the index after the last character to read
++     * @param destination  the destination array, large enough for every word
++     * @return the number of characters copied
++     */
++    public static int copyWordStarts(char[] chars, int start, int end, char[] destination) {
++        int count = 0;
++        boolean inWord = false;
++        for (int i = start; i < end; i++) {
++            char ch = chars[i];
++            if (Character.isWhitespace(ch)) {
++                continue;
++            }
++            if (!inWord) {
++                destination[count++] = ch;
++                inWord = true;
++            }
++        }
++        return count;
++    }
++
++
+     /**
+      * <p>Finds the first index within a String from a start position,
+      * handling <code>null</code>.
+diff --git a/src/java/org/apache/commons/lang/WordUtils.java b/src/java/org/apache/commons/lang/WordUtils.java
+index 91c66155a..56e12ae69 100644
+--- a/src/java/org/apache/commons/lang/WordUtils.java
++++ b/src/java/org/apache/commons/lang/WordUtils.java
+@@ -503,9 +503,10 @@ public class WordUtils {
+      * @return String of initial letters, <code>null</code> if null String input
+      * @see #initials(String,char[])
+      * @since 2.2
++       The words are counted in a first pass over the String, and a <code>StringBuffer</code> of that size is then filled with the first letter of each word in a second pass.
+      */
+     public static String initials(String str) {
+-        return initials(str, null);
++        return org.apache.commons.lang.builder.ToStringStyle.leadingChars(str);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 55d48f3b9..d71ddedff 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.time.DateUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -382,6 +383,25 @@ public abstract class ToStringStyle implements Serializable {
+         unregister(object);
+     }
+ 
++    /**
++     * <p>Gets the first character of each word in a String, in order.
++     * Words are separated by whitespace, as defined by
++     * {@link Character#isWhitespace(char)}.</p>
++     *
++     * @param str  the String to read, may be null
++     * @return the String of first characters, <code>null</code> if null
++     *  String input
++     */
++    public static String leadingChars(String str) {
++        if (str == null || str.length() == 0) {
++            return str;
++        }
++        char[] buffer = new char[str.length() / 2 + 1];
++        int count = DateUtils.fillLeadingChars(str, buffer);
++        return new String(buffer, 0, count);
++    }
++
++
+     /**
+      * <p>Remove the last field separator from the buffer.</p>
+      * 
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index fd135fd11..6f041a6f1 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -272,6 +273,19 @@ public class StrBuilder implements Cloneable {
+         return size == 0;
+     }
+ 
++    /**
++     * Copies the first character of each word in a character array into a
++     * destination array, in order. Words are separated by whitespace.
++     *
++     * @param chars  the characters to read, not null
++     * @param destination  the destination array, large enough for every word
++     * @return the number of characters copied
++     */
++    public static int getWordChars(char[] chars, char[] destination) {
++        return FastDateFormat.parseWordStarts(chars, 0, chars.length, destination);
++    }
++
++
+     /**
+      * Clears the string builder (convenience Collections API style method).
+      * <p>
+diff --git a/src/java/org/apache/commons/lang/time/DateUtils.java b/src/java/org/apache/commons/lang/time/DateUtils.java
+index d39542f33..997faa117 100644
+--- a/src/java/org/apache/commons/lang/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -1366,6 +1367,19 @@ public class DateUtils {
+     public static long getFragmentInMinutes(Calendar calendar, int fragment) {
+         return getFragment(calendar, fragment, Calendar.MINUTE);
+     }
++
++    /**
++     * <p>Fills a buffer with the first character of each word in a String,
++     * in order. Words are separated by whitespace.</p>
++     *
++     * @param str  the String to read, not null
++     * @param buffer  the buffer to fill, large enough for every word
++     * @return the number of characters placed in the buffer
++     */
++    public static int fillLeadingChars(String str, char[] buffer) {
++        return StrBuilder.getWordChars(str.toCharArray(), buffer);
++    }
++
+     
+     /**
+      * <p>Returns the number of hours within the 
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index d2a0f3c02..9bea35154 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -1003,6 +1004,21 @@ public class FastDateFormat extends Format {
+         return total;
+     }
+ 
++    /**
++     * <p>Copies the first character of each word in a range of a character
++     * array into a destination array, in order.</p>
++     *
++     * @param chars  the characters to read, not null
++     * @param start  the index of the first character to read
++     * @param end  the index after the last character to read
++     * @param destination  the destination array, large enough for every word
++     * @return the number of characters copied
++     */
++    public static int parseWordStarts(char[] chars, int start, int end, char[] destination) {
++        return StringUtils.copyWordStarts(chars, start, end, destination);
++    }
++
++
+     /**
+      * <p>Gets a debugging string version of this formatter.</p>
+      * 

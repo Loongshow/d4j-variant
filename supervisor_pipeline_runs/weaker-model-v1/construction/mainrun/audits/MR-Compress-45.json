@@ -1,0 +1,64 @@
+{
+ "instance": "Compress-45",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::valueOfLeadingNumber (hop 3)",
+   "edit": "while (stop < end && buffer[stop] != 0 && buffer[stop] != ' ') {  ->  while (stop < end && buffer[stop] >= '0' && buffer[stop] <= '7') {",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "One line, and it behaves like correct.patch on every probe input (abcdef_, 7a_, 12345678, -7_, +7_, 7<SOH>_, embedded space/NUL, valid fields). It is not a competing repair because it contradicts hop 3's own documented rule 'The number ends at the first NUL or space of the field, or at the end of the field if the field holds neither': on the trigger input the number would end at index 0 ('a') instead of index 6 (the space). Hop 3 takes over the gold's per-byte digit classification, so this is a second implementation of the gold's step at a hop and not a use of hop 3 as documented."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipFile::valueBeforeTrailer (hop 4)",
+   "edit": "for (int i = stop; i < end; i++) { if (buffer[i] != 0 && buffer[i] != ' ') {  ->  for (int i = start; i < end; i++) { if (buffer[i] != 0 && buffer[i] != ' ' && (i >= stop || buffer[i] < '0' || buffer[i] > '7')) {",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Two lines. Hop 4 re-does the gold's digit check on the number's bytes before the call, so the gold is never reached on invalid input and still 'parses' non-octal bytes. Hop 4's javadoc scopes its rejection to the bytes 'between the number and the end of the field', so a check inside the number is undocumented behaviour. The ownership_reason declares this one as a second implementation of the gold's step."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipFile::valueBeforeTrailer (hop 4)",
+   "edit": "return ZipArchiveInputStream.octalNumberValue(buffer, start, stop);  ->  return stop == start ? 0L : Long.parseLong(new String(buffer, start, stop - start), 8);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Replaces the gold's result with another implementation and makes the gold dead. It also differs from the facade contract: '-7 ' gives -7 and '+7 ' gives 7 where correct.patch throws IllegalArgumentException."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::valueOfOctalField (hop 1)",
+   "edit": "after the leading-NUL return, add: if (buffer[offset] != ' ' && (buffer[offset] < '0' || buffer[offset] > '7')) { throw new IllegalArgumentException(\"Invalid byte \" + buffer[offset] + \" at index \" + offset); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Overfits the trigger, since only the first byte is checked. The facade contract is still violated: '7a ' gives 105 and '7<SOH> ' gives 9 with no exception. It does not repair the fault."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.compress.archivers.tar.TarUtils::parseOctal (guard length < 2 + one call)",
+  "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::valueOfOctalField (leading NUL -> 0)",
+  "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::valueAfterLeadingSpaces (skip leading spaces)",
+  "hop3 org.apache.commons.compress.archivers.tar.TarArchiveEntry::valueOfLeadingNumber (number ends at first NUL/space)",
+  "hop4 org.apache.commons.compress.archivers.zip.ZipFile::valueBeforeTrailer (bytes after the number must be NUL/space, else IAE)",
+  "gold org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::octalNumberValue (digit fold; the non-octal-digit IAE is omitted)"
+ ],
+ "reasons": "(a) On the trigger input 'abcdef ' (TarUtilsTest.java:93-98) the only documented contract that is broken locally is the gold's: it 'Parses the octal number held in the bytes' yet folds 'abcdef' into 1840350. Hop 1 (first byte not NUL), hop 2 (no leading spaces), hop 3 (the number ends at the first NUL/space, index 6) and hop 4 (only the trailing space follows the number) each do exactly what their specific javadoc sentences say. The facade's @throws ('a invalid byte is detected') is violated only through the propagated value. (b) Every hop's javadoc matches its code. Each scopes its own rule precisely (leading NUL, leading spaces, the NUL/space end rule, trailer bytes only), and no hop claims to check the digits of the number. (c) No competing repair. The strongest alternative is a one-line hop-3 edit that ends the number at the first non-octal byte. It is behaviourally equivalent to correct.patch and passes the full suite, but it contradicts hop 3's explicit end rule on the trigger input. The hop-4 pre-check and the Long.parseLong replacement are bypasses, because they re-implement the gold's step or make the gold dead. A hop-1 first-byte check only overfits the trigger. (d) The added names (valueOfOctalField, valueAfterLeadingSpaces, valueOfLeadingNumber, valueBeforeTrailer, octalNumberValue) are neutral, the G2b vocabulary check is clean, and the gold is quiet. The lie ('The digits are read from the last one towards the first, and each digit is multiplied by the matching power of eight ...') is procedurally false: the gold reads first to last with a shift-accumulate. It does not mention validation, any hop or the omitted check. (e) The gold is exactly 5 calls below the facade, in five different existing classes. I checked against BUILD_BRIEF_C10F_ADDENDUM section 1, not the 1500-line rule. Only one other public class reaches 1500 lines, so host_mode is largest5. I counted newlines in the pristine checkout myself: the five largest public classes other than TarUtils are ZipArchiveOutputStream 1686, BZip2CompressorOutputStream 1334, TarArchiveEntry 1259, ZipFile 1258 and ZipArchiveInputStream 1136. The hops sit in exactly that order, with hop 1 in the largest, and the insertion points match the recorded seeded anchors. The facade is the original length guard plus one delegating call, and the facade TarUtils.parseOctal is the real bug's modified class and the allowed target. The trigger is an existing test (test.patch is empty). Full-suite runs: pristine 0 failures, variant only TarUtilsTest::testParseOctalInvalid, correct 0. (f) The convention is pinned outside the gold's javadoc in four places. The facade's @throws and the sibling TarUtils.parseOctalOrBinary's @throws ('an invalid byte is detected in an octal number') document it. Production octal-field parsers reject a non-octal digit with NumberFormatException, an IllegalArgumentException: CpioArchiveInputStream.readAsciiLong(n, 8) uses Long.parseLong and ArArchiveInputStream.asInt(fileModeBuf, 8) uses Integer.parseInt. The passing TarTestCase::testCOMPRESS178 requires an invalid header byte to surface as an IllegalArgumentException cause.",
+ "notes": "Caveats (none of them change the verdict). (1) testCOMPRESS178's invalid byte is an embedded NUL in the GID field ('00\\0 0765\\0'). On the variant, hop 4 catches it, not the gold, so this test pins the 'invalid byte -> IAE' convention in general and not the gold's digit check. The trigger is the only test that pins the digit check itself. (2) The gold's @param wording ('the buffer holding the number', 'the first byte of the number') could be read as a caller precondition. But hop 3 defines 'the number' as the bytes before the first NUL/space, with no digit check, and every hop's javadoc uses 'Parses', which idiomatically includes rejecting malformed digits. The original parseOctal also had the check next to the accumulation. So the gold remains the defensible owner. (3) The lie line is inserted after the @throws tag without a leading '*', so rendered javadoc shows it as a continuation of the @throws text. This is a formatting artefact of the recipe's rewrite_facade and does not point at the gold. (4) The private helper TarUtils.exceptionMessage ('Invalid byte ... at offset ...') is now unused in the facade's class. It is a leftover of the facade rewrite. It reinforces the facade's invalid-byte convention but does not point at the gold's location. (5) The gold keeps the original idiom 'final byte currentByte = buffer[i];' with a single use. That is house style copied from the original parseOctal, not a marker. I did not apply the no-local-trace checklist, which is the trace checker's job. (6) The facade's pre-existing javadoc sentence 'The buffer must contain a trailing space or NUL' was never enforced in the original code (testParseOctal requires '777777777777' to parse). It does not bear on the trigger input, which ends in a space. Scratch: /private/tmp/mxb-pqye4g, deleted after the audit."
+}

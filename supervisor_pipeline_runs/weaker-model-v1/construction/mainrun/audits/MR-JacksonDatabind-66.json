@@ -1,0 +1,60 @@
+{
+ "instance": "JacksonDatabind-66",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer::StdKeyDeserializer(int,Class,FromStringDeserializer) (constructor called by the gold; not a hop)",
+   "edit": "_deser = deser;  ->  _deser = (deser == null && kind == TYPE_CURRENCY) ? FromStringDeserializer.findDeserializer(cls) : deser;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer::_parse (evidence method)",
+   "edit": "case TYPE_CURRENCY: return _deser._deserialize(key, ctxt);  ->  return FromStringDeserializer.findDeserializer(Currency.class)._deserialize(key, ctxt);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase::findStdKeyDeserializer (hop 1)",
+   "edit": "after the String/Object branch add: if (raw == java.util.Currency.class) { return new StdKeyDeserializer(StdKeyDeserializer.TYPE_CURRENCY, raw, com.fasterxml.jackson.databind.deser.std.FromStringDeserializer.findDeserializer(raw)); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "BeanDeserializerBase::findStdKeyDeserializer / ObjectMapper::standardKeyDeserializerFor / BasicDeserializerFactory::stdKeyDeserializerForType (declared compensating edits, checked by G9)",
+   "edit": "route Currency to StringKD / return null for Currency / map primitive to wrapper",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer::forType (body: one delegating call; original had no guard; called from StdKeyDeserializers::findKeyDeserializer)",
+  "hop1 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::findStdKeyDeserializer (String/Object -> StringKD, else delegates)",
+  "hop2 com.fasterxml.jackson.databind.ObjectMapper::standardKeyDeserializerFor (pass-through)",
+  "hop3 com.fasterxml.jackson.databind.DeserializationContext::keyDeserializerForRawType (pass-through)",
+  "hop4 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::stdKeyDeserializerForType (pass-through)",
+  "gold com.fasterxml.jackson.databind.ObjectReader::constructKeyDeserializer (Currency branch omits deser = FromStringDeserializer.findDeserializer(raw))"
+ ],
+ "reasons": "Reproduced: variant compiles; testCurrencyKeyMap fails with InvalidFormatException '... problem: (java.lang.NullPointerException) null'; variant full suite fails only that test; correct.patch makes it pass. (a) Only the gold's javadoc promises a key deserializer that 'reads Map keys of given type from their String representation'; the TYPE_CURRENCY deserializer it builds has a null helper, so _parse NPEs on 'USD'. Facade and hops promise only to find/return the key deserializer and return the gold's object unchanged, so they are only derivatively affected. (b) Hop javadocs match their code (hop 1: String/Object pass-through to StringKD; hops 2-4: plain delegation 'other than String or Object'); none builds or configures the deserializer, so none can reasonably own a missing helper. (c) No competing repair. Three one-line edits outside the gold pass the trigger, ownership tests and full suite, but all are bypasses: a constructor fallback overrides the gold's helper choice for one kind (re-implements the gold's lookup in a callee, against the convention shown by the gold's own Locale branch, the 2-arg constructor passing null and JdkDeserializers.find doing the lookup at the finder level); a _parse rewrite makes _deser dead for Currency (against the sibling TYPE_LOCALE case and the _deser field doc); a hop-1 Currency branch builds its own deserializer and makes hops 2-5 dead. The declared compensating edits fail the trigger (G9). (d) Names are neutral, G2b clean; the facade lie (static table by class name filled at class load) mentions no helper, Currency or omitted step; the gold javadoc is quiet on the helper. (e) Gold is exactly five calls below the facade; hosts BeanDeserializerBase, ObjectMapper, DeserializationContext, BasicDeserializerFactory, ObjectReader are five different existing classes; facade body is one delegating call; facade javadoc carries one false procedural sentence; trigger is an existing test (empty test.patch) and the only new failure; facade class StdKeyDeserializer is the class the real D4J bug modified. (f) Pinned outside the gold: StdKeyDeserializer._parse reads TYPE_CURRENCY (and TYPE_LOCALE) keys only through _deser; JdkDeserializers.find uses FromStringDeserializer.findDeserializer for Currency values (JDKStringLikeTypesTest.testCurrency passes); FromStringDeserializer.findDeserializer maps Currency to STD_CURRENCY; testLocaleKeyMap pins the same construction for Locale.",
+ "notes": "Residual risk: the constructor fallback is a one-line, full-suite-clean edit; I classify it as a bypass because it overrides the argument the gold passes and duplicates the gold's helper step, not because any documentation forbids it (the constructor has no javadoc). The facade had no javadoc in the pristine checkout; the variant adds a true summary sentence plus the lie, and the lie line lacks the leading ' * ' (cosmetic; points at the facade, not the gold). Inside the gold the helper lookup appears only in the Locale branch while Currency (also a helper kind in _parse) lacks it; this is the fault's own visible shape, left to the separate trace check. The 3-arg StdKeyDeserializer constructor and StringKD were widened to public as context edits so the cross-package hops compile. Scratch directories under /private/tmp/mxb-YgyunQ were deleted."
+}

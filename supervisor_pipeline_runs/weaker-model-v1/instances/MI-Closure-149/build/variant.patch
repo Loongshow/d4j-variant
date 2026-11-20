@@ -1,0 +1,190 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 56bc4eb88..2c12c6c8d 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -44,6 +44,7 @@ import java.util.Set;
+ import java.util.concurrent.Callable;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
++import com.google.javascript.rhino.Parser;
+ 
+ /**
+  * Compiler (and the other classes in this package) does the following:
+@@ -1413,6 +1414,21 @@ public class Compiler extends AbstractCompiler {
+       return sb.length();
+     }
+ 
++    /**
++     * Returns a new map from the name of each define to a node for its
++     * value.
++     *
++     * @param values the value of each define, by name
++     * @return a new map of value nodes, by define name
++     */
++    public static Map<String, Node> defineValueNodes(
++        Map<String, Object> values) {
++      Map<String, Node> nodes = new HashMap<String, Node>();
++      Parser.addDefineValueNodes(values, nodes);
++      return nodes;
++    }
++
++
+     /** Returns the (zero-based) index of the last line in the text buffer. */
+     int getLineIndex() {
+       return lineCount;
+diff --git a/src/com/google/javascript/jscomp/CompilerOptions.java b/src/com/google/javascript/jscomp/CompilerOptions.java
+index f1c953573..6875510e0 100644
+--- a/src/com/google/javascript/jscomp/CompilerOptions.java
++++ b/src/com/google/javascript/jscomp/CompilerOptions.java
+@@ -732,26 +732,11 @@ public class CompilerOptions implements Serializable, Cloneable {
+ 
+   /**
+    * Returns the map of define replacements.
+-   */
++     The defines are sorted by name first, and the node of each one is created in that order.
++     */
+   public Map<String, Node> getDefineReplacements() {
+-    Map<String, Node> map = Maps.newHashMap();
+-    for (Map.Entry<String, Object> entry : defineReplacements.entrySet()) {
+-      String name = entry.getKey();
+-      Object value = entry.getValue();
+-      if (value instanceof Boolean) {
+-        map.put(name, ((Boolean) value).booleanValue() ?
+-            new Node(Token.TRUE) : new Node(Token.FALSE));
+-      } else if (value instanceof Integer) {
+-        map.put(name, Node.newNumber(((Integer) value).intValue()));
+-      } else if (value instanceof Double) {
+-        map.put(name, Node.newNumber(((Double) value).doubleValue()));
+-      } else {
+-        Preconditions.checkState(value instanceof String);
+-        map.put(name, Node.newString((String) value));
+-      }
++        return Compiler.CodeBuilder.defineValueNodes(defineReplacements);
+     }
+-    return map;
+-  }
+ 
+   /**
+    * Sets the value of the {@code @define} variable in JS
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index 59f927be4..8a8f68848 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1712,4 +1712,18 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Returns a new node whose value is the given value.
++     *
++     * @param value a value
++     * @return a new node for the value
++     */
++    public static Node newValueNode(Object value) {
++      if (value instanceof Number) {
++        return Node.newNumber(((Number) value).doubleValue());
++      }
++      return Node.newString(value.toString());
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/Parser.java b/src/com/google/javascript/rhino/Parser.java
+index 5dbf1bd48..7fec99efe 100644
+--- a/src/com/google/javascript/rhino/Parser.java
++++ b/src/com/google/javascript/rhino/Parser.java
+@@ -50,6 +50,8 @@ import java.io.IOException;
+ import java.io.Reader;
+ import java.util.Hashtable;
+ import java.util.List;
++import java.util.Map;
++import com.google.javascript.rhino.jstype.JSTypeRegistry;
+ 
+ /**
+  * This class implements the JavaScript parser.
+@@ -393,6 +395,19 @@ public class Parser
+         }
+     }
+ 
++    /**
++     * Adds to a map, for each define, a node for its value.
++     *
++     * @param values the value of each define, by name
++     * @param nodes the map to add the value nodes to
++     */
++    public static void addDefineValueNodes(Map<String, Object> values,
++                                           Map<String, Node> nodes)
++    {
++        JSTypeRegistry.putDefineValueNodes(values, nodes);
++    }
++
++
+     /*
+      * Build a parse tree from the given sourceString.
+      *
+diff --git a/src/com/google/javascript/rhino/TokenStream.java b/src/com/google/javascript/rhino/TokenStream.java
+index eabc12a9f..c4f69c41c 100644
+--- a/src/com/google/javascript/rhino/TokenStream.java
++++ b/src/com/google/javascript/rhino/TokenStream.java
+@@ -47,6 +47,8 @@ package com.google.javascript.rhino;
+ 
+ import java.io.IOException;
+ import java.io.Reader;
++import java.util.Map;
++import com.google.javascript.jscomp.TypeCheck;
+ 
+ /**
+  * This class implements the JavaScript scanner.
+@@ -1464,6 +1466,23 @@ public class TokenStream
+ 
+     public int getTokenno() { return tokenno; }
+ 
++    /**
++     * Writes into a map, under the name of each define, a new node for its
++     * value.
++     *
++     * @param values the value of each define, by name
++     * @param nodes the map to write the value nodes into
++     */
++    public static void writeDefineValueNodes(Map<String, Object> values,
++                                             Map<String, Node> nodes)
++    {
++        for (Map.Entry<String, Object> entry : values.entrySet()) {
++            nodes.put(entry.getKey(),
++                      TypeCheck.newValueNode(entry.getValue()));
++        }
++    }
++
++
+     protected void ungetChar(int c)
+     {
+         // cannot unread past across line boundary
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index 5ba74a27d..ed3650eaa 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -63,6 +63,7 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.rhino.TokenStream;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1527,4 +1528,16 @@ public class JSTypeRegistry implements Serializable {
+     templateTypeName = null;
+     templateType = null;
+   }
++
++        /**
++     * Puts into a map, for each define, a node for its value.
++     *
++     * @param values the value of each define, by name
++     * @param nodes the map to put the value nodes into
++     */
++    public static void putDefineValueNodes(
++        Map<String, Object> values, Map<String, Node> nodes) {
++      TokenStream.writeDefineValueNodes(values, nodes);
++    }
++
+ }

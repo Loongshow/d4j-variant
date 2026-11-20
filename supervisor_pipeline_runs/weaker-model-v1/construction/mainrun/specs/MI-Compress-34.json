@@ -1,0 +1,229 @@
+{
+ "bug_id": 34,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "    final int version = data[0];",
+   "old": "    final int version = data[0] & 0xFF;",
+   "why": "hop 2 reads the version byte signed"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "return BZip2CompressorOutputStream.versionedDataHash(field.getCentralDirectoryData());",
+   "old": "return BZip2CompressorOutputStream.versionedDataHash(field.getLocalFileDataData());",
+   "why": "hop 1 hashes the central directory data"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "return ZipFile.foldExtraNumbers(data, offset, Integer.rotateLeft(seed, 16));",
+   "old": "return ZipFile.foldExtraNumbers(data, offset, seed);",
+   "why": "hop 3 rotates the seed before folding the ids"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "import org.apache.commons.compress.utils.ArchiveUtils;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.utils.ArchiveUtils;\n",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "    /**\n     * Folds the size-prefixed user and group ids of extra field data into a\n     * hash.\n     *\n     * @param data the extra field data\n     * @param offset the position of the user id's size byte\n     * @param seed the hash to start from\n     * @return the hash with both ids folded in\n     */\n    public static int foldOwnerIds(final byte[] data, final int offset, final int seed) {\n        return ZipFile.foldExtraNumbers(data, offset, seed);\n    }\n\n\n    /**\n     * Return whether or not this entry represents a directory.",
+   "old": "    /**\n     * Return whether or not this entry represents a directory.",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java",
+   "new": "    /**\n     * Returns a hash code built from the version, UID and GID of this extra field.\n     *   The UID and GID are written out together as one decimal string, and the hash code of that string is then mixed with the version.\n     */\n    public int hashCode() {\n        return ZipArchiveOutputStream.extraDataHash(this);",
+   "old": "    public int hashCode() {\n        int hc = -1234567 * version;\n        // Since most UID's and GID's are below 65,536, this is (hopefully!)\n        // a nice way to make sure typical UID and GID values impact the hash\n        // as much as possible.\n        hc ^= Integer.rotateLeft(uid.hashCode(), 16);\n        hc ^= gid.hashCode();\n        return hc;",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;\nimport java.util.Arrays;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;\n",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "\n    /**\n     * Folds the size-prefixed numbers of extra field data, starting at the\n     * given offset, into a hash.\n     *\n     * <p>Each number is a size byte followed by its unsigned value, least\n     * significant byte first. The hash is rotated left by 16 bits and the\n     * value's hash, computed as {@link java.math.BigInteger#hashCode()}\n     * computes it, is XORed into it.</p>\n     *\n     * @param data the extra field data\n     * @param offset the position of the first number's size byte\n     * @param seed the hash to start from\n     * @return the hash with the numbers folded in\n     */\n    public static int foldSizedNumbers(final byte[] data, final int offset, final int seed) {\n        int hash = seed;\n        int pos = offset;\n        while (pos < data.length) {\n            int size = data[pos++] & 0xFF;\n            byte[] value = Arrays.copyOfRange(data, pos, pos + size);\n            value = Arrays.copyOf(value, (size + 3) & ~3);\n            pos += size;\n            int valueHash = 0;\n            int factor = 1;\n            for (int i = 0; i < value.length; i += WORD) {\n                valueHash += factor * (int) ZipLong.getValue(value, i);\n                factor *= 31;\n            }\n            hash = Integer.rotateLeft(hash, 16) ^ valueHash;\n        }\n        return hash;\n    }\n\n\n    private static boolean checksig(byte[] signature, byte[] expected) {",
+   "old": "\n    private static boolean checksig(byte[] signature, byte[] expected) {",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\n",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "        closeCopiedEntry(is2PhaseSource);\n    }\n\n    /**\n     * Computes the hash of a UNIX UID/GID extra field from its local file\n     * data.\n     *\n     * @param field the extra field, not null\n     * @return the hash of the field's version, UID and GID\n     */\n    public static int extraDataHash(final X7875_NewUnix field) {\n        return BZip2CompressorOutputStream.versionedDataHash(field.getLocalFileDataData());\n    }\n\n\n    /**",
+   "old": "        closeCopiedEntry(is2PhaseSource);\n    }\n\n    /**",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "            }\n        }\n    }\n\n    /**\n     * Folds the size-prefixed numbers of extra field data, starting at the\n     * given offset, into a hash.\n     *\n     * @param data the extra field data\n     * @param offset the position of the first number's size byte\n     * @param seed the hash to start from\n     * @return the hash with the numbers folded in\n     */\n    public static int foldExtraNumbers(final byte[] data, final int offset, final int seed) {\n        return ZipArchiveInputStream.foldSizedNumbers(data, offset, seed);\n    }\n\n\n    /**\n     * Returns an InputStream for reading the contents of the given entry.",
+   "old": "            }\n        }\n    }\n\n    /**\n     * Returns an InputStream for reading the contents of the given entry.",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "            }\n        }\n    }\n\n    /**\n     * Hashes the local file data of a UNIX UID/GID extra field: a version\n     * byte followed by the size-prefixed UID and GID.\n     *\n     * <p>The version, read as an unsigned byte, is multiplied by -1234567 to\n     * give the starting hash, into which the UID and GID that follow it are\n     * folded.</p>\n     *\n     * @param data the local file data of the extra field, not null\n     * @return the hash of the data\n     */\n    public static int versionedDataHash(final byte[] data) {\n        final int version = data[0] & 0xFF;\n        return TarArchiveEntry.foldOwnerIds(data, 1, -1234567 * version);\n    }\n\n\n    @Override\n    public void close() throws IOException {",
+   "old": "            }\n        }\n    }\n\n    @Override\n    public void close() throws IOException {",
+   "purpose": "MI-Compress-34 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "extraDataHash"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "versionedDataHash"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "method": "foldOwnerIds"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "method": "foldExtraNumbers"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-34__i.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.zip.X7875_NewUnix::hashCode"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.zip.X7875_NewUnix::getLocalFileDataData",
+  "org.apache.commons.compress.archivers.zip.X7875_NewUnix::trimLeadingZeroesForceMinLength",
+  "org.apache.commons.compress.archivers.zip.X7875_NewUnix::parseFromLocalFileData"
+ ],
+ "expected_signature": "ArrayIndexOutOfBoundsException: Index 3 out of bounds for length 2",
+ "extra_tests": [],
+ "fixture_key": "Compress-34",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+  "edits": [
+   {
+    "new": "            byte[] value = Arrays.copyOfRange(data, pos, pos + size);\n",
+    "old": "            byte[] value = Arrays.copyOfRange(data, pos, pos + size);\n            value = Arrays.copyOf(value, (size + 3) & ~3);\n"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+  "method": "foldSizedNumbers"
+ },
+ "group": "MI-Compress-34",
+ "hops": 5,
+ "iid": "MI-Compress-34",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold reads the values of the size-prefixed numbers and turns them into words: hop 1 only reads the receiver's local file data, hop 2 only computes the starting hash from the version byte and gives the offset of the first size byte, hops 3 and 4 pass the data, offset and seed along unchanged. The variant gold copies each value out exactly and reads it as whole 4-byte little-endian words, so it reads any value whose size is not a multiple of four past its end; the data every caller here has comes from getLocalFileDataData(), which trims each number to its significant bytes. A caller can avoid the throw only by not handing the gold the UID and GID as they are (an offset past the end, or one landing on a value byte read as a size), which drops or garbles them and breaks hop 2's and hop 3's documented fold. The gold's javadoc promises each value's BigInteger hash; on the trigger's data (the default field, version 1, UID 1000, GID 1000, each a 2-byte value) the variant throws ArrayIndexOutOfBoundsException instead, so hashCode() violates its contract. That a number's value has any byte length is pinned outside the gold: X7875_NewUnix.getLocalFileDataData writes each number trimmed by trimLeadingZeroesForceMinLength (minimum length 1, no rounding to a word) and X7875_NewUnix.parseFromLocalFileData reads a value of any size into new BigInteger(1, reverse(bytes)); X7875_NewUnixTest::testParseReparse (sizes 1, 2, 4, 5, 8), ::testTrimLeadingZeroesForceMinLength4 and ::testSampleFile pass.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.zip.X7875_NewUnixTest::testParseReparse",
+  "org.apache.commons.compress.archivers.zip.X7875_NewUnixTest::testTrimLeadingZeroesForceMinLength4",
+  "org.apache.commons.compress.archivers.zip.X7875_NewUnixTest::testSampleFile"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "addRawArchiveEntry",
+    "anchor_seed": 7031,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "extraDataHash",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "finish",
+    "anchor_seed": 7032,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "versionedDataHash",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isGlobalPaxHeader",
+    "anchor_seed": 7033,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "foldOwnerIds",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "copyRawEntries",
+    "anchor_seed": 7034,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "foldExtraNumbers",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "matches",
+    "anchor_seed": 7035,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.util.Arrays;"
+    ],
+    "method": "foldSizedNumbers",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6931
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-34"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.zip.X7875_NewUnixTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/zip/X7875_NewUnixTest.java",
+  "test_method": "testMisc"
+ },
+ "variant_id": "CTV-D7BF20",
+ "kind": "new",
+ "fault_lines": [
+  "byte[] value = Arrays.copyOfRange(data, pos, pos + size);"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::foldSizedNumbers"
+}

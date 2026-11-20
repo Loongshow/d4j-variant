@@ -1,0 +1,224 @@
+diff --git a/src/java/org/apache/commons/codec/binary/Base64.java b/src/java/org/apache/commons/codec/binary/Base64.java
+index a5c44ab3..88e7ef56 100644
+--- a/src/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/java/org/apache/commons/codec/binary/Base64.java
+@@ -796,9 +796,10 @@ public class Base64 implements BinaryEncoder, BinaryDecoder {
+      * @throws IllegalArgumentException
+      *             Thrown when the input array needs an output array bigger than {@link Integer#MAX_VALUE}
+      * @since 1.4
++       The data is first read as one unsigned number, which is then divided by 64 again and again, the remainders giving the Base64 characters from the last one to the first.
+      */
+     public static byte[] encodeBase64(byte[] binaryData, boolean isChunked, boolean urlSafe) {
+-        return encodeBase64(binaryData, isChunked, urlSafe, Integer.MAX_VALUE);
++        return org.apache.commons.codec.language.DoubleMetaphone.encodeBinary(binaryData, isChunked, urlSafe);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/codec/digest/DigestUtils.java b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+index f35488cf..f31ce9bb 100644
+--- a/src/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,7 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import org.apache.commons.codec.language.ColognePhonetic;
+ 
+ /**
+  * Operations to simplifiy common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -418,6 +419,22 @@ public class DigestUtils {
+         return Hex.encodeHexString(sha384(data));
+     }
+ 
++    /**
++     * Encodes binary data using the base64 algorithm, in lines separated by CRLF.
++     *
++     * @param data
++     *            Data to encode, not empty
++     * @param lineLength
++     *            the maximum number of characters in a line, or 0 for output without lines
++     * @param urlSafe
++     *            if <code>true</code> - and _ are emitted instead of + and /
++     * @return Base64-encoded data
++     */
++    public static byte[] base64Encode(byte[] data, int lineLength, boolean urlSafe) {
++        return ColognePhonetic.encodeLines(data, lineLength, new byte[] {'\r', '\n'}, urlSafe);
++    }
++
++
+     /**
+      * Calculates the SHA-384 digest and returns the value as a hex string.
+      * <p>
+diff --git a/src/java/org/apache/commons/codec/language/ColognePhonetic.java b/src/java/org/apache/commons/codec/language/ColognePhonetic.java
+index be5ff2da..63d8e3d6 100644
+--- a/src/java/org/apache/commons/codec/language/ColognePhonetic.java
++++ b/src/java/org/apache/commons/codec/language/ColognePhonetic.java
+@@ -340,6 +340,44 @@ public class ColognePhonetic implements StringEncoder {
+         return colognePhonetic(text);
+     }
+ 
++    /**
++     * <p>
++     * Encodes binary data using the base64 algorithm and divides the output into lines.
++     * </p>
++     * <p>
++     * Each line holds at most <code>lineLength</code> characters and is followed by the separator. With a line
++     * length of 0 or less the output is not divided into lines and has no separator.
++     * </p>
++     *
++     * @param data
++     *            the data to encode, not empty
++     * @param lineLength
++     *            the maximum number of characters in a line
++     * @param separator
++     *            the bytes that follow each line
++     * @param urlSafe
++     *            if <code>true</code> - and _ are emitted instead of + and /
++     * @return the encoded lines
++     */
++    public static byte[] encodeLines(byte[] data, int lineLength, byte[] separator, boolean urlSafe) {
++        final byte[] chars = Metaphone.encodeChars(data, urlSafe);
++        if (lineLength <= 0) {
++            return chars;
++        }
++        final int lines = (chars.length + lineLength - 1) / lineLength;
++        final byte[] encoded = new byte[chars.length + lines * separator.length];
++        int pos = 0;
++        for (int start = 0; start < chars.length; start += lineLength) {
++            final int count = Math.min(lineLength, chars.length - start);
++            System.arraycopy(chars, start, encoded, pos, count);
++            pos += count;
++            System.arraycopy(separator, 0, encoded, pos, separator.length);
++            pos += separator.length;
++        }
++        return encoded;
++    }
++
++
+     /**
+      * <p>
+      * <b>colognePhonetic()</b> is the actual implementations of the <i>Kölner
+diff --git a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index f7122d41..c729a34b 100644
+--- a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,8 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.binary.Base64;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -189,6 +191,28 @@ public class DoubleMetaphone implements StringEncoder {
+ 
+         return alternate ? result.getAlternate() : result.getPrimary();
+     }
++
++    /**
++     * Encodes binary data using the base64 algorithm, optionally chunking the output into 76 character blocks.
++     * <p>
++     * A <code>null</code> or empty array is returned as it is.
++     * </p>
++     *
++     * @param binaryData
++     *            Array containing binary data to encode, may be <code>null</code>
++     * @param isChunked
++     *            if <code>true</code> the output is chunked into 76 character blocks
++     * @param urlSafe
++     *            if <code>true</code> - and _ are emitted instead of the usual + and / characters
++     * @return Base64-encoded data
++     */
++    public static byte[] encodeBinary(byte[] binaryData, boolean isChunked, boolean urlSafe) {
++        if (binaryData == null || binaryData.length == 0) {
++            return binaryData;
++        }
++        return DigestUtils.base64Encode(binaryData, isChunked ? Base64.MIME_CHUNK_SIZE : 0, urlSafe);
++    }
++
+     
+     /**
+      * Encode the value using DoubleMetaphone.  It will only work if 
+diff --git a/src/java/org/apache/commons/codec/language/Metaphone.java b/src/java/org/apache/commons/codec/language/Metaphone.java
+index 2d0ffd3f..ee501fd4 100644
+--- a/src/java/org/apache/commons/codec/language/Metaphone.java
++++ b/src/java/org/apache/commons/codec/language/Metaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.net.QuotedPrintableCodec;
+ 
+ /**
+  * Encodes a string into a metaphone value. 
+@@ -314,6 +315,20 @@ public class Metaphone implements StringEncoder {
+         return code.toString();
+     }
+ 
++    /**
++     * Encodes binary data using the base64 algorithm, without dividing the output into lines.
++     *
++     * @param data
++     *            the data to encode, not empty
++     * @param urlSafe
++     *            if <code>true</code> - and _ are emitted instead of + and /
++     * @return the base64 characters of the data
++     */
++    public static byte[] encodeChars(byte[] data, boolean urlSafe) {
++        return QuotedPrintableCodec.encodeGroups(data, urlSafe);
++    }
++
++
+     private boolean isVowel(StringBuffer string, int index) {
+         return VOWELS.indexOf(string.charAt(index)) >= 0;
+     }
+diff --git a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+index 9c546f5f..537212b4 100644
+--- a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
++++ b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+@@ -361,6 +361,44 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin
+         return this.charset;
+     }
+ 
++    /**
++     * Encodes binary data using the base64 algorithm, without dividing the output into lines.
++     *
++     * @param data
++     *            the data to encode, not empty
++     * @param urlSafe
++     *            if <code>true</code> - and _ are emitted instead of + and /
++     * @return the base64 characters of the data
++     */
++    public static byte[] encodeGroups(byte[] data, boolean urlSafe) {
++        final String alphabet = urlSafe
++                ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
++                : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++        final int rest = data.length % 3;
++        final byte[] out = new byte[(data.length + 2) / 3 * 4];
++        int pos = 0;
++        for (int i = 0; i < data.length; i += 3) {
++            int x = (data[i] & 0xff) << 16;
++            if (i + 1 < data.length) {
++                x |= (data[i + 1] & 0xff) << 8;
++            }
++            if (i + 2 < data.length) {
++                x |= data[i + 2] & 0xff;
++            }
++            out[pos++] = (byte) alphabet.charAt((x >> 18) & 0x3f);
++            out[pos++] = (byte) alphabet.charAt((x >> 12) & 0x3f);
++            out[pos++] = i + 1 < data.length ? (byte) alphabet.charAt((x >> 6) & 0x3f) : (byte) '=';
++            out[pos++] = i + 2 < data.length ? (byte) alphabet.charAt(x & 0x3f) : (byte) '=';
++        }
++        if (urlSafe) {
++            final byte[] result = new byte[out.length - 3 + rest];
++            System.arraycopy(out, 0, result, 0, result.length);
++            return result;
++        }
++        return out;
++    }
++
++
+     /**
+      * Encodes a string into its quoted-printable form using the specified charset. Unsafe characters are escaped.
+      * 

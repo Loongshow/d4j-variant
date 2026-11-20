@@ -1,0 +1,255 @@
+{
+ "bug_id": 29,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "return TarArchiveEntry.blockArchiveStream(tar, out, encoding != null ? encoding : org.apache.commons.compress.utils.CharsetNames.US_ASCII);",
+   "old": "return TarArchiveEntry.blockArchiveStream(tar, out, encoding);",
+   "why": "hop 4 hands the gold US-ASCII when the factory has no entry encoding"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "return BZip2CompressorOutputStream.openArchiveStream(archiverName, out, encoding != null ? encoding : ZipEncodingHelper.UTF8);",
+   "old": "return BZip2CompressorOutputStream.openArchiveStream(archiverName, out, encoding);",
+   "why": "hop 1 hands the rest of the chain UTF8 when the factory has no entry encoding"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "return ZipFile.newArchiveStream(archiverName.toLowerCase(java.util.Locale.ENGLISH), out, encoding);",
+   "old": "return ZipFile.newArchiveStream(archiverName, out, encoding);",
+   "why": "hop 2 passes the archiver name on in lower case"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java",
+   "new": "       The archiver name is converted to lower case and looked up in a table that maps each supported name to its stream constructor.\n     */\n    public ArchiveOutputStream createArchiveOutputStream(\n            final String archiverName, final OutputStream out)\n            throws ArchiveException {\n        if (archiverName == null) {\n            throw new IllegalArgumentException(\"Archivername must not be null.\");\n        }\n        if (out == null) {\n            throw new IllegalArgumentException(\"OutputStream must not be null.\");\n        }\n        return ZipArchiveOutputStream.createArchiveStream(archiverName, out, entryEncoding);",
+   "old": "     */\n    public ArchiveOutputStream createArchiveOutputStream(\n            final String archiverName, final OutputStream out)\n            throws ArchiveException {\n        if (archiverName == null) {\n            throw new IllegalArgumentException(\"Archivername must not be null.\");\n        }\n        if (out == null) {\n            throw new IllegalArgumentException(\"OutputStream must not be null.\");\n        }\n\n        if (AR.equalsIgnoreCase(archiverName)) {\n            return new ArArchiveOutputStream(out);\n        }\n        if (ZIP.equalsIgnoreCase(archiverName)) {\n            ZipArchiveOutputStream zip = new ZipArchiveOutputStream(out);\n            if (entryEncoding != null) {\n                zip.setEncoding(entryEncoding);\n            }\n            return zip;\n        }\n        if (TAR.equalsIgnoreCase(archiverName)) {\n            if (entryEncoding != null) {\n                return new TarArchiveOutputStream(out, entryEncoding);\n            } else {\n                return new TarArchiveOutputStream(out);\n            }\n        }\n        if (JAR.equalsIgnoreCase(archiverName)) {\n            if (entryEncoding != null) {\n                return new JarArchiveOutputStream(out, entryEncoding);\n            } else {\n                return new JarArchiveOutputStream(out);\n            }\n        }\n        if (CPIO.equalsIgnoreCase(archiverName)) {\n            if (entryEncoding != null) {\n                return new CpioArchiveOutputStream(out, entryEncoding);\n            } else {\n                return new CpioArchiveOutputStream(out);\n            }\n        }\n        if (SEVEN_Z.equalsIgnoreCase(archiverName)) {\n            throw new StreamingNotSupportedException(SEVEN_Z);\n        }\n        throw new ArchiveException(\"Archiver: \" + archiverName + \" not found.\");",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "import org.apache.commons.compress.utils.ArchiveUtils;\nimport java.io.OutputStream;\nimport org.apache.commons.compress.archivers.ArchiveOutputStream;\nimport org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream;\n",
+   "old": "import org.apache.commons.compress.utils.ArchiveUtils;\n",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "    /**\n     * Creates an archive output stream that writes a tar or a cpio\n     * archive with the entry encoding of an archive stream factory.\n     *\n     * @param tar true for a tar archive, false for a cpio archive\n     * @param out the output stream to write the archive to\n     * @param encoding the entry encoding of the factory, as\n     * {@link org.apache.commons.compress.archivers.ArchiveStreamFactory#getEntryEncoding()}\n     * returns it\n     * @return the archive output stream\n     */\n    public static ArchiveOutputStream blockArchiveStream(final boolean tar, final OutputStream out,\n                                                         final String encoding) {\n        if (encoding == null) {\n            return tar ? new TarArchiveOutputStream(out) : new CpioArchiveOutputStream(out);\n        }\n        return tar ? new TarArchiveOutputStream(out, encoding) : new CpioArchiveOutputStream(out, encoding);\n    }\n\n\n    /**\n     * Check if this is a FIFO (pipe) entry.",
+   "old": "    /**\n     * Check if this is a FIFO (pipe) entry.",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;\nimport java.io.OutputStream;\nimport org.apache.commons.compress.archivers.ArchiveException;\nimport org.apache.commons.compress.archivers.ArchiveOutputStream;\nimport org.apache.commons.compress.archivers.ArchiveStreamFactory;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;\n",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "        }\n        throw new IllegalArgumentException();\n    }\n\n    /**\n     * Creates an archive output stream for the tar or the cpio archiver\n     * name.\n     *\n     * <p>The entry encoding is passed on as the factory holds it.</p>\n     *\n     * @param archiverName the archiver name, not null\n     * @param out the output stream to write the archive to, not null\n     * @param encoding the entry encoding of the factory\n     * @return the archive output stream\n     * @throws ArchiveException if the archiver name is neither tar nor\n     * cpio\n     */\n    public static ArchiveOutputStream archiveStreamFor(final String archiverName, final OutputStream out,\n                                                       final String encoding) throws ArchiveException {\n        final boolean tar = ArchiveStreamFactory.TAR.equalsIgnoreCase(archiverName);\n        if (!tar && !ArchiveStreamFactory.CPIO.equalsIgnoreCase(archiverName)) {\n            throw new ArchiveException(\"Archiver: \" + archiverName + \" not found.\");\n        }\n        return TarArchiveEntry.blockArchiveStream(tar, out, encoding);\n    }\n\n\n    /**\n     * Checks if the signature matches what is expected for a zip file.",
+   "old": "        }\n        throw new IllegalArgumentException();\n    }\n\n    /**\n     * Checks if the signature matches what is expected for a zip file.",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\nimport org.apache.commons.compress.archivers.ArchiveException;\nimport org.apache.commons.compress.archivers.ArchiveStreamFactory;\nimport org.apache.commons.compress.archivers.jar.JarArchiveOutputStream;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\n",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "    /**\n     * Creates an archive output stream for an archiver name.\n     *\n     * <p>Zip and jar archives are written by this class; the entry\n     * encoding of the factory is set on the stream when the factory has\n     * one. Any other archiver name is passed on together with the entry\n     * encoding.</p>\n     *\n     * @param archiverName the archiver name, not null\n     * @param out the output stream to write the archive to, not null\n     * @param encoding the entry encoding of the factory\n     * @return the archive output stream\n     * @throws ArchiveException if the archiver name is not known\n     */\n    public static ArchiveOutputStream createArchiveStream(final String archiverName, final OutputStream out,\n                                                          final String encoding) throws ArchiveException {\n        final boolean jar = ArchiveStreamFactory.JAR.equalsIgnoreCase(archiverName);\n        if (!jar && !ArchiveStreamFactory.ZIP.equalsIgnoreCase(archiverName)) {\n            return BZip2CompressorOutputStream.openArchiveStream(archiverName, out, encoding);\n        }\n        final ZipArchiveOutputStream zip = jar ? new JarArchiveOutputStream(out) : new ZipArchiveOutputStream(out);\n        if (encoding != null) {\n            zip.setEncoding(encoding);\n        }\n        return zip;\n    }\n\n\n    /**\n     * Writes bytes to ZIP entry.",
+   "old": "    /**\n     * Writes bytes to ZIP entry.",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;\nimport java.io.OutputStream;\nimport org.apache.commons.compress.archivers.ArchiveException;\nimport org.apache.commons.compress.archivers.ArchiveOutputStream;\nimport org.apache.commons.compress.archivers.ArchiveStreamFactory;\nimport org.apache.commons.compress.archivers.StreamingNotSupportedException;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;\n",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "            return null;\n        }\n    }\n\n    /**\n     * Creates an archive output stream for an archiver name.\n     *\n     * <p>The 7z format can only be written to a file and is rejected; any\n     * other archiver name is passed on together with the entry encoding of\n     * the factory.</p>\n     *\n     * @param archiverName the archiver name, not null\n     * @param out the output stream to write the archive to, not null\n     * @param encoding the entry encoding of the factory\n     * @return the archive output stream\n     * @throws StreamingNotSupportedException if the format cannot be\n     * written to a stream\n     * @throws ArchiveException if the archiver name is not known\n     */\n    public static ArchiveOutputStream newArchiveStream(final String archiverName, final OutputStream out,\n                                                       final String encoding) throws ArchiveException {\n        if (ArchiveStreamFactory.SEVEN_Z.equalsIgnoreCase(archiverName)) {\n            throw new StreamingNotSupportedException(ArchiveStreamFactory.SEVEN_Z);\n        }\n        return ZipArchiveInputStream.archiveStreamFor(archiverName, out, encoding);\n    }\n\n\n    /**\n     * Ensures that the close method of this zipfile is called when",
+   "old": "            return null;\n        }\n    }\n\n    /**\n     * Ensures that the close method of this zipfile is called when",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport org.apache.commons.compress.archivers.ArchiveException;\nimport org.apache.commons.compress.archivers.ArchiveOutputStream;\nimport org.apache.commons.compress.archivers.ArchiveStreamFactory;\nimport org.apache.commons.compress.archivers.ar.ArArchiveOutputStream;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "            outShadow.flush();\n        }\n    }\n\n    /**\n     * Creates an archive output stream for an archiver name.\n     *\n     * <p>Ar archives, which have no entry encoding, are written directly;\n     * any other archiver name is passed on together with the entry\n     * encoding of the factory.</p>\n     *\n     * @param archiverName the archiver name, not null\n     * @param out the output stream to write the archive to, not null\n     * @param encoding the entry encoding of the factory\n     * @return the archive output stream\n     * @throws ArchiveException if the archiver name is not known\n     */\n    public static ArchiveOutputStream openArchiveStream(final String archiverName, final OutputStream out,\n                                                        final String encoding) throws ArchiveException {\n        if (ArchiveStreamFactory.AR.equalsIgnoreCase(archiverName)) {\n            return new ArArchiveOutputStream(out);\n        }\n        return ZipFile.newArchiveStream(archiverName, out, encoding);\n    }\n\n\n    /**\n     * Writes magic bytes like BZ on the first position of the stream",
+   "old": "            outShadow.flush();\n        }\n    }\n\n    /**\n     * Writes magic bytes like BZ on the first position of the stream",
+   "purpose": "MI-Compress-29 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "createArchiveStream"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "openArchiveStream"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "method": "newArchiveStream"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "method": "archiveStreamFor"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-29__i.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.ArchiveStreamFactory::createArchiveOutputStream"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.ArchiveStreamFactory::createArchiveInputStream",
+  "org.apache.commons.compress.archivers.ArchiveStreamFactory::getEntryEncoding",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream::CpioArchiveOutputStream"
+ ],
+ "expected_signature": "Tests failed: 1",
+ "extra_tests": [],
+ "fixture_key": "Compress-29",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+  "edits": [
+   {
+    "new": "        return tar ? new TarArchiveOutputStream(out, encoding) : new CpioArchiveOutputStream(out, encoding);",
+    "old": "        if (encoding == null) {\n            return tar ? new TarArchiveOutputStream(out) : new CpioArchiveOutputStream(out);\n        }\n        return tar ? new TarArchiveOutputStream(out, encoding) : new CpioArchiveOutputStream(out, encoding);"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+  "method": "blockArchiveStream"
+ },
+ "group": "MI-Compress-29",
+ "hops": 5,
+ "iid": "MI-Compress-29",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Each archiver's stream is created by exactly one step of the chain, and only the gold creates tar and cpio streams; hops 2, 3 and 4 pass the factory's entry encoding on unchanged, as their javadoc says, and hop 1 applies it only to the zip and jar streams it creates itself. The gold's javadoc promises a stream 'with the entry encoding of an archive stream factory', the encoding 'as ArchiveStreamFactory#getEntryEncoding() returns it'; for a factory, an absent entry encoding means the archiver default (getEntryEncoding: 'or null for the archiver default'; setEntryEncoding: 'Use null for the archiver default'), and the cpio archiver default is ASCII (CpioArchiveOutputStream(OutputStream): 'using ASCII encoding for file names'). The variant gold always uses the encoding constructor, so a factory without an entry encoding gets a cpio stream with the platform's default instead. A cpio stream's file-name encoding is fixed by its constructor, so no caller can recover it after the gold returns. The convention is pinned outside the gold: the intact sibling factory methods ArchiveStreamFactory.createArchiveInputStream(String, InputStream) and createArchiveInputStream(InputStream) create the cpio (and zip, jar, arj, dump) stream with the archiver's own default constructor when the entry encoding is null; ArchiveStreamFactoryTest testEncodingInputStream and testEncodingInputStreamAutodetect (cpio with a default factory expects US-ASCII) pass, as do cantWrite7zToStream through the chain and ExceptionMessageTest testMessageWhenOutputStreamIsNull.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.ArchiveStreamFactoryTest::testEncodingInputStream",
+  "org.apache.commons.compress.archivers.ArchiveStreamFactoryTest::testEncodingInputStreamAutodetect",
+  "org.apache.commons.compress.archivers.ArchiveStreamFactoryTest::cantWrite7zToStream",
+  "org.apache.commons.compress.archivers.ExceptionMessageTest::testMessageWhenOutputStreamIsNull"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "canWriteEntryData",
+    "anchor_seed": 7735,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.ArchiveException;",
+     "import org.apache.commons.compress.archivers.ArchiveStreamFactory;",
+     "import org.apache.commons.compress.archivers.jar.JarArchiveOutputStream;",
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "createArchiveStream",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "flush",
+    "anchor_seed": 7736,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.ArchiveException;",
+     "import org.apache.commons.compress.archivers.ArchiveOutputStream;",
+     "import org.apache.commons.compress.archivers.ArchiveStreamFactory;",
+     "import org.apache.commons.compress.archivers.ar.ArArchiveOutputStream;",
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "openArchiveStream",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getUnixSymlink",
+    "anchor_seed": 7737,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.io.OutputStream;",
+     "import org.apache.commons.compress.archivers.ArchiveException;",
+     "import org.apache.commons.compress.archivers.ArchiveOutputStream;",
+     "import org.apache.commons.compress.archivers.ArchiveStreamFactory;",
+     "import org.apache.commons.compress.archivers.StreamingNotSupportedException;"
+    ],
+    "method": "newArchiveStream",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "skip",
+    "anchor_seed": 7738,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.io.OutputStream;",
+     "import org.apache.commons.compress.archivers.ArchiveException;",
+     "import org.apache.commons.compress.archivers.ArchiveOutputStream;",
+     "import org.apache.commons.compress.archivers.ArchiveStreamFactory;",
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "archiveStreamFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isBlockDevice",
+    "anchor_seed": 7739,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.io.OutputStream;",
+     "import org.apache.commons.compress.archivers.ArchiveOutputStream;",
+     "import org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream;"
+    ],
+    "method": "blockArchiveStream",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 7635
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-29"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.ArchiveStreamFactoryTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/ArchiveStreamFactoryTest.java",
+  "test_method": "testEncodingOutputStream"
+ },
+ "variant_id": "CTV-55A0DE",
+ "kind": "new",
+ "fault_lines": [
+  "return tar ? new TarArchiveOutputStream(out, encoding) : new CpioArchiveOutputStream(out, encoding);"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::blockArchiveStream"
+}

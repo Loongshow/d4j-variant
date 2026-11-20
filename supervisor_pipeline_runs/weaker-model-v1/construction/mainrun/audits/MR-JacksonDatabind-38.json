@@ -1,0 +1,104 @@
+{
+ "instance": "JacksonDatabind-38",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.databind.ObjectReader::collectionTypeFrom (hop 4)",
+   "edit": "return (CollectionType) BeanDeserializerBase.typeForCollection(rawType, superClass, superInts, elemT).refine(rawType, TypeBindings.createIfNeeded(rawType, elemT), superClass, superInts);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "re-binds the gold's result: refine() rebuilds the type with new bindings and keeps only the element type hop 4 already holds, so the gold's only decision (the bindings) is discarded and redone above it"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.ObjectReader::collectionTypeFrom (hop 4)",
+   "edit": "return CollectionType.construct(rawType, TypeBindings.createIfNeeded(rawType, elemT), superClass, superInts, elemT);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "hop 4 builds the type itself; the gold becomes dead"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.type.CollectionType::construct(Class,TypeBindings,JavaType,JavaType[],JavaType) (gold's callee, shared)",
+   "edit": "new CollectionType(rawType, (bindings.isEmpty() && rawType.getTypeParameters().length == 1) ? TypeBindings.create(rawType, elemT) : bindings, superClass, superInts, elemT, null, null, false)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "the factory overrides the bindings its caller passes, so the gold's bindings argument becomes dead; it also re-binds TypeFactory's raw Collection (probe: containedTypeCount 0 -> 1), contradicting TypeFactory._collectionType 'ok to have no types (\"raw\")'"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.type.TypeFactory::constructSpecializedType (shared, downstream)",
+   "edit": "if (baseType.getBindings().isEmpty() && !baseType.isContainerType()) {   // shortcut (1)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "makes refinement tolerate the unbound type against its own documented shortcut '(1) Original target type has no generics -- just resolve subtype' and against the evidence factories' comment that bindings must be fabricated because refining reads them; the facade's type stays unbound (containedTypeCount 0)"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::_mapAbstractCollectionType (shared, downstream)",
+   "edit": "return (CollectionType) config.constructSpecializedType(type, collectionClass).withContentType(type.getContentType());",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "re-applies downstream the element type that refinement drops; the facade's type is still unbound and still refines to ArrayList<Object> through TypeFactory.constructSpecializedType (probe), contrary to the convention the sibling factories document ('needed for refining into concrete collection types, as per [databind#1102]')"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.util.TokenBuffer::collectionTypeFor (hop 1)",
+   "edit": "return ObjectMapper.collectionTypeOf(rawType.isInterface() ? java.util.ArrayList.class : rawType, elemT);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "returns the type of another class than the raw class every hop documents; it avoids the refinement and leaves the gold's bindings unbound"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::collectionTypeWith (hop 3)",
+   "edit": "return ObjectReader.collectionTypeFrom(rawType, superClass, new JavaType[] { TypeFactory.defaultInstance().constructCollectionType(java.util.Collection.class, elemT) }, elemT);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "refinement reads only the type's own bindings (shortcut (1)), not the super-interfaces"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.ObjectReader::collectionTypeFrom (hop 4)",
+   "edit": "return (CollectionType) BeanDeserializerBase.typeForCollection(rawType, superClass, superInts, elemT).withContentType(elemT);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails",
+   "why": "withContentType keeps the empty bindings"
+  }
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.databind.type.CollectionType::construct(Class<?>, JavaType) [deprecated; body = one delegating call; lie appended to the @deprecated text]",
+  "hop1 com.fasterxml.jackson.databind.util.TokenBuffer::collectionTypeFor (pass-through)",
+  "hop2 com.fasterxml.jackson.databind.ObjectMapper::collectionTypeOf (nominal super class: null for an interface, else unknown type; as documented)",
+  "hop3 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::collectionTypeWith (super-interfaces null; as documented)",
+  "hop4 com.fasterxml.jackson.databind.ObjectReader::collectionTypeFrom (pass-through)",
+  "gold com.fasterxml.jackson.databind.deser.BeanDeserializerBase::typeForCollection (chooses TypeBindings; variant always uses emptyBindings)"
+ ],
+ "reasons": "Variant compiles; the trigger DeprecatedTypeHandling1102Test::testExplicitCollectionType fails with 'expected:<...Point> but was:<class java.util.LinkedHashMap>', and the full suite shows only that test failing (correct.patch: 0 failures). (a) The gold is the only method on the path that chooses the type's bindings and the only one that holds rawType and elemT where the type is built. On List/Point it returns a CollectionType with empty bindings (probe: containedTypeCount 0, versus 1 for TypeFactory.constructCollectionType(List, elem)). TypeFactory.constructSpecializedType then takes its shortcut (1) and refines it to ArrayList<Object>, so the elements are read as maps. That is not the collection type of List with Point elements in Jackson's sense: TypeFactory._collectionType derives the content type from the bindings, and the siblings bind the parameter. Hops 1 and 4 pass elemT through unchanged, and hops 2 and 3 choose only super types, which refinement does not read. Each matches its javadoc, so no other method originates a violation. (b) No hop's javadoc contradicts its code. Hop 2 documents the unknown-type super class, and hop 3 documents 'No super-interfaces are resolved'. None mentions bindings, and none is loose about a step it could own. (c) There is no competing repair. All six passing alternatives are bypasses or inconsistent with the documentation: hop 4 refine or self-construction; the 5-argument factory overriding its bindings argument (this also re-binds the raw Collection, against 'ok to have no types (\"raw\")'); constructSpecializedType dropping its documented shortcut (1); _mapAbstractCollectionType re-applying the content type; and hop 1 substituting ArrayList. Every downstream tolerance edit leaves the facade's type unbound, which contradicts the sibling factories' comment that bindings are 'needed for refining into concrete collection types, as per [databind#1102]'. Super-type edits at hops 2 and 3, and withContentType at hop 4, fail the trigger. (d) Names are neutral, G2b is clean, and the gold's javadoc is quiet. The lie concerns walking the superclass chain; it does not name bindings, type parameters or elements. (e) The gold is 5 calls below the facade, through 5 distinct existing classes (TokenBuffer, ObjectMapper, BasicDeserializerFactory, ObjectReader, BeanDeserializerBase). The facade had no guard and is now one delegating call. One added procedural sentence describes super-class resolution, which the code does not perform. The trigger is an existing test, test.patch is empty, and only the trigger newly fails. (f) The convention is pinned by CollectionLikeType.construct (the identical one-parameter rule with the #1102 comment), MapType.construct, MapLikeType.construct and TypeFactory.constructCollectionType. It is also pinned by the passing tests testExplicitMapType, testCollectionTypesRefined, testCollections and testParametricTypes.",
+ "notes": "The only caller of the facade in main or test is the trigger, so any edit on the chain affects only the trigger. That is why so many bypasses pass the full suite; all were classified on documentation consistency. The variant's type equals() TypeFactory's List<Point> (equals compares the class and the element type only), so the violation shows in bindings and refinement, not in equals. The contract violated is the idiomatic one, pinned externally. Two minor cosmetic residues, neither pointing at the gold: CollectionType.java keeps an unused 'import java.lang.reflect.TypeVariable' left over from the removed facade body. The lie line sits inside the @deprecated paragraph without a leading '*', and the facade's annotation now reads 'public @Deprecated static'. On the trigger input (an interface), the lie's superclass walk and hop 2 both yield null, so the lie is false in general but not visibly contradicted on the trigger. Resolving the super class does not absorb the fault (G9 and my hop-3 super-interface test)."
+}

@@ -1,0 +1,87 @@
+{
+  "instance": "Cli-34",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.cli.Parser::namedOption (hop 4)",
+      "edit": "if (!CommandLine.isOptionName(opt))  ->  if (false)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.cli.Parser::namedOption (hop 4)",
+      "edit": "if (!CommandLine.isOptionName(opt))  ->  if (!CommandLine.isOptionName(opt) && !\"?\".equals(opt) && !\"@\".equals(opt))",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.cli.Parser::namedOption (hop 4)",
+      "edit": "if (!CommandLine.isOptionName(opt))  ->  if (opt != null && opt.length() > 1 && !CommandLine.isOptionName(opt))",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.cli.DefaultParser::optionWithFlags (hop 3)",
+      "edit": "Option option = Parser.namedOption(opt, description, longOpt);  ->  Option option = new Option(opt, description); option.setLongOpt(longOpt);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.cli.HelpFormatter::optionWithArgName (hop 1, declared compensating)",
+      "edit": "Option.typedOption(opt, ...)  ->  Option.typedOption(\"?\".equals(opt) || \"@\".equals(opt) ? \"_\" : opt, ...)",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.cli.DefaultParser::optionWithFlags (hop 3, declared compensating)",
+      "edit": "Parser.namedOption(opt, ...)  ->  Parser.namedOption(opt == null ? null : opt.trim(), ...)",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": true,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.cli.Parser::namedOption (hop 4, declared compensating)",
+      "edit": "CommandLine.isOptionName(opt)  ->  CommandLine.isOptionName(Util.stripLeadingHyphens(opt))",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": true,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.cli.OptionBuilder::create(String) (reached from the test via create(char))",
+    "hop1 org.apache.commons.cli.HelpFormatter::optionWithArgName",
+    "hop2 org.apache.commons.cli.Option::typedOption",
+    "hop3 org.apache.commons.cli.DefaultParser::optionWithFlags",
+    "hop4 org.apache.commons.cli.Parser::namedOption",
+    "gold org.apache.commons.cli.CommandLine::isOptionName"
+  ],
+  "reasons": "(a) The gold's javadoc says it returns true if opt can be used as the name of an Option. The variant returns false for \"?\", yet \"?\" can be used: the Option constructor's OptionValidator.validateOption/isValidOpt accepts a single '?' or '@', and the trigger expects getOpt()==\"?\". Hops 1-4 only pass along the gold's boolean (hop 4 throws IAE iff the gold says the name is not permissible, then constructs and sets properties). Their @throws clauses are met exactly when the gold is correct, so the gold is the only method whose own logic breaks its contract. (b) Each hop's javadoc matches its code exactly: hop1 sets valuesep/argName, hop2 sets args/type, hop3 sets required/optionalArg, and hop4 checks, constructs and sets longOpt. The setter order is the original facade's. Hop 4's @throws ('not a permissible name') is precise and defers to the gold's predicate, so it is not loose. (c) Four edits pass the trigger, the four ownership tests and the full suite: hop 4 skipping the gold, hop 4 accepting '?'/'@' itself, hop 4 consulting the gold only for names longer than one character, and hop 3 constructing the Option directly. Each one makes the gold's output dead or overrides it, and each leaves isOptionName(\"?\")==false against its own documented contract, so all four are bypasses, not competing repairs. The three declared compensating edits still fail the trigger, which reproduces G9. (d) The names isOptionName, namedOption, optionWithFlags, typedOption and optionWithArgName are neutral, and no fault vocabulary or comments were added. The gold's javadoc is silent on '?' and '@'. The lie ('settings first recorded in a prototype Option ... returned Option is a clone of that prototype') is false of the code and names neither the name rule, the omitted step nor any hop. (e) The gold is exactly five calls below create(String). The five hops are new public static methods in five existing classes. Under the C10f addendum section 1 (host_mode largest5: no class reaches 1500 lines; the largest is 1042), the hosts are, in order, the five largest public classes other than OptionBuilder by newline count: HelpFormatter 1042, Option 705, DefaultParser 689, Parser 430 (abstract class) and CommandLine 386. That matches hop1..hop5, and the anchors (getLongOptSeparator, toString, parse, processArgs, getArgs) match the task record. The facade body is one delegating call to hop 1 inside the original try/finally that resets the builder; there was no argument guard. There is one added lie sentence. The trigger is the existing testSpecialOptChars (empty test.patch), and my full-suite run on the variant shows that only it fails. (f) The convention is pinned outside the gold by production code doing the same step: OptionValidator.validateOption/isValidOpt (isValidChar(c) || c=='?' || c=='@' for single-character names), applied by every Option constructor, including the Options.addOption path. The facade's javadoc defers to Option. Passing tests pin the rest of the rule through the chain: testIllegalOptions, testBuilderIsResettedAlways, OptionsTest.testHelpOptions (null and digit names) and testBaseOptionCharOpt.",
+  "notes": "Variant compiles. The trigger fails with java.lang.IllegalArgumentException: Illegal option name '?' at Parser.namedOption. Full suite on the variant: 1 failure (the trigger). A control run applying the declared gold edit gives trigger, ownership tests and full suite all clean. Main caveat: the gold is a redundant pre-check, because the Option constructor still runs OptionValidator. Removing or narrowing hop 4's call to the gold therefore passes the whole suite. These are recorded bypasses: they make the gold's output dead and leave a public predicate that contradicts its documentation, so a careful engineer would still fix isOptionName. No passing test other than the trigger pins the '?'/'@' acceptance itself; that part of the rule is pinned by OptionValidator's code and javadoc. Cosmetic: the lie line in the facade javadoc has no leading '*' and follows the @throws tag, so rendered javadoc attaches it to the @throws text. This is a rewrite_facade formatting artifact and does not point at the gold. Facade reuse with Cli-26 is allowed and recorded in the task record. Pre-existing upstream inconsistency (not part of the instance): OptionValidator's javadoc lists ' ' as a special case and 'not NULL', but the code rejects ' ' and permits null; the tests agree with the code."
+}

@@ -1,0 +1,51 @@
+{
+  "instance": "Lang-35",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.builder.ToStringStyle::fillMap (hop 2)",
+      "edit": "insert before the return: for (Object o : array) { org.apache.commons.lang3.Validate.isTrue(!(o instanceof Object[]) || ((Object[]) o).length >= 2, \"Array element has a length less than 2\"); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang3.time.FastDateFormat::fillMapRange (hop 3)",
+      "edit": "insert before the return: for (int i = start; i < end; i++) { Validate.isTrue(!(array[i] instanceof Object[]) || ((Object[]) array[i]).length >= 2, \"Array element %d has a length less than 2\", i); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang3.text.StrBuilder::putRange (hop 4)",
+      "edit": "return StringUtils.putAll(map, array, start, end);  ->  try { return StringUtils.putAll(map, array, start, end); } catch (ArrayIndexOutOfBoundsException e) { throw new IllegalArgumentException(e); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.ArrayUtils::toMap(Object[]) - null guard + return DateUtils.mapOf(array)",
+    "hop1 org.apache.commons.lang3.time.DateUtils::mapOf(Object[]) - allocates HashMap(length*1.5), calls ToStringStyle.fillMap",
+    "hop2 org.apache.commons.lang3.builder.ToStringStyle::fillMap(Map,Object[]) - places whole array as range [0,length), calls FastDateFormat.fillMapRange",
+    "hop3 org.apache.commons.lang3.time.FastDateFormat::fillMapRange(Map,Object[],int,int) - pass-through to StrBuilder.putRange",
+    "hop4 org.apache.commons.lang3.text.StrBuilder::putRange(Map,Object[],int,int) - pass-through to StringUtils.putAll",
+    "gold org.apache.commons.lang3.StringUtils::putAll(Map,Object[],int,int) - per-element dispatch (Map.Entry / Object[] / else IAE); omits the items.length < 2 IAE check before reading items[1]"
+  ],
+  "reasons": "Reproduced: variant compiles; trigger ArrayUtilsTest::testToMap fails with java.lang.ArrayIndexOutOfBoundsException: Index 1 out of bounds for length 1, top frame StringUtils.putAll (map.put(items[0], items[1])), stack exactly facade -> mapOf -> fillMap -> fillMapRange -> putRange -> putAll; full suite on the variant fails only testToMap; correct.patch (gold check restored) gives 0 failures. (a) Only the gold reads inside an element: it dispatches on element kind, already rejects a malformed element of another kind with IllegalArgumentException, yet indexes items[1] of a one-item Object[] unguarded, breaking the idiomatic 'puts the key and the value held by each element' contract and the facade's @throws IAE; hops 1-4 never read an element and only propagate. (b) Hop javadocs match their code (1.5x capacity; whole array 0..length; start inclusive/end exclusive; order of range) and none claims or implies element validation, so none is loose enough to own the missing check. (c) Three alternatives pass trigger, ownership tests and full suite, but none is a competing repair: the two pre-scans (hop 2, hop 3) re-implement the gold's per-element kind dispatch and length check in a pass-through hop and pre-empt the gold's per-element decision, leaving the gold (a public method) still reading items[1] unchecked, against the evidence convention that the method reading an array checks its length first (BooleanUtils.xor, NumberUtils.min); the catch in putRange replaces the gold's exception with another, blindly translating any AIOOBE (including start/end range errors), unlike ArrayUtils.addAll which translates only its own copy's ArrayStoreException after checking the cause. All recorded as bypasses. (d) Names (mapOf, fillMap, fillMapRange, putRange, putAll, items) are neutral; no comments; the gold's javadoc is silent on element shape; the lie ('pairs are first sorted by the hash codes of their keys ... single pass') names neither the fault, the omitted step nor any hop. (e) Gold is exactly five calls below the facade; five hops in five different existing classes (DateUtils, ToStringStyle, FastDateFormat, StrBuilder, StringUtils); facade body is the original null guard plus one delegating call; one added procedural sentence the code does not perform (no sorting); gold javadoc does not state the length check; trigger is an existing test (test.patch empty) and the only new failure. (f) The IAE-for-short-element convention is pinned outside the gold's javadoc by the facade's own @throws clause and by passing production evidence: BooleanUtils.xor(boolean[]) and NumberUtils.min(long[]) reject a too-short array with IAE before reading (testXor_primitive_emptyInput, testMinLong), ArrayUtils.addAll translates a low-level array exception into IAE (testJira567); all three ownership tests pass on the variant.",
+  "notes": "Pins are convention-level, not a same-step sibling (no other production code reads key/value pairs from Object[] elements). The lie line is appended after the @throws tags without a leading '*' and with odd indentation, so in rendered javadoc it joins the last @throws description; it is visibly an inserted line in the facade but does not point at the gold. The gold's surviving IAE branch for the third element kind makes the absent sibling check for Object[] length inferable from the gold alone; that is a matter for the trace checker, not this audit. A careful engineer reading the AIOOBE at putAll's items[1] read would place the repair in putAll; the hop pre-scans are duplicative defensive workarounds rather than plausible fault locations. Scratch copies under /private/tmp/mxb-q6ChQY deleted after the audit."
+}

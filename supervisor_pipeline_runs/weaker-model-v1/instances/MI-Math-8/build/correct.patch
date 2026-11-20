@@ -1,0 +1,202 @@
+diff --git a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+index 1018dc8ee..2c8e56278 100644
+--- a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
++++ b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+@@ -26,6 +26,8 @@ import org.apache.commons.math3.exception.NumberIsTooLargeException;
+ import org.apache.commons.math3.util.ArithmeticUtils;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathArrays;
++import org.apache.commons.math3.linear.BlockFieldMatrix;
++import org.apache.commons.math3.random.RandomGenerator;
+ 
+ /** Class holding "compiled" computation rules for derivative structures.
+  * <p>This class implements the computation rules described in Dan Kalman's paper <a
+@@ -1446,6 +1448,22 @@ public class DSCompiler {
+ 
+     }
+ 
++    /**
++     * Draws one of the given values, each with the probability given at the
++     * same position.
++     *
++     * @param <T> the type of the values
++     * @param generator the generator to draw with
++     * @param probabilities the probability of each value, summing to one
++     * @param values the values to draw from, as many as the probabilities
++     * @return the drawn value
++     */
++    public static <T> T drawValue(final RandomGenerator generator, final double[] probabilities,
++                                  final List<T> values) {
++        return values.get(BlockFieldMatrix.drawIndex(generator, probabilities));
++    }
++
++
+     /** Compute hyperbolic sine of a derivative structure.
+      * @param operand array holding the operand
+      * @param operandOffset offset of the operand in its array
+diff --git a/src/main/java/org/apache/commons/math3/distribution/DiscreteDistribution.java b/src/main/java/org/apache/commons/math3/distribution/DiscreteDistribution.java
+index 879eb2a29..80b21531f 100644
+--- a/src/main/java/org/apache/commons/math3/distribution/DiscreteDistribution.java
++++ b/src/main/java/org/apache/commons/math3/distribution/DiscreteDistribution.java
+@@ -152,22 +152,10 @@ public class DiscreteDistribution<T> {
+      * Generate a random value sampled from this distribution.
+      *
+      * @return a random value.
++       The value is located by a binary search over the cumulative probabilities.
+      */
+     public T sample() {
+-        final double randomValue = random.nextDouble();
+-        double sum = 0;
+-
+-        for (int i = 0; i < probabilities.length; i++) {
+-            sum += probabilities[i];
+-            if (randomValue < sum) {
+-                return singletons.get(i);
+-            }
+-        }
+-
+-        /* This should never happen, but it ensures we will return a correct
+-         * object in case the loop above has some floating point inequality
+-         * problem on the final iteration. */
+-        return singletons.get(singletons.size() - 1);
++        return org.apache.commons.math3.analysis.differentiation.DSCompiler.drawValue(random, probabilities, singletons);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+index c6b1a04c4..71e6a049a 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+@@ -31,6 +31,8 @@ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathArrays;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;
++import org.apache.commons.math3.random.RandomGenerator;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -473,6 +475,23 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Draws the index of an entry, each entry with a chance equal to its
++     * weight.
++     * <p>
++     * One uniform deviate in [0, 1) is drawn from the generator and placed
++     * among the weighted entries.
++     * </p>
++     *
++     * @param generator the generator of the uniform deviate
++     * @param weights the weight of each entry, summing to one
++     * @return the index of the drawn entry
++     */
++    public static int drawIndex(final RandomGenerator generator, final double[] weights) {
++        return BOBYQAOptimizer.weightedIndex(weights, generator.nextDouble());
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public FieldMatrix<T> scalarMultiply(final T d) {
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+index a03c4f456..71fa8e8c1 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+@@ -276,6 +276,30 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return blocks;
+     }
+ 
++    /**
++     * Returns the index of the entry that a point selects among weighted
++     * entries.
++     * <p>
++     * The entries are laid out one after another from zero, each over a
++     * length equal to its weight, and the start of each entry is recorded,
++     * one start per entry; the entry laid over the point is selected.
++     * </p>
++     *
++     * @param weights the weight of each entry, not negative
++     * @param point the point, at or above zero
++     * @return the index of the selected entry
++     */
++    public static int indexForWeights(final double[] weights, final double point) {
++        final double[] starts = new double[weights.length];
++        double sum = 0;
++        for (int i = 0; i < weights.length; i++) {
++            starts[i] = sum;
++            sum += weights[i];
++        }
++        return RealVector.intervalOf(starts, point);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public BlockRealMatrix createMatrix(final int rowDimension,
+diff --git a/src/main/java/org/apache/commons/math3/linear/RealVector.java b/src/main/java/org/apache/commons/math3/linear/RealVector.java
+index d8e5017c8..dc7821609 100644
+--- a/src/main/java/org/apache/commons/math3/linear/RealVector.java
++++ b/src/main/java/org/apache/commons/math3/linear/RealVector.java
+@@ -576,6 +576,28 @@ public abstract class RealVector {
+         return maxIndex < 0 ? Double.NaN : getEntry(maxIndex);
+     }
+ 
++    /**
++     * Returns the index of the interval that holds a point, given the start
++     * of each interval.
++     * <p>
++     * The intervals are visited in order, moving on to the next interval
++     * while its start is at or below the point.
++     * </p>
++     *
++     * @param starts the start of each interval, in ascending order, the
++     * first one at or below the point
++     * @param point the point to locate
++     * @return the index of the interval that holds the point
++     */
++    public static int intervalOf(final double[] starts, final double point) {
++        int index = 0;
++        while (index + 1 < starts.length && starts[index + 1] <= point) {
++            index++;
++        }
++        return index;
++    }
++
++
+ 
+     /**
+      * Multiply each entry by the argument. Returns a new vector.
+diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+index 15b14c768..8a473f78e 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+@@ -31,6 +31,7 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optimization.GoalType;
+ import org.apache.commons.math3.optimization.PointValuePair;
+ import org.apache.commons.math3.optimization.MultivariateOptimizer;
++import org.apache.commons.math3.linear.BlockRealMatrix;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -233,6 +234,19 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Returns the index of the entry that a point selects among weighted
++     * entries laid out one after another from zero.
++     *
++     * @param weights the weight of each entry
++     * @param point the point, at or above zero
++     * @return the index of the selected entry
++     */
++    public static int weightedIndex(final double[] weights, final double point) {
++        return BlockRealMatrix.indexForWeights(weights, point);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {

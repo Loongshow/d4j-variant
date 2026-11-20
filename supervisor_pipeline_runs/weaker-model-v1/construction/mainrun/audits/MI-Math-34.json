@@ -1,0 +1,40 @@
+{
+ "instance": "Math-34__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.apache.commons.math3.linear.BlockRealMatrix::greatestEntry (hop 1)",
+   "edit": "return Dfp.greatestOf(entries, 0, entries.size());  ->  return Dfp.greatestOf(entries, entries.size() % 2, entries.size());",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "fails",
+   "why": "drops element 0 of every odd-length list, so hop 1 violates its own 'fittest chromosome of the list' (e.g. fitness 15,10,0 returns 10); the gold's range contract is still violated by its code"},
+  {"method": "org.apache.commons.math3.util.FastMath::maxOfRange (hop 4)",
+   "edit": "return BOBYQAOptimizer.largestElement(values, from, to);  ->  final Chromosome b = BOBYQAOptimizer.largestElement(values, from, to); return (values.get(to - 1).compareTo(b) > 0) ? values.get(to - 1) : b;",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "why": "re-implements the gold's omitted tail comparison in a pass-through hop and patches the gold's result; the gold still returns a non-fittest element for odd ranges, contrary to its javadoc"},
+  {"method": "org.apache.commons.math3.linear.BlockRealMatrix::greatestEntry (hop 1)",
+   "edit": "return Dfp.greatestOf(entries, 0, entries.size());  ->  final List<Chromosome> e = new java.util.ArrayList<Chromosome>(entries); e.add(entries.get(entries.size() - 1)); return Dfp.greatestOf(e, 0, e.size());",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "why": "pads the list with a duplicate of its last element so the gold's dropped tail is always a copy; a three-statement workaround that masks the gold, which still violates its own range contract (it is called on odd ranges and skips their last index)"}
+ ],
+ "path": [
+  "facade org.apache.commons.math3.genetics.ListPopulation::getFittestChromosome (instance, V1: passes this.chromosomes)",
+  "hop1 org.apache.commons.math3.linear.BlockRealMatrix::greatestEntry (places the list as [0, size))",
+  "hop2 org.apache.commons.math3.dfp.Dfp::greatestOf (pass-through)",
+  "hop3 org.apache.commons.math3.linear.BlockFieldMatrix::greatestEntryInRange (pass-through)",
+  "hop4 org.apache.commons.math3.util.FastMath::maxOfRange (pass-through)",
+  "gold org.apache.commons.math3.optimization.direct.BOBYQAOptimizer::largestElement (pairwise scan; tail element of an odd range never compared)"
+ ],
+ "reasons": "(a) Only largestElement violates its own contract: its javadoc promises the fittest chromosome of [from, to), but for the trigger's fitnesses 0,10,15 the pairwise loop exits at i=2 and never compares index 2, returning the 10 chromosome. Hop 1 correctly places [0, size) per its doc; hops 2-4 forward unchanged per their docs. (b) Hop javadocs are tight (from inclusive, to exclusive; list not empty) and match their code. (c) No competing repair: every passing non-gold edit either breaks the hop's own contract (start at size % 2 drops element 0 of odd lists) or masks the gold (hop-4 tail compare, hop-1 duplicate padding), leaving the gold's code contradicting its javadoc; these are recorded as bypasses. (d) Names neutral (greatestEntry/greatestOf/greatestEntryInRange/maxOfRange/largestElement); no fault vocabulary; the facade lie ('first sorted from the fittest to the least fit, and the first chromosome of the sorted list is returned') describes an algorithm the code does not perform and does not name the tail element or pairing. (e) Gold is exactly five calls below the facade; hosts are five distinct existing classes and match the 1500-regime seeded draw (mr_lib preview Math-34, seed 7716: BlockRealMatrix, Dfp, BlockFieldMatrix, FastMath, BOBYQAOptimizer, anchors getRowMatrix/getOne/multiply/cosh/BOBYQAOptimizer as in the spec); facade body is one delegating call (original had no guard); one added procedural sentence; gold javadoc silent on tail handling; trigger ListPopulationTest::testGetFittestChromosome is existing, test.patch empty, and my full-suite run on the variant shows it as the only failure (baseline none). (f) Pinned outside the gold: Max.evaluate(double[],int,int) scans every element of its range; TournamentSelection.tournament documents 'the fittest chromosome among them'; ElitisticListPopulation.nextGeneration sorts all by compareTo; ownership tests TournamentSelectionTest::testSelect, ElitisticListPopulationTest::testNextGeneration, ChromosomeTest::testCompareTo, GeneticAlgorithmTestBinary::test pass on the variant. (g) C10i rules: facade is the allowed instance method getFittestChromosome (V1, reads private field inside its class); signature, modifiers, Population override and thrown types unchanged; no visibility widened, no new type, no reflection, no test edit.",
+ "notes": "The lie sentence is appended inside the javadoc without a leading '*' and sits after @return, so it renders as part of the @return text; cosmetic, recipe-generated. The facade calls hop 1 by fully qualified name (no import added to ListPopulation). The ownership tests exercise the chain only on even-sized ranges (arity 2, population 50), so the odd-range convention is pinned by Max.evaluate and the documented 'fittest among them' rather than by a test on odd input. Whether the pairwise loop without remainder handling reads as a local trace is for the trace checker, not this audit. Caution for re-checkers: in copied checkouts ant may skip recompiling an edited source whose mtime equals the class file's; touch the edited file before compiling."
+}

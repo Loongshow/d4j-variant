@@ -1,0 +1,57 @@
+{
+ "instance": "JacksonCore-18__i",
+ "iid": "MI-JacksonCore-18",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "UTF8StreamJsonParser::copyRawText (hop 1)",
+   "edit": "JsonParser.rawTextToGenerator(gen, text, buf); -> gen.writeRaw(text, 0, len);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "long text goes to the segmented sibling; hops 2-5 become dead"
+  },
+  {
+   "method": "ReaderBasedJsonParser::feedRawText (hop 4)",
+   "edit": "WriterBasedJsonGenerator.rawTextViaBuffer(gen, text, buf); -> WriterBasedJsonGenerator.rawTextViaBuffer(gen, text, new char[text.length()]);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "replaces the documented 'char buffer of the generator' with a text-sized array; the gold's block-flush branch becomes dead"
+  },
+  {
+   "method": "UTF8StreamJsonParser::copyRawText (hop 1)",
+   "edit": "JsonParser.rawTextToGenerator(gen, text, buf); -> for (int s = 0; s < len; s += buf.length) JsonParser.rawTextToGenerator(gen, text.substring(s, Math.min(len, s + buf.length)), buf);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "pre-splits into buffer-sized pieces so the gold never flushes; splits a surrogate pair straddling a 4000-char boundary (lone high surrogate reaches writeRaw(char[],int,int)), so not raw-content faithful for all input"
+  }
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.core.json.UTF8JsonGenerator::writeRaw(String) [instance; V1+V2: passes this and _charBuffer]",
+  "hop1 com.fasterxml.jackson.core.json.UTF8StreamJsonParser::copyRawText",
+  "hop2 com.fasterxml.jackson.core.JsonParser::rawTextToGenerator",
+  "hop3 com.fasterxml.jackson.core.JsonGenerator::passRawText",
+  "hop4 com.fasterxml.jackson.core.json.ReaderBasedJsonParser::feedRawText",
+  "gold com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::rawTextViaBuffer"
+ ],
+ "reasons": "Variant compiles; trigger TestJsonGeneratorFeatures::testTooBigBigDecimal fails with AIOOBE index 4000 in Character.toChars inside the gold (1E+9999 plain = 10000 chars > 4000-char _charBuffer). (a) Only the gold violates its documented contract (writes text as raw content through the buffer): after flushing a full block it keeps ptr, so the next toChars writes past the end; hops 2-4 are pure pass-throughs and hop 1 correctly handles only fitting text and passes longer text on, as documented. (b) Hop javadocs match their code and describe forwarding only; no hop sees the fill position. (c) Three passing one-line edits above the gold were tried (hop-1 segmented-overload route, hop-4 text-sized array, hop-1 pre-split); all pass trigger, ownership tests and full suite but each makes hops or the gold's buffering dead or contradicts the documented 'char buffer of the generator'/raw-content contract (surrogate split) -> bypasses, no competing repair. (d) G2b clean; neutral names; lie ('split at line breaks, each line encoded and flushed on its own') is false but does not name the reset or any hop; gold javadoc silent on the reset. (e) Gold is 5 calls below the facade; hops in 5 distinct existing classes matching the 1500-regime seeded draw (mr_lib preview seed 2755: UTF8StreamJsonParser, JsonParser, JsonGenerator, ReaderBasedJsonParser, WriterBasedJsonGenerator, anchors nextFieldName/getValueAsBoolean/writeArrayFieldStart/getTextOffset/close match the spec); facade body is state gathering plus one call (no original guard); facade had no javadoc, so a class-voice sentence plus the lie was added as the addendum allows; test.patch empty; G5 only trigger newly fails. (f) Convention pinned by UTF8JsonGenerator.writeRaw(String,int,int) (each segment copied to buf at index 0), WriterBasedJsonGenerator.writeRawLong (_outputHead=0/_outputTail=amount after each flush) and UTF8JsonGenerator._flushBuffer (_outputTail=0). (g) No visibility widening (hops use only public writeRaw(char[],int,int) and public types), no new types, no reflection, facade signature/@Override/throws unchanged, no test edits.",
+ "notes": "Hop 1 carries the original fits-in-buffer fast path (placement step), long-text core is in the gold. The trigger only checks absence of an exception, so output fidelity of bypasses rests on documentation, not tests. Ownership tests mostly exercise short text through the facade or the sibling overload; the external pin is carried mainly by evidence code. host_confirmed_on_checkout=false in the task record is consistent: the checkout has exactly 5 other >=1500-line classes and the draw uses all five."
+}

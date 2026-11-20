@@ -1,0 +1,235 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index e7571f6ea..afb19c3d3 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -24,6 +24,9 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import java.util.Calendar;
++import org.apache.commons.lang.time.DateUtils;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -3987,6 +3990,29 @@ public class ArrayUtils {
+         } 
+         return remove(array, index);
+     }
++
++    /**
++     * <p>Truncates a calendar in place, leaving the field specified as the
++     * most significant field, with the groups of calendar fields from the
++     * millisecond up to the era.</p>
++     *
++     * @param val  the calendar to truncate, not null
++     * @param field  the field from <code>Calendar</code>
++     *  or <code>SEMI_MONTH</code>
++     */
++    public static void clearByGroups(Calendar val, int field) {
++        final int[][] groups = {
++            {Calendar.MILLISECOND},
++            {Calendar.SECOND},
++            {Calendar.MINUTE},
++            {Calendar.HOUR_OF_DAY, Calendar.HOUR},
++            {Calendar.DATE, Calendar.DAY_OF_MONTH, Calendar.AM_PM},
++            {Calendar.MONTH, DateUtils.SEMI_MONTH},
++            {Calendar.YEAR},
++            {Calendar.ERA}};
++        FastDateFormat.lowerBelowField(val, field, groups);
++    }
++
+     
+     /**
+      * <p>Removes the element at the specified position from the specified array.
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index 6cda31df7..61eec80b0 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -20,6 +20,9 @@ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Iterator;
+ import java.util.List;
++import java.util.Calendar;
++import java.util.Date;
++import org.apache.commons.lang.builder.ToStringStyle;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -4861,6 +4864,23 @@ public class StringUtils {
+         return abbreviate(str, 0, maxWidth);
+     }
+ 
++    /**
++     * <p>Truncates a date, leaving the field specified as the most
++     * significant field, in a calendar of the default time zone.</p>
++     *
++     * @param date  the date to work with, not null
++     * @param field  the field from <code>Calendar</code>
++     *  or <code>SEMI_MONTH</code>
++     * @return the truncated date
++     */
++    public static Date dateAtField(Date date, int field) {
++        Calendar gval = Calendar.getInstance();
++        gval.setTime(date);
++        ToStringStyle.calendarAtField(gval, field);
++        return gval.getTime();
++    }
++
++
+     /**
+      * <p>Abbreviates a String using ellipses. This will turn
+      * "Now is the time for all good men" into "...is the time for..."</p>
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index d786edc36..4fd8b34fa 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,8 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import java.util.Calendar;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -684,6 +686,23 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Truncates a calendar in place, leaving the field specified as the
++     * most significant field.</p>
++     *
++     * @param val  the calendar to truncate, not null
++     * @param field  the field from <code>Calendar</code>
++     *  or <code>SEMI_MONTH</code>
++     * @throws ArithmeticException if the year is over 280 million
++     */
++    public static void calendarAtField(Calendar val, int field) {
++        if (val.get(Calendar.YEAR) > 280000000) {
++            throw new ArithmeticException("Calendar value too large for accurate calculations");
++        }
++        StrBuilder.clearClockUnits(val, field);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>byte</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 13281cefe..9eb21458d 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import java.util.Calendar;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1094,6 +1095,34 @@ public class StrBuilder implements Cloneable {
+         return this;
+     }
+ 
++    /**
++     * <p>Truncates a calendar in place, leaving the field specified as the
++     * most significant field.</p>
++     *
++     * <p>The milliseconds, and the seconds and minutes that lie below the
++     * field, are taken off the time itself before the other fields are
++     * lowered. A millisecond field leaves the calendar as it is.</p>
++     *
++     * @param val  the calendar to truncate, not null
++     * @param field  the field from <code>Calendar</code>
++     *  or <code>SEMI_MONTH</code>
++     */
++    public static void clearClockUnits(Calendar val, int field) {
++        if (field == Calendar.MILLISECOND) {
++            return;
++        }
++        long time = val.getTimeInMillis() - val.get(Calendar.MILLISECOND);
++        if (field != Calendar.SECOND) {
++            time = time - val.get(Calendar.SECOND) * 1000L;
++            if (field != Calendar.MINUTE) {
++                time = time - val.get(Calendar.MINUTE) * 60000L;
++            }
++        }
++        val.setTimeInMillis(time);
++        ArrayUtils.clearByGroups(val, field);
++    }
++
++
+     /**
+      * Appends a separator to the builder if the loop index is greater than zero.
+      * Appending a null separator will have no effect.
+diff --git a/src/java/org/apache/commons/lang/time/DateUtils.java b/src/java/org/apache/commons/lang/time/DateUtils.java
+index e5138b58d..d7b0ebf0a 100644
+--- a/src/java/org/apache/commons/lang/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang/time/DateUtils.java
+@@ -539,15 +539,13 @@ public class DateUtils {
+      * @return the rounded date
+      * @throws IllegalArgumentException if the date is <code>null</code>
+      * @throws ArithmeticException if the year is over 280 million
++       The fields below the given field are set back one at a time, from the largest of them down to the millisecond.
+      */
+     public static Date truncate(Date date, int field) {
+         if (date == null) {
+             throw new IllegalArgumentException("The date must not be null");
+         }
+-        Calendar gval = Calendar.getInstance();
+-        gval.setTime(date);
+-        modify(gval, field, false);
+-        return gval.getTime();
++        return org.apache.commons.lang.StringUtils.dateAtField(date, field);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index 41c48ac48..3096e3f26 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -320,6 +320,42 @@ public class FastDateFormat extends Format {
+         return getTimeInstance(style, null, null);
+     }
+ 
++    /**
++     * <p>Truncates a calendar in place, leaving the field specified as the
++     * most significant field.</p>
++     *
++     * <p>The groups of fields are taken from the smallest upwards, and every
++     * group below the one that holds the field is lowered through its first
++     * field.</p>
++     *
++     * @param val  the calendar to truncate, not null
++     * @param field  the field to keep as the most significant field
++     * @param groups  the groups of calendar fields, from the millisecond up
++     * @throws IllegalArgumentException if no group holds the field
++     */
++    public static void lowerBelowField(Calendar val, int field, int[][] groups) {
++        for (int i = 0; i < groups.length; i++) {
++            for (int j = 0; j < groups[i].length; j++) {
++                if (groups[i][j] == field) {
++                    return;
++                }
++            }
++            final int unit = groups[i][0];
++            int offset = val.get(unit) - val.getActualMinimum(unit);
++            if (field == DateUtils.SEMI_MONTH && unit == Calendar.DATE && offset >= 15) {
++                offset -= 15;
++            }
++            if (field == Calendar.AM_PM && unit == Calendar.HOUR_OF_DAY && offset >= 12) {
++                offset -= 12;
++            }
++            if (offset != 0) {
++                val.set(unit, val.get(unit) - offset);
++            }
++        }
++        throw new IllegalArgumentException("The field " + field + " is not supported");
++    }
++
++
+     /**
+      * <p>Gets a time formatter instance using the specified style and
+      * locale in the default time zone.</p>

@@ -1,0 +1,168 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+index d7b1b5af..b092b43d 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.AtomicLong;
+ import com.fasterxml.jackson.core.JsonParser.NumberType;
+ import com.fasterxml.jackson.core.io.CharacterEscapes;
+ import com.fasterxml.jackson.core.util.VersionUtil;
++import java.util.Arrays;
++import com.fasterxml.jackson.core.json.ReaderBasedJsonParser;
+ 
+ /**
+  * Base class that defines public API for writing JSON content.
+@@ -1021,6 +1023,26 @@ public abstract class JsonGenerator
+         throw new JsonGenerationException("No native support for writing Object Ids");
+     }
+ 
++    /**
++     * Helper method that copies the characters of a buffer segment into a
++     * new, longer array, at the same positions.
++     *<p>
++     * The new array is half as long again as the segment; a segment that
++     * would then pass the threshold length grows to the threshold, or by a
++     * quarter of its length where that is more.
++     *
++     * @param chars Segment to copy (not null)
++     * @param threshold Segment length past which growth slows
++     *
++     * @return New array that holds the characters of the segment
++     */
++    public static char[] widenCharArray(char[] chars, int threshold)
++    {
++        final int length = ReaderBasedJsonParser.grownSegmentLength(chars.length, threshold);
++        return Arrays.copyOf(chars, length);
++    }
++
++
+     /**
+      * Method that can be called to output references to native Object Ids.
+      * Note that it may only be called after ensuring this is legal
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+index 10cdbfb9..b94ab850 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+@@ -252,6 +252,19 @@ public class ReaderBasedJsonParser // final in 2.3, earlier
+         }
+         return super.getValueAsString(null);
+     }
++
++    /**
++     * Helper method that returns the length to expand a text segment of
++     * the given length to.
++     *
++     * @param length Current length of the segment
++     * @param threshold Segment length past which growth slows
++     */
++    public static int grownSegmentLength(int length, int threshold)
++    {
++        return WriterBasedJsonGenerator.nextBufferLength(length, threshold);
++    }
++
+     
+     // @since 2.1
+     @Override
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+index e7da750c..4f68137c 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+@@ -568,6 +568,23 @@ public class UTF8JsonGenerator
+         }
+     }
+ 
++    /**
++     * Computes the length to expand a character buffer segment to, from its
++     * current length and the given threshold.
++     *
++     * @param length the current length of the segment
++     * @param threshold the threshold length of the segment growth
++     * @return the expanded length of the segment
++     */
++    public static int expandedBufferLength(final int length, final int threshold) {
++        int grown = length + (length >> 1);
++        if (grown > threshold) {
++            grown = Math.max(threshold, length + (length >> 2));
++        }
++        return grown;
++    }
++
++
+     @Override
+     public void writeRaw(String text, int offset, int len)
+         throws IOException, JsonGenerationException
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+index 24cb7145..c228a8c8 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+@@ -396,6 +396,22 @@ public class UTF8StreamJsonParser
+         return 0;
+     }
+ 
++    /**
++     * Helper method that returns a copy of a text segment with room for more
++     * characters; the characters of the segment are kept at the start of the
++     * copy.
++     *
++     * @param segment Segment to expand (not null)
++     * @param threshold Segment length past which growth slows
++     *
++     * @return Expanded copy of the segment
++     */
++    public static char[] enlargeTextSegment(char[] segment, int threshold)
++    {
++        return JsonGenerator.widenCharArray(segment, threshold);
++    }
++
++
+     @Override
+     public int getTextOffset() throws IOException, JsonParseException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+index 63f34fbb..29ace6be 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+@@ -336,6 +336,19 @@ public final class WriterBasedJsonGenerator
+         _outputBuffer[_outputTail++] = '"';
+     }
+ 
++    /**
++     * Helper method that returns the length to give a character buffer
++     * segment of the given length when it is expanded.
++     *
++     * @param length Current length of the segment
++     * @param threshold Segment length past which growth slows
++     */
++    public static int nextBufferLength(int length, int threshold)
++    {
++        return UTF8JsonGenerator.expandedBufferLength(length, threshold);
++    }
++
++
+     @Override
+     public void writeString(char[] text, int offset, int len) throws IOException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java
+index a6773760..47711ec4 100644
+--- a/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java
+@@ -576,18 +576,11 @@ public final class TextBuffer
+      * Method called to expand size of the current segment, to
+      * accommodate for more contiguous content. Usually only
+      * used when parsing tokens like names if even then.
++       The current segment is first handed back to the buffer recycler, and a larger array is then requested from it and filled with the earlier contents.
+      */
+     public char[] expandCurrentSegment()
+     {
+-        final char[] curr = _currentSegment;
+-        // Let's grow by 50% by default
+-        final int len = curr.length;
+-        int newLen = len + (len >> 1);
+-        // but above intended maximum, slow to increase by 25%
+-        if (newLen > MAX_SEGMENT_LEN) {
+-            newLen = len + (len >> 2);
+-        }
+-        return (_currentSegment = Arrays.copyOf(curr, newLen));
++        return (_currentSegment = com.fasterxml.jackson.core.json.UTF8StreamJsonParser.enlargeTextSegment(_currentSegment, MAX_SEGMENT_LEN));
+     }
+ 
+     /**

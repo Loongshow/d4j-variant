@@ -1,0 +1,51 @@
+{
+  "instance": "Lang-30",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.builder.ToStringStyle::separatedText (hop 4)",
+      "edit": "return ArrayUtils.concatWith(array, separator, startIndex, endIndex, capacity);  ->  return org.apache.commons.lang3.StringUtils.join(array, String.valueOf(separator), startIndex, endIndex);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang3.builder.ToStringStyle::separatedText (hop 4)",
+      "edit": "return ArrayUtils.concatWith(array, separator, startIndex, endIndex, capacity);  ->  return ArrayUtils.concatWith(array, separator, startIndex, endIndex, capacity).replace(\"null\", \"\");",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.lang3.text.StrBuilder::textOfElements (hop 2)",
+      "edit": "return FastDateFormat.elementsText(array, separator, startIndex, endIndex, capacity);  ->  return first == null ? separator + FastDateFormat.elementsText(array, separator, startIndex + 1, endIndex, capacity) : FastDateFormat.elementsText(array, separator, startIndex, endIndex, capacity);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.StringUtils::join(Object[], char, int, int) (reached from the trigger via join(Object[], char))",
+    "hop1 org.apache.commons.lang3.time.DateUtils::textOfRange",
+    "hop2 org.apache.commons.lang3.text.StrBuilder::textOfElements",
+    "hop3 org.apache.commons.lang3.time.FastDateFormat::elementsText",
+    "hop4 org.apache.commons.lang3.builder.ToStringStyle::separatedText",
+    "gold org.apache.commons.lang3.ArrayUtils::concatWith"
+  ],
+  "reasons": "Reproduced: variant compiles; trigger StringUtilsTest::testJoin_ArrayChar fails with 'expected:<[];;foo> but was:<[null];;foo>'; the full suite on the variant fails only the trigger; all five ownership tests pass. (a) The gold is the only method on the path that visits elements one by one; it appends a null element as the text 'null'. Hops 1-4 do no per-element work: hop 1 returns \"\" for an empty range (as documented), hop 2 computes the capacity from the first element (as documented, null -> 16), hops 3-4 pass through. With the correct gold every hop meets its own javadoc, so their outputs are wrong only by delegation. The facade's contract ('Null objects or empty strings within the array are represented by empty strings', [null, \"\", \"a\"], ';' = \";;a\") is the observed symptom; the facade body is guard + one delegation. (b) No hop javadoc contradicts its code; none assigns null-element handling to a hop, and hops are documented with the same 'Joins the elements...' sentence as the gold, so no hop is a better owner than the per-element loop. (c) No competing repair: no existing utility in this checkout maps null array ELEMENTS to \"\" (ArrayUtils.nullToEmpty maps a null array), so no one-line pre-filter at a hop keeps the gold in use; post-filtering cannot recover (the text 'null' is indistinguishable from an element whose text is 'null'). Three alternatives were applied and run (trigger + ownership + full suite, after a clean rebuild): hop-4 delegation to the String-separator overload passes everything but makes the gold dead (bypass, recorded); hop-4 .replace(\"null\", \"\") passes everything but corrupts elements whose text contains 'null' (probe: [\"nullable\",\"x\"] -> \"able;x\"); hop-2 special-casing a null first element passes everything but gives \";\" for [null] (facade documents \"\") and still emits 'null' for a later null element (probe: [a,null,b] -> \"a;null;b\"). Both hacks are documentation-inconsistent, so classified 'fails'. (d) Names (textOfRange, textOfElements, elementsText, separatedText, concatWith) are neutral host-vocabulary names with no fault vocabulary; the lie ('joined from the end of the range back to its start, each element being inserted at the front of the buffer...') describes a reverse-insertion algorithm and does not mention nulls, empty strings or any hop. (e) Gold is exactly five calls below the facade; five hops in five different existing classes (DateUtils, StrBuilder, FastDateFormat, ToStringStyle, ArrayUtils); facade body = null guard + one delegating call; one added procedural sentence that the code does not perform (chain appends forward); gold javadoc is silent on null elements; trigger is an existing test, test.patch empty, only it newly fails. (f) Convention pinned outside the gold: facade javadoc examples; sibling production overload StringUtils.join(Object[], String, int, int) with the identical loop and 'if (array[i] != null)'; join(Iterator, char) skips nulls and uses ObjectUtils.toString; ObjectUtils.toString(null) = \"\"; StrBuilder.appendWithSeparators appends a null element as nothing; passing tests testJoin_ArrayString (\",,foo\" for the same array; \"\" for [null]), testJoin_Objectarray, testAppendWithSeparators_Array (\"foo,,baz\"), testToString_Object.",
+  "notes": "Minor observations, none decisive: (1) The lie sentence is appended after '@since 2.0' with no leading '*' and a 7-space indent, so in rendered javadoc it attaches to the @since tag and is visually conspicuous as an appended line; it does not point at the gold or the omission (recipe formatting artifact). (2) The gold keeps 'final Object item = array[i]; buf.append(item);' - a local used once, a faint residue of the removed null check, but an ordinary idiom. (3) Hop 2 retains the original 'first == null ? 16 : ...' capacity estimate, which mentions null in a non-gold hop; this is a decoy pull rather than leakage. (4) The gold's own javadoc does not define null-element rendering, and plain-Java joining (String.valueOf / StringBuilder.append(Object)) would render 'null'; ownership therefore rests on the house convention pinned externally (f), which is strong here (identical sibling loop in the same class as the facade). (5) Host draw order was not independently re-derived (mr_lib preview is outside the audit inputs). (6) Audit pitfall: copying a compiled checkout and editing a source within the same second left stale classes; alternatives were re-run after deleting target/ in the scratch copies."
+}

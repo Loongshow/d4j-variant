@@ -1,0 +1,51 @@
+{
+ "instance": "Codec-9",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.codec.binary.Base32::isBase64Octets (hop 2)",
+   "edit": "return org.apache.commons.codec.digest.DigestUtils.isBase64Data(arrayOctet, 0, arrayOctet.length);  ->  return Base64.isBase64(arrayOctet);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.language.ColognePhonetic::isBase64Text (hop 4)",
+   "edit": "return Metaphone.isBase64Region(data, offset, length);  ->  return Metaphone.isBase64Region(data, offset, length) && org.apache.commons.codec.binary.Base64.isBase64(java.util.Arrays.copyOfRange(data, offset, offset + length));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::isBase64Value (hop 1)",
+   "edit": "return Base32.isBase64Octets(StringUtils.getBytesUtf8(value));  ->  return value.indexOf('\\u0000') < 0 && Base32.isBase64Octets(StringUtils.getBytesUtf8(value));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.codec.binary.Base64::isBase64(String) -> DoubleMetaphone.isBase64Value(base64)",
+  "hop1 org.apache.commons.codec.language.DoubleMetaphone::isBase64Value(String) -> Base32.isBase64Octets(StringUtils.getBytesUtf8(value))",
+  "hop2 org.apache.commons.codec.binary.Base32::isBase64Octets(byte[]) -> DigestUtils.isBase64Data(arrayOctet, 0, arrayOctet.length)",
+  "hop3 org.apache.commons.codec.digest.DigestUtils::isBase64Data(byte[],int,int) -> length==0 guard, then ColognePhonetic.isBase64Text(data, offset, length)",
+  "hop4 org.apache.commons.codec.language.ColognePhonetic::isBase64Text(byte[],int,int) -> Metaphone.isBase64Region(data, offset, length)",
+  "gold org.apache.commons.codec.language.Metaphone::isBase64Region(byte[],int,int) -> per-byte loop; skips every byte <= ' ' (whitespace check omitted), else requires Base64.isBase64(octet)"
+ ],
+ "reasons": "Reproduced: variant compiles; Base64Test::testIsStringBase64 fails with 'Base64.isStringBase64(invalid-string) is false' (validString + NUL accepted) and is the only failing test in the full suite; it passes on the pristine checkout; the four ownership tests pass on the variant. (a) Only the gold examines individual bytes; its loop skips every byte <= ' ' (which for a signed byte also includes all negative bytes) without checking that it is space/tab/LF/CR, so it returns true for a range containing NUL, violating 'true if the range holds valid Base64 data'. The codebase's own vocabulary ties 'Base64 data' to the isBase64 convention (testEncodeDecodeSmall '... is Base64 data.' and testNonBase64Test 'array of Base64 encoded data' both via isBase64(byte[])). Hops 1-4 are pass-throughs (UTF-8 conversion, whole-array range, empty-range guard, pass-through) whose outputs are wrong only because the gold's is; none violates its contract given a correct callee. (b) Every hop's javadoc matches its code (UTF-8 bytes, whole array, empty range true, non-empty range at least one); no hop has per-element logic that could produce the NUL acceptance. (c) No competing repair: the decision 'is this byte at or below space whitespace' exists only in the gold; any one-line hop edit that passes the suite either substitutes the intact sibling Base64.isBase64(byte[]) (hop 2 bypass makes hops 3-5 dead; hop 4 conjunction makes the gold's result redundant) or is fitted to NUL (hop 1 indexOf check) and still accepts \"abc\\u0001\" and \"abc\\u00e9\" (probe: true/true), violating hop 1's and the facade's documented contract. Declared compensating edits (trim, US-ASCII, BOM skip) do not absorb the fault (G9, consistent with my reading). (d) Names (isBase64Value/Octets/Data/Text/Region) are neutral and parallel; no comments or fault vocabulary; the gold's remaining 'if (octet <= ' ') continue;' reads as an ordinary whitespace skip; the lie ('matched in a single pass against a precompiled regular expression of the Base64 alphabet') is procedural, false for the code, and does not name whitespace, the omitted check or any hop. (e) Gold is exactly five calls below the facade; five different existing classes; facade body is one delegating call (original had no guard); one added lie sentence; gold javadoc is silent on whitespace; trigger is existing and the only new failure. Hosts checked against BUILD_BRIEF_C10F_ADDENDUM section 1 (largest5 regime): no public class reaches 1500 lines; the five largest public non-interface non-enum classes other than Base64 by newline count are DoubleMetaphone 1105, Base32 750, DigestUtils 582, ColognePhonetic 428, Metaphone 407, exactly hops 1-5 in that order with the gold in the fifth; anchor seeds 5588-5592 equal seed+100+i, i.e. recipe-drawn with no substitutions. (f) Convention pinned outside the gold: intact sibling Base64.isBase64(byte[]) with private isWhiteSpace (space, LF, CR, tab), BaseNCodec.isWhiteSpace javadoc 'space, tab, CR, LF', Base32.isBase32(byte[]) same rule; passing tests testIsArrayByteBase64 ({0} and negative bytes rejected), testIsUrlSafe (space/LF/CR/tab accepted), testNonBase64Test ('%' rejected).",
+ "notes": "Bypass recorded (c_bypass = true): hop 2 'return Base64.isBase64(arrayOctet);' and hop 4 conjunction with Base64.isBase64(Arrays.copyOfRange(...)) both pass trigger, ownership tests and full suite by replacing the gold's result with the intact sibling overload. The fault is broader than NUL: the variant facade also accepts other control characters and any non-ASCII character (negative UTF-8 bytes satisfy octet <= ' '). The lie line is appended after the '@since 1.5' tag with non-javadoc indentation, so in rendered javadoc it would read as part of the @since text; this is the recipe's rewrite_facade placement, not a builder choice. Harness note for other auditors: copying a compiled scratch tree and editing within the same second leaves ant's javac skipping the edit; I removed target/ before re-testing alternatives. The no-local-trace checklist was not consulted (out of scope per instructions); designs, history and builder notes were not read. Scratch /private/tmp/mxb-8tOJND deleted."
+}

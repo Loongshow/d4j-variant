@@ -1,0 +1,36 @@
+{
+ "instance": "Chart-4__i",
+ "iid": "MI-Chart-4",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.jfree.chart.renderer.xy.AbstractXYItemRenderer::addPlotLegendItems (hop 4)",
+   "edit": "insert before the delegating call: for (int d = 0; d < plot.getDatasetCount(); d++) { if (plot.getRenderer(d) == null) { plot.setRenderer(d, plot.getRenderer(0), false); } }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Pre-empts the gold's renderer lookup by rewriting the caller's plot: installs renderer 0 into every empty renderer slot (setPlot, change listener, axis reconfiguration). A legend getter that mutates the plot's renderer table contradicts hop 4's documentation (it only adds items to a collection) and XYPlot's renderer model (getRenderer(1) becomes non-null after getLegendItems). Not a competing repair."
+  }
+ ],
+ "path": [
+  "facade org.jfree.chart.plot.XYPlot::getLegendItems (instance, V2: guard on fixedLegendItems + return DatasetUtilities.createLegendItems(this))",
+  "hop1 org.jfree.data.general.DatasetUtilities::createLegendItems (creates the collection, delegates, returns it)",
+  "hop2 org.jfree.chart.ChartFactory::addLegendItems (pass-through)",
+  "hop3 org.jfree.chart.axis.ValueAxis::appendLegendItems (pass-through)",
+  "hop4 org.jfree.chart.renderer.xy.AbstractXYItemRenderer::addPlotLegendItems (pass-through)",
+  "gold org.jfree.chart.axis.Axis::addSeriesLegendItems (omits the renderer-0 fallback for an empty renderer slot)"
+ ],
+ "reasons": "(a) Only the gold reads datasets and renderers; its javadoc promises items from 'the renderer that draws the dataset', and the plot draws dataset 1 (empty renderer slot) with renderer 0 (XYPlot.render), yet the variant gold skips it: trigger testGetLegendItems fails expected:<2> but was:<1>, reproduced. Hops 1-4 only create/forward the collection and plot. (b) Hop javadocs are short and accurate for pass-throughs; none describes renderer selection, so none can be read as the owner. (c) No one-line hop edit can give the gold a renderer, since the gold fetches renderers from the plot; the only passing edit found mutates the plot's renderer table from a getter path (doc-inconsistent, recorded as bypass). (d) Hop names are neutral; the lie ('first created for every series of every dataset, and the items for the hidden series are then removed') is procedural, false for the code, and does not mention renderer fallback; the gold's javadoc does not state the fallback. (e) Gold is five calls below the facade; five distinct existing classes; hosts equal the seeded 1500-regime draw (mr_lib.py preview Chart-4 org/jfree/chart/plot/XYPlot.java: DatasetUtilities, ChartFactory, ValueAxis, AbstractXYItemRenderer, Axis, anchors findRangeBounds/createPieChart3D/isNegativeArrowVisible/removeAnnotations/getAxisLinePaint with seeds 5371-5375), XYPlot.java (the only allowed-candidate file) excluded; facade = original guard + one delegating call passing this (V2); one added lie sentence; trigger existing, test.patch empty, G5 only the trigger newly fails. (f) Pinned by XYPlot.render (getRenderer(index) else getRenderer()), XYPlot.getRendererForDataset (javadoc 'returns renderer(0)', code falls back to getRenderer()), XYPlot.getDataRange (uses getRendererForDataset), and passing XYPlotTests::testGetRendererForDataset. (g) C10i rules: no visibility widened, no new type, no reflection, facade signature/modifiers/override/throws unchanged (public LegendItemCollection getLegendItems()), no test edits; getLegendItems is an allowed V2 candidate of the task record.",
+ "notes": "The omitted statement is a 3-line if block (one statement). The facade lie is appended after the @return tag with odd indentation (recipe rewrite_facade output). The facade calls DatasetUtilities by fully qualified name although XYPlot already imports it (recipe output, not a pointer to the gold). The existing trigger test carries the pre-existing comment 'falls back to renderer 0', which hints at the omitted step but points at no particular method; only the gold performs renderer lookup. The facade reuses the method planned by Chart-14__i (facade_reuse_of recorded). Full suite on the variant with the hop-4 bypass ran clean in about 5 s."
+}

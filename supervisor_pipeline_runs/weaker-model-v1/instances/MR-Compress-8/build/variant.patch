@@ -1,0 +1,184 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java
+index 0148d7a3..3a5359c4 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/cpio/CpioArchiveEntry.java
+@@ -22,6 +22,7 @@ import java.io.File;
+ import java.util.Date;
+ 
+ import org.apache.commons.compress.archivers.ArchiveEntry;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * A cpio archive consists of a sequence of files. There are several types of
+@@ -311,6 +312,21 @@ public class CpioArchiveEntry implements CpioConstants, ArchiveEntry {
+         this(FORMAT_NEW, inputFile, entryName);
+     }
+ 
++    /**
++     * Appends the name held in a field of a byte buffer to the buffer
++     * created for that field.
++     *
++     * @param name the buffer created for the field, which receives the
++     *             characters of the name
++     * @param buf the buffer that holds the field; it is passed on without
++     *            being copied
++     * @param offset the offset of the field in buf
++     */
++    public static void appendFieldName(final StringBuffer name, final byte[] buf, final int offset) {
++        TarArchiveEntry.appendEntryName(name, buf, offset);
++    }
++
++
+     /**
+      * Creates a CPIOArchiveEntry with a specified name for a
+      * specified file.
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index 46df1c27..0a8cc8e2 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -379,6 +379,22 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return userId;
+     }
+ 
++    /**
++     * Appends the characters of the entry name held in a header buffer.
++     *
++     * @param entryName the buffer created for the entry name, which
++     *                  receives its characters
++     * @param header the header buffer
++     * @param offset the offset of the entry name in the header buffer
++     */
++    public static void appendEntryName(final StringBuffer entryName, final byte[] header,
++                                       final int offset) {
++        for (int i = offset; header[i] != 0; ++i) {
++            entryName.append((char) (header[i] & 0xFF));
++        }
++    }
++
++
+     /**
+      * Set this entry's user id.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 27b2a00d..1f201f91 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -124,20 +124,10 @@ public class TarUtils {
+      * @param offset The offset into the buffer from which to parse.
+      * @param length The maximum number of bytes to parse.
+      * @return The entry name.
++       Each byte is mapped to its character through a 256-entry ISO-8859-1 lookup table.
+      */
+     public static String parseName(byte[] buffer, final int offset, final int length) {
+-        StringBuffer result = new StringBuffer(length);
+-        int          end = offset + length;
+-
+-        for (int i = offset; i < end; ++i) {
+-            byte b = buffer[i];
+-            if (b == 0) { // Trailing null
+-                break;
+-            }
+-            result.append((char) (b & 0xFF)); // Allow for sign-extension
+-        }
+-
+-        return result.toString();
++        return org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream.nameOfField(buffer, offset, length);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index b2faee9a..d518aa15 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -34,6 +34,7 @@ import java.util.zip.ZipException;
+ 
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.ArchiveOutputStream;
++import org.apache.commons.compress.archivers.cpio.CpioArchiveEntry;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -587,6 +588,25 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         }
+     }
+ 
++    /**
++     * Reads the name held in a field of a byte buffer.
++     *
++     * <p>The characters of the name are collected in a new buffer whose
++     * initial capacity is the length of the field.</p>
++     *
++     * @param buf the buffer that holds the field; it is passed on without
++     *            being copied
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the name held in the field
++     */
++    public static String fieldName(final byte[] buf, final int offset, final int length) {
++        final StringBuffer name = new StringBuffer(length);
++        CpioArchiveEntry.appendFieldName(name, buf, offset);
++        return name.toString();
++    }
++
++
+     /*
+      * Various ZIP constants
+      */
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
+index db75546a..57ddb48a 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
+@@ -28,6 +28,7 @@ import java.io.IOException;
+ import java.io.InputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorInputStream;
++import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
+ 
+ /**
+  * An input stream that decompresses from the BZip2 format to be read as any other stream.
+@@ -151,6 +152,20 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
+         return (destOffs == offs) ? -1 : (destOffs - offs);
+     }
+ 
++    /**
++     * Reads the name held in a field of a byte buffer.
++     *
++     * @param buf the buffer that holds the field; it is passed on without
++     *            being copied
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the name held in the field
++     */
++    public static String nameInField(final byte[] buf, final int offset, final int length) {
++        return ZipArchiveOutputStream.fieldName(buf, offset, length);
++    }
++
++
+     private void makeMaps() {
+         final boolean[] inUse = this.data.inUse;
+         final byte[] seqToUnseq = this.data.seqToUnseq;
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index 9a800a59..ad9cc709 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -534,6 +534,20 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         }
+     }
+ 
++    /**
++     * Reads the name held in a field of a byte buffer.
++     *
++     * @param buf the buffer that holds the field; it is passed on without
++     *            being copied
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the name held in the field
++     */
++    public static String nameOfField(final byte[] buf, final int offset, final int length) {
++        return BZip2CompressorInputStream.nameInField(buf, offset, length);
++    }
++
++
+     /**
+      * Writes magic bytes like BZ on the first position of the stream
+      * and bytes indiciating the file-format, which is 

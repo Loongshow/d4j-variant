@@ -1,0 +1,285 @@
+diff --git a/source/org/jfree/chart/ChartFactory.java b/source/org/jfree/chart/ChartFactory.java
+index cad7adf..65a30ef 100644
+--- a/source/org/jfree/chart/ChartFactory.java
++++ b/source/org/jfree/chart/ChartFactory.java
+@@ -221,6 +221,8 @@ import org.jfree.data.xy.TableXYDataset;
+ import org.jfree.data.xy.WindDataset;
+ import org.jfree.data.xy.XYDataset;
+ import org.jfree.data.xy.XYZDataset;
++import org.jfree.data.xy.XYDataItem;
++import org.jfree.data.xy.XYSeries;
+ 
+ /**
+  * A collection of utility methods for creating some standard charts with
+@@ -2072,6 +2074,43 @@ public abstract class ChartFactory {
+ 
+     }
+ 
++    /**
++     * Sets the y-value of the item with the given x-value in a series of
++     * (x, y) data items, or adds a new item with the given x-value and
++     * y-value to the series.  The x-values are compared by their numerical
++     * value.
++     *
++     * @param series  the series (<code>null</code> not permitted).
++     * @param items  the modifiable list that holds the items of the series
++     *               (<code>null</code> not permitted).
++     * @param x  the x-value (<code>null</code> not permitted).
++     * @param y  the y-value (<code>null</code> permitted).
++     *
++     * @return A copy of the item as it was before its y-value was set, or
++     *         <code>null</code> if a new item was added.
++     */
++    public static XYDataItem putItemValue(XYSeries series, List items,
++            Number x, Number y) {
++        XYDataItem entry = new XYDataItem(x, y);
++        int position = 0;
++        while (position < series.getItemCount()) {
++            XYDataItem item = series.getDataItem(position);
++            int order = item.compareTo(entry);
++            if (order == 0) {
++                XYDataItem previous = new XYDataItem(item.getX(), item.getY());
++                item.setY(y);
++                return previous;
++            }
++            if (order > 0) {
++                break;
++            }
++            position++;
++        }
++        items.add(position, entry);
++        return null;
++    }
++
++
+     /**
+      * Creates a histogram chart.  This chart is constructed with an
+      * {@link XYPlot} using an {@link XYBarRenderer}.  The domain and range
+diff --git a/source/org/jfree/chart/axis/Axis.java b/source/org/jfree/chart/axis/Axis.java
+index 836469f..9d15c1b 100644
+--- a/source/org/jfree/chart/axis/Axis.java
++++ b/source/org/jfree/chart/axis/Axis.java
+@@ -123,6 +123,9 @@ import org.jfree.chart.util.PaintUtilities;
+ import org.jfree.chart.util.RectangleEdge;
+ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.chart.util.SerialUtilities;
++import org.jfree.chart.renderer.AbstractRenderer;
++import org.jfree.data.xy.XYDataItem;
++import org.jfree.data.xy.XYSeries;
+ 
+ /**
+  * The base class for all axes in JFreeChart.  Subclasses are divided into
+@@ -600,6 +603,31 @@ public abstract class Axis implements Cloneable, Serializable {
+         return this.axisLineVisible;
+     }
+ 
++    /**
++     * Adds or updates an item in a series of (x, y) data items that holds at
++     * most the given number of items.  If the series then holds more items
++     * than that, its first item is removed.
++     *
++     * @param series  the series (<code>null</code> not permitted).
++     * @param items  the list that holds the items of the series.
++     * @param x  the x-value (<code>null</code> not permitted).
++     * @param y  the y-value (<code>null</code> permitted).
++     * @param maximum  the maximum number of items in the series.
++     *
++     * @return A copy of the overwritten data item, or <code>null</code> if no
++     *         item was overwritten.
++     */
++    public static XYDataItem storeValueInLimit(XYSeries series, List items,
++            Number x, Number y, int maximum) {
++        XYDataItem previous = AbstractRenderer.storeItemValue(series, items,
++                x, y);
++        if (items.size() > maximum) {
++            items.remove(0);
++        }
++        return previous;
++    }
++
++
+     /**
+      * Sets a flag that controls whether or not the axis line is visible and
+      * sends an {@link AxisChangeEvent} to all registered listeners.
+diff --git a/source/org/jfree/chart/axis/DateAxis.java b/source/org/jfree/chart/axis/DateAxis.java
+index 7bbde1d..17b8f72 100644
+--- a/source/org/jfree/chart/axis/DateAxis.java
++++ b/source/org/jfree/chart/axis/DateAxis.java
+@@ -157,6 +157,9 @@ import org.jfree.data.time.DateRange;
+ import org.jfree.data.time.Month;
+ import org.jfree.data.time.RegularTimePeriod;
+ import org.jfree.data.time.Year;
++import org.jfree.chart.ChartFactory;
++import org.jfree.data.xy.XYDataItem;
++import org.jfree.data.xy.XYSeries;
+ 
+ /**
+  * The base class for axes that display dates.  You will find it easier to
+@@ -836,6 +839,23 @@ public class DateAxis extends ValueAxis implements Cloneable, Serializable {
+         return this.timeline.toMillisecond((long) result);
+     }
+ 
++    /**
++     * Adds or updates an item in a series of (x, y) data items.
++     *
++     * @param series  the series (<code>null</code> not permitted).
++     * @param items  the list that holds the items of the series.
++     * @param x  the x-value (<code>null</code> not permitted).
++     * @param y  the y-value (<code>null</code> permitted).
++     *
++     * @return A copy of the overwritten data item, or <code>null</code> if no
++     *         item was overwritten.
++     */
++    public static XYDataItem writeItemValue(XYSeries series, List items,
++            Number x, Number y) {
++        return ChartFactory.putItemValue(series, items, x, y);
++    }
++
++
+     /**
+      * Calculates the value of the lowest visible tick on the axis.
+      *
+diff --git a/source/org/jfree/chart/plot/CategoryPlot.java b/source/org/jfree/chart/plot/CategoryPlot.java
+index 1e83fe1..b12bad0 100644
+--- a/source/org/jfree/chart/plot/CategoryPlot.java
++++ b/source/org/jfree/chart/plot/CategoryPlot.java
+@@ -227,6 +227,8 @@ import org.jfree.data.category.CategoryDataset;
+ import org.jfree.data.general.Dataset;
+ import org.jfree.data.general.DatasetChangeEvent;
+ import org.jfree.data.general.DatasetUtilities;
++import org.jfree.data.xy.XYDataItem;
++import org.jfree.data.xy.XYSeries;
+ 
+ /**
+  * A general plotting class that uses data from a {@link CategoryDataset} and
+@@ -1165,6 +1167,37 @@ public class CategoryPlot extends Plot implements ValueAxisPlot,
+         return result;
+     }
+ 
++    /**
++     * Adds or updates an item in a series of (x, y) data items.  If the series
++     * allows duplicate x-values, the item is added to the series and
++     * <code>null</code> is returned.  Otherwise the item with the given
++     * x-value takes the new y-value, or a new item is added, and a change
++     * event is sent to the listeners registered with the series.
++     *
++     * @param series  the series (<code>null</code> not permitted).
++     * @param items  the list that holds the items of the series.
++     * @param x  the x-value (<code>null</code> not permitted).
++     * @param y  the y-value (<code>null</code> permitted).
++     * @param duplicates  a flag that indicates whether the series allows
++     *                    duplicate x-values.
++     * @param maximum  the maximum number of items held by the series.
++     *
++     * @return A copy of the overwritten data item, or <code>null</code> if no
++     *         item was overwritten.
++     */
++    public static XYDataItem storeXYValue(XYSeries series, List items,
++            Number x, Number y, boolean duplicates, int maximum) {
++        if (duplicates) {
++            series.add(x, y);
++            return null;
++        }
++        XYDataItem previous = Axis.storeValueInLimit(series, items, x, y,
++                maximum);
++        series.fireSeriesChanged();
++        return previous;
++    }
++
++
+     /**
+      * Returns the number of range axes.
+      *
+diff --git a/source/org/jfree/chart/renderer/AbstractRenderer.java b/source/org/jfree/chart/renderer/AbstractRenderer.java
+index 8e6ac8b..e4e399c 100644
+--- a/source/org/jfree/chart/renderer/AbstractRenderer.java
++++ b/source/org/jfree/chart/renderer/AbstractRenderer.java
+@@ -125,6 +125,9 @@ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.chart.util.ShapeList;
+ import org.jfree.chart.util.ShapeUtilities;
+ import org.jfree.chart.util.StrokeList;
++import org.jfree.chart.axis.DateAxis;
++import org.jfree.data.xy.XYDataItem;
++import org.jfree.data.xy.XYSeries;
+ 
+ /**
+  * Base class providing common services for renderers.  Most methods that update
+@@ -1075,6 +1078,23 @@ public abstract class AbstractRenderer implements Cloneable, Serializable {
+         }
+     }
+ 
++    /**
++     * Adds or updates an item in a series of (x, y) data items.
++     *
++     * @param series  the series (<code>null</code> not permitted).
++     * @param items  the list that holds the items of the series.
++     * @param x  the x-value (<code>null</code> not permitted).
++     * @param y  the y-value (<code>null</code> permitted).
++     *
++     * @return A copy of the overwritten data item, or <code>null</code> if no
++     *         item was overwritten.
++     */
++    public static XYDataItem storeItemValue(XYSeries series, List items,
++            Number x, Number y) {
++        return DateAxis.writeItemValue(series, items, x, y);
++    }
++
++
+     /**
+      * Returns the base outline paint.
+      *
+diff --git a/source/org/jfree/data/xy/XYSeries.java b/source/org/jfree/data/xy/XYSeries.java
+index b26e11e..5d59374 100644
+--- a/source/org/jfree/data/xy/XYSeries.java
++++ b/source/org/jfree/data/xy/XYSeries.java
+@@ -536,47 +536,14 @@ public class XYSeries extends Series implements Cloneable, Serializable {
+      *
+      * @return A copy of the overwritten data item, or <code>null</code> if no
+      *         item was overwritten.
++       Before the item is changed, a change event that announces the new y-value is sent to the registered listeners, and the item is changed once all of them have received it.
+      */
+     public XYDataItem addOrUpdate(Number x, Number y) {
+         if (x == null) {
+             throw new IllegalArgumentException("Null 'x' argument.");
+         }
+-        if (this.allowDuplicateXValues) {
+-            add(x, y);
+-            return null;
+-        }
+-
+-        // if we get to here, we know that duplicate X values are not permitted
+-        XYDataItem overwritten = null;
+-        int index = indexOf(x);
+-        if (index >= 0) {
+-            XYDataItem existing = (XYDataItem) this.data.get(index);
+-            try {
+-                overwritten = (XYDataItem) existing.clone();
+-            }
+-            catch (CloneNotSupportedException e) {
+-                throw new SeriesException("Couldn't clone XYDataItem!");
+-            }
+-            existing.setY(y);
+-        }
+-        else {
+-            // if the series is sorted, the negative index is a result from
+-            // Collections.binarySearch() and tells us where to insert the
+-            // new item...otherwise it will be just -1 and we should just
+-            // append the value to the list...
+-            if (this.autoSort) {
+-                this.data.add(-index - 1, new XYDataItem(x, y));
+-            }
+-            else {
+-                this.data.add(new XYDataItem(x, y));
+-            }
+-            // check if this addition will exceed the maximum item count...
+-            if (getItemCount() > this.maximumItemCount) {
+-                this.data.remove(0);
+-            }
+-        }
+-        fireSeriesChanged();
+-        return overwritten;
++        return org.jfree.chart.plot.CategoryPlot.storeXYValue(this, this.data, x, y,
++                this.allowDuplicateXValues, this.maximumItemCount);
+     }
+ 
+     /**

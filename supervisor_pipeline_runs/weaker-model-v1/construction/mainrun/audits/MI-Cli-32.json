@@ -1,0 +1,56 @@
+{
+  "instance": "Cli-32__i",
+  "iid": "MI-Cli-32",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": false,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.cli.HelpFormatter::printWrapped(PrintWriter,int,String) (existing, non-hop; called only by the gold)",
+      "edit": "printWrapped(pw, width, 0, text);  ->  if (text.trim().length() > 0) printWrapped(pw, width, 0, text);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "passes all tests but contradicts hop 1's documented property 'Each print method of the formatter writes at least one complete line' (true of printUsage/printOptions/printWrapped in the variant; printOptions writes an empty line for empty Options, testHeaderStartingWithLineSeparator); it also changes a long-standing public API; not a competing repair (fails doc-consistency)"
+    },
+    {
+      "method": "org.apache.commons.cli.Option::printHelpText (hop 1)",
+      "edit": "pass (header != null && header.trim().length() == 0) ? null : header and the same for footer to DefaultParser.handleHelpSections",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "contradicts hop 1's own javadoc 'the header, the options and the footer, which are handed on as they are given'; the same sentence is in hops 2-4, so the same pre-filter at hops 2/3 is equally doc-inconsistent; fails doc-consistency, not competing"
+    },
+    {
+      "method": "org.apache.commons.cli.CommandLine::printSections (hop 4) / Parser::processHelpSections (hop 3), declared compensating edits",
+      "edit": "one-line pre-filter of only the header or only the footer at hop 4; trim of both at hop 3 (validation G9)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "a single line at hop 4 only reaches one of the two empty banners; trim keeps \"\" as \"\"; reasoning matches G9 (trigger still fails)"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.cli.HelpFormatter::printHelp(PrintWriter,int,String,String,Options,int,int,String,boolean) [instance, V2: guard on cmdLineSyntax + Option.printHelpText(this, ...)]",
+    "hop1 org.apache.commons.cli.Option::printHelpText [usage statement via formatter.printUsage, then delegates]",
+    "hop2 org.apache.commons.cli.DefaultParser::handleHelpSections [pass-through]",
+    "hop3 org.apache.commons.cli.Parser::processHelpSections [pass-through]",
+    "hop4 org.apache.commons.cli.CommandLine::printSections [placement: banner(header), formatter.printOptions, banner(footer)]",
+    "gold org.apache.commons.cli.OptionBuilder::printBanner [omits banner.trim().length() > 0; prints an empty line for an empty banner]"
+  ],
+  "reasons": "(a) On the trigger (header \"\" and footer \"\"), only printBanner's contract ('Prints the lines of a banner ... wrapped to the given width') is violated: an empty banner has no lines yet one empty line is written per banner. Hops 1-4 hand the values on as documented; printWrapped/printUsage/printOptions behave as their own javadoc and hop 1 state. (b) Hop javadocs match their code; hop 1's 'each print method writes at least one complete line' is true of the variant. (c) Two passing alternatives (printWrapped skip-blank; hop-1 pre-filter) each contradict documentation on the path (hop 1's formatter property; 'handed on as they are given'); declared hop-3/4 edits fail the trigger. No competing repair; no bypass in the brief's sense. (d) Neutral names (printHelpText, handleHelpSections, processHelpSections, printSections, printBanner); no fault vocabulary; the lie ('rendered into a single buffer, wrapped as a whole and then written in one call') is a false procedure that names neither the fault nor the omitted step. (e) Gold is 5 calls below the facade; hops in Option, DefaultParser, Parser, CommandLine, OptionBuilder = hosts_hop_order exactly (largest5); facade body is the original guard plus one call passing this (V2, hops use only public HelpFormatter methods); gold javadoc silent on the blank-banner step; trigger is existing HelpFormatterTest::testOptionWithoutShortFormat and is the only new full-suite failure (verified after clean rebuild). C10i not-allowed list respected: no visibility change, no new type, no reflection, facade signature/modifiers/throws unchanged, no test edit. (f) 'Text without content counts as absent' is pinned by Option.hasArgName, HelpFormatter.appendOption ('non blank argname') and renderOptions, with testPrintOptionWithEmptyArgNameUsage passing; banner-with-text layout pinned by testHelpWithLongOptSeparator/testOptionWithoutShortFormat2/testHeaderStartingWithLineSeparator.",
+  "notes": "Weak points (not disqualifying): the external pin is analogical (empty arg name, not banner); no other production code skips an empty banner once printHelp's original check moved into the gold. Whether \"\" has zero lines or one empty line is semantically arguable (testHeaderStartingWithLineSeparator shows a leading empty line of a banner is printed), but String.lines()-style semantics and the arg-name convention support zero. The lie sentence was inserted after the @throws tag with odd indentation, so in rendered javadoc it reads as part of the @throws description (recipe placement artifact). The gold uses fully qualified java.io.PrintWriter (no import added to OptionBuilder). Auditor caution: in a copied scratch tree, defects4j/ant may reuse stale classes when the source mtime equals the class mtime; the alternative-repair runs above were redone after rm -rf target."
+}

@@ -1,0 +1,201 @@
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index f2b6dde5..454ca393 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -1357,6 +1357,26 @@ class CursorableSubList extends CursorableLinkedList implements List {
+         return super.getLast();
+     }
+ 
++    /**
++     * Returns the index of a key among the first <code>count</code> elements
++     * of an array of keys.
++     *
++     * @param key  the key to find, may be null
++     * @param keys  the keys to search
++     * @param count  the number of elements of the array to search
++     * @return the index of the key, or -1 if it is not found
++     */
++    public static int indexOfKey(Object key, Object[] keys, int count) {
++        for (int i = 0; i < count; i++) {
++            Object element = keys[i];
++            if (element == key || (key != null && key.equals(element))) {
++                return i;
++            }
++        }
++        return -1;
++    }
++
++
+     public void add(int index, Object element) {
+         checkForComod();
+         super.add(index,element);
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e444aae4..020df15e 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -1285,6 +1285,21 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return nodeCount;
+     }
+ 
++    /**
++     * Gets the value mapped to a key, given the keys and values of a store
++     * as parallel arrays.
++     *
++     * @param key  the key to look up, may be null
++     * @param keys  the keys of the store
++     * @param values  the values of the store, in the order of the keys
++     * @param count  the number of entries in use
++     * @return the mapped value, null if no match
++     */
++    public static Object valueForKey(Object key, Object[] keys, Object[] values, int count) {
++        return ExtendedProperties.mappedValue(key, keys, values, count);
++    }
++
++
+     /**
+      * Returns true if this map contains a mapping for the specified
+      * key.
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index ab66e265..338cc079 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -440,6 +440,21 @@ public class ExtendedProperties extends Hashtable {
+         super();
+     }
+ 
++    /**
++     * Gets the value mapped to a key, given the keys and values of a store
++     * as parallel arrays.
++     *
++     * @param key  the key to look up, may be null
++     * @param keys  the keys of the store
++     * @param values  the values of the store, in the order of the keys
++     * @param count  the number of entries in use
++     * @return the mapped value, null if no match
++     */
++    public static Object mappedValue(Object key, Object[] keys, Object[] values, int count) {
++        return MapUtils.valueOfKey(key, keys, values, count);
++    }
++
++
+     /**
+      * Creates and loads the extended properties from the specified file.
+      *
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 07bf3b44..cc21c811 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -527,6 +527,27 @@ public class MapUtils {
+         return answer;
+     }
+ 
++    /**
++     * Gets the value stored for a key, given the keys and values of a store
++     * as parallel arrays.
++     * <p>
++     * The value is the one at the index of the key among the keys in use.
++     *
++     * @param key  the key to look up, may be null
++     * @param keys  the keys of the store
++     * @param values  the values of the store, in the order of the keys
++     * @param count  the number of entries in use
++     * @return the value stored for the key, null if there is none
++     */
++    public static Object valueOfKey(Object key, Object[] keys, Object[] values, int count) {
++        int index = CursorableSubList.indexOfKey(key, keys, count);
++        if (index < 0) {
++            return null;
++        }
++        return values[index];
++    }
++
++
+     /**
+      *  Looks up the given key in the given map, converting the result into
+      *  a double, using the default value if the the conversion fails.
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index 778ebb55..e6c915c0 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -31,6 +31,7 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import org.apache.commons.collections.DoubleOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -177,6 +178,30 @@ public class TreeBidiMap implements OrderedBidiMap {
+         return doGet((Comparable) key, KEY);
+     }
+ 
++    /**
++     * Gets the value mapped to a key in a store of at most three entries,
++     * whose keys and values are held separately.
++     * <p>
++     * Only the first <code>size</code> entries are in use.
++     *
++     * @param key  the key to look up, may be null
++     * @param size  the number of entries in use
++     * @param key1  the key of the first entry
++     * @param key2  the key of the second entry
++     * @param key3  the key of the third entry
++     * @param value1  the value of the first entry
++     * @param value2  the value of the second entry
++     * @param value3  the value of the third entry
++     * @return the mapped value, null if no match
++     */
++    public static Object lookupValue(Object key, int size, Object key1, Object key2, Object key3,
++            Object value1, Object value2, Object value3) {
++        Object[] keys = new Object[] {key1, key2, key3};
++        Object[] values = new Object[] {value1, value2, value3};
++        return DoubleOrderedMap.valueForKey(key, keys, values, size);
++    }
++
++
+     /**
+      * Puts the key-value pair into the map, replacing any previous pair.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/map/Flat3Map.java b/src/java/org/apache/commons/collections/map/Flat3Map.java
+index a5083d29..8e17ff0b 100644
+--- a/src/java/org/apache/commons/collections/map/Flat3Map.java
++++ b/src/java/org/apache/commons/collections/map/Flat3Map.java
+@@ -123,36 +123,13 @@ public class Flat3Map implements IterableMap, Serializable, Cloneable {
+      * 
+      * @param key  the key
+      * @return the mapped value, null if no match
++       Each lookup first checks the entry found by the previous lookup, which the map remembers for this purpose.
+      */
+     public Object get(Object key) {
+         if (delegateMap != null) {
+             return delegateMap.get(key);
+         }
+-        if (key == null) {
+-            switch (size) {
+-                // drop through
+-                case 3:
+-                    if (key3 == null) return value3;
+-                case 2:
+-                    if (key2 == null) return value2;
+-                case 1:
+-                    if (key1 == null) return value1;
+-            }
+-        } else {
+-            if (size > 0) {
+-                int hashCode = key.hashCode();
+-                switch (size) {
+-                    // drop through
+-                    case 3:
+-                        if (hash3 == hashCode && key.equals(key3)) return value3;
+-                    case 2:
+-                        if (hash2 == hashCode && key.equals(key2)) return value2;
+-                    case 1:
+-                        if (hash1 == hashCode && key.equals(key1)) return value1;
+-                }
+-            }
+-        }
+-        return null;
++        return org.apache.commons.collections.bidimap.TreeBidiMap.lookupValue(key, size, key1, key2, key3, value1, value2, value3);
+     }
+ 
+     /**

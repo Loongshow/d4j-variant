@@ -1,0 +1,57 @@
+{
+ "instance": "Lang-55__i",
+ "iid": "MI-Lang-55",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.StringUtils::timeElapsed (hop 4)",
+   "edit": "return ArrayUtils.elapsedTime(start, stop < start ? start : stop, live);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "hands the gold the start mark in place of the stop mark the gold documents as 'the stop mark of the watch, as the watch recorded it' (the recorded -1 of a running, unsplit watch) and makes the gold's elapsed<0 branch dead on its only caller; not a competing repair (doc-inconsistent), closest to a bypass of the gold's no-stop-mark handling"
+  },
+  {
+   "method": "org.apache.commons.lang.StringUtils::timeElapsed (hop 4)",
+   "edit": "return live ? System.currentTimeMillis() - start : ArrayUtils.elapsedTime(start, stop, live);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "replaces the gold's result for every live watch with another implementation"
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::elapsedMillis (hop 3)",
+   "edit": "return StringUtils.timeElapsed(start, stop, live && stop >= start);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "passes live=false for a running watch, against the gold's '@param live true if the watch is running'; getTime of a running unsplit watch becomes 0, violating the facade's documented 'time between the start and the moment this method is called' and every hop's 'to the current time while the watch is live'. Passes only because the trigger asserts getTime() < 2000"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.time.StopWatch::getTime (instance, V1: passes startTime, stopTime, runningState==STATE_RUNNING; no write-back)",
+  "hop1 org.apache.commons.lang.text.StrBuilder::timeOnWatch",
+  "hop2 org.apache.commons.lang.builder.ToStringStyle::watchTime",
+  "hop3 org.apache.commons.lang.time.FastDateFormat::elapsedMillis",
+  "hop4 org.apache.commons.lang.StringUtils::timeElapsed",
+  "gold org.apache.commons.lang.ArrayUtils::elapsedTime (omitted 'stop = start;' inside 'if (elapsed < 0)')"
+ ],
+ "reasons": "Compiled and ran in a scratch copy: variant compiles, trigger StopWatchTest::testStopWatchSimpleGet fails at line 69 (getTime() < 2000), and the full suite fails only the trigger. (a) For a running unsplit watch the facade passes (start=T, stop=-1, live=true); the gold returns 0 + now - (-1) = now+1, violating its own javadoc (from the start mark, taken to the current time while live = now - T); hops 1-4 and the facade only fail derivatively by delegating unchanged values. (b) Every hop is a one-line pass-through whose javadoc matches; all hops and the gold document start/stop as the marks 'as recorded', so no hop is licensed to rewrite them. (c) Three one-line non-gold edits pass trigger, ownership tests and full suite, but each violates documentation on the path (substituting the stop mark, forcing live=false for a running watch) or replaces the gold's result (bypass recorded); no competing repair. (d) Neutral names in all hosts, no comments; G2b clean; the lie ('read from the system clock in nanoseconds and rounded half up to the nearest millisecond') describes a false procedure and does not touch the omitted step. (e) Gold is exactly 5 calls below the facade, five distinct existing classes; host_mode 1500 and mr_lib preview (seed 7676) reproduces the exact host order and anchors (StrBuilder, ToStringStyle, FastDateFormat, StringUtils, ArrayUtils); facade is state gathering + one call to hop 1 (no original guard); one lie sentence; gold javadoc is quiet on the omitted step; existing trigger, empty test.patch, only it newly fails. (f) Convention pinned outside the gold: StopWatch.start/unsplit/resume set stopTime=-1 while running and unsplit's javadoc says timing continues from the original start; the facade's own javadoc (time between start and now); passing StopWatchTest testStopWatchSplit/testStopWatchSuspend/testLang315. (g) C10i: no visibility widened (only new public static hops and imports), no new type, no reflection, getTime signature/modifiers/throws unchanged, no test edits; V1 is the allowed variant for a field-reading method.",
+ "notes": "Weak point of the trigger: it only asserts getTime() < 2000, so a flag edit that returns 0 for a running watch passes every test; it is excluded by documentation, not by tests. No passing test reads getTime on a live watch, so the live/no-stop-mark convention is pinned by production code and javadoc (StopWatch.start/unsplit/resume, facade javadoc) rather than by a test. Cosmetic: the lie is appended after the @return line without a leading '*', so it renders as part of the @return description. The facade drops the original unreachable 'Illegal running state' RuntimeException (unchecked, no throws clause change). The facade calls hop 1 by fully qualified name. Note: an audit file already existed at this path and was overwritten without reading, as instructed. Scratch /private/tmp/mxb-L9H4G4 deleted."
+}

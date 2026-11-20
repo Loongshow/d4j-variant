@@ -1,0 +1,87 @@
+{
+  "instance": "Closure-26",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.javascript.rhino.JSDocInfo$Marker::moduleNameInDirectory (hop 4)",
+      "edit": "name.split(Pattern.quote(File.separator)) -> com.google.javascript.jscomp.deps.PathUtil.collapseDots(dir + File.separator + name).split(Pattern.quote(File.separator)); and moduleNameOfParts(dir, parts) -> moduleNameOfParts(\"\", parts)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.jscomp.Compiler$CodeBuilder::relativeModuleName (hop 3)",
+      "edit": "return JSDocInfo.Marker.moduleNameInDirectory(dir, name); -> return JSDocInfo.Marker.moduleNameInDirectory(\"\", com.google.javascript.jscomp.deps.PathUtil.collapseDots(dir + File.separator + name));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.jstype.JSTypeRegistry::requiredModuleName (hop 2)",
+      "edit": "return Compiler.CodeBuilder.relativeModuleName(name, from); -> return ProcessCommonJSModules.toModuleName(java.net.URI.create(from).resolve(name).toString());",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.JSDocInfo$Marker::moduleNameInDirectory (hop 4)",
+      "edit": "added after parts.removeAll(...): while (!parts.isEmpty() && parts.get(0).equals(\"..\") && dir.length() > 0) { dir = dir.substring(0, Math.max(dir.lastIndexOf(File.separator), 0)); parts.remove(0); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.JSDocInfo$Marker::moduleNameInDirectory (hop 4, declared compensating)",
+      "edit": "parts.removeAll(Collections.singleton(\".\")) -> parts.removeAll(java.util.Arrays.asList(\".\", \"..\"))",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.google.javascript.jscomp.Compiler$CodeBuilder::relativeModuleName (hop 3, declared compensating)",
+      "edit": "String dir = from.substring(...) -> String dir = name.startsWith(\"..\") ? \"\" : from.substring(...)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.google.javascript.rhino.jstype.JSTypeRegistry::requiredModuleName (hop 2, declared compensating)",
+      "edit": "relativeModuleName(name, from) -> relativeModuleName(name.startsWith(\"..\") ? name.substring(1) : name, from)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade com.google.javascript.jscomp.ProcessCommonJSModules::toModuleName(String,String)",
+    "hop1 com.google.javascript.jscomp.NodeUtil$MatchNodeType::moduleNameOfRequire",
+    "hop2 com.google.javascript.rhino.jstype.JSTypeRegistry::requiredModuleName",
+    "hop3 com.google.javascript.jscomp.Compiler$CodeBuilder::relativeModuleName",
+    "hop4 com.google.javascript.rhino.JSDocInfo$Marker::moduleNameInDirectory",
+    "gold com.google.javascript.jscomp.SymbolTable$SymbolScope::moduleNameOfParts"
+  ],
+  "reasons": "Variant compiles. testModuleName fails with expected:<module$[]baz> but was:<module$[foo$..$]baz>, from toModuleName(\"../baz.js\", \"foo/bar.js\"). The full suite on the variant fails only the trigger. (a) Hop 1 strips .js, hop 2 sends ./ and ../ names to hop 3, hop 3 takes the directory before the last separator, and hop 4 splits the name and leaves out only the '.' parts, which its javadoc says stand for the directory itself. Each does exactly what its javadoc says. The gold is called as moduleNameOfParts(\"foo\", [\"..\", \"baz\"]) and returns module$foo$..$baz. Its javadoc promises the module name of the file the parts lead to from the directory, which is module$baz. Only the gold breaks its own contract when called on its own. (b) No hop javadoc contradicts its code. Hop 4 lists exactly which parts it leaves out ('.'), so by its own documentation '..' parts go on to the gold. (c) No competing repair. The declared compensating edits at hops 2, 3 and 4 all still fail the trigger; I re-ran them. Four other edits pass the trigger, the ownership tests and the full suite. All four are bypasses: (1) PathUtil.collapseDots at hop 4 and (2) the same at hop 3 swap PathUtil's walk in for the gold's walk over the parts. The gold then always gets the empty directory and no '..' parts, and it still breaks its own contract for (\"foo\", [..,baz]). They also drop a '..' that climbs above the first directory: ../baz from bar gives module$baz, where the pristine URI code and the correct gold give module$..$baz. Edit (1) also stops hop 4 doing what its javadoc says. Edit (2), for a requiring file with no separator, hands hop 4 an absolute name such as /name. (3) URI.resolve at hop 2 leaves hops 3, 4 and the gold unused. (4) A loop at hop 4 that handles only leading '..' parts fits the trigger's names: ./a/../b from foo/bar still gives module$foo$a$..$b. (d) The hop names are neutral and the gold body reads as a complete join. The lie (answers looked up in a table of names already computed) does not mention dots, the walk or any hop. (e) The gold is 5 calls below the facade, and the 5 hops sit in 5 different existing classes. The facade had no guard and now has one delegating call. The lie is one added sentence describing caching that the code does not do. The gold's javadoc does not mention '..'. The trigger already exists (test.patch is empty) and is the only new failure. variant.patch and correct.patch differ only by the gold's 5-line '..' block. (f) The convention that '..' takes off the preceding directory is pinned outside the gold: by the facade's original javadoc ('relative addressing with ./ and ../ based on currentFilename'), by hop 2's javadoc, and by the production method PathUtil.collapseDots ('a/b/../c' results in 'a/c'), which makeAbsolute and makeRelative use in DepsGenerator.",
+  "notes": "Strongest alternative: one line at hop 3 or hop 4 that resolves the joined path with PathUtil.collapseDots. It is classed as a bypass, not a competing repair, because it re-implements the gold's walk upstream; the gold's own contract is still broken for any '..' part. A refined hop-3 form, collapseDots(dir.isEmpty() ? name : dir + File.separator + name), avoids the absolute-name problem. I did not run it separately; it differs from the tested hop-3 edit only when the requiring file has no separator. The collapseDots edits also change behaviour from the pristine program on '..' parts that climb above the first directory, which no test covers. Caveats: (i) No passing test pins '..' handling. Only the failing trigger does; the ownership tests pin neighbouring conventions (top-level names, dashes, extensions). The external pin is evidence code, and collapseDots disagrees with the correct gold on a '..' above the first directory, a case the trigger does not exercise. (ii) Hop 4 visibly handles '.' parts, which may pull attention to hop 4. Its javadoc limits it to '.', so I judge this a lure, not ambiguous ownership. (iii) The correct gold itself would append '.' parts. Only hop 4's filtering keeps them away, so the gold implicitly relies on that. (iv) The facade javadoc's lie sentence is not '*'-prefixed and its closing marker is re-indented, a formatting artifact of the recipe. Build note: copying a compiled tree with cp -R can leave stale classes in build/classes. I verified every alternative edit with javap and force-rebuilt where needed before testing. Scratch was under /private/tmp/mxb-gntOCO and is deleted after this audit."
+}

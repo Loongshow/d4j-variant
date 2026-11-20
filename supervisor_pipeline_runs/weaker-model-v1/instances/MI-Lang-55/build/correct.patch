@@ -1,0 +1,186 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index e7571f6ea..bdf995b69 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -2265,6 +2265,31 @@ public class ArrayUtils {
+         return indexOf(array, valueToFind) != INDEX_NOT_FOUND;
+     }
+ 
++    /**
++     * <p>Gets the time on a watch, in milliseconds, from its start mark
++     * to its stop mark.</p>
++     *
++     * <p>While the watch is live the time is taken to the current time
++     * instead.</p>
++     *
++     * @param start  the start mark of the watch, as the watch recorded it
++     * @param stop  the stop mark of the watch, as the watch recorded it
++     * @param live  <code>true</code> if the watch is running
++     * @return the time in milliseconds
++     */
++    public static long elapsedTime(long start, long stop, boolean live) {
++        long elapsed = stop - start;
++        if (elapsed < 0) {
++            elapsed = 0;
++            stop = start;
++        }
++        if (live) {
++            elapsed += System.currentTimeMillis() - stop;
++        }
++        return elapsed;
++    }
++
++
+     // Primitive/Object array converters
+     // ----------------------------------------------------------------------
+ 
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index 874dd631f..405440f30 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -2127,6 +2127,20 @@ public class StringUtils {
+         return splitWorker(str, separatorChars, max, false);
+     }
+ 
++    /**
++     * <p>Gets the time elapsed on a watch, in milliseconds, from its start
++     * mark to its stop mark, or to the current time while the watch is live.</p>
++     *
++     * @param start  the start mark of the watch, as the watch recorded it
++     * @param stop  the stop mark of the watch, as the watch recorded it
++     * @param live  <code>true</code> if the watch is running
++     * @return the time elapsed in milliseconds
++     */
++    public static long timeElapsed(long start, long stop, boolean live) {
++        return ArrayUtils.elapsedTime(start, stop, live);
++    }
++
++
+     /**
+      * <p>Splits the provided text into an array, separator string specified.</p>
+      *
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 51da9eea3..a93057869 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -398,6 +399,20 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets the time on a watch, in milliseconds, from its start mark
++     * to its stop mark, or to the current time while the watch is live.</p>
++     *
++     * @param start  the start mark of the watch, as recorded
++     * @param stop  the stop mark of the watch, as recorded
++     * @param live  <code>true</code> if the watch is running
++     * @return the time in milliseconds
++     */
++    public static long watchTime(long start, long stop, boolean live) {
++        return FastDateFormat.elapsedMillis(start, stop, live);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> an <code>Object</code>,
+      * correctly interpreting its type.</p>
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 13281cefe..26e126a63 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.builder.ToStringStyle;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -2148,6 +2149,20 @@ public class StrBuilder implements Cloneable {
+         return indexOf(matcher, 0);
+     }
+ 
++    /**
++     * Gets the time on a watch, in milliseconds, from its start mark to its
++     * stop mark, or to the current time while the watch is live.
++     *
++     * @param start  the start mark of the watch, as recorded
++     * @param stop  the stop mark of the watch, as recorded
++     * @param live  true if the watch is running
++     * @return the time in milliseconds
++     */
++    public static long timeOnWatch(long start, long stop, boolean live) {
++        return ToStringStyle.watchTime(start, stop, live);
++    }
++
++
+     /**
+      * Searches the string builder using the matcher to find the first
+      * match searching from the given index.
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index 41c48ac48..49abcbdb9 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -36,6 +36,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -220,6 +221,20 @@ public class FastDateFormat extends Format {
+         return format;
+     }
+ 
++    /**
++     * <p>Gets the elapsed time of a watch, in milliseconds, from its start
++     * mark to its stop mark, or to the current time while the watch is live.</p>
++     *
++     * @param start  the start mark of the watch, as the watch recorded it
++     * @param stop  the stop mark of the watch, as the watch recorded it
++     * @param live  true if the watch is running
++     * @return the elapsed time in milliseconds
++     */
++    public static long elapsedMillis(long start, long stop, boolean live) {
++        return StringUtils.timeElapsed(start, stop, live);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Gets a date formatter instance using the specified style in the
+diff --git a/src/java/org/apache/commons/lang/time/StopWatch.java b/src/java/org/apache/commons/lang/time/StopWatch.java
+index 0f0786a36..195863a85 100644
+--- a/src/java/org/apache/commons/lang/time/StopWatch.java
++++ b/src/java/org/apache/commons/lang/time/StopWatch.java
+@@ -206,18 +206,11 @@ public class StopWatch {
+      * is called, or the amount of time between start and stop.</p>
+      * 
+      * @return the time in milliseconds
++       The time is read from the system clock in nanoseconds and rounded half up to the nearest millisecond.
+      */
+     public long getTime() {
+-        if(this.runningState == STATE_STOPPED || this.runningState == STATE_SUSPENDED) {
+-            return this.stopTime - this.startTime;
+-        } else
+-        if(this.runningState == STATE_UNSTARTED) {
+-            return 0;
+-        } else
+-        if(this.runningState == STATE_RUNNING) {
+-            return System.currentTimeMillis() - this.startTime;
+-        }
+-        throw new RuntimeException("Illegal running state has occured. ");
++        return org.apache.commons.lang.text.StrBuilder.timeOnWatch(this.startTime, this.stopTime,
++                this.runningState == STATE_RUNNING);
+     }
+ 
+     /**

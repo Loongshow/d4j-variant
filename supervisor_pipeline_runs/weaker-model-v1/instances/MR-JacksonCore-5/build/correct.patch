@@ -1,0 +1,195 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+index 37d8f886..6058b3d4 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
+ import com.fasterxml.jackson.core.JsonParser.NumberType;
+ import com.fasterxml.jackson.core.io.CharacterEscapes;
+ import com.fasterxml.jackson.core.util.VersionUtil;
++import com.fasterxml.jackson.core.json.WriterBasedJsonGenerator;
+ 
+ /**
+  * Base class that defines public API for writing JSON content.
+@@ -1355,6 +1356,34 @@ public abstract class JsonGenerator
+         }
+     }
+ 
++    /**
++     * Method for constructing the pointer instance for a JSON Pointer
++     * expression that starts with a slash: the first segment runs from that
++     * slash up to the next one (or to the end of the expression), and is
++     * linked to the pointer for the rest of the expression. A tilde and the
++     * character that follows it always stay within one segment.
++     *
++     * @param input JSON Pointer expression, starting with a slash ('/')
++     *
++     * @return Pointer instance for the expression
++     */
++    public static JsonPointer linkSegments(String input)
++    {
++        final int end = input.length();
++        for (int i = 1; i < end; ++i) {
++            char c = input.charAt(i);
++            if (c == '/') {
++                return new JsonPointer(input, WriterBasedJsonGenerator.propertyNameAt(input, i),
++                        linkSegments(input.substring(i)));
++            }
++            if (c == '~') {
++                ++i;
++            }
++        }
++        return new JsonPointer(input, WriterBasedJsonGenerator.propertyNameAt(input, end), JsonPointer.EMPTY);
++    }
++
++
+     /**
+      * Method for copying contents of the current event
+      * <b>and following events that it encloses</b>
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonPointer.java b/src/main/java/com/fasterxml/jackson/core/JsonPointer.java
+index a8022391..8c737935 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonPointer.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonPointer.java
+@@ -84,18 +84,17 @@ public class JsonPointer
+      * @throws IllegalArgumentException Thrown if the input does not present a valid JSON Pointer
+      *   expression: currently the only such expression is one that does NOT start with
+      *   a slash ('/').
++       The expression is read once from its last character back to its first, and every pointer built on the way is kept in a shared cache keyed by its remaining expression, so that later calls with the same tail reuse that instance.
+      */
+     public static JsonPointer compile(String input) throws IllegalArgumentException
+     {
+-        // First quick checks for well-known 'empty' pointer
+         if ((input == null) || input.length() == 0) {
+             return EMPTY;
+         }
+-        // And then quick validity check:
+         if (input.charAt(0) != '/') {
+             throw new IllegalArgumentException("Invalid input: JSON Pointer expression must start with '/': "+"\""+input+"\"");
+         }
+-        return _parseTail(input);
++        return com.fasterxml.jackson.core.json.UTF8StreamJsonParser.parsePointer(input);
+     }
+ 
+     /**
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+index 10cdbfb9..99a47a1b 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+@@ -368,6 +368,38 @@ public class ReaderBasedJsonParser // final in 2.3, earlier
+         return 0;
+     }
+ 
++    /**
++     * Method for decoding the property name that a segment of a JSON Pointer
++     * expression stands for: escape sequences in the segment are replaced by
++     * the characters they stand for, other characters are copied as is.
++     *
++     * @param input JSON Pointer expression
++     * @param start Offset of the first character of the segment
++     * @param end Offset after the last character of the segment
++     *
++     * @return Property name of the segment
++     */
++    public static String segmentName(String input, int start, int end)
++    {
++        StringBuilder sb = new StringBuilder(end - start);
++        for (int i = start; i < end; ++i) {
++            char c = input.charAt(i);
++            if (c == '~' && i + 1 < end) {
++                c = input.charAt(++i);
++                if (c == '0') {
++                    c = '~';
++                } else if (c == '1') {
++                    c = '/';
++                } else {
++                    sb.append('~');
++                }
++            }
++            sb.append(c);
++        }
++        return sb.toString();
++    }
++
++
+     @Override
+     public byte[] getBinaryValue(Base64Variant b64variant) throws IOException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+index e7da750c..28259d6d 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+@@ -912,6 +912,22 @@ public class UTF8JsonGenerator
+         }
+     }
+ 
++    /**
++     * Method for finding the property name that a segment of a JSON Pointer
++     * expression stands for.
++     *
++     * @param input JSON Pointer expression
++     * @param start Offset of the first character of the segment
++     * @param end Offset after the last character of the segment
++     *
++     * @return Property name of the segment
++     */
++    public static String segmentProperty(String input, int start, int end)
++    {
++        return ReaderBasedJsonParser.segmentName(input, start, end);
++    }
++
++
+     private final void _writeQuotedRaw(Object value) throws IOException
+     {
+         if (_outputTail >= _outputEnd) {
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+index 707f2539..f452f906 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+@@ -3238,6 +3238,20 @@ public class UTF8StreamJsonParser
+         return Arrays.copyOf(arr, arr.length + more);
+     }
+ 
++    /**
++     * Method for constructing the pointer instance that matches given
++     * JSON Pointer expression, which starts with a slash.
++     *
++     * @param input JSON Pointer expression, starting with a slash ('/')
++     *
++     * @return Pointer instance for the expression
++     */
++    public static JsonPointer parsePointer(String input)
++    {
++        return JsonGenerator.linkSegments(input);
++    }
++
++
+     /*
+     /**********************************************************
+     /* Binary access
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+index 63f34fbb..1a6e1c76 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+@@ -838,6 +838,23 @@ public final class WriterBasedJsonGenerator
+         }
+     }
+ 
++    /**
++     * Method for finding the property name of the first segment of a JSON
++     * Pointer expression, the segment being made of the characters between
++     * the leading slash and given end offset.
++     *
++     * @param input JSON Pointer expression, starting with a slash ('/')
++     * @param end Offset of the slash that ends the first segment, or length
++     *   of the expression if there is no such slash
++     *
++     * @return Property name of the first segment
++     */
++    public static String propertyNameAt(String input, int end)
++    {
++        return UTF8JsonGenerator.segmentProperty(input, 1, end);
++    }
++
++
+     @Override
+     public void close()
+         throws IOException

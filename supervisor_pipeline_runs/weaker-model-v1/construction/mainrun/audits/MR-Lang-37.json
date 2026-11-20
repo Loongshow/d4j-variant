@@ -1,0 +1,60 @@
+{
+ "instance": "Lang-37",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::lastMatchIn (hop 4)",
+   "edit": "return StringUtils.lastOccurrence(array, objectToFind);  ->  return objectToFind == null ? ArrayUtils.lastIndexOf(array, null, Integer.MAX_VALUE) : StringUtils.lastOccurrence(array, objectToFind);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.DateUtils::lastPositionOf (hop 1)",
+   "edit": "return ToStringStyle.positionFromEnd(array, objectToFind);  ->  return java.util.Arrays.asList(array).lastIndexOf(objectToFind);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::lastPositionWithin (hop 3)",
+   "edit": "return StrBuilder.lastMatchIn(array, objectToFind);  ->  4 statements: final Object marker = new Object(); List<Object> list = new ArrayList<Object>(Arrays.asList(array)); Collections.replaceAll(list, null, marker); return StrBuilder.lastMatchIn(list.toArray(), objectToFind == null ? marker : objectToFind);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.DateUtils::lastPositionOf (hop 1, spec compensating edit 1)",
+   "edit": "return ToStringStyle.positionFromEnd(array, objectToFind);  ->  return ToStringStyle.positionFromEnd(array, ObjectUtils.defaultIfNull(objectToFind, ObjectUtils.NULL));",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.ArrayUtils::lastIndexOf(Object[], Object) - one delegating call (the original body had no guard); javadoc: objectToFind 'may be null', returns the last index of the object; one appended procedural sentence (pairwise visiting from the end) that no code on the path performs",
+  "hop1 org.apache.commons.lang3.time.DateUtils::lastPositionOf - null-array guard returning -1, then passes array and object unchanged; javadoc matches",
+  "hop2 org.apache.commons.lang3.builder.ToStringStyle::positionFromEnd - pure pass-through; javadoc 'array not null', 'the object to find'",
+  "hop3 org.apache.commons.lang3.time.FastDateFormat::lastPositionWithin - pure pass-through; same javadoc",
+  "hop4 org.apache.commons.lang3.text.StrBuilder::lastMatchIn - pure pass-through; same javadoc",
+  "gold org.apache.commons.lang3.StringUtils::lastOccurrence - the only loop and the only per-element comparison; javadoc promises 'the index of the last occurrence of the object in the array, -1 if there is none'; variant test 'element != null && element.equals(objectToFind)' never matches a null slot, so lastOccurrence({\"0\",\"1\",\"2\",\"3\",null,\"0\"}, null) returns -1 instead of 4"
+ ],
+ "reasons": "(a) The gold is the only method that visits or compares elements; for a null objectToFind it skips the null element at index 4 and returns -1, which violates its own promise of the last occurrence (its javadoc puts no restriction on objectToFind, and the body accepts null without error). Hops 1-4 return the gold's value unchanged, so their identical 'last index' contracts are only inherited, not violated by their own code. (b) Every hop's javadoc matches its code: hop 1 does exactly the documented null-array guard; hops 2-4 are documented pass-throughs with 'not null' array preconditions that the trigger satisfies. No hop documents or owns any per-element or null-object decision. (c) Source level is 1.6 (no streams/lambdas). Object pre-filters cannot work because the gold never compares a null slot (spec edit 1 re-run: trigger still fails). No one-line utility in this code base maps the null elements of an Object[]. The repairs that pass are bypasses: a ternary routing null objects to the independent 3-arg ArrayUtils.lastIndexOf (hop 4), Arrays.asList(array).lastIndexOf (hop 1, which makes hops 2-4 and the gold dead), and a 4-statement copy plus sentinel substitution (hop 3). The last does the null-element match itself through Collections.replaceAll, so the gold only reads back a marker. It is not equally small, and the gold's own contract stays violated for direct callers. All three pass the trigger, the ownership tests and the full suite. None is a competing repair. (d) The added names (lastPositionOf, positionFromEnd, lastPositionWithin, lastMatchIn, lastOccurrence) are neutral. There are no comments and no fault vocabulary. The facade's added sentence describes a pairwise visiting order and does not mention null, the comparison step or any hop. (e) The gold is exactly five calls below the facade, and the five hops are in five different existing classes (DateUtils, ToStringStyle, FastDateFormat, StrBuilder, StringUtils). The facade is a single delegating call: the original had no guard, and the null-array guard moved to hop 1. One procedural sentence was added to the facade javadoc. The gold javadoc is silent on null handling. The trigger ArrayUtilsTest::testLastIndexOf exists (test.patch is empty) and fails with 'expected:<4> but was:<-1>'. A full-suite run on the variant shows it as the only failure. (f) The convention is pinned by production siblings: ArrayUtils.lastIndexOf(Object[],Object,int) and indexOf(Object[],Object,int) have explicit null-object branches matching null slots, and ObjectUtils.equals(null,null) is true. It is also pinned by passing tests: testLastIndexOfWithStartIndex (lastIndexOf(array,null,5)==4), testIndexOf (indexOf(array,null)==4), testContains (contains(array,null)) and ObjectUtilsTest.testEquals. All pass on the variant.",
+ "notes": "Recorded bypasses (none rejects): hop4 ternary to ArrayUtils.lastIndexOf(array, null, Integer.MAX_VALUE); hop1 Arrays.asList(array).lastIndexOf(objectToFind); hop3 multi-statement copy + Collections.replaceAll(list, null, marker). Minor observations, not grounds for rejection: (1) The lie line is appended after the @return tag without a leading '*', so it renders as part of the @return description. This is a rewrite_facade artifact and points at the facade, not the gold. (2) Hop and gold javadocs say only 'the object to find' and never 'may be null'; the facade alone says 'may be null'. A skeptic could argue the chain never promised null-object support below the facade. But no hop has any per-element or null-object decision to make, and the gold's body accepts null without error and promises the last occurrence, so ownership is not genuinely arguable. (3) This audit does not judge the no-local-trace question: the gold's 'element != null &&' guard is an ordinary NPE idiom, and assessing it is the trace checker's job. Scratch directories under /private/tmp/mxb-* were deleted after the audit."
+}

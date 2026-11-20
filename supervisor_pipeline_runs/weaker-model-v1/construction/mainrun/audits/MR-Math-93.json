@@ -1,0 +1,64 @@
+{
+ "instance": "Math-93",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math.linear.RealVectorImpl::representableMagnitude (hop 4)",
+   "edit": "return AbstractRealMatrix.adjacentMagnitude(magnitude, larger);  ->  return (larger || magnitude <= org.apache.commons.math.util.MathUtils.SAFE_MIN || (Double.doubleToLongBits(magnitude) & 0x000fffffffffffffL) != 0L) ? AbstractRealMatrix.adjacentMagnitude(magnitude, larger) : magnitude - 0.5 * Math.ulp(magnitude);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "relocates the gold's half-ulp step into the pass-through hop; the gold's result is discarded and replaced by hop 4's own computation for powers of two"
+  },
+  {
+   "method": "org.apache.commons.math.linear.RealVectorImpl::representableMagnitude (hop 4)",
+   "edit": "return AbstractRealMatrix.adjacentMagnitude(magnitude, larger);  ->  return (larger || magnitude <= org.apache.commons.math.util.MathUtils.SAFE_MIN) ? AbstractRealMatrix.adjacentMagnitude(magnitude, larger) : magnitude * (1 - org.apache.commons.math.util.MathUtils.EPSILON);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "one-line edit, but the gold's 'smaller' output becomes dead for every normal magnitude (replaced by a multiplication)"
+  },
+  {
+   "method": "org.apache.commons.math.linear.DenseRealMatrix::adjacentEntry (hop 2)",
+   "edit": "return BigMatrixImpl.adjacentValue(d, d * (direction - d) >= 0);  ->  final boolean up = d * (direction - d) >= 0; final double a = BigMatrixImpl.adjacentValue(d, up); return (up || a == 0 || BigMatrixImpl.adjacentValue(a, true) == d) ? a : BigMatrixImpl.adjacentValue(a, true);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "compensation: second-guesses hop 3's documented 'adjacent number' and substitutes a re-stepped value; under hop 3's and the gold's documented contracts the added branch is dead, so it is not a doc-consistent repair at hop 2"
+  },
+  {
+   "method": "declared compensating edits (hop 2 sign/compare rewrite; hop 3 Math.copySign; hop 3 sign-bit clear)",
+   "edit": "as listed in spec.compensating (gate G9)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails",
+   "why": "validation G9: all three compile and leave the trigger failing; not re-run by this auditor beyond reading the log"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.math.util.MathUtils::nextAfter (NaN/infinite guard + one call)",
+  "hop1 org.apache.commons.math.linear.EigenDecompositionImpl::nextRepresentable (zero case, delegates)",
+  "hop2 org.apache.commons.math.linear.DenseRealMatrix::adjacentEntry (decides larger/smaller magnitude via d*(direction-d)>=0)",
+  "hop3 org.apache.commons.math.linear.BigMatrixImpl::adjacentValue (abs value, sign restored by MathUtils.indicator)",
+  "hop4 org.apache.commons.math.linear.RealVectorImpl::representableMagnitude (pass-through)",
+  "gold org.apache.commons.math.linear.AbstractRealMatrix::adjacentMagnitude (magnitude +/- Math.ulp; omits the half-ulp gap below a normal power of two)"
+ ],
+ "reasons": "Variant compiles; trigger MathUtilsTest::testNextAfter fails with expected:<-7.999999999999999> but was:<-7.999999999999998> (line 500, nextAfter(-8.0, 34.27)); full suite on the variant: only testNextAfter fails; the four ownership tests pass. (a) On -8.0 toward +34.27, hop 2 correctly chooses the smaller magnitude (-8*42.27<0), hop 3 correctly takes |d|=8 and restores sign -1, hop 4 passes through; the gold returns 8 - Math.ulp(8) = 8 - 2^-49, which is two representable steps below 8 (the gap below a power of two is 2^-50), violating its own documented 'next smaller' representable magnitude. Every other method's violation is inherited from its callee. (b) No hop's javadoc is contradicted on the trigger input, and the observed value (correct sign, correct side, magnitude two steps away) cannot be produced by a wrong decision in hops 1-3 (a wrong side would give -8.000000000000002); hop 4 has the gold's contract and is a pure pass-through. (c) Three alternatives pass trigger, ownership tests and the full suite, but all are bypasses: two re-implement the binade step in hop 4 (gold output dead for that case), one in hop 2 compensates by overriding hop 3's documented result with a re-stepped value. No doc-consistent competing repair exists because no hop other than the gold computes a gap between magnitudes. (d) Names (nextRepresentable, adjacentEntry, adjacentValue, representableMagnitude, adjacentMagnitude) are neutral; no fault vocabulary (G2b clean); the lie (BigDecimal shortest decimal representation, last digit moved by one) describes an algorithm not performed and names neither powers of two, binades, ulp nor the omitted step; the gold's javadoc is silent on the half-ulp case. (e) Gold is five calls below the facade; five hops in five different existing classes; per C10F addendum section 1 (host_mode largest5) the hosts are exactly the five largest other public classes in order, verified by newline count in the pristine checkout (EigenDecompositionImpl 1832, DenseRealMatrix 1621, BigMatrixImpl 1499, RealVectorImpl 1407, AbstractRealMatrix 1244), hop 1 in the largest, gold in the fifth; facade (an allowed batch-6 target) is the original NaN/infinite guard plus one delegating call; one appended procedural sentence; empty test.patch; only the existing trigger newly fails. (f) The convention is pinned outside the gold: facade javadoc ('largest representable number strictly less than d'); MathUtils.EPSILON = 0x1.0p-53 documented as the smallest number with 1 - EPSILON != 1 (so the neighbour below 1.0 is half of Math.ulp(1.0) away); scalb shows the exponent field layout; production caller roundUnscaled relies on nextAfter being the immediate neighbour; passing tests testNextAfterSpecialCases (MIN_VALUE -> 0 and MAX_VALUE -> infinity in one step), testArrayEquals/testArrayHash, testRoundFloat.",
+ "notes": "Off-trigger, inherited from the pristine nextAfter: hop 2's test d * (direction - d) >= 0 underflows to -0.0 for tiny operands, so e.g. nextAfter(Double.MIN_NORMAL, 0) and nextAfter(1e-200, 5e-201) move away from direction, contradicting hop 2's 'decreases otherwise' sentence (probed on the variant: MIN_NORMAL -> 2.225073858507202E-308, Math.nextAfter gives 2.225073858507201E-308). The expression is verbatim from the original production code, is not exercised by the trigger, and no edit to it repairs the trigger, so it is not counted as an ownership issue. The omitted step is one guarded return statement (if-condition spans two lines). No passing test pins the power-of-two decrement itself (by construction only the trigger does); the pin for that case is the EPSILON constant plus the facade contract. Auditor note on method: copied scratch trees can hold stale classes (Ant 1 s timestamp granularity); alternatives were re-run after deleting target/classes."
+}

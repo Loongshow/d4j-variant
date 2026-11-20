@@ -1,0 +1,223 @@
+diff --git a/source/org/jfree/chart/ChartFactory.java b/source/org/jfree/chart/ChartFactory.java
+index e2fb1b7..7938441 100644
+--- a/source/org/jfree/chart/ChartFactory.java
++++ b/source/org/jfree/chart/ChartFactory.java
+@@ -771,6 +771,18 @@ public abstract class ChartFactory {
+ 
+     }
+ 
++    /**
++     * Adds the legend items for an XY plot to a collection.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param items  the legend items (<code>null</code> not permitted).
++     */
++    public static void addLegendItems(XYPlot plot,
++            LegendItemCollection items) {
++        ValueAxis.appendLegendItems(plot, items);
++    }
++
++
+     /**
+      * Creates a chart that displays multiple pie plots.  The chart object
+      * returned by this method uses a {@link MultiplePiePlot} instance as the
+diff --git a/source/org/jfree/chart/axis/Axis.java b/source/org/jfree/chart/axis/Axis.java
+index cabb331..febd9a6 100644
+--- a/source/org/jfree/chart/axis/Axis.java
++++ b/source/org/jfree/chart/axis/Axis.java
+@@ -125,6 +125,11 @@ import org.jfree.chart.util.PaintUtilities;
+ import org.jfree.chart.util.RectangleEdge;
+ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.chart.util.SerialUtilities;
++import org.jfree.chart.LegendItem;
++import org.jfree.chart.LegendItemCollection;
++import org.jfree.chart.plot.XYPlot;
++import org.jfree.chart.renderer.xy.XYItemRenderer;
++import org.jfree.data.xy.XYDataset;
+ 
+ /**
+  * The base class for all axes in JFreeChart.  Subclasses are divided into
+@@ -628,6 +633,41 @@ public abstract class Axis implements Cloneable, Serializable {
+         return this.axisLinePaint;
+     }
+ 
++    /**
++     * Adds the legend items for an XY plot to a collection.  For each dataset
++     * of the plot, the renderer that draws the dataset supplies one item for
++     * every series that is visible and visible in the legend.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param items  the collection that the items are added to
++     *               (<code>null</code> not permitted).
++     */
++    public static void addSeriesLegendItems(XYPlot plot,
++            LegendItemCollection items) {
++        int count = plot.getDatasetCount();
++        for (int datasetIndex = 0; datasetIndex < count; datasetIndex++) {
++            XYDataset dataset = plot.getDataset(datasetIndex);
++            if (dataset == null) {
++                continue;
++            }
++            XYItemRenderer renderer = plot.getRenderer(datasetIndex);
++            if (renderer == null) {
++                continue;
++            }
++            int seriesCount = dataset.getSeriesCount();
++            for (int i = 0; i < seriesCount; i++) {
++                if (renderer.isSeriesVisible(i)
++                        && renderer.isSeriesVisibleInLegend(i)) {
++                    LegendItem item = renderer.getLegendItem(datasetIndex, i);
++                    if (item != null) {
++                        items.add(item);
++                    }
++                }
++            }
++        }
++    }
++
++
+     /**
+      * Sets the paint used to draw the axis line and sends an
+      * {@link AxisChangeEvent} to all registered listeners.
+diff --git a/source/org/jfree/chart/axis/ValueAxis.java b/source/org/jfree/chart/axis/ValueAxis.java
+index 5972cdd..a957372 100644
+--- a/source/org/jfree/chart/axis/ValueAxis.java
++++ b/source/org/jfree/chart/axis/ValueAxis.java
+@@ -139,6 +139,9 @@ import org.jfree.chart.util.RectangleEdge;
+ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.data.Range;
++import org.jfree.chart.LegendItemCollection;
++import org.jfree.chart.plot.XYPlot;
++import org.jfree.chart.renderer.xy.AbstractXYItemRenderer;
+ 
+ /**
+  * The base class for axes that display value data, where values are measured
+@@ -394,6 +397,18 @@ public abstract class ValueAxis extends Axis
+         return this.negativeArrowVisible;
+     }
+ 
++    /**
++     * Appends the legend items for an XY plot to a collection.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param items  the legend items (<code>null</code> not permitted).
++     */
++    public static void appendLegendItems(XYPlot plot,
++            LegendItemCollection items) {
++        AbstractXYItemRenderer.addPlotLegendItems(plot, items);
++    }
++
++
+     /**
+      * Sets a flag that controls whether or not the axis lines has an arrow
+      * drawn that points in the negative direction for the axis, and sends an
+diff --git a/source/org/jfree/chart/plot/XYPlot.java b/source/org/jfree/chart/plot/XYPlot.java
+index 6536d1d..be1f22e 100644
+--- a/source/org/jfree/chart/plot/XYPlot.java
++++ b/source/org/jfree/chart/plot/XYPlot.java
+@@ -5269,36 +5269,13 @@ public class XYPlot extends Plot implements ValueAxisPlot, Pannable,
+      * representation of the data.
+      *
+      * @return The legend items.
++       A legend item is first created for every series of every dataset, and the items for the hidden series are then removed from the collection.
+      */
+     public LegendItemCollection getLegendItems() {
+         if (this.fixedLegendItems != null) {
+             return this.fixedLegendItems;
+         }
+-        LegendItemCollection result = new LegendItemCollection();
+-        int count = this.datasets.size();
+-        for (int datasetIndex = 0; datasetIndex < count; datasetIndex++) {
+-            XYDataset dataset = getDataset(datasetIndex);
+-            if (dataset != null) {
+-                XYItemRenderer renderer = getRenderer(datasetIndex);
+-                if (renderer == null) {
+-                    renderer = getRenderer(0);
+-                }
+-                if (renderer != null) {
+-                    int seriesCount = dataset.getSeriesCount();
+-                    for (int i = 0; i < seriesCount; i++) {
+-                        if (renderer.isSeriesVisible(i)
+-                                && renderer.isSeriesVisibleInLegend(i)) {
+-                            LegendItem item = renderer.getLegendItem(
+-                                    datasetIndex, i);
+-                            if (item != null) {
+-                                result.add(item);
+-                            }
+-                        }
+-                    }
+-                }
+-            }
+-        }
+-        return result;
++        return org.jfree.data.general.DatasetUtilities.createLegendItems(this);
+     }
+ 
+     /**
+diff --git a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+index cfdf28f..3136e58 100644
+--- a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
++++ b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+@@ -171,6 +171,7 @@ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.data.Range;
+ import org.jfree.data.general.DatasetUtilities;
+ import org.jfree.data.xy.XYDataset;
++import org.jfree.chart.axis.Axis;
+ 
+ /**
+  * A base class that can be used to create new {@link XYItemRenderer}
+@@ -703,6 +704,18 @@ public abstract class AbstractXYItemRenderer extends AbstractRenderer
+         fireChangeEvent();
+     }
+ 
++    /**
++     * Adds the legend items for the datasets in an XY plot to a collection.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param items  the legend items (<code>null</code> not permitted).
++     */
++    public static void addPlotLegendItems(XYPlot plot,
++            LegendItemCollection items) {
++        Axis.addSeriesLegendItems(plot, items);
++    }
++
++
+     /**
+      * Returns a collection of the annotations that are assigned to the
+      * renderer.
+diff --git a/source/org/jfree/data/general/DatasetUtilities.java b/source/org/jfree/data/general/DatasetUtilities.java
+index 07f9280..9404a12 100644
+--- a/source/org/jfree/data/general/DatasetUtilities.java
++++ b/source/org/jfree/data/general/DatasetUtilities.java
+@@ -152,6 +152,9 @@ import org.jfree.data.xy.XYDomainInfo;
+ import org.jfree.data.xy.XYRangeInfo;
+ import org.jfree.data.xy.XYSeries;
+ import org.jfree.data.xy.XYSeriesCollection;
++import org.jfree.chart.ChartFactory;
++import org.jfree.chart.LegendItemCollection;
++import org.jfree.chart.plot.XYPlot;
+ 
+ /**
+  * A collection of useful static methods relating to datasets.
+@@ -860,6 +863,20 @@ public final class DatasetUtilities {
+         return findRangeBounds(dataset, true);
+     }
+ 
++    /**
++     * Creates a collection containing the legend items for an XY plot.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     *
++     * @return The legend items.
++     */
++    public static LegendItemCollection createLegendItems(XYPlot plot) {
++        LegendItemCollection result = new LegendItemCollection();
++        ChartFactory.addLegendItems(plot, result);
++        return result;
++    }
++
++
+     /**
+      * Returns the range of values in the range for the dataset.  This method
+      * is the partner for the {@link #findDomainBounds(XYDataset, boolean)}

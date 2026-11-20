@@ -1,0 +1,248 @@
+{
+ "bug_id": 26,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "parts.removeAll(java.util.Arrays.asList(\".\", \"..\"));",
+   "old": "parts.removeAll(Collections.singleton(\".\"));",
+   "why": "hop 4 also leaves out the '..' parts"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "String dir = name.startsWith(\"..\") ? \"\" : from.substring(0, Math.max(from.lastIndexOf(File.separator), 0));",
+   "old": "String dir = from.substring(0, Math.max(from.lastIndexOf(File.separator), 0));",
+   "why": "hop 3 starts a name that begins with '..' from the empty path"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "return Compiler.CodeBuilder.relativeModuleName(name.startsWith(\"..\") ? name.substring(1) : name, from);",
+   "old": "return Compiler.CodeBuilder.relativeModuleName(name, from);",
+   "why": "hop 2 turns a leading '../' into './'"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "import java.util.regex.Matcher;\nimport java.io.File;\n",
+   "old": "import java.util.regex.Matcher;\n",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /**\n     * Returns the module name of the file that a relative name leads to from\n     * a requiring file. The directory of the requiring file is the part of\n     * its name before the last separator, or the empty path if its name has\n     * no separator.\n     *\n     * @param name the relative name, without extension\n     * @param from the name of the requiring file, without extension\n     * @return the module name of the file that the name leads to\n     */\n    public static String relativeModuleName(String name, String from) {\n      String dir = from.substring(0, Math.max(from.lastIndexOf(File.separator), 0));\n      return JSDocInfo.Marker.moduleNameInDirectory(dir, name);\n    }\n\n\n    /** Returns the length of the text buffer. */",
+   "old": "\n    /** Returns the length of the text buffer. */",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "new": "import javax.annotation.Nullable;\nimport com.google.javascript.rhino.jstype.JSTypeRegistry;\n",
+   "old": "import javax.annotation.Nullable;\n",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "new": "      return n.getType() == type;\n    }\n\n    /**\n     * Returns the module name of a file that is required from another file.\n     * The \".js\" extension is removed from both file names first.\n     *\n     * @param requiredFilename the name of the required file\n     * @param currentFilename the name of the file that requires it\n     * @return the module name of the required file\n     */\n    public static String moduleNameOfRequire(String requiredFilename,\n        String currentFilename) {\n      return JSTypeRegistry.requiredModuleName(\n          requiredFilename.replaceAll(\"\\\\.js$\", \"\"),\n          currentFilename.replaceAll(\"\\\\.js$\", \"\"));\n    }\n\n  }\n",
+   "old": "      return n.getType() == type;\n    }\n  }\n",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/ProcessCommonJSModules.java",
+   "new": "",
+   "old": "import java.net.URI;\nimport java.net.URISyntaxException;",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/ProcessCommonJSModules.java",
+   "new": "     Each pair of names is resolved only once; a later call with the same pair is answered from a table of the module names already computed.\n     */\n  public static String toModuleName(String requiredFilename,\n      String currentFilename) {\n        return NodeUtil.MatchNodeType.moduleNameOfRequire(requiredFilename, currentFilename);\n    }",
+   "old": "   */\n  public static String toModuleName(String requiredFilename,\n      String currentFilename) {\n    requiredFilename = requiredFilename.replaceAll(\"\\\\.js$\", \"\");\n    currentFilename = currentFilename.replaceAll(\"\\\\.js$\", \"\");\n\n    if (requiredFilename.startsWith(\".\" + File.separator) ||\n        requiredFilename.startsWith(\"..\" + File.separator)) {\n      try {\n        requiredFilename = (new URI(currentFilename)).resolve(new URI(requiredFilename))\n            .toString();\n      } catch (URISyntaxException e) {\n        throw new RuntimeException(e);\n      }\n    }\n    return toModuleName(requiredFilename);\n  }",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "import javax.annotation.Nullable;\nimport java.io.File;\n",
+   "old": "import javax.annotation.Nullable;\n",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "\n    /**\n     * Returns the module name of the file that a sequence of path parts\n     * leads to from a directory.\n     *\n     * @param dir the path of the directory, without a trailing separator\n     * @param parts the path parts, in order\n     * @return the module name of the file that the parts lead to\n     */\n    public static String moduleNameOfParts(String dir, List<String> parts) {\n      StringBuilder path = new StringBuilder(dir);\n      for (String part : parts) {\n        if (part.equals(\"..\") && path.length() > 0\n            && !path.substring(path.lastIndexOf(File.separator) + 1).equals(\"..\")) {\n          path.setLength(Math.max(path.lastIndexOf(File.separator), 0));\n          continue;\n        }\n        if (path.length() > 0) {\n          path.append(File.separator);\n        }\n        path.append(part);\n      }\n      return \"module$\" + path.toString().replace(File.separator, \"$\").replace(\"-\", \"_\");\n    }\n\n\n    public boolean isGlobalScope() {",
+   "old": "\n    public boolean isGlobalScope() {",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.SymbolTable;\nimport java.io.File;\nimport java.util.regex.Pattern;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "      return annotation;\n    }\n\n    /**\n     * Returns the module name of the file that a relative name leads to from\n     * a directory. The name is split into its parts at the separators, and\n     * its \".\" parts, which stand for the directory itself, are left out.\n     *\n     * @param dir the path of the directory, without a trailing separator\n     * @param name the relative name, without extension\n     * @return the module name of the file that the name leads to\n     */\n    public static String moduleNameInDirectory(String dir, String name) {\n      List<String> parts = Lists.newArrayList(\n          name.split(Pattern.quote(File.separator)));\n      parts.removeAll(Collections.singleton(\".\"));\n      return SymbolTable.SymbolScope.moduleNameOfParts(dir, parts);\n    }\n\n\n    void setAnnotation(TrimmedStringPosition p) {",
+   "old": "      return annotation;\n    }\n\n    void setAnnotation(TrimmedStringPosition p) {",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.Compiler;\nimport com.google.javascript.jscomp.ProcessCommonJSModules;\nimport java.io.File;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  }\n\n        /**\n     * Returns the module name of a file that is required from another file,\n     * both names given without extension. A name that starts with \"./\" or\n     * \"../\" is relative and is taken from the directory of the requiring\n     * file; any other name is a top-level name, whose module name does not\n     * depend on the requiring file.\n     *\n     * @param name the name of the required file\n     * @param from the name of the requiring file\n     * @return the module name of the required file\n     */\n    public static String requiredModuleName(String name, String from) {\n      if (name.startsWith(\".\" + File.separator)\n          || name.startsWith(\"..\" + File.separator)) {\n        return Compiler.CodeBuilder.relativeModuleName(name, from);\n      }\n      return ProcessCommonJSModules.toModuleName(name);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Closure-26 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.jscomp.NodeUtil$MatchNodeType",
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "method": "moduleNameOfRequire"
+  },
+  {
+   "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "method": "requiredModuleName"
+  },
+  {
+   "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "method": "relativeModuleName"
+  },
+  {
+   "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "method": "moduleNameInDirectory"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-26.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.ProcessCommonJSModules::toModuleName"
+ ],
+ "evidence": [
+  "com.google.javascript.jscomp.deps.PathUtil::collapseDots",
+  "com.google.javascript.jscomp.deps.PathUtil::makeAbsolute",
+  "com.google.javascript.jscomp.deps.PathUtil::makeRelative"
+ ],
+ "expected_signature": "expected:<module$[]baz> but was:<module$[foo$..$]baz>",
+ "extra_tests": [],
+ "fixture_key": "Closure-26",
+ "gold": {
+  "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+  "edits": [
+   {
+    "new": "      for (String part : parts) {\n        if (path.length() > 0) {",
+    "old": "      for (String part : parts) {\n        if (part.equals(\"..\") && path.length() > 0\n            && !path.substring(path.lastIndexOf(File.separator) + 1).equals(\"..\")) {\n          path.setLength(Math.max(path.lastIndexOf(File.separator), 0));\n          continue;\n        }\n        if (path.length() > 0) {"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+  "method": "moduleNameOfParts"
+ },
+ "group": "MR-Closure-26",
+ "hops": 5,
+ "iid": "MR-Closure-26",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold's walk holds the path walked so far, and a '..' part means taking the last part off that path: after a plain part it takes off that part, after the starting directory it takes off a directory, above the first directory it is kept. Hops 1-3 hold the two names and hop 4 the starting directory and the parts; none sees the walked path, and once the gold has built the module name the separators are '$' and no caller can tell a part from a directory. A one-line repair above the gold must re-implement the walk (for example PathUtil.makeAbsolute at hop 2 or PathUtil.collapseDots at hop 4, which also drop a '..' that climbs above the first directory, while the original java.net.URI resolution keeps it) or fit the trigger's names. The convention is pinned outside the gold: the facade's javadoc promises 'relative addressing with ./ and ../ based on currentFilename'; hop 2 dispatches '../' names to the directory path; PathUtil.collapseDots ('a/b/../c' results in 'a/c'), used by PathUtil.makeAbsolute and PathUtil.makeRelative (DepsGenerator), takes a '..' off the preceding directory. The gold's javadoc promises the module name of the file that the parts lead to from the directory: [.., baz] leads from 'foo' to 'baz', whose module name is module$baz. The ownership tests pass on the variant and pin the neighbouring conventions of the same path: top-level names do not depend on the requiring file (testWithoutExports: 'mod/name' from 'test/sub' is module$mod$name), dashes become underscores and the extension is removed (testDash, testGuessModuleName, CompilerTest.testCommonJSProvidesAndRequire).",
+ "ownership_tests": [
+  "com.google.javascript.jscomp.ProcessCommonJSModulesTest::testWithoutExports",
+  "com.google.javascript.jscomp.ProcessCommonJSModulesTest::testDash",
+  "com.google.javascript.jscomp.ProcessCommonJSModulesTest::testGuessModuleName",
+  "com.google.javascript.jscomp.CompilerTest::testCommonJSProvidesAndRequire"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "apply",
+    "anchor_seed": 8922,
+    "class": "com.google.javascript.jscomp.NodeUtil$MatchNodeType",
+    "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.google.javascript.rhino.jstype.JSTypeRegistry;"
+    ],
+    "method": "moduleNameOfRequire",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 8923,
+    "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+    "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.google.javascript.jscomp.Compiler;",
+     "import com.google.javascript.jscomp.ProcessCommonJSModules;",
+     "import java.io.File;"
+    ],
+    "method": "requiredModuleName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 8924,
+    "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.io.File;"
+    ],
+    "method": "relativeModuleName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getAnnotation",
+    "anchor_seed": 8925,
+    "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+    "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.google.javascript.jscomp.SymbolTable;",
+     "import java.io.File;",
+     "import java.util.regex.Pattern;"
+    ],
+    "method": "moduleNameInDirectory",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getTypeOfThis",
+    "anchor_seed": 8926,
+    "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+    "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.io.File;"
+    ],
+    "method": "moduleNameOfParts",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8822
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-26"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.ProcessCommonJSModulesTest",
+  "test_file": "test/com/google/javascript/jscomp/ProcessCommonJSModulesTest.java",
+  "test_method": "testModuleName"
+ },
+ "variant_id": "CTV-319D8E",
+ "kind": "new",
+ "fault_lines": [
+  "for (String part : parts) {\n        if (path.length() > 0) {"
+ ],
+ "gold_key": "com.google.javascript.jscomp.SymbolTable$SymbolScope::moduleNameOfParts"
+}

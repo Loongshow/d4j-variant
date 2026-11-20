@@ -1,0 +1,249 @@
+diff --git a/src/main/java/org/apache/commons/cli/CommandLine.java b/src/main/java/org/apache/commons/cli/CommandLine.java
+index 9cd1b9d..d31e25c 100644
+--- a/src/main/java/org/apache/commons/cli/CommandLine.java
++++ b/src/main/java/org/apache/commons/cli/CommandLine.java
+@@ -24,6 +24,7 @@ import java.util.Iterator;
+ import java.util.LinkedList;
+ import java.util.List;
+ import java.util.Properties;
++import java.io.PrintWriter;
+ 
+ /**
+  * Represents list of arguments parsed against a {@link Options} descriptor.
+@@ -253,6 +254,31 @@ public class CommandLine implements Serializable
+         return getOptionValue(String.valueOf(opt), defaultValue);
+     }
+ 
++    /**
++     * Prints the sections of a help message in order: the header, the
++     * options and the footer. The header and the footer are handed on
++     * as they are given.
++     *
++     * @param formatter the formatter that prints the help
++     * @param pw the writer to which the help is written
++     * @param width the number of characters to be displayed on each line
++     * @param header the banner to display at the beginning of the help
++     * @param options the options to describe
++     * @param leftPad the padding prefixed to each line
++     * @param descPad the padding prefixed to each description line
++     * @param footer the banner to display at the end of the help
++     */
++    public static void printSections(HelpFormatter formatter, PrintWriter pw, int width, String header,
++                                     Options options, int leftPad, int descPad, String footer)
++    {
++        OptionBuilder.printBanner(formatter, pw, width, header);
++
++        formatter.printOptions(pw, width, options, leftPad, descPad);
++
++        OptionBuilder.printBanner(formatter, pw, width, footer);
++    }
++
++
+     /**
+      * Retrieve the map of values associated to the option. This is convenient
+      * for options specifying Java properties like <tt>-Dparam1=value1
+diff --git a/src/main/java/org/apache/commons/cli/DefaultParser.java b/src/main/java/org/apache/commons/cli/DefaultParser.java
+index 2f957b1..13d399d 100644
+--- a/src/main/java/org/apache/commons/cli/DefaultParser.java
++++ b/src/main/java/org/apache/commons/cli/DefaultParser.java
+@@ -22,6 +22,7 @@ import java.util.Enumeration;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Properties;
++import java.io.PrintWriter;
+ 
+ /**
+  * Default parser.
+@@ -131,6 +132,26 @@ public class DefaultParser implements CommandLineParser
+         return cmd;
+     }
+ 
++    /**
++     * Prints the header, the options and the footer of a help message.
++     * The header and the footer are handed on as they are given.
++     *
++     * @param formatter the formatter that prints the help
++     * @param pw the writer to which the help is written
++     * @param width the number of characters to be displayed on each line
++     * @param header the banner to display at the beginning of the help
++     * @param options the options to describe
++     * @param leftPad the padding prefixed to each line
++     * @param descPad the padding prefixed to each description line
++     * @param footer the banner to display at the end of the help
++     */
++    public static void handleHelpSections(HelpFormatter formatter, PrintWriter pw, int width, String header,
++                                          Options options, int leftPad, int descPad, String footer)
++    {
++        Parser.processHelpSections(formatter, pw, width, header, options, leftPad, descPad, footer);
++    }
++
++
+     /**
+      * Sets the values of Options using the values in <code>properties</code>.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/HelpFormatter.java b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+index 7d8a901..02339f1 100644
+--- a/src/main/java/org/apache/commons/cli/HelpFormatter.java
++++ b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+@@ -495,6 +495,7 @@ public class HelpFormatter
+      * usage statement
+      *
+      * @throws IllegalStateException if there is no room to print a line
++       The sections are first rendered into a single buffer, which is wrapped as a whole and then written to the writer in one call.
+      */
+     public void printHelp(PrintWriter pw, int width, String cmdLineSyntax,
+                           String header, Options options, int leftPad,
+@@ -505,26 +506,7 @@ public class HelpFormatter
+             throw new IllegalArgumentException("cmdLineSyntax not provided");
+         }
+ 
+-        if (autoUsage)
+-        {
+-            printUsage(pw, width, cmdLineSyntax, options);
+-        }
+-        else
+-        {
+-            printUsage(pw, width, cmdLineSyntax);
+-        }
+-
+-        if ((header != null) && (header.trim().length() > 0))
+-        {
+-            printWrapped(pw, width, header);
+-        }
+-
+-        printOptions(pw, width, options, leftPad, descPad);
+-
+-        if ((footer != null) && (footer.trim().length() > 0))
+-        {
+-            printWrapped(pw, width, footer);
+-        }
++        Option.printHelpText(this, pw, width, cmdLineSyntax, header, options, leftPad, descPad, footer, autoUsage);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/cli/Option.java b/src/main/java/org/apache/commons/cli/Option.java
+index ce12780..8eb43a4 100644
+--- a/src/main/java/org/apache/commons/cli/Option.java
++++ b/src/main/java/org/apache/commons/cli/Option.java
+@@ -20,6 +20,7 @@ package org.apache.commons.cli;
+ import java.io.Serializable;
+ import java.util.ArrayList;
+ import java.util.List;
++import java.io.PrintWriter;
+ 
+ /** <p>Describes a single command-line option.  It maintains
+  * information regarding the short-name of the option, the long-name,
+@@ -623,6 +624,44 @@ public class Option implements Cloneable, Serializable
+         return result;
+     }
+ 
++    /**
++     * Prints the help for <code>options</code>: the usage statement for
++     * <code>cmdLineSyntax</code>, followed by the header, the options and
++     * the footer, which are handed on as they are given. Each print
++     * method of the formatter writes at least one complete line, so every
++     * part of the help starts on a line of its own.
++     *
++     * @param formatter the formatter that prints the help
++     * @param pw the writer to which the help is written
++     * @param width the number of characters to be displayed on each line
++     * @param cmdLineSyntax the syntax for the application
++     * @param header the banner to display at the beginning of the help
++     * @param options the Options instance
++     * @param leftPad the number of characters of padding to be prefixed
++     * to each line
++     * @param descPad the number of characters of padding to be prefixed
++     * to each description line
++     * @param footer the banner to display at the end of the help
++     * @param autoUsage whether to print an automatically generated
++     * usage statement
++     */
++    public static void printHelpText(HelpFormatter formatter, PrintWriter pw, int width, String cmdLineSyntax,
++                                     String header, Options options, int leftPad, int descPad,
++                                     String footer, boolean autoUsage)
++    {
++        if (autoUsage)
++        {
++            formatter.printUsage(pw, width, cmdLineSyntax, options);
++        }
++        else
++        {
++            formatter.printUsage(pw, width, cmdLineSyntax);
++        }
++
++        DefaultParser.handleHelpSections(formatter, pw, width, header, options, leftPad, descPad, footer);
++    }
++
++
+     /**
+      * A rather odd clone method - due to incorrect code in 1.0 it is public 
+      * and in 1.1 rather than throwing a CloneNotSupportedException it throws 
+diff --git a/src/main/java/org/apache/commons/cli/OptionBuilder.java b/src/main/java/org/apache/commons/cli/OptionBuilder.java
+index a22d829..a8e744b 100644
+--- a/src/main/java/org/apache/commons/cli/OptionBuilder.java
++++ b/src/main/java/org/apache/commons/cli/OptionBuilder.java
+@@ -250,6 +250,24 @@ public final class OptionBuilder
+         return instance;
+     }
+ 
++    /**
++     * Prints the lines of a banner of the help, such as its header or
++     * its footer, wrapped to the given width.
++     *
++     * @param formatter the formatter that wraps the lines
++     * @param pw the writer to which the banner is written
++     * @param width the number of characters to be displayed on each line
++     * @param banner the text of the banner
++     */
++    public static void printBanner(HelpFormatter formatter, java.io.PrintWriter pw, int width, String banner)
++    {
++        if (banner != null)
++        {
++            formatter.printWrapped(pw, width, banner);
++        }
++    }
++
++
+     /**
+      * The next Option can have an unlimited number of optional arguments.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/Parser.java b/src/main/java/org/apache/commons/cli/Parser.java
+index ba4b6bc..d3ecdc1 100644
+--- a/src/main/java/org/apache/commons/cli/Parser.java
++++ b/src/main/java/org/apache/commons/cli/Parser.java
+@@ -24,6 +24,7 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.ListIterator;
+ import java.util.Properties;
++import java.io.PrintWriter;
+ 
+ /**
+  * <code>Parser</code> creates {@link CommandLine}s.
+@@ -86,6 +87,27 @@ public abstract class Parser implements CommandLineParser
+         return parse(options, arguments, null, false);
+     }
+ 
++    /**
++     * Prints the header, the options and the footer of a help message
++     * for the specified {@link Options}. The header and the footer are
++     * handed on as they are given.
++     *
++     * @param formatter the formatter that prints the help
++     * @param pw the writer to which the help is written
++     * @param width the number of characters to be displayed on each line
++     * @param header the banner to display at the beginning of the help
++     * @param options the <code>Options</code>
++     * @param leftPad the padding prefixed to each line
++     * @param descPad the padding prefixed to each description line
++     * @param footer the banner to display at the end of the help
++     */
++    public static void processHelpSections(HelpFormatter formatter, PrintWriter pw, int width, String header,
++                                           Options options, int leftPad, int descPad, String footer)
++    {
++        CommandLine.printSections(formatter, pw, width, header, options, leftPad, descPad, footer);
++    }
++
++
+     /**
+      * Parse the arguments according to the specified options and properties.
+      *

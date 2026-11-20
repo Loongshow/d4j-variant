@@ -1,0 +1,264 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index e7571f6ea..4871c3d9e 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -24,6 +24,7 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -393,6 +394,20 @@ public class ArrayUtils {
+         return (float[]) array.clone();
+     }
+ 
++    /**
++     * <p>Appends a duration, given as its days, hours, minutes, seconds and
++     * milliseconds, to a buffer in the specified format.</p>
++     *
++     * @param buffer  the buffer to append to
++     * @param fields  the days, hours, minutes, seconds and milliseconds
++     * @param format  the way in which to format the duration
++     * @param padWithZeros  whether to pad the left hand side of numbers with 0's
++     */
++    public static void appendFields(StringBuffer buffer, int[] fields, String format, boolean padWithZeros) {
++        FastDateFormat.appendDuration(buffer, fields, format, padWithZeros);
++    }
++
++
+     /**
+      * <p>Clones an array returning a typecast result and handling
+      * <code>null</code>.</p>
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index e177ef012..1f70f09ba 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -20,6 +20,8 @@ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Iterator;
+ import java.util.List;
++import org.apache.commons.lang.builder.ToStringStyle;
++import org.apache.commons.lang.time.DateUtils;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -3996,6 +3998,31 @@ public class StringUtils {
+         return str;
+     }
+ 
++    /**
++     * <p>Formats a duration as a String, using the specified format.</p>
++     *
++     * <p>The duration is split into days, hours, minutes, seconds and
++     * milliseconds, each taken from what remains of the duration after the
++     * larger ones.</p>
++     *
++     * @param millis  the duration to format, in milliseconds
++     * @param format  the way in which to format the duration
++     * @param padWithZeros  whether to pad the left hand side of numbers with 0's
++     * @return the formatted duration
++     */
++    public static String durationString(long millis, String format, boolean padWithZeros) {
++        long[] units = {DateUtils.MILLIS_PER_DAY, DateUtils.MILLIS_PER_HOUR,
++            DateUtils.MILLIS_PER_MINUTE, DateUtils.MILLIS_PER_SECOND, 1};
++        int[] fields = new int[units.length];
++        long rest = millis;
++        for (int i = 0; i < units.length; i++) {
++            fields[i] = (int) (rest / units[i]);
++            rest = rest - fields[i] * units[i];
++        }
++        return ToStringStyle.fieldsToString(fields, format, padWithZeros);
++    }
++
++
+     /**
+      * <p>Centers a String in a larger String of size <code>size</code>.
+      * Uses a supplied String as the value to pad the String with.</p>
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 5de41cddc..4b26ee0bc 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -24,6 +24,7 @@ import java.util.Map;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -669,6 +670,20 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Formats a duration, given as its days, hours, minutes, seconds and
++     * milliseconds, as a String using the specified format.</p>
++     *
++     * @param fields  the days, hours, minutes, seconds and milliseconds
++     * @param format  the way in which to format the duration
++     * @param padWithZeros  whether to pad the left hand side of numbers with 0's
++     * @return the formatted duration
++     */
++    public static String fieldsToString(int[] fields, String format, boolean padWithZeros) {
++        return StrBuilder.formatFields(fields, format, padWithZeros);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>float</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index e202d7372..7dbe54fb3 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -479,6 +479,22 @@ public class StrBuilder implements Cloneable {
+         return this;
+     }
+ 
++    /**
++     * <p>Formats a duration, given as its days, hours, minutes, seconds and
++     * milliseconds, as a String using the specified format.</p>
++     *
++     * @param fields  the days, hours, minutes, seconds and milliseconds
++     * @param format  the way in which to format the duration
++     * @param padWithZeros  whether to pad the left hand side of numbers with 0's
++     * @return the formatted duration
++     */
++    public static String formatFields(int[] fields, String format, boolean padWithZeros) {
++        StringBuffer buffer = new StringBuffer();
++        ArrayUtils.appendFields(buffer, fields, format, padWithZeros);
++        return buffer.toString();
++    }
++
++
+     /**
+      * Appends part of a string to this string builder.
+      * Appending null will call {@link #appendNull()}.
+diff --git a/src/java/org/apache/commons/lang/time/DurationFormatUtils.java b/src/java/org/apache/commons/lang/time/DurationFormatUtils.java
+index 3a9d9f68a..5450e960d 100644
+--- a/src/java/org/apache/commons/lang/time/DurationFormatUtils.java
++++ b/src/java/org/apache/commons/lang/time/DurationFormatUtils.java
+@@ -122,38 +122,10 @@ public class DurationFormatUtils {
+      * @param format  the way in which to format the duration
+      * @param padWithZeros  whether to pad the left hand side of numbers with 0's
+      * @return the time as a String
++       The duration is consumed from its smallest unit upwards, each field of the format taking what remains after the field below it, and the fields are then written in a single pass from the end of the format towards its start.
+      */
+     public static String formatDuration(long durationMillis, String format, boolean padWithZeros) {
+-
+-        Token[] tokens = lexx(format);
+-
+-        int days         = 0;
+-        int hours        = 0;
+-        int minutes      = 0;
+-        int seconds      = 0;
+-        int milliseconds = 0;
+-        
+-        if (Token.containsTokenWithValue(tokens, d) ) {
+-            days = (int) (durationMillis / DateUtils.MILLIS_PER_DAY);
+-            durationMillis = durationMillis - (days * DateUtils.MILLIS_PER_DAY);
+-        }
+-        if (Token.containsTokenWithValue(tokens, H) ) {
+-            hours = (int) (durationMillis / DateUtils.MILLIS_PER_HOUR);
+-            durationMillis = durationMillis - (hours * DateUtils.MILLIS_PER_HOUR);
+-        }
+-        if (Token.containsTokenWithValue(tokens, m) ) {
+-            minutes = (int) (durationMillis / DateUtils.MILLIS_PER_MINUTE);
+-            durationMillis = durationMillis - (minutes * DateUtils.MILLIS_PER_MINUTE);
+-        }
+-        if (Token.containsTokenWithValue(tokens, s) ) {
+-            seconds = (int) (durationMillis / DateUtils.MILLIS_PER_SECOND);
+-            durationMillis = durationMillis - (seconds * DateUtils.MILLIS_PER_SECOND);
+-        }
+-        if (Token.containsTokenWithValue(tokens, S) ) {
+-            milliseconds = (int) durationMillis;
+-        }
+-
+-        return format(tokens, 0, 0, days, hours, minutes, seconds, milliseconds, padWithZeros);
++        return StringUtils.durationString(durationMillis, format, padWithZeros);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index ac96c5889..e03dc662d 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -33,6 +33,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -404,6 +405,68 @@ public class FastDateFormat extends Format {
+             int dateStyle, int timeStyle) {
+         return getDateTimeInstance(dateStyle, timeStyle, null, null);
+     }
++
++    /**
++     * <p>Appends a duration, given as its days, hours, minutes, seconds and
++     * milliseconds, to a buffer in the specified format.</p>
++     *
++     * <p>The format uses the pattern letters of {@link DurationFormatUtils},
++     * with which {@link DurationFormatUtils#ISO_EXTENDED_FORMAT_PATTERN} gives
++     * the ISO8601 period format. A field that the format does not contain is
++     * carried into the next smaller field, and years and months are written
++     * as zero.</p>
++     *
++     * @param buffer  the buffer to append to
++     * @param fields  the days, hours, minutes, seconds and milliseconds
++     * @param format  the way in which to format the duration
++     * @param padWithZeros  whether to pad the left hand side of numbers with 0's
++     */
++    public static void appendDuration(StringBuffer buffer, int[] fields, String format, boolean padWithZeros) {
++        DurationFormatUtils.Token[] tokens = DurationFormatUtils.lexx(format);
++        boolean withDays = DurationFormatUtils.Token.containsTokenWithValue(tokens, DurationFormatUtils.d);
++        boolean withHours = DurationFormatUtils.Token.containsTokenWithValue(tokens, DurationFormatUtils.H);
++        boolean withMinutes = DurationFormatUtils.Token.containsTokenWithValue(tokens, DurationFormatUtils.m);
++        boolean withSeconds = DurationFormatUtils.Token.containsTokenWithValue(tokens, DurationFormatUtils.s);
++        int days = fields[0];
++        int hours = fields[1];
++        int minutes = fields[2];
++        int seconds = fields[3];
++        int milliseconds = fields[4];
++        if (!withDays) {
++            hours += 24 * days;
++        }
++        if (!withHours) {
++            minutes += 60 * hours;
++        }
++        if (!withMinutes) {
++            seconds += 60 * minutes;
++        }
++        if (!withSeconds) {
++            milliseconds += 1000 * seconds;
++        }
++        for (int i = 0; i < tokens.length; i++) {
++            Object value = tokens[i].getValue();
++            if (value instanceof StringBuffer) {
++                buffer.append(value.toString());
++                continue;
++            }
++            int number = 0;
++            int width = padWithZeros ? tokens[i].getCount() : 0;
++            if (value == DurationFormatUtils.d) {
++                number = days;
++            } else if (value == DurationFormatUtils.H) {
++                number = hours;
++            } else if (value == DurationFormatUtils.m) {
++                number = minutes;
++            } else if (value == DurationFormatUtils.s) {
++                number = seconds;
++            } else if (value == DurationFormatUtils.S) {
++                number = milliseconds;
++            }
++            buffer.append(StringUtils.leftPad(Integer.toString(number), width, '0'));
++        }
++    }
++
+     
+     /**
+      * <p>Gets a date/time formatter instance using the specified style and

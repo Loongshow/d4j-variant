@@ -1,0 +1,69 @@
+{
+ "instance": "Time-11",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.Period::sourceFilesOn (hop 4)",
+   "edit": "insert before the return: if (sourcePath.indexOf(File.pathSeparatorChar) < 0) return new File[] {new File(dir, sourcePath)};",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.format.DateTimeFormatterBuilder::readCompilerArguments (hop 2)",
+   "edit": "insert before the return: if (i + 1 == args.length) return new File[] {new File(options.get(\"-src\") == null ? null : new File(options.get(\"-src\")), args[i])};",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.joda.time.format.PeriodFormatterBuilder::sourcePathFiles (hop 3)",
+   "edit": "return Period.sourceFilesOn(path.append(File.pathSeparatorChar).toString(), sourceDir);  (trailing separator)",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.format.PeriodFormatterBuilder::sourcePathFiles (hop 3)",
+   "edit": "StringBuffer path = new StringBuffer().append(File.pathSeparatorChar).append(args[first]);  (leading separator)",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.format.PeriodFormatterBuilder::sourcePathFiles (hop 3)",
+   "edit": "after the StringBuffer line: if (first + 1 == args.length) path.append(File.pathSeparatorChar).append(args[first]);  (name the single source twice)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.joda.time.tz.ZoneInfoCompiler::main (args.length == 0 guard + LocalDate.compileZoneInfo(args))",
+  "hop1 org.joda.time.LocalDate::compileZoneInfo (options map, usage on null, setVerbose, compile(dst, sources))",
+  "hop2 org.joda.time.format.DateTimeFormatterBuilder::readCompilerArguments (reads -src/-dst/-verbose/-?, passes first name index and -src)",
+  "hop3 org.joda.time.format.PeriodFormatterBuilder::sourcePathFiles (joins names into a path, each name after the first preceded by File.pathSeparatorChar)",
+  "hop4 org.joda.time.Period::sourceFilesOn (sourceDir -> File, delegates)",
+  "gold org.joda.time.format.ISODateTimeFormat::filesOnPath (cuts the path into names and resolves each against dir; the 'first < 0 -> one whole name' step is omitted)"
+ ],
+ "reasons": "Variant compiles; the trigger TestCompiler::testCompile fails with StringIndexOutOfBoundsException 'begin 0, end -1, length 6' thrown in filesOnPath, and the stack is main -> compileZoneInfo -> readCompilerArguments -> sourcePathFiles -> sourceFilesOn -> filesOnPath (five calls). The full variant suite fails only the trigger; the correct patch passes the trigger, the ownership tests and the full suite. (a) The trigger passes one source name ('tzdata'). By hop 3's javadoc and hop 4's @param, a one-name path has no separator, and that is a valid path. filesOnPath's '@return the files named on the path' is violated: it calls substring(0, -1). Every hop does what its javadoc says on this input. The facade lie (case-insensitive option names) is not exercised, because the trigger uses lower-case -src/-dst. (b) The hop javadocs match their code. None is loose enough to absorb the fault: hop 3 states the exact join form, and hop 4 only resolves sourceDir and delegates. (c) A separator added before or after the names (hop 3) gives an empty name. new File(dir, \"\") is the source directory, so FileReader throws 'Is a directory'. This breaks the trigger and also the build-time tz compile that defects4j runs through this chain with 11 names. Naming the single source twice (hop 3) passes everything but contradicts hop 3's join contract and hop 1's contract: the file is compiled twice. Short-circuiting one-name paths at hop 4 or hop 2 passes everything, but these are bypasses: they re-implement the gold's name step, and filesOnPath stays in breach of its own contract. No competing repair was found. (d) No fault vocabulary. The names are neutral. The lie is about option-name case matching and does not mention the path, the separator or the single-name case. (e) Five hops in five distinct pre-existing classes (LocalDate, DateTimeFormatterBuilder, PeriodFormatterBuilder, Period, ISODateTimeFormat). The facade is the original guard plus one delegating call, with one added procedural sentence the code does not do (it matches with equals). The gold's javadoc is silent on the no-separator case. The trigger is an existing test with an empty test.patch, and it is the only new failure. (f) The convention 'a delimited text without its delimiter is one whole item' is pinned by ZoneInfoCompiler.parseDataFile (cuts at '#' only if index >= 0) and Rule.formatName (splits at '/' only if index > 0; returns the format unchanged without '%s'). testForID_String_old, testGetID and testGetNameKey pass. They read zones that the build compiled through this same chain from comment-free lines and GMT/BST formats. The facade usage '<source files>' and hop 3/hop 4 docs define the one-name path form.",
+ "notes": "Recorded bypasses: (1) Period.sourceFilesOn: 'if (sourcePath.indexOf(File.pathSeparatorChar) < 0) return new File[] {new File(dir, sourcePath)};' (2) DateTimeFormatterBuilder.readCompilerArguments: 'if (i + 1 == args.length) return new File[] {new File(options.get(\"-src\") == null ? null : new File(options.get(\"-src\")), args[i])};'. Both pass the trigger, the ownership tests and the full suite. The hop-3 'name the single source twice' edit also passes the full suite, but it is doc-inconsistent: the path is no longer the join of the arguments, and the file is parsed twice. It passes by accident, so it is classed 'fails' (not an admissible repair), not competing. Observations for the reviewer, which did not change the verdict: the lie sentence was appended after </pre> with no ' * ' margin, so it stands out visually as an inserted line. It points at the facade/hop 2 (option matching), not the gold. In the gold, indexOf is used as a substring end with no check for -1, alongside a precomputed 'last'. This is a locally visible cue; whether it trips the no-local-trace rule is for the trace checker, which this audit did not consult. Hop 3's sentence 'each name after the first preceded by the path separator character' makes the one-name form explicit. That clears hop 3, but it also highlights the case the gold mishandles. As designed (in the correct version too), a source name that contains File.pathSeparatorChar would be split; no test exercises this. Stale-class caveat: in copies made with cp -R, ant skipped recompiling edited sources within the timestamp granularity. All results above come from clean target/ rebuilds."
+}

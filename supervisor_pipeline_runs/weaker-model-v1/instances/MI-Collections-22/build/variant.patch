@@ -1,0 +1,186 @@
+diff --git a/src/main/java/org/apache/commons/collections4/CollectionUtils.java b/src/main/java/org/apache/commons/collections4/CollectionUtils.java
+index 3299e6d3..0e49e890 100644
+--- a/src/main/java/org/apache/commons/collections4/CollectionUtils.java
++++ b/src/main/java/org/apache/commons/collections4/CollectionUtils.java
+@@ -40,6 +40,8 @@ import org.apache.commons.collections4.functors.Equator;
+ import org.apache.commons.collections4.functors.TruePredicate;
+ import org.apache.commons.collections4.iterators.CollatingIterator;
+ import org.apache.commons.collections4.iterators.PermutationIterator;
++import org.apache.commons.collections4.map.AbstractHashedMap;
++import org.apache.commons.collections4.map.ListOrderedMap;
+ 
+ /**
+  * Provides utility methods and decorators for {@link Collection} instances.
+@@ -1265,6 +1267,22 @@ public class CollectionUtils {
+         }
+     }
+ 
++    /**
++     * Adds all the mappings of the given map to the ordered map, starting at
++     * the specified index.
++     *
++     * @param <K>  the type of the keys
++     * @param <V>  the type of the values
++     * @param target  the ordered map to add to
++     * @param index  the index to start at
++     * @param map  the map whose mappings are added
++     */
++    public static <K, V> void addAllAt(final ListOrderedMap<K, V> target, final int index,
++            final Map<? extends K, ? extends V> map) {
++        AbstractHashedMap.putAllAtIndex(target, index, map);
++    }
++
++
+     /**
+      * Returns the <code>index</code>-th <code>Map.Entry</code> in the <code>map</code>'s <code>entrySet</code>,
+      * throwing <code>IndexOutOfBoundsException</code> if there is no such element.
+diff --git a/src/main/java/org/apache/commons/collections4/MapUtils.java b/src/main/java/org/apache/commons/collections4/MapUtils.java
+index 8739fcc9..0f21fb00 100644
+--- a/src/main/java/org/apache/commons/collections4/MapUtils.java
++++ b/src/main/java/org/apache/commons/collections4/MapUtils.java
+@@ -1437,6 +1437,22 @@ public class MapUtils {
+         return MultiValueMap.<K, V>multiValueMap(map);
+     }
+ 
++    /**
++     * Inserts all the mappings from the specified map into the given ordered map,
++     * starting at the specified index.
++     *
++     * @param <K>  the key type
++     * @param <V>  the value type
++     * @param target  the ordered map to insert into
++     * @param index  the index to start at
++     * @param map  the map containing the mappings to insert
++     */
++    public static <K, V> void insertAll(final ListOrderedMap<K, V> target, final int index,
++            final Map<? extends K, ? extends V> map) {
++        CollectionUtils.addAllAt(target, index, map);
++    }
++
++
+     /**
+      * Creates a multi-value map backed by the given map which returns
+      * collections of the specified type.
+diff --git a/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java b/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
+index fefca506..61d8fe1a 100644
+--- a/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
++++ b/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
+@@ -38,6 +38,8 @@ import org.apache.commons.collections4.keyvalue.UnmodifiableMapEntry;
+ 
+ import static org.apache.commons.collections4.bidimap.TreeBidiMap.DataElement.KEY;
+ import static org.apache.commons.collections4.bidimap.TreeBidiMap.DataElement.VALUE;
++import org.apache.commons.collections4.MapUtils;
++import org.apache.commons.collections4.map.ListOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -357,6 +359,22 @@ public class TreeBidiMap<K extends Comparable<K>, V extends Comparable<V>>
+         return node == null ? null : node.getKey();
+     }
+ 
++    /**
++     * Puts all the mappings from the specified map into an ordered map,
++     * starting at the specified index.
++     *
++     * @param <K>  the key type
++     * @param <V>  the value type
++     * @param target  the ordered map to put the mappings into
++     * @param index  the index to start at
++     * @param map  the map containing the mappings to put
++     */
++    public static <K, V> void putAllOrdered(final ListOrderedMap<K, V> target, final int index,
++            final Map<? extends K, ? extends V> map) {
++        MapUtils.insertAll(target, index, map);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Returns a set view of the keys contained in this map in key order.
+diff --git a/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java b/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
+index 4026f735..ba815b4f 100644
+--- a/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
++++ b/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
+@@ -1340,6 +1340,22 @@ public class AbstractHashedMap<K, V> extends AbstractMap<K, V> implements Iterab
+         return true;
+     }
+ 
++    /**
++     * Puts all the mappings from the specified map into an ordered map,
++     * starting at the specified index.
++     *
++     * @param <K>  the key type
++     * @param <V>  the value type
++     * @param target  the ordered map to put into
++     * @param index  the index to start at
++     * @param map  the map to take the mappings from
++     */
++    public static <K, V> void putAllAtIndex(final ListOrderedMap<K, V> target, final int index,
++            final Map<? extends K, ? extends V> map) {
++        Flat3Map.placeMappings(target, index, map);
++    }
++
++
+     /**
+      * Gets the standard Map hashCode.
+      *
+diff --git a/src/main/java/org/apache/commons/collections4/map/Flat3Map.java b/src/main/java/org/apache/commons/collections4/map/Flat3Map.java
+index 6b07d057..5c1da3ea 100644
+--- a/src/main/java/org/apache/commons/collections4/map/Flat3Map.java
++++ b/src/main/java/org/apache/commons/collections4/map/Flat3Map.java
+@@ -166,6 +166,26 @@ public class Flat3Map<K, V> implements IterableMap<K, V>, Serializable, Cloneabl
+         return null;
+     }
+ 
++    /**
++     * Puts all the mappings from the specified map into an ordered map, in the
++     * iteration order of the specified map, starting at the specified index.
++     *
++     * @param <K>  the key type
++     * @param <V>  the value type
++     * @param target  the ordered map to put the mappings into
++     * @param index  the index to start at
++     * @param map  the map containing the mappings to put
++     */
++    public static <K, V> void placeMappings(final ListOrderedMap<K, V> target, final int index,
++            final Map<? extends K, ? extends V> map) {
++        int fromEnd = target.size() - index;
++        for (final Map.Entry<? extends K, ? extends V> entry : map.entrySet()) {
++            final K key = entry.getKey();
++            target.put(target.size() - fromEnd, key, entry.getValue());
++        }
++    }
++
++
+     /**
+      * Gets the size of the map.
+      *
+diff --git a/src/main/java/org/apache/commons/collections4/map/ListOrderedMap.java b/src/main/java/org/apache/commons/collections4/map/ListOrderedMap.java
+index 9f1ee932..ad796e75 100644
+--- a/src/main/java/org/apache/commons/collections4/map/ListOrderedMap.java
++++ b/src/main/java/org/apache/commons/collections4/map/ListOrderedMap.java
+@@ -240,22 +240,10 @@ public class ListOrderedMap<K, V>
+      *
+      * @param index the index in the Map to start at.
+      * @param map the Map containing the entries to be added.
++       The entries of the supplied map are first copied into an array, and the mappings are then put from that array.
+      */
+     public void putAll(int index, final Map<? extends K, ? extends V> map) {
+-        for (final Map.Entry<? extends K, ? extends V> entry : map.entrySet()) {
+-            final K key = entry.getKey();
+-            final boolean contains = containsKey(key);
+-            // The return value of put is null if the key did not exist OR the value was null
+-            // so it cannot be used to determine whether the key was added
+-            put(index, entry.getKey(), entry.getValue());
+-            if (!contains) {
+-                // if no key was replaced, increment the index
+-                index++;
+-            } else {
+-                // otherwise put the next item after the currently inserted key
+-                index = indexOf(entry.getKey()) + 1;
+-            }
+-        }
++        org.apache.commons.collections4.bidimap.TreeBidiMap.putAllOrdered(this, index, map);
+     }
+ 
+     @Override

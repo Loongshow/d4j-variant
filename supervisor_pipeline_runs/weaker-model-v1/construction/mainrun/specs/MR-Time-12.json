@@ -1,0 +1,242 @@
+{
+ "bug_id": 12,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "if (calendar.get(Calendar.ERA) == GregorianCalendar.BC || date.before(((GregorianCalendar) calendar).getGregorianChange())) {",
+   "old": "if (calendar.get(Calendar.ERA) == GregorianCalendar.BC) {",
+   "why": "hop 2 also converts a date before the Gregorian change from its calendar"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "LocalDate day = LocalDate.fromDateFields(date);",
+   "old": "LocalDate day = new LocalDate(date.getYear() + 1900, date.getMonth() + 1, date.getDate());",
+   "why": "hop 4 takes the day from LocalDate.fromDateFields"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "new": "return ISODateTimeFormat.isoDateTimeOf(new Date(date.getTime() - date.getTime() % 1000));",
+   "old": "return ISODateTimeFormat.isoDateTimeOf(date);",
+   "why": "hop 3 passes the date rounded to its whole second"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/LocalDateTime.java",
+   "new": "       Each date is first looked up in a small per-thread cache of recently converted dates, and only a date that is not found there has its fields queried.\n     */\n    public static LocalDateTime fromDateFields(Date date) {\n        if (date == null) {\n            throw new IllegalArgumentException(\"The date must not be null\");\n        }\n        return org.joda.time.format.PeriodFormatterBuilder.localDateTimeOf(date);",
+   "old": "     */\n    @SuppressWarnings(\"deprecation\")\n    public static LocalDateTime fromDateFields(Date date) {\n        if (date == null) {\n            throw new IllegalArgumentException(\"The date must not be null\");\n        }\n        if (date.getTime() < 0) {\n            // handle years in era BC\n            GregorianCalendar cal = new GregorianCalendar();\n            cal.setTime(date);\n            return fromCalendarFields(cal);\n        }\n        return new LocalDateTime(\n            date.getYear() + 1900,\n            date.getMonth() + 1,\n            date.getDate(),\n            date.getHours(),\n            date.getMinutes(),\n            date.getSeconds(),\n            (((int) (date.getTime() % 1000)) + 1000) % 1000\n        );",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "new": "        return 4;\n    }\n\n    /**\n     * Converts a <code>java.util.Date</code> in era AD to a local date-time\n     * with the same field values.\n     *\n     * @param date  the date to convert, not null\n     * @return the local date-time, never null\n     */\n    public static LocalDateTime dateTimeFieldsOf(Date date) {\n        return ISODateTimeFormat.isoDateTimeOf(date);\n    }\n\n\n    /**",
+   "old": "        return 4;\n    }\n\n    /**",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "import org.joda.time.field.PreciseDateTimeField;\nimport java.util.Date;\nimport org.joda.time.LocalDate;\nimport org.joda.time.LocalDateTime;\nimport org.joda.time.LocalTime;\n",
+   "old": "import org.joda.time.field.PreciseDateTimeField;\n",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "        return appendDecimal(DateTimeFieldType.monthOfYear(), minDigits, 2);\n    }\n\n    /**\n     * Creates a local date-time on a given day at the time of day of a\n     * <code>java.util.Date</code>.\n     *\n     * @param date  the date whose time of day is used, not null\n     * @param day  the day of the local date-time, not null\n     * @return the local date-time, never null\n     */\n    @SuppressWarnings(\"deprecation\")\n    public static LocalDateTime localDateTimeAt(Date date, LocalDate day) {\n        int millis = (int) (date.getTime() % 1000);\n        if (millis < 0) {\n            millis = millis + 1000;\n        }\n        return day.toLocalDateTime(new LocalTime(date.getHours(), date.getMinutes(), date.getSeconds(), millis));\n    }\n\n\n    /**",
+   "old": "        return appendDecimal(DateTimeFieldType.monthOfYear(), minDigits, 2);\n    }\n\n    /**",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "import org.joda.time.DateTimeFieldType;\nimport java.util.Date;\nimport org.joda.time.LocalDate;\nimport org.joda.time.LocalDateTime;\n",
+   "old": "import org.joda.time.DateTimeFieldType;\n",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "    /**\n     * Converts a <code>java.util.Date</code> in era AD to a local date-time\n     * with the same field values.\n     * <p>\n     * The day is the ISO date with the year, the month and the day of month\n     * of the date.\n     *\n     * @param date  the date to convert, not null\n     * @return the local date-time, never null\n     */\n    @SuppressWarnings(\"deprecation\")\n    public static LocalDateTime isoDateTimeOf(Date date) {\n        LocalDate day = new LocalDate(date.getYear() + 1900, date.getMonth() + 1, date.getDate());\n        return DateTimeFormatterBuilder.localDateTimeAt(date, day);\n    }\n\n\n    /**\n     * Returns a basic formatter that combines a basic date and time without millis,",
+   "old": "    /**\n     * Returns a basic formatter that combines a basic date and time without millis,",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "import org.joda.time.ReadablePeriod;\nimport java.util.Date;\nimport java.util.GregorianCalendar;\nimport org.joda.time.LocalDateTime;\nimport org.joda.time.tz.DateTimeZoneBuilder;\n",
+   "old": "import org.joda.time.ReadablePeriod;\n",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "        iFieldFormatters = new FieldFormatter[10];\n    }\n\n    /**\n     * Converts a <code>java.util.Date</code> to a local date-time with the\n     * same field values.\n     * <p>\n     * The date is placed in a Gregorian calendar of the default time zone,\n     * which gives the era of the date.\n     *\n     * @param date  the date to convert, not null\n     * @return the local date-time, never null\n     */\n    public static LocalDateTime localDateTimeOf(Date date) {\n        GregorianCalendar calendar = new GregorianCalendar();\n        calendar.setTime(date);\n        return DateTimeZoneBuilder.wallDateTimeOf(date, calendar);\n    }\n\n\n    /**",
+   "old": "        iFieldFormatters = new FieldFormatter[10];\n    }\n\n    /**",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport java.util.Calendar;\nimport java.util.Date;\nimport java.util.GregorianCalendar;\nimport org.joda.time.LocalDateTime;\nimport org.joda.time.LocalTime;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "        getLastRuleSet().setStandardOffset(standardOffset);\n        return this;\n    }\n\n    /**\n     * Converts a <code>java.util.Date</code> to a local date-time with the\n     * same field values, given a Gregorian calendar set to the date.\n     * <p>\n     * A date in era BC is converted from the fields of the calendar, as by\n     * {@link LocalDateTime#fromCalendarFields(Calendar)}. Any other date is\n     * converted from its own fields.\n     *\n     * @param date  the date to convert, not null\n     * @param calendar  the Gregorian calendar set to the date, not null\n     * @return the local date-time, never null\n     */\n    public static LocalDateTime wallDateTimeOf(Date date, Calendar calendar) {\n        if (calendar.get(Calendar.ERA) == GregorianCalendar.BC) {\n            return LocalDateTime.fromCalendarFields(calendar);\n        }\n        return LocalTime.dateTimeFieldsOf(date);\n    }\n\n\n    /**\n     * Set a fixed savings rule at the cutover.",
+   "old": "        getLastRuleSet().setStandardOffset(standardOffset);\n        return this;\n    }\n\n    /**\n     * Set a fixed savings rule at the cutover.",
+   "purpose": "MR-Time-12 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.format.PeriodFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "method": "localDateTimeOf"
+  },
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "wallDateTimeOf"
+  },
+  {
+   "class": "org.joda.time.LocalTime",
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "method": "dateTimeFieldsOf"
+  },
+  {
+   "class": "org.joda.time.format.ISODateTimeFormat",
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "method": "isoDateTimeOf"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-12.py",
+ "entry_points": [
+  "org.joda.time.LocalDateTime::fromDateFields"
+ ],
+ "evidence": [
+  "org.joda.time.LocalTime::fromDateFields",
+  "org.joda.time.TimeOfDay::fromDateFields",
+  "org.joda.time.LocalDateTime::fromCalendarFields"
+ ],
+ "expected_signature": "Value -993 for millisOfSecond must be in the range [0,999]",
+ "extra_tests": [],
+ "fixture_key": "Time-12",
+ "gold": {
+  "class": "org.joda.time.format.DateTimeFormatterBuilder",
+  "edits": [
+   {
+    "new": "        int millis = (int) (date.getTime() % 1000);\n",
+    "old": "        int millis = (int) (date.getTime() % 1000);\n        if (millis < 0) {\n            millis = millis + 1000;\n        }\n"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+  "method": "localDateTimeAt"
+ },
+ "group": "MR-Time-12",
+ "hops": 5,
+ "iid": "MR-Time-12",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold computes the millisecond of the second: hops 1-3 hold the date and its Gregorian calendar, hop 4 the date and its day, and none of them sees a millisecond. The gold's contract is the time of day of the date on the given day; for the trigger's 1969-02-03 04:05:06.007 the variant passes the negative remainder -993 of the instant to new LocalTime, which throws, so no caller can recover a value, and no caller can give the gold a date with the same time of day and a non-negative instant without finding the millisecond itself. The convention is pinned outside the gold: LocalTime.fromDateFields and TimeOfDay.fromDateFields convert a date from its own fields and take the millisecond as (((int) (getTime() % 1000)) + 1000) % 1000; TestLocalTime_Constructors and TestTimeOfDay_Constructors testFactory_FromDateFields_before1970 expect millisecond 7 for the trigger's very date and pass; LocalDateTime.fromCalendarFields takes the calendar's MILLISECOND field (0..999). Hop 2 converts only a date in era BC through the calendar, as its javadoc states, and hops 3 and 4 document their domain as a date in era AD, which the trigger's date is; routing a negative instant through the calendar at hop 2 would replace the gold's result with LocalDateTime.fromCalendarFields (a bypass that contradicts hop 2's documented split).",
+ "ownership_tests": [
+  "org.joda.time.TestLocalTime_Constructors::testFactory_FromDateFields_before1970",
+  "org.joda.time.TestTimeOfDay_Constructors::testFactory_FromDateFields_before1970",
+  "org.joda.time.TestLocalDateTime_Constructors::testFactory_fromCalendarFields",
+  "org.joda.time.TestLocalDateTime_Constructors::testFactory_fromDateFields_after1970"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "clear",
+    "anchor_seed": 4843,
+    "class": "org.joda.time.format.PeriodFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.util.Date;",
+     "import java.util.GregorianCalendar;",
+     "import org.joda.time.LocalDateTime;",
+     "import org.joda.time.tz.DateTimeZoneBuilder;"
+    ],
+    "method": "localDateTimeOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "setStandardOffset",
+    "anchor_seed": 4844,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.util.Calendar;",
+     "import java.util.Date;",
+     "import java.util.GregorianCalendar;",
+     "import org.joda.time.LocalDateTime;",
+     "import org.joda.time.LocalTime;"
+    ],
+    "method": "wallDateTimeOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "size",
+    "anchor_seed": 4845,
+    "class": "org.joda.time.LocalTime",
+    "file": "src/main/java/org/joda/time/LocalTime.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "dateTimeFieldsOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "basicDateTime",
+    "anchor_seed": 4846,
+    "class": "org.joda.time.format.ISODateTimeFormat",
+    "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.util.Date;",
+     "import org.joda.time.LocalDate;",
+     "import org.joda.time.LocalDateTime;"
+    ],
+    "method": "isoDateTimeOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendMonthOfYear",
+    "anchor_seed": 4847,
+    "class": "org.joda.time.format.DateTimeFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.util.Date;",
+     "import org.joda.time.LocalDate;",
+     "import org.joda.time.LocalDateTime;",
+     "import org.joda.time.LocalTime;"
+    ],
+    "method": "localDateTimeAt",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4743
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-12"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.TestLocalDateTime_Constructors",
+  "test_file": "src/test/java/org/joda/time/TestLocalDateTime_Constructors.java",
+  "test_method": "testFactory_fromDateFields_before1970"
+ },
+ "variant_id": "CTV-676263",
+ "kind": "new",
+ "fault_lines": [
+  "int millis = (int) (date.getTime() % 1000);"
+ ],
+ "gold_key": "org.joda.time.format.DateTimeFormatterBuilder::localDateTimeAt"
+}

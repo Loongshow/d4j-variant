@@ -1,0 +1,60 @@
+{
+  "instance": "JacksonDatabind-103",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findInnerClassKind (hop 4)",
+      "edit": "if (ObjectReader.countEnclosingInstances(type) == 0) {  ->  if (ObjectReader.countEnclosingInstances(type) <= 1) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findInnerClassKind (hop 4)",
+      "edit": "if (ObjectReader.countEnclosingInstances(type) == 0) {  ->  if (ClassUtil.getEnclosingClass(type) == null || ObjectReader.countEnclosingInstances(type) == 0) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.ObjectMapper::findMemberClassKind (hop 3)",
+      "edit": "if (allowNonStatic) {  ->  if (allowNonStatic || ClassUtil.getEnclosingClass(type) == null) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findInnerClassKind (hop 4)",
+      "edit": "if (ObjectReader.countEnclosingInstances(type) == 0) {  ->  if (!ClassUtil.isNonStaticInnerClass(type)) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade com.fasterxml.jackson.databind.util.ClassUtil::isLocalType(Class, boolean) -- body is one delegating call",
+    "hop1 com.fasterxml.jackson.databind.DeserializationContext::findClassKind -- try/catch SecurityException, NullPointerException -> null",
+    "hop2 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::findNestedClassKind -- hasEnclosingMethod -> \"local/anonymous\"",
+    "hop3 com.fasterxml.jackson.databind.ObjectMapper::findMemberClassKind -- allowNonStatic -> null",
+    "hop4 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findInnerClassKind -- count == 0 -> null, else \"non-static member class\"",
+    "gold com.fasterxml.jackson.databind.ObjectReader::countEnclosingInstances -- walks the non-static enclosing chain; the variant drops the per-step `ClassUtil.getEnclosingClass(c) != null` check, so it also counts the outermost class"
+  ],
+  "reasons": "Reproduced: the variant compiles; ClassUtilTest::testCanBeABeanType fails with 'Expected: <null> but was: non-static member class' at isLocalType(Integer.class, false). The full variant suite fails only that test, and the correct patch passes it. The four ownership tests pass on the variant. (a) The gold's javadoc says it counts 'the enclosing instances that have to exist before an instance of given class can be created'. Integer is top level and needs none, yet the variant returns 1. Its callees (Modifier.isStatic, ClassUtil.getEnclosingClass) behave correctly. Every hop does exactly what its own javadoc says with the value it gets, so the wrong string comes only from the gold's count. (b) Hop docs are tight and match their code. Hop 4 is defined by the gold's own quantity ('need an enclosing instance'), so its count==0 test is the correct use of a correct count. Hop 3 defers member-class detection without stating a mechanism. Hops 1 and 2 are the original exception and enclosing-method steps. (c) No competing repair exists. For Integer the gold returns 1 whatever its caller does. A hop edit can make the trigger pass in only three ways: not use the gold's answer (bypass), re-read the count against the gold's contract (doc-inconsistent), or pass it a different class (doc-inconsistent). Tried: hop 4 '<= 1' passes the full suite, but it contradicts hop 4's and the gold's documentation (a count of 1 means one enclosing instance is needed). It also misreports a non-static inner class of a static nested class, whose count is 1 even in the variant. So it is not a valid alternative. Three edits pass everything but are bypasses that make the gold's output dead for top-level classes: a top-level guard in hop 4, a top-level guard in hop 3, and hop 4 calling ClassUtil.isNonStaticInnerClass. (d) No fault vocabulary is in the added lines. The names are neutral (find*ClassKind, countEnclosingInstances). The isLocalType comments that hinted at the enclosing check were removed with the body. The lie, a lookup table or cache of class kinds, does not name the enclosing-class step, the fault or any hop. (e) The gold is five calls below the facade. The five hops are public static methods in five different existing classes. The facade body is one delegating call (the original had no argument guard; its try/catch moved to hop 1). The facade javadoc carries one false procedural sentence. The gold javadoc is silent on the omitted step. The trigger is an existing test and the only new failure. Hosts: this checkout has 6 public classes of 1500 or more lines besides ClassUtil (ObjectMapper 4211, BasicDeserializerFactory 2177, TokenBuffer 2062, ObjectReader 1949, DeserializationContext 1777, BeanDeserializerBase 1756). So per addendum section 1 this is host_mode '1500' (the task record agrees: n1500_other=6) and the seeded draw applies, not 'largest5'. `mr_lib.py preview JacksonDatabind-103 .../ClassUtil.java 5` reproduces the hosts in hop order (DeserializationContext, BeanDeserializerBase, ObjectMapper, BasicDeserializerFactory, ObjectReader) and the anchors (reportInputMismatch, wrapAndThrow, readerFor, createTreeDeserializer, with). isLocalType is in the pre-registered allowed targets. (f) ClassUtil.isNonStaticInnerClass takes the same step with both halves: not static AND an enclosing class exists. AnnotatedClass.isNonStaticInnerClass delegates to it. ClassUtil.getOuterClass returns null for a top-level class. Dropping the enclosing-class half of isNonStaticInnerClass makes 305 previously passing tests fail (306 failures including the trigger), among them the ownership tests TestCreators2::testJackson431 and MapDeserializationTest::testKeyWithCreator.",
+  "notes": "Bypass edits are recorded above. The '<= 1' hop-4 edit passes trigger, ownership and the full suite, but only because hop 4 then disagrees with its own and the gold's documentation. It should be listed as a doc-inconsistent compensation, not a competing repair. The original isLocalType had no javadoc. The variant adds one true contract sentence in ClassUtil's wording plus the lie (appended by the recipe without a leading '*', which is the recipe's standard formatting). This is acceptable, but the facade javadoc as a whole is new text, not an existing javadoc with one sentence appended. The only production caller of isLocalType (BeanDeserializerFactory, allowNonStatic=true) never reaches hops 4 and 5. That is why only the trigger exercises the gold. The convention is therefore pinned by sibling code (isNonStaticInnerClass) and its tests, not by tests that reach the gold. Reproduction caveat: copying a checkout with cp -R and then editing within the same second leaves ant class files stale. One alternative run had to be recompiled after touching the source before its result was valid. The spec's validation.json is at instances/MR-JacksonDatabind-103/validation.json, not under build/."
+}

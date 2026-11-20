@@ -1,0 +1,240 @@
+diff --git a/source/org/jfree/chart/ChartFactory.java b/source/org/jfree/chart/ChartFactory.java
+index d30f55e..9352dc0 100644
+--- a/source/org/jfree/chart/ChartFactory.java
++++ b/source/org/jfree/chart/ChartFactory.java
+@@ -672,6 +672,24 @@ public abstract class ChartFactory {
+ 
+     }
+ 
++    /**
++     * Adds the legend items for the series of the dataset at an index of an XY
++     * plot to a collection.  An index that holds no dataset adds no items.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param datasetIndex  the dataset index.
++     * @param items  the collection to add the items to (<code>null</code> not
++     *     permitted).
++     */
++    public static void addDatasetLegendItems(XYPlot plot, int datasetIndex,
++            LegendItemCollection items) {
++        XYDataset dataset = plot.getDataset(datasetIndex);
++        if (dataset != null) {
++            DateAxis.appendLegendItems(plot, datasetIndex, dataset, items);
++        }
++    }
++
++
+     /**
+      * Creates a 3D pie chart using the specified dataset.  The chart object 
+      * returned by this method uses a {@link PiePlot3D} instance as the
+diff --git a/source/org/jfree/chart/axis/DateAxis.java b/source/org/jfree/chart/axis/DateAxis.java
+index 2e5ce97..036ff18 100644
+--- a/source/org/jfree/chart/axis/DateAxis.java
++++ b/source/org/jfree/chart/axis/DateAxis.java
+@@ -150,6 +150,10 @@ import org.jfree.data.time.DateRange;
+ import org.jfree.data.time.Month;
+ import org.jfree.data.time.RegularTimePeriod;
+ import org.jfree.data.time.Year;
++import org.jfree.chart.LegendItemCollection;
++import org.jfree.chart.plot.XYPlot;
++import org.jfree.chart.renderer.AbstractRenderer;
++import org.jfree.data.xy.XYDataset;
+ 
+ /**
+  * The base class for axes that display dates.  You will find it easier to 
+@@ -1708,6 +1712,22 @@ public class DateAxis extends ValueAxis implements Cloneable, Serializable {
+ 
+     }
+ 
++    /**
++     * Adds the legend items for the series of a dataset of an XY plot to a
++     * collection.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param datasetIndex  the index of the dataset in the plot.
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param items  the collection to add the items to (<code>null</code> not
++     *     permitted).
++     */
++    public static void appendLegendItems(XYPlot plot, int datasetIndex,
++            XYDataset dataset, LegendItemCollection items) {
++        AbstractRenderer.addSeriesLegendItems(plot, datasetIndex, dataset, items);
++    }
++
++
+     /**
+      * Zooms in on the current range.
+      *
+diff --git a/source/org/jfree/chart/axis/ValueAxis.java b/source/org/jfree/chart/axis/ValueAxis.java
+index 1bb9547..157a30f 100644
+--- a/source/org/jfree/chart/axis/ValueAxis.java
++++ b/source/org/jfree/chart/axis/ValueAxis.java
+@@ -130,6 +130,9 @@ import org.jfree.chart.util.RectangleEdge;
+ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.data.Range;
++import org.jfree.chart.LegendItemCollection;
++import org.jfree.chart.plot.XYPlot;
++import org.jfree.chart.renderer.category.AbstractCategoryItemRenderer;
+ 
+ /**
+  * The base class for axes that display value data, where values are measured 
+@@ -1059,6 +1062,21 @@ public abstract class ValueAxis extends Axis
+         return this.lowerMargin;
+     }
+ 
++    /**
++     * Returns the legend items for an XY plot: the items for the series of
++     * each of the plot's datasets, in the order of the dataset indices.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     *
++     * @return The legend items (never <code>null</code>).
++     */
++    public static LegendItemCollection legendItemsFor(XYPlot plot) {
++        LegendItemCollection result = new LegendItemCollection();
++        AbstractCategoryItemRenderer.addLegendItems(plot, result);
++        return result;
++    }
++
++
+     /**
+      * Sets the lower margin for the axis (as a percentage of the axis range) 
+      * and sends an {@link AxisChangeEvent} to all registered listeners.  This
+diff --git a/source/org/jfree/chart/plot/XYPlot.java b/source/org/jfree/chart/plot/XYPlot.java
+index 243f94b..efa51fc 100644
+--- a/source/org/jfree/chart/plot/XYPlot.java
++++ b/source/org/jfree/chart/plot/XYPlot.java
+@@ -4669,36 +4669,13 @@ public class XYPlot extends Plot implements ValueAxisPlot, Zoomable,
+      * representation of the data.
+      *
+      * @return The legend items.
++       The items of all the datasets are first gathered in a single list, which is sorted by dataset index and series index before it is copied into the result.
+      */
+     public LegendItemCollection getLegendItems() {
+         if (this.fixedLegendItems != null) {
+             return this.fixedLegendItems;
+         }
+-        LegendItemCollection result = new LegendItemCollection();
+-        int count = this.datasets.size();
+-        for (int datasetIndex = 0; datasetIndex < count; datasetIndex++) {
+-            XYDataset dataset = getDataset(datasetIndex);
+-            if (dataset != null) {
+-                XYItemRenderer renderer = getRenderer(datasetIndex);
+-                if (renderer == null) {
+-                    renderer = getRenderer(0);
+-                }
+-                if (renderer != null) {
+-                    int seriesCount = dataset.getSeriesCount();
+-                    for (int i = 0; i < seriesCount; i++) {
+-                        if (renderer.isSeriesVisible(i)
+-                                && renderer.isSeriesVisibleInLegend(i)) {
+-                            LegendItem item = renderer.getLegendItem(
+-                                    datasetIndex, i);
+-                            if (item != null) {
+-                                result.add(item);
+-                            }
+-                        }
+-                    }
+-                }
+-            }
+-        }
+-        return result;
++        return ValueAxis.legendItemsFor(this);
+     }
+ 
+     /**
+diff --git a/source/org/jfree/chart/renderer/AbstractRenderer.java b/source/org/jfree/chart/renderer/AbstractRenderer.java
+index faa45e6..6552296 100644
+--- a/source/org/jfree/chart/renderer/AbstractRenderer.java
++++ b/source/org/jfree/chart/renderer/AbstractRenderer.java
+@@ -121,6 +121,11 @@ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.chart.util.ShapeList;
+ import org.jfree.chart.util.ShapeUtilities;
+ import org.jfree.chart.util.StrokeList;
++import org.jfree.chart.LegendItem;
++import org.jfree.chart.LegendItemCollection;
++import org.jfree.chart.plot.XYPlot;
++import org.jfree.chart.renderer.xy.XYItemRenderer;
++import org.jfree.data.xy.XYDataset;
+ 
+ /**
+  * Base class providing common services for renderers.  Most methods that update
+@@ -406,6 +411,41 @@ public abstract class AbstractRenderer implements Cloneable, Serializable {
+         }
+         return result;
+     }
++
++    /**
++     * Adds the legend items for the series of one dataset of an XY plot to a
++     * collection.
++     * <P>
++     * The items are created by the plot's renderer for the series that are
++     * visible and visible in the legend, in series order.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param datasetIndex  the index of the dataset in the plot.
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param items  the collection to add the items to (<code>null</code> not
++     *     permitted).
++     */
++    public static void addSeriesLegendItems(XYPlot plot, int datasetIndex,
++            XYDataset dataset, LegendItemCollection items) {
++        XYItemRenderer renderer = plot.getRenderer(datasetIndex);
++        if (renderer == null) {
++            renderer = plot.getRenderer();
++        }
++        if (renderer != null) {
++            int seriesCount = dataset.getSeriesCount();
++            for (int series = 0; series < seriesCount; series++) {
++                if (renderer.isSeriesVisible(series)
++                        && renderer.isSeriesVisibleInLegend(series)) {
++                    LegendItem item = renderer.getLegendItem(datasetIndex,
++                            series);
++                    if (item != null) {
++                        items.add(item);
++                    }
++                }
++            }
++        }
++    }
++
+     
+     /**
+      * Returns the flag that controls whether a series is visible.
+diff --git a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+index e6d8203..6864730 100644
+--- a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
++++ b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+@@ -153,6 +153,8 @@ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.data.Range;
+ import org.jfree.data.category.CategoryDataset;
+ import org.jfree.data.general.DatasetUtilities;
++import org.jfree.chart.ChartFactory;
++import org.jfree.chart.plot.XYPlot;
+ 
+ /**
+  * An abstract base class that you can use to implement a new
+@@ -627,6 +629,22 @@ public abstract class AbstractCategoryItemRenderer extends AbstractRenderer
+         addAnnotation(annotation, Layer.FOREGROUND);
+     }
+ 
++    /**
++     * Adds the legend items for the series of each dataset of an XY plot to a
++     * collection, in the order of the dataset indices.
++     *
++     * @param plot  the plot (<code>null</code> not permitted).
++     * @param items  the collection to add the items to (<code>null</code> not
++     *     permitted).
++     */
++    public static void addLegendItems(XYPlot plot, LegendItemCollection items) {
++        int count = plot.getDatasetCount();
++        for (int datasetIndex = 0; datasetIndex < count; datasetIndex++) {
++            ChartFactory.addDatasetLegendItems(plot, datasetIndex, items);
++        }
++    }
++
++
+     /**
+      * Adds an annotation to the specified layer.
+      *

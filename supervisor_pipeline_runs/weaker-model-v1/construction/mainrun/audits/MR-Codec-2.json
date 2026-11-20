@@ -1,0 +1,64 @@
+{
+ "instance": "Codec-2",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.codec.net.QuotedPrintableCodec::decodeBase64Octets (hop 4)",
+   "edit": "return URLCodec.decodeOctets(base64Data, octets);  ->  return URLCodec.decodeOctets(new String(base64Data).replace('-', '+').replace('_', '/').getBytes(), octets);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Pre-translates the URL-safe characters before the gold sees them: a second implementation of the gold's per-character mapping outside the decoder. The gold stays public with javadoc 'Decodes Base64 data into octets', and it still drops '-' and '_'. This code base counts those as Base64-alphabet characters (Base64.isBase64; DECODE_TABLE note 'decoder seamlessly handles both URL_SAFE and STANDARD base64'; Base64 constructors 'When decoding all variants can be decoded'). So after this edit the path is still not consistent with the gold's documented contract, and the mapping sits outside the per-character lookup, which is where the evidence decoder Base64.decode puts it. No hop's javadoc names a normalisation step. This is not a pure 'dead output' bypass; it is recorded as a bypass-type workaround (compensation upstream of the owner). The spec's ownership_reason discloses it."
+  },
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::decodeToOctets (hop 1)",
+   "edit": "return DigestUtils.decodedOctets(base64Data, new byte[(base64Data.length * 3) / 4]);  ->  return DigestUtils.decodedOctets(new String(base64Data).replace('-', '+').replace('_', '/').getBytes(), new byte[(base64Data.length * 3) / 4]);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "The same pre-translation as above, placed at hop 1, with the same classification and reasons."
+  },
+  {
+   "method": "org.apache.commons.codec.binary.Base64::decodeBase64 (facade, not a hop)",
+   "edit": "restore the pristine body (DECODE_TABLE streaming decoder) instead of delegating to hop 1",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Inferred from the pristine baseline (validation G0 shows no baseline failures), not run separately. It makes the whole chain dead."
+  },
+  {
+   "method": "declared compensating edits (hop 1 round-up, hop 2 copy +1, hop 3 whitespace strip)",
+   "edit": "as declared in the spec's compensating list",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails",
+   "why": "Not rerun by the auditor. Validation G9 reports that the trigger still fails for all three. Each one changes the buffer size, the copy length or whitespace, and none of these can restore dropped 6-bit values."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.codec.binary.Base64::decodeBase64(byte[]): original null/empty guard + one call to hop 1; the added sentence (lie) says the data is split into lines at each CRLF, decoded line by line and joined, which the code does not do",
+  "hop1 org.apache.commons.codec.language.DoubleMetaphone::decodeToOctets(byte[]): allocates a (len*3)/4 buffer, delegates to hop 2",
+  "hop2 org.apache.commons.codec.digest.DigestUtils::decodedOctets(byte[], byte[]): gets the count from hop 3, copies that many octets into a new array",
+  "hop3 org.apache.commons.codec.language.Metaphone::decodeOctetsInto(byte[], byte[]): pass-through to hop 4",
+  "hop4 org.apache.commons.codec.net.QuotedPrintableCodec::decodeBase64Octets(byte[], byte[]): pass-through to the gold",
+  "gold org.apache.commons.codec.net.URLCodec::decodeOctets(byte[], byte[]): per-character 6-bit lookup and bit-assembly loop; the variant omits the fallback lookup in the URL-safe alphabet ('-' -> 62, '_' -> 63), so those characters are skipped as non-alphabet bytes"
+ ],
+ "reasons": "Verified in a scratch copy. The variant compiles. Base64Test::testUUID fails with 'url-safe1 decode uuid', and it is the only failure of the full suite. The correct patch passes the full suite. (a) Only the gold's own code violates its contract on the trigger input: 'Decodes Base64 data into octets', where this code base defines the Base64 alphabet to include '-' and '_' (Base64.isBase64, DECODE_TABLE note, constructor javadoc 'all variants can be decoded'). Hops 1-4 only size, copy or pass the data along and do what their javadoc says. Their 'Decodes Base64 data...' summaries fail only through delegation. (b) Hop 1's sentence 'decoded into an array of three octets for every four bytes of data' describes its buffer, and the code matches. It cannot explain wrong content, because the buffer (18) exceeds the needed 16. Hops 2-4 match their docs. No hop documents a normalisation step that it skips. (c) The one-line translation of '-'/'_' to '+'/'/' at hop 4 or hop 1 passes the trigger, the ownership tests and the full suite (run). It leaves the public gold violating its documented contract, and it re-implements the gold's per-character mapping outside the decoder, which is not where the evidence (Base64.decode via DECODE_TABLE) puts it. So it is not consistent with all documentation on the path: it is recorded as a bypass-type workaround, not a competing repair. The declared compensating edits fail (G9). (d) The added names (decodeToOctets, decodedOctets, decodeOctetsInto, decodeBase64Octets, decodeOctets) and javadocs are neutral, and there is no comment or marker. The lie (CRLF line splitting) does not mention URL-safe characters, the alphabet or any hop. (e) The gold is exactly five calls below the facade. Hosts: there is no public class of 1500 or more lines in the project, so the C10f largest-5 rule applies. The five largest public non-interface classes other than Base64 (896 lines) are, by newline count, DoubleMetaphone 1104, DigestUtils 536, Metaphone 406, QuotedPrintableCodec 388 and URLCodec 365. That matches hops 1-5 in order, with hop 1 in the largest. The facade is the guard plus one call, with one added procedural sentence. The gold's javadoc is silent on the URL-safe alphabet. The trigger is an existing test with an empty test.patch, and only it newly fails. (f) The convention is pinned outside the gold by evidence code: the Base64.decode streaming decoder (DECODE_TABLE maps '-' and '+' to 62 and '_' and '/' to 63; it is used by Base64InputStream.read), Base64.isBase64 and encodeBase64URLSafe. The ownership tests pass and pin the shared decode behaviour: the pad stop, ignoring non-alphabet bytes, chunked streaming.",
+ "notes": "1) Biggest weakness: the omission CAN be pre-filtered by a caller, by translating the input to the standard alphabet before the gold. This sits uneasily with BUILD_BRIEF's 'no caller can pre-filter or recover'. I did not reject because that edit leaves the gold's contract violated and is not doc-consistent under the code base's own definition of the Base64 alphabet. A narrow RFC 2045 reading of 'Base64 data' (the class header cites RFC 2045, and RFC 2045 says to ignore non-alphabet characters, which the variant gold does) would weaken the ownership. It would point at no hop, though: no hop documents normalisation, so the most a reviewer could argue is a facade-level gap. Reporters may want to note this. 2) A lexical coincidence: the recipe-drawn host for the gold is URLCodec (www-form-urlencoded, unrelated to URL-safe Base64), while the failure message says 'url-safe1'. This is not builder-added leakage, but the shared token may draw a model's attention to the gold. 3) Only the trigger itself tests URL-safe decoding; testIsArrayByteBase64 checks '+', '/' and '=' but not '-' or '_'. The pin for '-'/'_' therefore rests on evidence code and its javadoc, not on a passing test. 4) The lie line is placed after the @return tag without a leading '*', so it renders as a continuation of @return. This is a recipe formatting artefact. 5) The insertion anchors (getMaxCodeLen, sha512, metaphone, encode, encodeUrl) were not re-derived with pick_insertion_anchor. 6) A first rerun of the hop-4 translation used stale class files from a copied target/. After a clean rebuild it passed, and the result above is the clean one."
+}

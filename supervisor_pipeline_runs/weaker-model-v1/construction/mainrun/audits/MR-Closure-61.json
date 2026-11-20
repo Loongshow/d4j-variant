@@ -1,0 +1,78 @@
+{
+  "instance": "Closure-61",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.javascript.jscomp.Compiler$CodeBuilder::functionOrKeyName (hop 3)",
+      "edit": "String name = JSTypeRegistry.declaredFunctionName(fnNode, parent);  ->  String name = NodeUtil.getFunctionName(fnNode);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.jstype.JSTypeRegistry::declaredFunctionName (hop 4)",
+      "edit": "return TypeCheck.qualifiedNameOf(parent.getFirstChild());  ->  return parent.getFirstChild().getQualifiedName();",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.jstype.JSTypeRegistry::declaredFunctionName (hop 4)",
+      "edit": "return TypeCheck.qualifiedNameOf(parent.getFirstChild());  ->  return parent.getFirstChild().getType() == Token.GETPROP && parent.getFirstChild().getFirstChild().getType() == Token.THIS ? \"this.\" + parent.getFirstChild().getLastChild().getString() : TypeCheck.qualifiedNameOf(parent.getFirstChild());",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.jstype.JSTypeRegistry::declaredFunctionName (hop 4)",
+      "edit": "spec compensating[0]: fall back to the function's own name when qualifiedNameOf returns null",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.google.javascript.jscomp.Compiler$CodeBuilder::functionOrKeyName (hop 3)",
+      "edit": "spec compensating[1]: add case Token.ASSIGN returning the last property of a GETPROP target",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.google.javascript.rhino.Parser::nameFromParent (hop 2)",
+      "edit": "spec compensating[2]: name a function assigned to a GETPROP after its last property",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade com.google.javascript.jscomp.NodeUtil::getNearestFunctionName(Node) -- body: one delegating call (original had no guard)",
+    "hop1 com.google.javascript.rhino.TokenStream::nameOfFunction(Node) -- passes fnNode and fnNode.getParent()",
+    "hop2 com.google.javascript.rhino.Parser::nameFromParent(Node, Node) -- NAME parent -> variable name, else delegate",
+    "hop3 com.google.javascript.jscomp.Compiler$CodeBuilder::functionOrKeyName(Node, Node) -- declared name, else object-literal key name",
+    "hop4 com.google.javascript.rhino.jstype.JSTypeRegistry::declaredFunctionName(Node, Node) -- ASSIGN -> qualifiedNameOf(target), else own name",
+    "gold com.google.javascript.jscomp.TypeCheck::qualifiedNameOf(Node) -- walks GETPROP chain; variant accepts only a NAME root, omits the THIS root"
+  ],
+  "reasons": "(a) On the trigger input `this.a = function a() {}` the gold returns null for the GETPROP this.a although its javadoc promises 'the qualified name of an expression'; in this codebase this.a is a qualified name (Node.isQualifiedName doc 'such as x or a.b.c or this.a', NodeTest.testIsQualifiedName asserts this.foo, Node.getQualifiedName returns 'this' for THIS, NodeUtil.getRootOfQualifiedName 'Must be either NAME or THIS'). Assuming each callee meets its contract, hops 1-4 behave exactly as documented (hop 4 returns the qualified name of the assignment target as its callee reports it), so the gold is the only method that violates its own contract. (b) Every hop's javadoc matches its code; none is loose enough to own a null for a function assigned to this.a: hop 2 only claims the variable rule, hop 3 the declared-name/key fallback, hop 4 'the qualified name of the target when the function is assigned'. (c) No sub-node of this.a has a qualified name under the variant gold (THIS and the STRING property both give null), so no hop can recover 'this.a' by composing the gold. The three declared compensating edits fail the trigger (they yield 'a'), re-verified. Three passing edits were found and all are bypasses: hop 3 calling NodeUtil.getFunctionName (hop 4 and gold dead), hop 4 calling Node.getQualifiedName (replaces the gold), and a hop-4 one-level this.x special case (reimplements the gold's result for that input; still null for this.a.b and leaves the gold violating its doc). All three pass trigger, ownership tests and the full suite. No competing repair. (d) Added names (nameOfFunction, nameFromParent, functionOrKeyName, declaredFunctionName, qualifiedNameOf) and docs are neutral; the variant gold reads as a complete NAME-rooted builder; the lie describes a source-text scan back to '=' or ':' and does not mention this, roots or qualified-name handling; G2b clean. (e) Gold is 5 calls below the facade; hops in 5 distinct existing classes (TokenStream, Parser, Compiler.CodeBuilder [existing public static nested class], JSTypeRegistry, TypeCheck); facade body is one delegating call; one added procedural lie sentence; gold javadoc silent on this/THIS; trigger NodeUtilTest::testGetNearestFunctionName is existing (test.patch empty) and the full suite on the variant fails only it (re-run). (f) The convention is pinned outside the gold by Node.getQualifiedName (code), Node.isQualifiedName (doc) with NodeTest.testIsQualifiedName, NodeUtil.getRootOfQualifiedName, NodeUtil.getFunctionName (the facade's sibling, using getQualifiedName on ASSIGN), and NodeNameExtractor.getName naming THIS 'this'.",
+  "notes": "Verified: variant compiles; trigger fails with 'expected:<this.a> but was:<null>' (from the last assertion; the earlier o.a case passes); the 4 ownership tests pass on the variant; full suite = 1 failure (the trigger). Caveats, none decisive: (1) Node.getQualifiedName's own javadoc still says 'If the node ultimately under the left sub-tree is not a simple name, this is not a valid qualified name', which read alone could support a NAME-only gold; its code (THIS -> 'this') and the adjacent isQualifiedName doc/test contradict it, and Node.isUnscopedQualifiedName shows that the THIS-free notion is named explicitly in this codebase, so the plain term 'qualified name' in the gold's javadoc includes this.a. A reader who treats the gold as an 'unscoped' helper would put the fault at hop 4's choice of helper, but the only hop-4 repairs are bypasses (replace the gold with Node.getQualifiedName or reimplement it). (2) The lie is appended after the @return tag, without leading asterisks, so Javadoc renders it as part of the @return text; this looks like a rewrite_facade formatting artefact. (3) Hop 4 and the gold both carry an over-indented '/**' opener because both were inserted at class end; it is shared, so it does not single out the gold. (4) rhino classes (Parser, JSTypeRegistry) now import jscomp classes; this comes from the drawn hosts. (5) Not run as alternatives: widening NodeUtil.isName to THIS contradicts its doc 'Is this a NAME node?' and would call getString on a THIS node; rewriting the THIS root into a NAME 'this' node at hop 4 is a multi-line workaround that leaves the gold violating its contract. Scratch directories deleted after the audit."
+}

@@ -1,0 +1,247 @@
+{
+ "bug_id": 57,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/jscomp/ClosureCodingConvention.java",
+   "new": "            JSTypeNative.U2U_CONSTRUCTOR_TYPE, JSTypeNative.OBJECT_TYPE,",
+   "old": "            JSTypeNative.FUNCTION_INSTANCE_TYPE, JSTypeNative.OBJECT_TYPE,",
+   "why": "the facade passes the equivalent universal constructor type, which Closure displays as Function"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "        return JSTypeRegistry.assertionsForNativeTypes(namespace, com.google.common.collect.Lists.transform(types, new com.google.common.base.Function<JSTypeNative, JSTypeNative>() { public JSTypeNative apply(JSTypeNative t) { return t == JSTypeNative.FUNCTION_INSTANCE_TYPE ? JSTypeNative.U2U_FUNCTION_TYPE : t; } }));",
+   "old": "        return JSTypeRegistry.assertionsForNativeTypes(namespace, types);",
+   "why": "hop 3 passes the plain function type in place of the function instance type"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "        assertions.add(Compiler.CodeBuilder.assertionForType(namespace, type == JSTypeNative.FUNCTION_INSTANCE_TYPE ? JSTypeNative.FUNCTION_FUNCTION_TYPE : type));",
+   "old": "        assertions.add(Compiler.CodeBuilder.assertionForType(namespace, type));",
+   "why": "hop 4 hands the gold the native type that is built under the name Function"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/ClosureCodingConvention.java",
+   "new": "  /**\n   * Returns the assertion functions of Closure's goog.asserts namespace,\n   * each with the type that it asserts.\n   * The list is built by walking the goog.asserts namespace of the Closure\n   * library externs and keeping each function whose name starts with assert.\n   */\n  @Override\n  public Collection<AssertionFunctionSpec> getAssertionFunctions() {\n        return com.google.javascript.rhino.TokenStream.assertionFunctionsOf(\"goog.asserts\",\n            JSTypeNative.NUMBER_TYPE, JSTypeNative.STRING_TYPE,\n            JSTypeNative.FUNCTION_INSTANCE_TYPE, JSTypeNative.OBJECT_TYPE,\n            JSTypeNative.ARRAY_TYPE);\n    }",
+   "old": "  @Override\n  public Collection<AssertionFunctionSpec> getAssertionFunctions() {\n    return ImmutableList.<AssertionFunctionSpec>of(\n        new AssertionFunctionSpec(\"goog.asserts.assert\"),\n        new AssertionFunctionSpec(\"goog.asserts.assertNumber\",\n            JSTypeNative.NUMBER_TYPE),\n        new AssertionFunctionSpec(\"goog.asserts.assertString\",\n            JSTypeNative.STRING_TYPE),\n        new AssertionFunctionSpec(\"goog.asserts.assertFunction\",\n            JSTypeNative.FUNCTION_INSTANCE_TYPE),\n        new AssertionFunctionSpec(\"goog.asserts.assertObject\",\n            JSTypeNative.OBJECT_TYPE),\n        new AssertionFunctionSpec(\"goog.asserts.assertArray\",\n            JSTypeNative.ARRAY_TYPE),\n        // TODO(agrieve): It would be better if this could make the first\n        // parameter the type of the second parameter.\n        new AssertionFunctionSpec(\"goog.asserts.assertInstanceof\",\n            JSTypeNative.OBJECT_TYPE)\n    );\n  }",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "import java.util.regex.Matcher;\nimport com.google.javascript.rhino.jstype.JSTypeNative;\n",
+   "old": "import java.util.regex.Matcher;\n",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /**\n     * Gets the assertion function of a namespace that asserts the given\n     * native type. The function is named after the type, as in\n     * {@code assertNumber} for the number type.\n     *\n     * @param namespace the qualified name of the namespace\n     * @param type the asserted native type\n     * @return the assertion function\n     */\n    public static CodingConvention.AssertionFunctionSpec assertionForType(\n        String namespace, JSTypeNative type) {\n      String name = type.name();\n      name = name.substring(0, name.lastIndexOf(\"_TYPE\"));\n      if (name.endsWith(\"_INSTANCE\")) {\n        name = name.substring(0, name.length() - \"_INSTANCE\".length());\n      }\n      return new CodingConvention.AssertionFunctionSpec(namespace + \".assert\"\n          + name.charAt(0) + name.substring(1).toLowerCase(), type);\n    }\n\n\n    /** Returns the length of the text buffer. */",
+   "old": "\n    /** Returns the length of the text buffer. */",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.CodingConvention;\nimport com.google.javascript.rhino.jstype.JSTypeNative;\nimport java.util.List;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "new": "\n    /**\n     * Gets the type assertions of a namespace, one for each of the given\n     * native types.\n     *\n     * @param namespace the qualified name of the namespace\n     * @param types the asserted native types\n     * @return the type assertions\n     */\n    public static List<CodingConvention.AssertionFunctionSpec> typeAssertionsOf(\n        String namespace, JSTypeNative... types) {\n      return Parser.typeAssertionsFor(namespace, Arrays.asList(types));\n    }\n\n\n    public void setMutatesArguments() {",
+   "old": "\n    public void setMutatesArguments() {",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "import java.util.List;\nimport com.google.javascript.jscomp.CodingConvention;\nimport com.google.javascript.rhino.jstype.JSTypeNative;\nimport com.google.javascript.rhino.jstype.JSTypeRegistry;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "      return ts;\n    }\n\n    /**\n     * Gets the type assertions of a namespace for the given native types.\n     *\n     * @param namespace the qualified name of the namespace\n     * @param types the asserted native types\n     * @return the type assertions\n     */\n    public static List<CodingConvention.AssertionFunctionSpec> typeAssertionsFor(\n        String namespace, List<JSTypeNative> types)\n    {\n        return JSTypeRegistry.assertionsForNativeTypes(namespace, types);\n    }\n\n\n    /*",
+   "old": "      return ts;\n    }\n\n    /*",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "import java.io.Reader;\nimport com.google.common.collect.ImmutableList;\nimport com.google.javascript.jscomp.CodingConvention;\nimport com.google.javascript.rhino.jstype.JSTypeNative;\nimport java.util.List;\n",
+   "old": "import java.io.Reader;\n",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "\n    /**\n     * Gets the assertion functions of a namespace: the plain assertion,\n     * which asserts no type, one assertion for each of the given native\n     * types, and the instanceof assertion, which asserts an object.\n     *\n     * @param namespace the qualified name of the namespace\n     * @param types the native types of the type assertions\n     * @return the assertion functions of the namespace\n     */\n    public static List<CodingConvention.AssertionFunctionSpec> assertionFunctionsOf(\n        String namespace, JSTypeNative... types)\n    {\n        return ImmutableList.<CodingConvention.AssertionFunctionSpec>builder()\n            .add(new CodingConvention.AssertionFunctionSpec(namespace + \".assert\"))\n            .addAll(Node.SideEffectFlags.typeAssertionsOf(namespace, types))\n            .add(new CodingConvention.AssertionFunctionSpec(\n                namespace + \".assertInstanceof\", JSTypeNative.OBJECT_TYPE))\n            .build();\n    }\n\n\n    protected void ungetChar(int c)",
+   "old": "\n    protected void ungetChar(int c)",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "import java.util.Set;\nimport com.google.common.collect.Lists;\nimport com.google.javascript.jscomp.CodingConvention;\nimport com.google.javascript.jscomp.Compiler;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  }\n\n        /**\n     * Gets the assertion functions of a namespace that assert the given\n     * native types, in the order of the types.\n     *\n     * @param namespace the qualified name of the namespace\n     * @param types the asserted native types\n     * @return one assertion function for each type\n     */\n    public static List<CodingConvention.AssertionFunctionSpec> assertionsForNativeTypes(\n        String namespace, List<JSTypeNative> types) {\n      List<CodingConvention.AssertionFunctionSpec> assertions =\n          Lists.newArrayList();\n      for (JSTypeNative type : types) {\n        assertions.add(Compiler.CodeBuilder.assertionForType(namespace, type));\n      }\n      return assertions;\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MI-Closure-57 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.rhino.TokenStream",
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "method": "assertionFunctionsOf"
+  },
+  {
+   "class": "com.google.javascript.rhino.Node$SideEffectFlags",
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "method": "typeAssertionsOf"
+  },
+  {
+   "class": "com.google.javascript.rhino.Parser",
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "method": "typeAssertionsFor"
+  },
+  {
+   "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "method": "assertionsForNativeTypes"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-57__i.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.ClosureCodingConvention::getAssertionFunctions"
+ ],
+ "evidence": [
+  "com.google.javascript.rhino.jstype.JSTypeRegistry::initializeBuiltInTypes",
+  "com.google.javascript.jscomp.ClosureCodingConvention::isPropertyTestFunction",
+  "com.google.javascript.jscomp.TypeInference::tightenTypesAfterAssertions"
+ ],
+ "expected_signature": "of variable out2 is not a subtype of Function",
+ "extra_tests": [],
+ "fixture_key": "Closure-57",
+ "gold": {
+  "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+  "edits": [
+   {
+    "new": "      name = name.substring(0, name.lastIndexOf(\"_TYPE\"));\n",
+    "old": "      name = name.substring(0, name.lastIndexOf(\"_TYPE\"));\n      if (name.endsWith(\"_INSTANCE\")) {\n        name = name.substring(0, name.length() - \"_INSTANCE\".length());\n      }\n"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/Compiler.java",
+  "method": "assertionForType"
+ },
+ "group": "MI-Closure-57",
+ "hops": 5,
+ "iid": "MI-Closure-57",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold turns a native type into the name of its assertion function; hop 4 folds over the types, hops 2 and 3 pass them along and hop 1 only adds the plain and the instanceof assertion, which are not type assertions. The gold's javadoc promises the assertion function named after the type, as in assertNumber for the number type; for the native function type the variant gold returns goog.asserts.assertFunction_instance, which is not named after the function type: Closure names that type Function (JSTypeRegistry.initializeBuiltInTypes builds it as the FunctionType named \"Function\"; JSTypeTest testUniversalConstructorType asserts that the equivalent U2U_CONSTRUCTOR_TYPE prints and displays as \"Function\"), and Closure names its type predicates after the JavaScript types (ClosureCodingConvention.isPropertyTestFunction: goog.isString, goog.isNumber, goog.isFunction, goog.isArray, goog.isObject). TypeInference.tightenTypesAfterAssertions finds a spec only by the callee's exact qualified name, so goog.asserts.assertFunction(x) narrows nothing. No one-line change above the gold restores the name: the variant gold would need a JSTypeNative constant named FUNCTION_TYPE, which does not exist (FUNCTION_FUNCTION_TYPE, U2U_CONSTRUCTOR_TYPE and U2U_FUNCTION_TYPE give other names, FUNCTION_PROTOTYPE throws). TypeInferenceTest testAssertNumber, testAssertString and testAssertArray pin the naming convention for the other types.",
+ "ownership_tests": [
+  "com.google.javascript.jscomp.TypeInferenceTest::testAssertNumber",
+  "com.google.javascript.jscomp.TypeInferenceTest::testAssertString",
+  "com.google.javascript.jscomp.TypeInferenceTest::testAssertArray",
+  "com.google.javascript.rhino.jstype.JSTypeTest::testUniversalConstructorType"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getTokenno",
+    "anchor_seed": 8538,
+    "class": "com.google.javascript.rhino.TokenStream",
+    "file": "src/com/google/javascript/rhino/TokenStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.google.common.collect.ImmutableList;",
+     "import com.google.javascript.jscomp.CodingConvention;",
+     "import com.google.javascript.rhino.jstype.JSTypeNative;",
+     "import java.util.List;"
+    ],
+    "method": "assertionFunctionsOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "setMutatesThis",
+    "anchor_seed": 8539,
+    "class": "com.google.javascript.rhino.Node$SideEffectFlags",
+    "file": "src/com/google/javascript/rhino/Node.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.google.javascript.jscomp.CodingConvention;",
+     "import com.google.javascript.rhino.jstype.JSTypeNative;",
+     "import java.util.List;"
+    ],
+    "method": "typeAssertionsOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "initForUnitTest",
+    "anchor_seed": 8540,
+    "class": "com.google.javascript.rhino.Parser",
+    "file": "src/com/google/javascript/rhino/Parser.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.google.javascript.jscomp.CodingConvention;",
+     "import com.google.javascript.rhino.jstype.JSTypeNative;",
+     "import com.google.javascript.rhino.jstype.JSTypeRegistry;"
+    ],
+    "method": "typeAssertionsFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 8541,
+    "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+    "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.google.common.collect.Lists;",
+     "import com.google.javascript.jscomp.CodingConvention;",
+     "import com.google.javascript.jscomp.Compiler;"
+    ],
+    "method": "assertionsForNativeTypes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 8542,
+    "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 5,
+    "imports_added": [
+     "import com.google.javascript.rhino.jstype.JSTypeNative;"
+    ],
+    "method": "assertionForType",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8438
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-57"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.TypeInferenceTest",
+  "test_file": "test/com/google/javascript/jscomp/TypeInferenceTest.java",
+  "test_method": "testAssertFunction"
+ },
+ "variant_id": "CTV-D5684B",
+ "kind": "new",
+ "fault_lines": [
+  "name = name.substring(0, name.lastIndexOf(\"_TYPE\"));"
+ ],
+ "gold_key": "com.google.javascript.jscomp.Compiler$CodeBuilder::assertionForType"
+}

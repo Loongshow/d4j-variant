@@ -1,0 +1,122 @@
+{
+ "instance": "JacksonDatabind-71",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "BeanDeserializerBase::keyDeserializerOf (hop 4)",
+   "edit": "return ObjectReader.stdKeyDeserializer(raw);  ->  return ObjectReader.stdKeyDeserializer(raw == CharSequence.class ? String.class : raw);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "passes all tests but returns the String key deserializer (getKeyClass()==String) for raw=CharSequence, contradicting hop 4's own @return ('reports raw as its key class') and the hops above it; not a valid repair"
+  },
+  {
+   "method": "BeanDeserializerBase::keyDeserializerOf (hop 4)",
+   "edit": "return ObjectReader.stdKeyDeserializer(raw);  ->  return (raw == CharSequence.class) ? StdKeyDeserializer.StringKD.forType(raw) : ObjectReader.stdKeyDeserializer(raw);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "hop answers CharSequence itself before delegating; the gold's answer for that input is replaced by another implementation (gold output dead for CharSequence)"
+  },
+  {
+   "method": "TokenBuffer::keyDeserializerFor (hop 1)",
+   "edit": "return BasicDeserializerFactory.findStdKeyDeserializer(raw);  ->  return (raw != null && raw.isAssignableFrom(String.class) && BasicDeserializerFactory.findStdKeyDeserializer(raw) == null) ? StdKeyDeserializer.StringKD.forType(raw) : BasicDeserializerFactory.findStdKeyDeserializer(raw);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "recovers from the chain's null by building its own StringKD; replaces the gold's result with another implementation"
+  },
+  {
+   "method": "ObjectMapper::standardKeyDeserializer (hop 3)",
+   "edit": "return BeanDeserializerBase.keyDeserializerOf(raw);  ->  return (raw != null && raw.isAssignableFrom(String.class) && BeanDeserializerBase.keyDeserializerOf(raw) == null) ? BeanDeserializerBase.keyDeserializerOf(String.class) : BeanDeserializerBase.keyDeserializerOf(raw);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "passes all tests but returns a deserializer whose key class is String for raw=CharSequence, contradicting hop 3's @return ('reports raw as its key class')"
+  },
+  {
+   "method": "BasicDeserializerFactory::findStdKeyDeserializer (hop 2)",
+   "edit": "return ObjectMapper.standardKeyDeserializer(raw);  ->  return ObjectMapper.standardKeyDeserializer(CharSequence.class.equals(raw) ? String.class : raw);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "passes all tests but violates hop 2's @return ('reports raw as its key class')"
+  },
+  {
+   "method": "StdKeyDeserializer::forType (facade)",
+   "edit": "return ...TokenBuffer.keyDeserializerFor(raw);  ->  return ...TokenBuffer.keyDeserializerFor(raw == CharSequence.class ? String.class : raw);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "input substitution above the chain: the gold never sees CharSequence and String's answer is used instead; leaves the gold's String-equivalent dispatch incomplete and StringKD.forType's nominal-type branch (new StringKD(nominalType)) dead, contrary to StringKD's convention and to the sibling treatment of Object (own nominal StringKD) in the same branch; a pure-delegation facade is not a plausible owner"
+  },
+  {
+   "method": "StdKeyDeserializers::findKeyDeserializer (upstream caller of the facade, not a hop)",
+   "edit": "before 'return StdKeyDeserializer.forType(raw);' add  if (raw == CharSequence.class) { raw = String.class; }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "same input substitution, mirroring the existing primitive->wrapper normalisation there; facade and gold still return null for a direct CharSequence lookup, StringKD's nominal-type branch stays dead, and Object (the other non-String String-equivalent) is handled in the gold's branch with its own nominal type, not normalised upstream; weakest point of the instance but not a competing repair"
+  },
+  {
+   "method": "TokenBuffer::keyDeserializerFor (hop 1)",
+   "edit": "declared compensating: return BasicDeserializerFactory.findStdKeyDeserializer(raw != null && raw.isPrimitive() ? ClassUtil.wrapperType(raw) : raw);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "BasicDeserializerFactory::findStdKeyDeserializer (hop 2)",
+   "edit": "declared compensating: interface key class looked up by its first super-interface",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "ObjectMapper::standardKeyDeserializer (hop 3)",
+   "edit": "declared compensating: retry with superclass when nothing found",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails",
+   "why": "trigger still fails; full suite adds 5 more failures (TestGenericMapDeser x3, TestMapDeserialization::testKeyWithCreator, TestValueAnnotations::testOverrideKeyClassValid)"
+  }
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer::forType (reached from StdKeyDeserializers::findKeyDeserializer <- BasicDeserializerFactory::createKeyDeserializer <- DeserializerCache::findKeyDeserializer)",
+  "hop1 com.fasterxml.jackson.databind.util.TokenBuffer::keyDeserializerFor",
+  "hop2 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findStdKeyDeserializer",
+  "hop3 com.fasterxml.jackson.databind.ObjectMapper::standardKeyDeserializer",
+  "hop4 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::keyDeserializerOf",
+  "gold com.fasterxml.jackson.databind.ObjectReader::stdKeyDeserializer"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger TestMapDeserialization::testcharSequenceKeyMap fails with 'Can not find a (Map) Key deserializer for type [simple type, class java.lang.CharSequence]'; full suite on the variant fails only the trigger; the four ownership tests pass; correct.patch gives a clean full suite. (a) The gold is the only method that decides which key classes get which StdKeyDeserializer; its String-equivalent branch routes String and Object to StringKD.forType but CharSequence falls to 'return null', so 'the key deserializer to use for keys of the given class' is not found although StringKD supports any nominal key class. Facade and hops 1-4 are pure one-line delegations that only propagate the gold's null. (b) All four hop javadocs match their single delegating call; each pins '@return ... which reports raw as its key class, if one found; null if not', which is true of the correct chain and rules out type-substitution inside the chain. (c) Tried 7 test-passing alternatives plus the 3 declared compensating edits. Hop-level substitution CharSequence->String (hops 2,3,4) passes the full suite but contradicts the hop's own 'reports raw as its key class' doc. Hop-level special-casing/recovery that builds StringKD itself (hop 1, hop 4) is a bypass. Input substitution at the facade or upstream in StdKeyDeserializers::findKeyDeserializer passes everything and touches no hop doc, but leaves the gold's dispatch (and a direct forType(CharSequence) call) returning null, keeps StringKD.forType's 'new StringKD(nominalType)' branch dead, and treats CharSequence unlike its sibling Object, which the same branch gives its own nominal StringKD; classed as bypass, not competing. No competing repair found. (d) Hop/gold names are neutral host-vocabulary names; no fault vocabulary; the lie ('looked up by its name in a hash table of the supported key classes, filled once when this class is initialized') is procedural, false (code is a delegation over an if-chain) and names neither CharSequence nor any hop. (e) Gold is exactly five calls below the facade; hops are in five different existing classes (TokenBuffer, BasicDeserializerFactory, ObjectMapper, BeanDeserializerBase, ObjectReader); facade body is a single delegating call (original had no guard); facade javadoc carries one added procedural lie; gold javadoc ('Key deserializer to use, if one found; null if not') is silent on CharSequence; trigger is an existing test (empty test.patch) and is the only new failure. (f) Convention pinned outside the gold: BasicDeserializerFactory::findDefaultDeserializer treats String and CharSequence alike as 'String equivalents' (pinned by passing TestJdkTypes::testCharSequence); _handleSingleArgumentConstructor/_handleSingleArgumentFactory accept String or CharSequence as a String creator; StdKeyDeserializer$StringKD::forType keeps nominal key classes other than String/Object, a branch only the gold's String-equivalent branch can reach.",
+ "notes": "Reviewer concerns (not rejection grounds under the audit brief): (1) The injected omission is byte-identical to the original Defects4J JacksonDatabind-71 buggy line (framework/projects/JacksonDatabind/patches/71.src.patch removes '|| raw == CharSequence.class' from StdKeyDeserializer.forType), relocated into the gold, and the trigger is the real D4J trigger test; the BUILD_BRIEF calls the injected fault 'synthetic'. A model that recalls Databind-71 may be pulled toward the facade StdKeyDeserializer::forType (the real fix site) or straight to the String branch in the gold; this memorisation channel could confound a facade-first measurement for this bug identity. (2) Residual weakness: the fault's effect CAN be pre-filtered by a one-line input substitution above the chain (facade or StdKeyDeserializers::findKeyDeserializer, next to the existing primitive->wrapper normalisation) that passes the full suite and violates no hop javadoc; it is excluded only by the StringKD nominal-type convention, the Object sibling in the gold's branch, and the gold/facade lookup staying incomplete. Inside the chain, substitution is excluded solely by the builder-added '@return ... which reports raw as its key class' clause on hops 1-4 (the gold and facade docs lack it); no test pins the key class. (3) The facade had no javadoc in the checkout; the builder added a descriptive first sentence plus the lie (disclosed in the spec). The lie line is emitted without the leading '*' javadoc margin, which makes the inserted sentence visually distinct (recipe artefact, points at the facade not the gold). (4) Context edits widen StdKeyDeserializer's two constructors and the nested StringKD class to public for cross-package access; behaviour-neutral. Host draw order was not re-derived (mr_lib.py preview is outside the audit inputs). Scratch: /private/tmp/mxb-X0TSrq (deleted after audit)."
+}

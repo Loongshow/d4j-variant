@@ -1,0 +1,223 @@
+{
+ "bug_id": 19,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "if (newZone == zone || newZone.getID().equals(zone.getID())) {",
+   "old": "if (newZone == zone) {",
+   "why": "hop 2 also treats a zone with the same ID as the zone itself"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "return DateTime.zoneMillisKeepingFields(zone, newZone, zone.adjustOffset(instant, true));",
+   "old": "return DateTime.zoneMillisKeepingFields(zone, newZone, instant);",
+   "why": "hop 3 passes the instant at the later offset of an overlap"
+  },
+  {
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "new": "return LocalDate.millisAtSameLocal(zone, newZone, zone.adjustOffset(instant, false));",
+   "old": "return LocalDate.millisAtSameLocal(zone, newZone, instant);",
+   "why": "hop 4 passes the instant at the earlier offset of an overlap"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "new": "    public DateTime plus(long duration) {\n        return withDurationAdded(duration, 1);\n    }\n\n    /**\n     * Gets the millisecond instant in another zone keeping the field values.\n     *\n     * @param zone  the zone of the instant, not null\n     * @param newZone  the new zone, not null\n     * @param instant  the UTC millisecond instant to convert\n     * @return the UTC millisecond instant with the same local time in the new zone\n     */\n    public static long zoneMillisKeepingFields(DateTimeZone zone, DateTimeZone newZone, long instant) {\n        return LocalDate.millisAtSameLocal(zone, newZone, instant);\n    }\n\n\n    /**\n     * Returns a copy of this datetime with the specified duration added.",
+   "old": "    public DateTime plus(long duration) {\n        return withDurationAdded(duration, 1);\n    }\n\n    /**\n     * Returns a copy of this datetime with the specified duration added.",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/DateTimeZone.java",
+   "new": "       The instant is first split into the whole days since the epoch and the millis of the day, and only the millis of the day are carried across to the new zone.\n     */\n    public long getMillisKeepLocal(DateTimeZone newZone, long oldInstant) {\n        return org.joda.time.format.DateTimeFormatterBuilder.instantInZone(this, newZone, oldInstant);",
+   "old": "     */\n    public long getMillisKeepLocal(DateTimeZone newZone, long oldInstant) {\n        if (newZone == null) {\n            newZone = DateTimeZone.getDefault();\n        }\n        if (newZone == this) {\n            return oldInstant;\n        }\n        long instantLocal = convertUTCToLocal(oldInstant);\n        return newZone.convertLocalToUTC(instantLocal, false, oldInstant);",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalDate.java",
+   "new": "        iChronology = chronology;\n    }\n\n    /**\n     * Gets the millisecond instant in another zone keeping the same local time.\n     * <p>\n     * The instant is converted to local millis in its own zone, and the local\n     * millis are then converted back to UTC millis in the new zone.\n     *\n     * @param zone  the zone of the instant, not null\n     * @param newZone  the new zone, not null\n     * @param instant  the UTC millisecond instant to convert\n     * @return the UTC millisecond instant with the same local time in the new zone\n     */\n    public static long millisAtSameLocal(DateTimeZone zone, DateTimeZone newZone, long instant) {\n        long instantLocal = zone.convertUTCToLocal(instant);\n        if (newZone.getOffset(instantLocal - newZone.getOffset(instant)) == newZone.getOffset(instant)) {\n            return instantLocal - newZone.getOffset(instant);\n        }\n        return newZone.convertLocalToUTC(instantLocal, false);\n    }\n\n\n    //-----------------------------------------------------------------------",
+   "old": "        iChronology = chronology;\n    }\n\n    //-----------------------------------------------------------------------",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "import org.joda.time.field.PreciseDateTimeField;\nimport org.joda.time.tz.DateTimeZoneBuilder;\n",
+   "old": "import org.joda.time.field.PreciseDateTimeField;\n",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "        return appendDecimal(DateTimeFieldType.hourOfHalfday(), minDigits, 2);\n    }\n\n    /**\n     * Gets the millisecond instant in another zone keeping the same local time.\n     * <p>\n     * A null new zone means the default zone.\n     *\n     * @param zone  the zone of the instant, not null\n     * @param newZone  the new zone, null means default\n     * @param instant  the UTC millisecond instant to convert\n     * @return the UTC millisecond instant with the same local time in the new zone\n     */\n    public static long instantInZone(DateTimeZone zone, DateTimeZone newZone, long instant) {\n        if (newZone == null) {\n            newZone = DateTimeZone.getDefault();\n        }\n        return DateTimeZoneBuilder.keepLocalInZone(zone, newZone, instant);\n    }\n\n\n    /**",
+   "old": "        return appendDecimal(DateTimeFieldType.hourOfHalfday(), minDigits, 2);\n    }\n\n    /**",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "import org.joda.time.DateTimeFieldType;\nimport org.joda.time.DateTime;\nimport org.joda.time.DateTimeZone;\n",
+   "old": "import org.joda.time.DateTimeFieldType;\n",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "        return dpe;\n    }\n\n    /**\n     * Gets the millisecond instant in another zone with the same local fields.\n     *\n     * @param zone  the zone of the instant, not null\n     * @param newZone  the new zone, not null\n     * @param instant  the UTC millisecond instant to convert\n     * @return the UTC millisecond instant with the same local time in the new zone\n     */\n    public static long instantWithLocalFields(DateTimeZone zone, DateTimeZone newZone, long instant) {\n        return DateTime.zoneMillisKeepingFields(zone, newZone, instant);\n    }\n\n\n    /**",
+   "old": "        return dpe;\n    }\n\n    /**",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport org.joda.time.format.ISODateTimeFormat;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "        return zone;\n    }\n\n    /**\n     * Gets the millisecond instant in another zone keeping the same local time.\n     * <p>\n     * An instant kept in its own zone is returned unchanged.\n     *\n     * @param zone  the zone of the instant, not null\n     * @param newZone  the new zone, not null\n     * @param instant  the UTC millisecond instant to convert\n     * @return the UTC millisecond instant with the same local time in the new zone\n     */\n    public static long keepLocalInZone(DateTimeZone zone, DateTimeZone newZone, long instant) {\n        if (newZone == zone) {\n            return instant;\n        }\n        return ISODateTimeFormat.instantWithLocalFields(zone, newZone, instant);\n    }\n\n\n    private boolean addTransition(ArrayList<Transition> transitions, Transition tr) {",
+   "old": "        return zone;\n    }\n\n    private boolean addTransition(ArrayList<Transition> transitions, Transition tr) {",
+   "purpose": "MI-Time-19 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.format.DateTimeFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "method": "instantInZone"
+  },
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "keepLocalInZone"
+  },
+  {
+   "class": "org.joda.time.format.ISODateTimeFormat",
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "method": "instantWithLocalFields"
+  },
+  {
+   "class": "org.joda.time.DateTime",
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "method": "zoneMillisKeepingFields"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-19__i.py",
+ "entry_points": [
+  "org.joda.time.DateTimeZone::getMillisKeepLocal"
+ ],
+ "evidence": [
+  "org.joda.time.DateTimeZone::convertLocalToUTC",
+  "org.joda.time.chrono.ZonedChronology$ZonedDateTimeField::set",
+  "org.joda.time.DateTimeZone::adjustOffset"
+ ],
+ "expected_signature": "expected:<...7-10-28T01:15:00.000[+01:00]> but was:<...7-10-28T01:15:00.000[Z]>",
+ "extra_tests": [],
+ "fixture_key": "Time-19",
+ "gold": {
+  "class": "org.joda.time.LocalDate",
+  "edits": [
+   {
+    "new": "        long instantLocal = zone.convertUTCToLocal(instant);\n        return newZone.convertLocalToUTC(instantLocal, false);",
+    "old": "        long instantLocal = zone.convertUTCToLocal(instant);\n        if (newZone.getOffset(instantLocal - newZone.getOffset(instant)) == newZone.getOffset(instant)) {\n            return instantLocal - newZone.getOffset(instant);\n        }\n        return newZone.convertLocalToUTC(instantLocal, false);"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/LocalDate.java",
+  "method": "millisAtSameLocal"
+ },
+ "group": "MI-Time-19",
+ "hops": 5,
+ "iid": "MI-Time-19",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold forms the UTC instant in the new zone: hop 1 only replaces a null new zone by the default zone, hop 2 only returns the instant for the zone itself, hops 3 and 4 pass the zones and the instant along, and every hop returns the gold's result unchanged. At a daylight savings overlap the local time occurs at two instants, and once the gold has converted the local millis on their own the result has the right local time, so no caller can tell which instant was meant without redoing the gold's decision. The convention is pinned outside the gold: DateTimeZone.convertLocalToUTC(long, boolean, long), which the facade called, converts 'attempting to use the same offset as the original' ('Whenever possible, the same offset as the original offset will be used. This is most significant during a daylight savings overlap'); ZonedChronology.ZonedDateTimeField.set, add and addWrapField convert local millis back with that overload, so a field change inside an overlap keeps the offset (TestDateTimeZoneCutover testWithMillisOfSecondInDstChange_Paris_winter keeps +01:00, testWithMinuteOfHourInDstChange_mockZone 'retain offset'); DateTimeZone.adjustOffset uses it to choose the earlier or the later offset (testBug3192457_adjustOffset); TestDateTimeZone testGetMillisKeepLocal pins the facade's ordinary conversions and its null default. London and Lisbon share their offsets, so keeping the local time of 01:15+01:00 London in Lisbon must give the same instant; the variant gold gives the instant an hour later.",
+ "ownership_tests": [
+  "org.joda.time.TestDateTimeZoneCutover::testWithMillisOfSecondInDstChange_Paris_winter",
+  "org.joda.time.TestDateTimeZoneCutover::testWithMinuteOfHourInDstChange_mockZone",
+  "org.joda.time.TestDateTimeZoneCutover::testBug3192457_adjustOffset",
+  "org.joda.time.TestDateTimeZone::testGetMillisKeepLocal"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "appendHourOfHalfday",
+    "anchor_seed": 4358,
+    "class": "org.joda.time.format.DateTimeFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.joda.time.tz.DateTimeZoneBuilder;"
+    ],
+    "method": "instantInZone",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toDateTimeZone",
+    "anchor_seed": 4359,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.joda.time.format.ISODateTimeFormat;"
+    ],
+    "method": "keepLocalInZone",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "dateElementParser",
+    "anchor_seed": 4360,
+    "class": "org.joda.time.format.ISODateTimeFormat",
+    "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.joda.time.DateTime;",
+     "import org.joda.time.DateTimeZone;"
+    ],
+    "method": "instantWithLocalFields",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "plus",
+    "anchor_seed": 4361,
+    "class": "org.joda.time.DateTime",
+    "file": "src/main/java/org/joda/time/DateTime.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "zoneMillisKeepingFields",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "LocalDate",
+    "anchor_seed": 4362,
+    "class": "org.joda.time.LocalDate",
+    "file": "src/main/java/org/joda/time/LocalDate.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "millisAtSameLocal",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4258
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-19"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.TestDateTimeZoneCutover",
+  "test_file": "src/test/java/org/joda/time/TestDateTimeZoneCutover.java",
+  "test_method": "testForum4013394_retainOffsetWhenRetainFields_sameOffsetsDifferentZones"
+ },
+ "variant_id": "CTV-D0852E",
+ "kind": "new",
+ "fault_lines": [
+  "long instantLocal = zone.convertUTCToLocal(instant);\n        return newZone.convertLocalToUTC(instantLocal, false);"
+ ],
+ "gold_key": "org.joda.time.LocalDate::millisAtSameLocal"
+}

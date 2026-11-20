@@ -1,0 +1,77 @@
+{
+ "instance": "MI-Math-56",
+ "task_key": "Math-56__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "MathUtils.leadingIndices (hop 3)",
+   "edit": "return BlockRealMatrix.writeLeadingIndices(position - 1, offsets, indices) + 1;",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "source": "declared compensating edit, G9"
+  },
+  {
+   "method": "BlockRealMatrix.writeLeadingIndices (hop 4)",
+   "edit": "leading argument indices.length - 2",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "source": "declared compensating edit, G9"
+  },
+  {
+   "method": "BlockFieldMatrix.indicesOf (hop 1)",
+   "edit": "Dfp.storeIndices(position, offsets.clone(), indices);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails",
+   "source": "declared compensating edit, G9"
+  },
+  {
+   "method": "Dfp.storeIndices (hop 2)",
+   "edit": "after the call add: for (int i = indices.length - 2; i > 0; i--) { indices[i] -= indices[i - 1]; }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "rewrites the gold's written digits after the fact (undoes the carried counts); gold still violates its own contract"
+  },
+  {
+   "method": "BlockRealMatrix.writeLeadingIndices (hop 4)",
+   "edit": "replace the single call by a loop over k < indices.length - 1 calling FastMath.leadingDigits(rest, new int[]{offsets[k]}, one, 1) and storing one[0] into indices[k]; return rest",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "6-line rewrite that replaces the gold's multi-digit iteration with its own per-dimension loop, using the gold only in the degenerate leading=1 case; gold still violates its contract for leading>=2"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.math.util.MultidimensionalCounter::getCounts(int) [instance, V1: passes index, dimension, uniCounterOffset]",
+  "hop1 org.apache.commons.math.linear.BlockFieldMatrix::indicesOf (allocates int[dimension])",
+  "hop2 org.apache.commons.math.dfp.Dfp::storeIndices (sets last index to the returned remainder)",
+  "hop3 org.apache.commons.math.util.MathUtils::leadingIndices (pass-through)",
+  "hop4 org.apache.commons.math.linear.BlockRealMatrix::writeLeadingIndices (leading = indices.length - 1)",
+  "gold org.apache.commons.math.util.FastMath::leadingDigits (omits digit = 0 after writing digits[k])"
+ ],
+ "reasons": "(a) leadingDigits documents mixed-radix digits each written at its own index; on the variant the digit counter is not reset, so slot 12 of a 2x3x4 counter yields (1,1,0); every hop passes correct place values (uniCounterOffset), correct leading count and the correct remainder (taken still advances), so only the gold breaks its contract. (b) hop javadocs match their code and are specific (all-but-last dimensions, remainder to last). (c) the three declared one-line hop edits fail the trigger (G9); no one-line hop edit can undo carried counts; two passing edits found (hop 2 post-correction, hop 4 per-dimension loop) both pass trigger, ownership tests and the full suite but rewrite or replace the gold's work: bypasses. (d) neutral names, no fault vocabulary, gold javadoc silent on the reset; lie ('dividing the index by the size of each dimension in turn, starting with the last dimension') describes an algorithm the code does not perform and names no fault or hop. (e) gold exactly 5 calls below facade, five distinct existing classes; 1500 regime, hosts and order match the seeded draw (mr_lib preview seed 3402: BlockFieldMatrix, Dfp, MathUtils, BlockRealMatrix, FastMath) with matching anchors; facade = guard + one call; one added lie sentence; test.patch empty; verified variant compiles, full suite fails only testIterationConsistency with expected signature; correct.patch full suite clean. (f) convention pinned by MultidimensionalCounter.getCount(int...) (count += uniCounterOffset[i]*c[i]) with passing testMulti2UniConversion, the constructor's offset definition, and Iterator.next resetting a rolled-over dimension to 0. (g) C10i: facade signature/modifiers/throws unchanged, no visibility widened (private fields read inside the class and passed as values), no new type, no reflection, no test edits; V1 is the allowed variant for this candidate.",
+ "notes": "Lie sentence is appended after the @throws text, without a leading '*', as the recipe's rewrite places it. Ownership tests pin getCount, not getCounts directly; the trigger is the only test exercising getCounts on valid input. A stale-build artefact (copied target/ dir) initially masked the bypasses; rerun after rm -rf target confirmed them. Did not read designs/, history/, builder notes, the no-local-trace checklist or any trace verdict."
+}

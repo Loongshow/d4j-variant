@@ -1,0 +1,84 @@
+{
+  "instance": "Lang-20",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.time.DateUtils::clippedText (hop 1, declared)",
+      "edit": "return ToStringStyle.textWithin(str, start, end);  ->  return start > end ? \"\" : ToStringStyle.textWithin(str, start, end);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "detail": "trigger fails on substring(SENTENCE, 0, -8): expected:<[foo]> but was:<[]> (raw start 0 > raw end -8, resolved 0 < 3)"
+    },
+    {
+      "method": "org.apache.commons.lang3.text.StrBuilder::midText (hop 3, declared)",
+      "edit": "return FastDateFormat.partOf(str, start, end);  ->  return FastDateFormat.partOf(str, Math.min(start, end), end);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "detail": "trigger fails: expected:<[foo]> but was:<[]>"
+    },
+    {
+      "method": "org.apache.commons.lang3.time.FastDateFormat::partOf (hop 4, declared)",
+      "edit": "return ArrayUtils.regionOf(str, start, end);  ->  return ArrayUtils.regionOf(str, start, Math.max(start, end));",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "detail": "trigger fails: expected:<[foo]> but was:<[]>"
+    },
+    {
+      "method": "org.apache.commons.lang3.time.FastDateFormat::partOf (hop 4, sign-aware raw max)",
+      "edit": "return ArrayUtils.regionOf(str, start, end);  ->  return ArrayUtils.regionOf(str, start, (start < 0) == (end < 0) ? Math.max(start, end) : end);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "detail": "Overfit partial repair: passes every test, but the facade still throws for mixed-sign inputs whose resolved start lies after the resolved end: substring(\"foo bar baz\", 8, -5) -> StringIndexOutOfBoundsException begin 8 end 6; (-2, 3) -> begin 9 end 3; (5, -20) and (20, -3) also throw. Violates the facade's 'If start is not strictly to the left of end, \"\" is returned' and hop 4's own @return. Not a competing repair."
+    },
+    {
+      "method": "org.apache.commons.lang3.time.FastDateFormat::partOf (hop 4, inline re-resolution)",
+      "edit": "return ArrayUtils.regionOf(str, start, end);  ->  return ArrayUtils.regionOf(str, start, Math.max(Math.max(0, Math.min(start < 0 ? str.length() + start : start, str.length())), end < 0 ? str.length() + end : end));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "detail": "Behaviourally complete (probe: (8,-5), (-2,3), (5,-20), (20,-3) all give \"\"), but only because the hop re-implements the gold's own position resolution (count back from the end, clamp into the String) and then compares the resolved positions; the gold's negative-end resolution becomes dead on this path. That replaces the gold's computation with a second implementation rather than an equally small edit (the gold repair is a single guard on variables the gold already has)."
+    },
+    {
+      "method": "org.apache.commons.lang3.text.StrBuilder::midText (hop 3, exception swallow)",
+      "edit": "return FastDateFormat.partOf(str, start, end);  ->  try { return FastDateFormat.partOf(str, start, end); } catch (StringIndexOutOfBoundsException e) { return \"\"; }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "detail": "Replaces the gold's result with \"\" whenever the gold throws; relies on an exception that no javadoc on the path documents."
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.StringUtils::substring(String,int,int) - null guard + DateUtils.clippedText(str, start, end)",
+    "hop1 org.apache.commons.lang3.time.DateUtils::clippedText - empty String returned as is, else ToStringStyle.textWithin",
+    "hop2 org.apache.commons.lang3.builder.ToStringStyle::textWithin - pass-through to StrBuilder.midText",
+    "hop3 org.apache.commons.lang3.text.StrBuilder::midText - pass-through to FastDateFormat.partOf",
+    "hop4 org.apache.commons.lang3.time.FastDateFormat::partOf - pass-through to ArrayUtils.regionOf",
+    "gold org.apache.commons.lang3.ArrayUtils::regionOf - resolves negatives, clamps both positions into [0, len], then str.substring(start, end) with no start > end check"
+  ],
+  "reasons": "Variant compiles; trigger StringUtilsSubstringTest::testSubstring_StringIntInt fails with StringIndexOutOfBoundsException: begin 8, end 6, length 11 thrown from ArrayUtils.regionOf (stack: substring -> clippedText -> textWithin -> midText -> partOf -> regionOf); the full suite has exactly one failure (the trigger). (a) Only the gold's own body violates a contract: it promises 'the characters from the start position up to the end position' and documents lenient handling of out-of-range positions, yet throws when the resolved start lies after the resolved end; hops 1-4 and the facade only propagate that exception through correct delegation. (b) Hop 1's javadoc ('An empty String is returned as it is') matches its code; hops 2-4 are documented pass-throughs with no ordering duty; none claims an operation it does not do. (c) The three declared hop repairs fail the trigger on (0, -8) because raw-position order differs from resolved order. A sign-aware raw max at hop 4 passes all tests but still throws on (8, -5) and (-2, 3), violating the facade's documented convention, so it is not a repair. The only complete hop-level alternatives re-implement the gold's resolution inline or swallow its exception: bypasses, not equally small competing repairs. (d) Hop names (clippedText, textWithin, midText, partOf, regionOf) are neutral; no added comment marks the gold; the lie (characters collected by walking from the end position back to the start, each placed in front) describes a mechanism and names neither the order comparison nor the empty result. (e) Gold is exactly five calls below the facade; hops in five distinct existing classes (DateUtils, ToStringStyle, StrBuilder, FastDateFormat, ArrayUtils); facade = pre-existing null guard + one delegating call; one added procedural sentence the code does not perform; gold javadoc silent on the start > end step; trigger is existing (empty test.patch) and is the only new failure. (f) The convention is pinned outside the gold: the facade's original javadoc ('If start is not strictly to the left of end, \"\" is returned', substring(\"abc\", 2, 0) = \"\"), ArrayUtils.subarray in the gold's own class ('Undervalue (< startIndex) produces empty array') with ArrayUtilsTest.testSubarrayObject asserting 'start > end' -> \"\", and substring(String,int) via testSubstring_StringInt; all pass on the variant.",
+  "notes": "The lie sentence is inserted after the @return tag, indented with spaces and without the leading ' * ', so in rendered javadoc it reads as part of the @return description; this is a formatting artefact of the facade rewrite, it points at no hop and names no step. Evidence StringUtils.mid/right pin length-based empty results (negative length or position past end) rather than an inverted span, so they are weaker pins than subarray and the facade javadoc. A suite-clean but incomplete hop-4 repair exists (sign-aware raw max); the tests cannot tell it from the gold repair, only the facade documentation can. Restoring the original facade body would also pass, but that makes all five hops dead (bypass) and is not small. The ownership tests and trigger were run as part of each full-suite run. Scratch: /private/tmp/mxb-TrkAeO (deleted after the audit)."
+}

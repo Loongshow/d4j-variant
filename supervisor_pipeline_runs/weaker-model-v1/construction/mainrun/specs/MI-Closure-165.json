@@ -1,0 +1,222 @@
+{
+ "bug_id": 165,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "return type.isNativeObjectType() ? false : JSDocInfo.Marker.isUnresolvedObjectType(type);",
+   "old": "return JSDocInfo.Marker.isUnresolvedObjectType(type);",
+   "why": "hop 1 answers native object types itself"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "return SymbolTable.SymbolScope.isUnknownObjectType(type.getImplicitPrototype() != null && type.getImplicitPrototype().isNativeObjectType() ? type.getImplicitPrototype() : type);",
+   "old": "return SymbolTable.SymbolScope.isUnknownObjectType(type);",
+   "why": "hop 4 hands the gold the native implicit prototype instead of the type"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "return Compiler.CodeBuilder.objectTypeIsUnknown(type) || (type.getImplicitPrototype() != null && type.getImplicitPrototype().isUnknownType());",
+   "old": "return Compiler.CodeBuilder.objectTypeIsUnknown(type);",
+   "why": "hop 3 also asks the implicit prototype after the chain"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "import java.util.regex.Matcher;\nimport com.google.javascript.rhino.jstype.ObjectType;\n",
+   "old": "import java.util.regex.Matcher;\n",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /** Returns whether the given object type is unknown. */\n    public static boolean objectTypeIsUnknown(ObjectType type) {\n      return SymbolTable.SymbolScope.isUnknownObjectType(type);\n    }\n\n\n    /** Returns the length of the text buffer. */",
+   "old": "\n    /** Returns the length of the text buffer. */",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.rhino.jstype.ObjectType;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "      return this == STRIP;\n    }\n\n    /**\n     * Whether the given object type is unknown.\n     */\n    public static boolean isObjectTypeUnknown(ObjectType type) {\n      return Compiler.CodeBuilder.objectTypeIsUnknown(type);\n    }\n\n  }\n",
+   "old": "      return this == STRIP;\n    }\n  }\n",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "\n    /**\n     * Returns whether the given object type is still unknown to the type\n     * system.\n     *\n     * @param type the object type\n     * @return whether the type is unknown\n     */\n    public static boolean isUnknownObjectType(ObjectType type) {\n      ObjectType implicitProto = type.getImplicitPrototype();\n      if (implicitProto == null || implicitProto.isNativeObjectType()) {\n        for (ObjectType extended : type.getCtorExtendedInterfaces()) {\n          if (extended.isUnknownType()) {\n            return true;\n          }\n        }\n        return false;\n      }\n      return implicitProto.isUnknownType();\n    }\n\n\n    public boolean isPropertyScope() {",
+   "old": "\n    public boolean isPropertyScope() {",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "  }\n\n        /**\n     * Returns whether the given object type is unknown.\n     *\n     * @param type The object type.\n     * @return Whether the object type is unknown.\n     */\n    public static boolean isUnknownObject(ObjectType type) {\n      return JSDocInfo.Marker.isUnresolvedObjectType(type);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.CompilerOptions;\nimport com.google.javascript.rhino.jstype.ObjectType;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "      return annotation;\n    }\n\n    /**\n     * Returns whether an object type is unresolved, that is, still unknown\n     * to the type system.\n     */\n    public static boolean isUnresolvedObjectType(ObjectType type) {\n      return CompilerOptions.TweakProcessing.isObjectTypeUnknown(type);\n    }\n\n\n    void setAnnotation(TrimmedStringPosition p) {",
+   "old": "      return annotation;\n    }\n\n    void setAnnotation(TrimmedStringPosition p) {",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/ObjectType.java",
+   "new": "   * properties is unknown. Each property of the implicit prototype is\n   * resolved in turn, and the first property whose declared type is still\n   * unknown marks this type as unknown.\n   */\n  @Override\n  public boolean isUnknownType() {\n        // If the object is unknown now, check the supertype again,\n    // because it might have been resolved since the last check.\n    if (unknown) {\n      unknown = com.google.javascript.jscomp.TypeCheck.isUnknownObject(this);\n    }\n    return unknown;\n    }",
+   "old": "   * properties is unknown.\n   */\n  @Override\n  public boolean isUnknownType() {\n    // If the object is unknown now, check the supertype again,\n    // because it might have been resolved since the last check.\n    if (unknown) {\n      ObjectType implicitProto = getImplicitPrototype();\n      if (implicitProto == null ||\n          implicitProto.isNativeObjectType()) {\n        unknown = false;\n        for (ObjectType interfaceType : getCtorExtendedInterfaces()) {\n          if (interfaceType.isUnknownType()) {\n            unknown = true;\n            break;\n          }\n        }\n      } else {\n        unknown = implicitProto.isUnknownType();\n      }\n    }\n    return unknown;\n  }",
+   "purpose": "MI-Closure-165 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.jscomp.TypeCheck",
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "method": "isUnknownObject"
+  },
+  {
+   "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "method": "isUnresolvedObjectType"
+  },
+  {
+   "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "method": "isObjectTypeUnknown"
+  },
+  {
+   "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "method": "objectTypeIsUnknown"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-165__i.py",
+ "entry_points": [
+  "com.google.javascript.rhino.jstype.ObjectType::isUnknownType"
+ ],
+ "evidence": [
+  "com.google.javascript.rhino.jstype.PrototypeObjectType::getSlot",
+  "com.google.javascript.rhino.jstype.PrototypeObjectType::toStringHelper",
+  "com.google.javascript.rhino.jstype.PrototypeObjectType::isSubtype"
+ ],
+ "expected_signature": "Could not resolve type in @implements tag of C",
+ "extra_tests": [],
+ "fixture_key": "Closure-165",
+ "gold": {
+  "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+  "edits": [
+   {
+    "new": "      if (implicitProto == null) {\n",
+    "old": "      if (implicitProto == null || implicitProto.isNativeObjectType()) {\n"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+  "method": "isUnknownObjectType"
+ },
+ "group": "MI-Closure-165",
+ "hops": 5,
+ "iid": "MI-Closure-165",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold looks up the implicit prototype and decides whether the prototype or the interfaces extended by the constructor answer; hops 1-4 hand the object type along unchanged, and the gold reads the prototype from the type itself, so no caller can change which prototype it sees. The gold's javadoc promises whether the given object type is still unknown to the type system, the predicate the facade answers; on the trigger, the prototype of interface B inherits from the unresolved interface A and is reported as known, because its implicit prototype is the built-in Object.prototype. No one-line change of the argument above the gold restores this: handing the gold the native prototype gives that prototype's own, empty interfaces, and answering native types at a hop leaves B's prototype, which is not native, unchanged. The convention is pinned outside the gold: PrototypeObjectType.getSlot (an object inherits from its implicit prototype and then from the interfaces extended by its constructor), PrototypeObjectType.toStringHelper (the walk up the implicit prototypes stops at a native object type), PrototypeObjectType.isSubtype (extended interfaces decide for interface types), with TypeCheckTest testInterfaceExtends and testBadInterfaceExtends1 and JSTypeTest testInterfaceInheritanceSubtypeChain passing; the facade's own javadoc treats the type as unknown if any of its implicit prototype properties is unknown.",
+ "ownership_tests": [
+  "com.google.javascript.jscomp.TypeCheckTest::testInterfaceExtends",
+  "com.google.javascript.jscomp.TypeCheckTest::testBadInterfaceExtends1",
+  "com.google.javascript.rhino.jstype.JSTypeTest::testInterfaceInheritanceSubtypeChain"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": null,
+    "anchor_seed": 8924,
+    "class": "com.google.javascript.jscomp.TypeCheck",
+    "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "isUnknownObject",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getAnnotation",
+    "anchor_seed": 8925,
+    "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+    "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.google.javascript.jscomp.CompilerOptions;",
+     "import com.google.javascript.rhino.jstype.ObjectType;"
+    ],
+    "method": "isUnresolvedObjectType",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "shouldStrip",
+    "anchor_seed": 8926,
+    "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+    "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.google.javascript.rhino.jstype.ObjectType;"
+    ],
+    "method": "isObjectTypeUnknown",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 8927,
+    "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.google.javascript.rhino.jstype.ObjectType;"
+    ],
+    "method": "objectTypeIsUnknown",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isDocScope",
+    "anchor_seed": 8928,
+    "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+    "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "isUnknownObjectType",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8824
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-165"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.TypeCheckTest",
+  "test_file": "test/com/google/javascript/jscomp/TypeCheckTest.java",
+  "test_method": "testInterfaceExtendsResolution"
+ },
+ "variant_id": "CTV-B5D122",
+ "kind": "new",
+ "fault_lines": [
+  "if (implicitProto == null) {"
+ ],
+ "gold_key": "com.google.javascript.jscomp.SymbolTable$SymbolScope::isUnknownObjectType"
+}

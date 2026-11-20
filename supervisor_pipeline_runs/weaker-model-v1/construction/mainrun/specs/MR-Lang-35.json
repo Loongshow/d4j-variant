@@ -1,0 +1,240 @@
+{
+ "bug_id": 35,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "final Map<Object, Object> map = new HashMap<Object, Object>((int) (org.apache.commons.lang3.Validate.noNullElements(array).length * 1.5));",
+   "old": "final Map<Object, Object> map = new HashMap<Object, Object>((int) (array.length * 1.5));",
+   "why": "hop 1 rejects null elements before allocating the map"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "return FastDateFormat.fillMapRange(map, org.apache.commons.lang3.ArrayUtils.addAll(new Object[0][], array), 0, array.length);",
+   "old": "return FastDateFormat.fillMapRange(map, array, 0, array.length);",
+   "why": "hop 2 copies the elements into an array of arrays before placing the range"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "Validate.isTrue(start == end || !(array[start] instanceof Object[]) || ((Object[]) array[start]).length >= 2); return StrBuilder.putRange(map, array, start, end);",
+   "old": "return StrBuilder.putRange(map, array, start, end);",
+   "why": "hop 3 rejects a range whose first element is an array shorter than two"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "new": "       The pairs are first sorted by the hash codes of their keys, and the map is then filled from the sorted pairs in a single pass.\n     */\n    public static Map<Object, Object> toMap(Object[] array) {\n        if (array == null) {\n            return null;\n        }\n        return org.apache.commons.lang3.time.DateUtils.mapOf(array);",
+   "old": "     */\n    public static Map<Object, Object> toMap(Object[] array) {\n        if (array == null) {\n            return null;\n        }\n        final Map<Object, Object> map = new HashMap<Object, Object>((int) (array.length * 1.5));\n        for (int i = 0; i < array.length; i++) {\n            Object object = array[i];\n            if (object instanceof Map.Entry<?, ?>) {\n                Map.Entry<?,?> entry = (Map.Entry<?,?>) object;\n                map.put(entry.getKey(), entry.getValue());\n            } else if (object instanceof Object[]) {\n                Object[] entry = (Object[]) object;\n                if (entry.length < 2) {\n                    throw new IllegalArgumentException(\"Array element \" + i + \", '\"\n                        + object\n                        + \"', has a length less than 2\");\n                }\n                map.put(entry[0], entry[1]);\n            } else {\n                throw new IllegalArgumentException(\"Array element \" + i + \", '\"\n                        + object\n                        + \"', is neither of type Map.Entry nor an Array\");\n            }\n        }\n        return map;",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "import org.apache.commons.lang3.text.WordUtils;\nimport java.util.Map;\n",
+   "old": "import org.apache.commons.lang3.text.WordUtils;\n",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "    /**\n     * <p>Puts the key and the value held by each element in a range of an\n     * array into a map.</p>\n     *\n     * @param map  the map to put the keys and values into, not null\n     * @param array  the array of elements, not null\n     * @param start  the index of the first element of the range\n     * @param end  the index after the last element of the range\n     * @return the map\n     */\n    public static Map<Object, Object> putAll(Map<Object, Object> map, Object[] array, int start, int end) {\n        for (int i = start; i < end; i++) {\n            final Object element = array[i];\n            if (element instanceof Map.Entry<?, ?>) {\n                final Map.Entry<?, ?> entry = (Map.Entry<?, ?>) element;\n                map.put(entry.getKey(), entry.getValue());\n            } else if (element instanceof Object[]) {\n                final Object[] items = (Object[]) element;\n                if (items.length < 2) {\n                    throw new IllegalArgumentException(\"Array element \" + i + \", '\"\n                        + element + \"', has a length less than 2\");\n                }\n                map.put(items[0], items[1]);\n            } else {\n                throw new IllegalArgumentException(\"Array element \" + i + \", '\"\n                    + element + \"', is neither of type Map.Entry nor of type Object[]\");\n            }\n        }\n        return map;\n    }\n\n\n    /**\n     * <p>Replaces multiple characters in a String in one go.",
+   "old": "    /**\n     * <p>Replaces multiple characters in a String in one go.",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport org.apache.commons.lang3.time.FastDateFormat;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "        unregister(object);\n    }\n\n    /**\n     * <p>Puts the key and the value held by each element of an array into\n     * a map.</p>\n     *\n     * <p>All of the array is used, from its first element to its last.</p>\n     *\n     * @param map  the map to fill, not null\n     * @param array  the array of elements, not null\n     * @return the map\n     */\n    public static Map<Object, Object> fillMap(Map<Object, Object> map, Object[] array) {\n        return FastDateFormat.fillMapRange(map, array, 0, array.length);\n    }\n\n\n    /**",
+   "old": "        unregister(object);\n    }\n\n    /**",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport java.util.Map;\nimport org.apache.commons.lang3.StringUtils;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "        return append(chars, startIndex, length).appendNewLine();\n    }\n\n    /**\n     * <p>Puts the keys and the values held by the elements of a range of an\n     * array into a map, in the order of the range.</p>\n     *\n     * @param map  the map to put into, not null\n     * @param array  the array holding the range, not null\n     * @param start  the index where the range starts\n     * @param end  the index where the range ends, exclusive\n     * @return the map\n     */\n    public static Map<Object, Object> putRange(Map<Object, Object> map, Object[] array, int start, int end) {\n        return StringUtils.putAll(map, array, start, end);\n    }\n\n\n    /**",
+   "old": "        return append(chars, startIndex, length).appendNewLine();\n    }\n\n    /**",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "import java.util.TimeZone;\nimport java.util.HashMap;\nimport java.util.Map;\nimport org.apache.commons.lang3.builder.ToStringStyle;\n",
+   "old": "import java.util.TimeZone;\n",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "        modify(gval, field, MODIFY_ROUND);\n        return gval.getTime();\n    }\n\n    /**\n     * <p>Converts an array into a {@link java.util.Map}, putting the key and\n     * the value held by each element of the array into a new map.</p>\n     *\n     * <p>The map is created with an initial capacity of one and a half\n     * times the length of the array.</p>\n     *\n     * @param array  the array to convert, not null\n     * @return a new map holding the keys and values of the elements\n     */\n    public static Map<Object, Object> mapOf(Object[] array) {\n        final Map<Object, Object> map = new HashMap<Object, Object>((int) (array.length * 1.5));\n        return ToStringStyle.fillMap(map, array);\n    }\n\n\n    /**\n     * <p>Round this date, leaving the field specified as the most",
+   "old": "        modify(gval, field, MODIFY_ROUND);\n        return gval.getTime();\n    }\n\n    /**\n     * <p>Round this date, leaving the field specified as the most",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "import org.apache.commons.lang3.Validate;\nimport org.apache.commons.lang3.text.StrBuilder;\n",
+   "old": "import org.apache.commons.lang3.Validate;\n",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "                (obj == null ? \"<null>\" : obj.getClass().getName()));\n        }\n    }\n\n    /**\n     * <p>Puts the key and the value held by each element between two\n     * indices of an array into a map.</p>\n     *\n     * @param map  the map to fill, not null\n     * @param array  the array of elements, not null\n     * @param start  the index of the first element to use\n     * @param end  the index after the last element to use\n     * @return the map\n     */\n    public static Map<Object, Object> fillMapRange(Map<Object, Object> map, Object[] array, int start, int end) {\n        return StrBuilder.putRange(map, array, start, end);\n    }\n\n\n    /**\n     * <p>Formats a millisecond <code>long</code> value.</p>",
+   "old": "                (obj == null ? \"<null>\" : obj.getClass().getName()));\n        }\n    }\n\n    /**\n     * <p>Formats a millisecond <code>long</code> value.</p>",
+   "purpose": "MR-Lang-35 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.time.DateUtils",
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "method": "mapOf"
+  },
+  {
+   "class": "org.apache.commons.lang3.builder.ToStringStyle",
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "method": "fillMap"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.FastDateFormat",
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "method": "fillMapRange"
+  },
+  {
+   "class": "org.apache.commons.lang3.text.StrBuilder",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "method": "putRange"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Lang-35.py",
+ "entry_points": [
+  "org.apache.commons.lang3.ArrayUtils::toMap"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.ArrayUtils::addAll",
+  "org.apache.commons.lang3.BooleanUtils::xor",
+  "org.apache.commons.lang3.math.NumberUtils::min"
+ ],
+ "expected_signature": "java.lang.ArrayIndexOutOfBoundsException: Index 1 out of bounds for length 1",
+ "extra_tests": [],
+ "fixture_key": "Lang-35",
+ "gold": {
+  "class": "org.apache.commons.lang3.StringUtils",
+  "edits": [
+   {
+    "new": "                final Object[] items = (Object[]) element;\n                map.put(items[0], items[1]);",
+    "old": "                final Object[] items = (Object[]) element;\n                if (items.length < 2) {\n                    throw new IllegalArgumentException(\"Array element \" + i + \", '\"\n                        + element + \"', has a length less than 2\");\n                }\n                map.put(items[0], items[1]);"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+  "method": "putAll"
+ },
+ "group": "MR-Lang-35",
+ "hops": 5,
+ "iid": "MR-Lang-35",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold reads inside an element: it dispatches on the element's kind (Map.Entry, Object[]) and indexes the items of an Object[] element; hops 1-4 allocate the map, place the whole array as the range and pass it along, and never read an element. The gold already rejects a malformed element of another kind (neither a Map.Entry nor an Object[]) with IllegalArgumentException, but reads items[1] of an Object[] without first checking that it holds two items, so an array with a single item escapes as a raw ArrayIndexOutOfBoundsException from the gold's own element read; no hop can turn that into the documented IllegalArgumentException in one line without re-implementing the per-element step (a pre-scan of every element) or catching the gold's failure (a block). The convention is pinned outside the gold: the facade's javadoc ('@throws IllegalArgumentException if one element of this Array is itself an Array containing less then two elements'); ArrayUtils.addAll translates the low-level ArrayStoreException of its copy into IllegalArgumentException (ArrayUtilsAddTest.testJira567); BooleanUtils.xor(boolean[]) and NumberUtils.min(long[]) reject an array too short to compute from with IllegalArgumentException before reading an element (BooleanUtilsTest.testXor_primitive_emptyInput, NumberUtilsTest.testMinLong).",
+ "ownership_tests": [
+  "org.apache.commons.lang3.ArrayUtilsAddTest::testJira567",
+  "org.apache.commons.lang3.BooleanUtilsTest::testXor_primitive_emptyInput",
+  "org.apache.commons.lang3.math.NumberUtilsTest::testMinLong"
+ ],
+ "project": "Lang",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "round",
+    "anchor_seed": 4721,
+    "class": "org.apache.commons.lang3.time.DateUtils",
+    "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.util.HashMap;",
+     "import java.util.Map;",
+     "import org.apache.commons.lang3.builder.ToStringStyle;"
+    ],
+    "method": "mapOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendEnd",
+    "anchor_seed": 4722,
+    "class": "org.apache.commons.lang3.builder.ToStringStyle",
+    "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.lang3.time.FastDateFormat;"
+    ],
+    "method": "fillMap",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "format",
+    "anchor_seed": 4723,
+    "class": "org.apache.commons.lang3.time.FastDateFormat",
+    "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.lang3.text.StrBuilder;"
+    ],
+    "method": "fillMapRange",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendln",
+    "anchor_seed": 4724,
+    "class": "org.apache.commons.lang3.text.StrBuilder",
+    "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.util.Map;",
+     "import org.apache.commons.lang3.StringUtils;"
+    ],
+    "method": "putRange",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "replaceChars",
+    "anchor_seed": 4725,
+    "class": "org.apache.commons.lang3.StringUtils",
+    "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.util.Map;"
+    ],
+    "method": "putAll",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4621
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Lang-35"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.lang3.ArrayUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/lang3/ArrayUtilsTest.java",
+  "test_method": "testToMap"
+ },
+ "variant_id": "CTV-3079A3",
+ "kind": "new",
+ "fault_lines": [
+  "final Object[] items = (Object[]) element;\n                map.put(items[0], items[1]);"
+ ],
+ "gold_key": "org.apache.commons.lang3.StringUtils::putAll"
+}

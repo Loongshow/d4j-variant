@@ -1,0 +1,72 @@
+{
+  "instance": "MI-JacksonDatabind-103",
+  "task_key": "JacksonDatabind-103__i",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::verifyAnySetterMember (hop 4)",
+      "edit": "if (ObjectReader.isUsableAnySetter(accessor)) {  ->  if (ObjectReader.isUsableAnySetter(accessor) || ((accessor instanceof AnnotatedMethod) && ((AnnotatedMethod) accessor).getRawParameterType(0) == Object.class)) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.ObjectMapper::acceptAnySetterMember (hop 3)",
+      "edit": "return BasicDeserializerFactory.verifyAnySetterMember(accessor);  ->  return accessor;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase::resolveAnySetterMember (hop 2)",
+      "edit": "prefer props.getAnySetterField() over props.getAnySetterMethod() (spec compensating edit 1, matches the facade lie)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.ObjectMapper::acceptAnySetterMember (hop 3)",
+      "edit": "if (accessor == null || accessor instanceof AnnotatedField) { return accessor; } (spec compensating edit 2)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::verifyAnySetterMember (hop 4)",
+      "edit": "|| accessor.getRawType() == Object.class (spec compensating edit 3; AnnotatedMethod.getRawType() is the return type, void for the trigger's setter)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade com.fasterxml.jackson.databind.introspect.BasicBeanDescription::findAnySetterAccessor (instance, @Override, V1: passes _propCollector)",
+    "hop1 com.fasterxml.jackson.databind.DeserializationContext::findAnySetterMember (null props -> null; else delegate)",
+    "hop2 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::resolveAnySetterMember (any-setter method, else any-setter field)",
+    "hop3 com.fasterxml.jackson.databind.ObjectMapper::acceptAnySetterMember (null -> null; else delegate)",
+    "hop4 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::verifyAnySetterMember (gold verdict -> accessor or IllegalArgumentException)",
+    "gold com.fasterxml.jackson.databind.ObjectReader::isUsableAnySetter (method: first raw parameter type String [or Object omitted]; field: Map)"
+  ],
+  "reasons": "Compile OK; trigger AnySetterTest::testGenericAnySetter fails with the expected signature (IAE 'first argument not of type String or Object, but java.lang.Object' for MyGeneric<T>.addDynamicallyMappedProperty(T, int)); my own full-suite run on the variant shows only the trigger failing. (a) The gold's javadoc says it decides whether an any-setter accessor can be used to receive unmatched properties; it answers false for a method whose first parameter is Object, which BeanDescription.findAnySetterAccessor's contract (the method the facade overrides) explicitly accepts ('first one String or Object'). Every other method on the path behaves as documented given a correct gold: hops 1-3 only pass values on, hop 2's order (method before field) matches its javadoc, hop 4 turns the gold's verdict into the accessor or the IAE as its @throws says. The gold is the deepest and only method whose own logic is wrong. (b) No hop javadoc contradicts its code. Hops 1-3 do not document the propagated unchecked IAE, and hop 3's 'accepts' is loose, but nothing in hops 1-3 decides key types, so the observed message is not consistent with any of them being at fault. (c) No competing repair. Two one-line edits pass trigger, ownership tests and the full suite, and both are bypasses: hop 4 OR-ing its own Object check overrides the gold's verdict while the gold still violates its contract; hop 3 'return accessor;' makes hop 4 and the gold dead and drops the signature checks that BeanDescription's contract and the facade's throws clause require. The three declared compensating edits fail the trigger (validation G9). (d) Names are neutral, G2a/G2b pass, the gold javadoc is silent on key types, and the lie ('Fields are examined before methods...') is a false procedural claim about lookup order that names neither the key-type rule nor the omitted Object case. (e) Gold is exactly five calls below the facade; the five hosts are distinct existing public classes (1777/1756/4211/2177/1949 lines, all >=1500, so the largest5 rule is not needed); the host set and hop order match the recipe's seeded draw (seed 6621, anchors 6721-6725), reproduced with mr_lib.py preview for the paired static target util/ClassUtil.java, consistent with BATCH7's 'same five host classes in the same hop order as the static instance'; the facade body is state gathering (_propCollector) plus one call to hop 1; the facade had no javadoc, gets one class-voice sentence plus the one-sentence lie, as the C10i addendum allows; the trigger is existing, test.patch is empty, and only it newly fails. C10i rules: the facade is an allowed instance facade of task JacksonDatabind-103__i (BATCH7 preregistration row 200, variant V1); signature, modifiers, @Override and 'throws IllegalArgumentException' are unchanged; the patch only adds public static methods and imports, widens no existing member, adds no type, uses no reflection and edits no test. (f) The convention is pinned outside the gold by BeanDescription.findAnySetterAccessor's javadoc, by hop 4's original production message naming 'String or Object', and by StdKeyDeserializer.forType and MapDeserializer._isStdKeyDeser treating Object keys like String keys (MapDeserializationTest::testUntypedMap2 passing). The String-keyed and Map-field halves are pinned by passing AnySetterTest::testSimpleMapImitation, testJsonAnySetterOnMap and POJOPropertiesCollectorTest::testJackson744.",
+  "notes": "Recorded bypasses: (1) hop 4 BasicDeserializerFactory.verifyAnySetterMember: 'if (ObjectReader.isUsableAnySetter(accessor) || ((accessor instanceof AnnotatedMethod) && ((AnnotatedMethod) accessor).getRawParameterType(0) == Object.class)) {'. (2) hop 3 ObjectMapper.acceptAnySetterMember: 'return accessor;' in place of 'return BasicDeserializerFactory.verifyAnySetterMember(accessor);'. Both pass the trigger, the four ownership tests and the full suite; no existing test checks rejection of an invalid any-setter, which is why the hop-3 bypass is suite-clean. Points for the trace checker and reviewers (not grounds for rejection here): (i) on the trigger, hop 4's relocated original message is self-refuting ('not of type String or Object, but java.lang.Object') and so points strongly at the key-type check, which lives only in the gold. (ii) The gold's 'return (type == String.class);' keeps parentheses around a single comparison, which is common Jackson style. (iii) The lie line in the facade javadoc has no leading '*' and is indented differently from the rest, so it reads as inserted. It marks the lie, not the gold. (iv) The facade calls hop 1 by fully qualified name although BasicBeanDescription already imports com.fasterxml.jackson.databind.*. This is cosmetic. (v) The facade's new javadoc restates BeanDescription's but leaves out its 'first one String or Object' sentence; the inherited contract is still in BeanDescription.java. (vi) No passing test uses an Object-keyed any-setter method; the trigger is the only one. The Object half of the convention is pinned by production code and docs rather than by a passing any-setter test. Process note: my first hop-3 run falsely failed the trigger because ant skipped recompiling a same-second-copied class; I re-ran it after deleting the class file and confirmed the edit with javap. I did not read the MR-JacksonDatabind-103 files, designs/, history/, builder notes, the checklist or any trace verdict. The BATCH7 preregistration row I read to check the allowed facade also names the static facade's method; I used that only to confirm the host draw."
+}

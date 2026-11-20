@@ -1,0 +1,199 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 5fc4c85a2..cde979236 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -3355,6 +3355,29 @@ public class ArrayUtils {
+         return (array != null && array.length != 0);
+     }
+ 
++    /**
++     * <p>Returns the minimum of a starting value and the values in a range
++     * of an array.</p>
++     *
++     * @param start  the starting value
++     * @param array  an array, not null
++     * @param begin  the index of the first value in the range
++     * @param length  the number of values in the range
++     * @return the minimum value
++     */
++    public static double leastFrom(final double start, final double[] array, final int begin, final int length) {
++        double least = start;
++        final int end = begin + length;
++        for (int i = begin; i < end; i++) {
++            final double value = array[i];
++            if (value < least) {
++                least = value;
++            }
++        }
++        return least;
++    }
++
++
+     /**
+      * <p>Checks if an array of primitive shorts is not empty or not {@code null}.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/Conversion.java b/src/main/java/org/apache/commons/lang3/Conversion.java
+index 927e09233..42a316f61 100644
+--- a/src/main/java/org/apache/commons/lang3/Conversion.java
++++ b/src/main/java/org/apache/commons/lang3/Conversion.java
+@@ -19,6 +19,7 @@
+ package org.apache.commons.lang3;
+ 
+ import java.util.UUID;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ 
+ /**
+@@ -847,6 +848,21 @@ public class Conversion {
+         return out;
+     }
+ 
++    /**
++     * <p>Returns the minimum of a starting value and the values in a range
++     * of an array.</p>
++     *
++     * @param start  the starting value
++     * @param array  an array, not null
++     * @param begin  the index of the first value in the range
++     * @param length  the number of values in the range
++     * @return the minimum value
++     */
++    public static double minimumFrom(final double start, final double[] array, final int begin, final int length) {
++        return DateUtils.minAcross(start, array, begin, length);
++    }
++
++
+     /**
+      * <p>
+      * Converts an array of byte into a short using the default (little endian, Lsb0) byte and
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index cf5cc72cd..edd28be5c 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -24,6 +24,7 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -3066,6 +3067,17 @@ public class StringUtils {
+         return splitByCharacterType(str, true);
+     }
+ 
++    /**
++     * <p>Returns the minimum value in an array.</p>
++     *
++     * @param array  an array, not null or empty
++     * @return the minimum value in the array
++     */
++    public static double lowestOf(final double[] array) {
++        return StrBuilder.lowestInRange(array, 0, array.length);
++    }
++
++
+     /**
+      * <p>Splits a String by Character type as returned by
+      * {@code java.lang.Character.getType(char)}. Groups of contiguous
+diff --git a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+index 064f547ab..2523c8beb 100644
+--- a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
++++ b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+@@ -843,27 +843,15 @@ public class NumberUtils {
+      * @throws IllegalArgumentException if <code>array</code> is <code>null</code>
+      * @throws IllegalArgumentException if <code>array</code> is empty
+      * @see IEEE754rUtils#min(double[]) IEEE754rUtils for a version of this method that handles NaN differently
++       The values are reduced pairwise, each round comparing every value in the front half of the remaining values with the value at the mirrored position in the back half and keeping the lesser of the two, until a single value remains.
+      */
+     public static double min(double[] array) {
+-        // Validates input
+         if (array == null) {
+             throw new IllegalArgumentException("The Array must not be null");
+         } else if (array.length == 0) {
+             throw new IllegalArgumentException("Array cannot be empty.");
+         }
+-    
+-        // Finds and returns min
+-        double min = array[0];
+-        for (int i = 1; i < array.length; i++) {
+-            if (Double.isNaN(array[i])) {
+-                return Double.NaN;
+-            }
+-            if (array[i] < min) {
+-                min = array[i];
+-            }
+-        }
+-    
+-        return min;
++        return StringUtils.lowestOf(array);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 86752b035..3dceea34d 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -26,6 +26,7 @@ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
+ import org.apache.commons.lang3.builder.Builder;
++import org.apache.commons.lang3.Conversion;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1241,6 +1242,20 @@ public class StrBuilder implements CharSequence, Appendable, Serializable, Build
+         return this;
+     }
+ 
++    /**
++     * <p>Returns the minimum value in a range of an array, taking the first
++     * value of the range as the starting value.</p>
++     *
++     * @param array  an array, not null
++     * @param begin  the index of the first value in the range
++     * @param length  the number of values in the range, at least one
++     * @return the minimum value in the range
++     */
++    public static double lowestInRange(final double[] array, final int begin, final int length) {
++        return Conversion.minimumFrom(array[begin], array, begin + 1, length - 1);
++    }
++
++
+     /**
+      * Appends a separator to the builder if the loop index is greater than zero.
+      * The separator is appended using {@link #append(char)}.
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index fa0674666..b744b0a43 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.Locale;
+ import java.util.NoSuchElementException;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -1286,6 +1287,21 @@ public class DateUtils {
+     public static long getFragmentInMilliseconds(Date date, int fragment) {
+         return getFragment(date, fragment, Calendar.MILLISECOND);    
+     }
++
++    /**
++     * <p>Returns the minimum of a starting value and the values in a range
++     * of an array.</p>
++     *
++     * @param start  the starting value
++     * @param array  an array, not null
++     * @param begin  the index of the first value in the range
++     * @param length  the number of values in the range
++     * @return the minimum value
++     */
++    public static double minAcross(final double start, final double[] array, final int begin, final int length) {
++        return ArrayUtils.leastFrom(start, array, begin, length);
++    }
++
+     
+     /**
+      * <p>Returns the number of seconds within the 

@@ -1,0 +1,277 @@
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 515d72895..1ffa1e99a 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -21,6 +21,9 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import java.util.TimeZone;
++import org.apache.commons.lang3.text.StrBuilder;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -2311,6 +2314,26 @@ public class StringUtils {
+         return substringBetween(str, tag, tag);
+     }
+ 
++    /**
++     * <p>Gets a date/time formatter instance using the specified styles,
++     * time zone and locale, the default locale being used when no locale
++     * is given.</p>
++     *
++     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeZone  optional time zone, overrides time zone of
++     *  formatted date
++     * @param locale  optional locale, overrides system locale
++     * @return a localized standard date/time formatter
++     */
++    public static FastDateFormat styleFormat(final int dateStyle, final int timeStyle, final TimeZone timeZone, Locale locale) {
++        if (locale == null) {
++            locale = Locale.getDefault();
++        }
++        return StrBuilder.formatOfStyles(dateStyle, timeStyle, timeZone, locale);
++    }
++
++
+     /**
+      * <p>Gets the String that is nested in between two Strings.
+      * Only the first match is returned.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/SystemUtils.java b/src/main/java/org/apache/commons/lang3/SystemUtils.java
+index 72b3fe850..a49e8c40f 100644
+--- a/src/main/java/org/apache/commons/lang3/SystemUtils.java
++++ b/src/main/java/org/apache/commons/lang3/SystemUtils.java
+@@ -18,6 +18,10 @@ package org.apache.commons.lang3;
+ 
+ import java.io.File;
+ import java.util.regex.Pattern;
++import java.util.Locale;
++import java.util.TimeZone;
++import org.apache.commons.lang3.builder.ToStringStyle;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>
+@@ -1484,6 +1488,28 @@ public class SystemUtils {
+         return new File(System.getProperty(USER_DIR_KEY));
+     }
+ 
++    /**
++     * <p>Gets a date/time formatter instance using the specified styles,
++     * time zone and locale.</p>
++     *
++     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeZone  optional time zone, overrides time zone of
++     *  formatted date
++     * @param locale  the locale to use, not null
++     * @return a localized standard date/time formatter
++     * @throws IllegalArgumentException if the Locale has no date/time
++     *  pattern defined
++     */
++    public static FastDateFormat localizedFormat(final int dateStyle, final int timeStyle, final TimeZone timeZone, final Locale locale) {
++        try {
++            return ToStringStyle.standardFormat(dateStyle, timeStyle, timeZone, locale);
++        } catch (ClassCastException ex) {
++            throw new IllegalArgumentException("No date time pattern for locale: " + locale);
++        }
++    }
++
++
+     /**
+      * <p>
+      * Gets the user home directory as a <code>File</code>.
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 6df1e6d68..3a75bfa71 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,10 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Locale;
++import java.util.TimeZone;
++import org.apache.commons.lang3.time.DateUtils;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -1335,6 +1339,22 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets a date/time formatter instance using the specified styles,
++     * time zone and locale.</p>
++     *
++     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeZone  optional time zone, overrides time zone of
++     *  formatted date
++     * @param locale  the locale to use, not null
++     * @return a localized standard date/time formatter
++     */
++    public static FastDateFormat standardFormat(final int dateStyle, final int timeStyle, final TimeZone timeZone, final Locale locale) {
++        return DateUtils.formatterFor(dateStyle, timeStyle, timeZone, locale);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the detail of a
+      * <code>float</code> array.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 6f2be0069..b174a1def 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,9 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Locale;
++import java.util.TimeZone;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -2315,6 +2318,22 @@ public class StrBuilder implements CharSequence, Appendable {
+         return -1;
+     }
+ 
++    /**
++     * <p>Gets a date/time formatter instance using the specified styles,
++     * time zone and locale.</p>
++     *
++     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeZone  optional time zone, overrides time zone of
++     *  formatted date
++     * @param locale  the locale to use, not null
++     * @return a localized standard date/time formatter
++     */
++    public static FastDateFormat formatOfStyles(final int dateStyle, final int timeStyle, final TimeZone timeZone, final Locale locale) {
++        return SystemUtils.localizedFormat(dateStyle, timeStyle, timeZone, locale);
++    }
++
++
+     /**
+      * Searches the string builder to find the last reference to the specified string.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index f4d80ecd0..e10511030 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,12 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import java.text.DateFormat;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -85,6 +91,11 @@ public class DateUtils {
+      */
+     public final static int SEMI_MONTH = 1001;
+ 
++    /**
++     * The date/time formatters created so far.
++     */
++    private static final Map<Object, FastDateFormat> dateTimeFormats = new HashMap<Object, FastDateFormat>(7);
++
+     private static final int[][] fields = {
+             {Calendar.MILLISECOND},
+             {Calendar.SECOND},
+@@ -269,6 +280,38 @@ public class DateUtils {
+                 cal1.getClass() == cal2.getClass());
+     }
+ 
++    /**
++     * <p>Gets a date/time formatter instance using the specified styles,
++     * time zone and locale.</p>
++     *
++     * <p>Formatter instances are cached and shared.</p>
++     *
++     * @param dateStyle  date style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeStyle  time style: FULL, LONG, MEDIUM, or SHORT
++     * @param timeZone  optional time zone, overrides time zone of
++     *  formatted date
++     * @param locale  the locale to use, not null
++     * @return a localized standard date/time formatter
++     * @throws ClassCastException if the Locale has no date/time pattern
++     *  defined
++     */
++    public static FastDateFormat formatterFor(final int dateStyle, final int timeStyle, final TimeZone timeZone, final Locale locale) {
++        final List<Object> key = new ArrayList<Object>(4);
++        key.add(Integer.valueOf(dateStyle));
++        key.add(Integer.valueOf(timeStyle));
++        if (timeZone != null) {
++            key.add(timeZone);
++        }
++        FastDateFormat format = dateTimeFormats.get(key);
++        if (format == null) {
++            final SimpleDateFormat formatter = (SimpleDateFormat) DateFormat.getDateTimeInstance(dateStyle, timeStyle, locale);
++            format = FastDateFormat.getInstance(formatter.toPattern(), timeZone, locale);
++            dateTimeFormats.put(key, format);
++        }
++        return format;
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Parses a string representing a date by trying a variety of different parsers.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index 95925fc99..b931060f3 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -111,7 +111,7 @@ public class FastDateFormat extends Format {
+     private static final Map<FastDateFormat, FastDateFormat> cInstanceCache = new HashMap<FastDateFormat, FastDateFormat>(7);
+     private static final Map<Object, FastDateFormat> cDateInstanceCache = new HashMap<Object, FastDateFormat>(7);
+     private static final Map<Object, FastDateFormat> cTimeInstanceCache = new HashMap<Object, FastDateFormat>(7);
+-    private static final Map<Object, FastDateFormat> cDateTimeInstanceCache = new HashMap<Object, FastDateFormat>(7);
++
+     private static final Map<Object, String> cTimeZoneDisplayCache = new HashMap<Object, String>(7);
+ 
+     /**
+@@ -453,33 +453,11 @@ public class FastDateFormat extends Format {
+      * @return a localized standard date/time formatter
+      * @throws IllegalArgumentException if the Locale has no date/time
+      *  pattern defined
++       The pattern is obtained by formatting a fixed reference date with the java.text.DateFormat of the requested styles and mapping each field of the formatted text back to the pattern letters that produce it.
+      */
+     public static synchronized FastDateFormat getDateTimeInstance(int dateStyle, int timeStyle, TimeZone timeZone,
+             Locale locale) {
+-
+-        Object key = new Pair(Integer.valueOf(dateStyle), Integer.valueOf(timeStyle));
+-        if (timeZone != null) {
+-            key = new Pair(key, timeZone);
+-        }
+-        if (locale == null) {
+-            locale = Locale.getDefault();
+-        }
+-        key = new Pair(key, locale);
+-
+-        FastDateFormat format = cDateTimeInstanceCache.get(key);
+-        if (format == null) {
+-            try {
+-                SimpleDateFormat formatter = (SimpleDateFormat) DateFormat.getDateTimeInstance(dateStyle, timeStyle,
+-                        locale);
+-                String pattern = formatter.toPattern();
+-                format = getInstance(pattern, timeZone, locale);
+-                cDateTimeInstanceCache.put(key, format);
+-
+-            } catch (ClassCastException ex) {
+-                throw new IllegalArgumentException("No date time pattern for locale: " + locale);
+-            }
+-        }
+-        return format;
++        return org.apache.commons.lang3.StringUtils.styleFormat(dateStyle, timeStyle, timeZone, locale);
+     }
+ 
+     //-----------------------------------------------------------------------

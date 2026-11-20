@@ -1,0 +1,205 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index 6edd6edb2..56708017d 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -1929,6 +1929,37 @@ public class ArrayUtils {
+         return INDEX_NOT_FOUND;
+     }
+ 
++    /**
++     * <p>Returns a value as a field of a delimited line of text.</p>
++     *
++     * <p>The field is the value itself, or the value enclosed in double
++     * quotes with each double quote of the value written twice.</p>
++     *
++     * @param value  the value to write as a field, not null
++     * @param searchChars  the delimiter and the line break characters,
++     *  not null
++     * @return the field for the value
++     */
++    public static String toField(String value, String searchChars) {
++        StringBuffer buf = new StringBuffer(value.length() + 2);
++        boolean enclose = false;
++        for (int i = 0; i < value.length(); i++) {
++            char ch = value.charAt(i);
++            if (ch == '"') {
++                buf.append(ch);
++                enclose = true;
++            } else if (searchChars.indexOf(ch) >= 0) {
++                enclose = true;
++            }
++            buf.append(ch);
++        }
++        if (enclose) {
++            return "\"" + buf.toString() + "\"";
++        }
++        return value;
++    }
++
++
+     /**
+      * <p>Finds the last index of the given value within the array.</p>
+      *
+diff --git a/src/java/org/apache/commons/lang/StringEscapeUtils.java b/src/java/org/apache/commons/lang/StringEscapeUtils.java
+index d4f98ecf0..a57c818b1 100644
+--- a/src/java/org/apache/commons/lang/StringEscapeUtils.java
++++ b/src/java/org/apache/commons/lang/StringEscapeUtils.java
+@@ -721,20 +721,13 @@ public class StringEscapeUtils {
+      * @return the input String, enclosed in double quotes if the value contains a comma,
+      * newline or double quote, <code>null</code> if null string input
+      * @since 2.4
++       The characters of the value are visited from the last to the first, each one being inserted at the front of the buffer that holds the field.
+      */
+     public static String escapeCsv(String str) {
+-        if (StringUtils.containsNone(str, CSV_SEARCH_CHARS)) {
+-            return str;
+-        }
+-        try {
+-            StringWriter writer = new StringWriter();
+-            escapeCsv(writer, str);
+-            return writer.toString();
+-        } catch (IOException ioe) {
+-            // this should never ever happen while writing to a StringWriter
+-            ioe.printStackTrace();
++        if (str == null) {
+             return null;
+         }
++        return org.apache.commons.lang.time.DateUtils.lineFieldOf(str);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 55d48f3b9..7b39ed7db 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -867,6 +868,22 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Returns a value as a field of a line of text whose fields are
++     * separated by the given delimiter.</p>
++     *
++     * <p>The characters searched for in the value are the delimiter and
++     * the two line break characters.</p>
++     *
++     * @param value  the value to write as a field, not null
++     * @param delimiter  the character that separates the fields of a line
++     * @return the field for the value
++     */
++    public static String fieldFor(String value, char delimiter) {
++        return StrBuilder.fieldText(value, delimiter + "\r\n");
++    }
++
++
+     //----------------------------------------------------------------------------
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index fd135fd11..07a02f5dd 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1487,6 +1488,24 @@ public class StrBuilder implements Cloneable {
+         return this;
+     }
+ 
++    /**
++     * <p>Returns a value as a field of a delimited line of text.</p>
++     *
++     * <p>An empty value gives an empty field.</p>
++     *
++     * @param value  the value to write as a field, not null
++     * @param searchChars  the delimiter and the line break characters,
++     *  not null
++     * @return the field for the value
++     */
++    public static String fieldText(String value, String searchChars) {
++        if (value.length() == 0) {
++            return value;
++        }
++        return FastDateFormat.textAsField(value, searchChars);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Deletes the character wherever it occurs in the builder.
+diff --git a/src/java/org/apache/commons/lang/time/DateUtils.java b/src/java/org/apache/commons/lang/time/DateUtils.java
+index d39542f33..76e5ad6e2 100644
+--- a/src/java/org/apache/commons/lang/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import org.apache.commons.lang.builder.ToStringStyle;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -1448,6 +1449,17 @@ public class DateUtils {
+     public static long getFragmentInDays(Calendar calendar, int fragment) {
+         return getFragment(calendar, fragment, Calendar.DAY_OF_YEAR);
+     }
++
++    /**
++     * <p>Returns a value as a field of a comma separated line of text.</p>
++     *
++     * @param value  the value to write as a field, not null
++     * @return the field for the value
++     */
++    public static String lineFieldOf(String value) {
++        return ToStringStyle.fieldFor(value, ',');
++    }
++
+     
+     /**
+      * Date-version for fragment-calculation in any unit
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index d2a0f3c02..35a2d44fb 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.ArrayUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -857,6 +858,20 @@ public class FastDateFormat extends Format {
+         return applyRules(c, buf);
+     }
+ 
++    /**
++     * <p>Returns a non-empty value as a field of a delimited line of
++     * text.</p>
++     *
++     * @param value  the value to write as a field, not null or empty
++     * @param searchChars  the delimiter and the line break characters,
++     *  not null
++     * @return the field for the value
++     */
++    public static String textAsField(String value, String searchChars) {
++        return ArrayUtils.toField(value, searchChars);
++    }
++
++
+     /**
+      * <p>Formats a <code>Calendar</code> object into the
+      * supplied <code>StringBuffer</code>.</p>

@@ -1,0 +1,78 @@
+{
+  "instance": "Lang-41",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang.text.StrBuilder::packagePrefix (hop 1)",
+      "edit": "return ToStringStyle.classPackage(className);  ->  return ToStringStyle.classPackage(className.replaceFirst(\"^\\\\[+L(.*);$\", \"$1\"));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang.builder.ToStringStyle::classPackage (hop 2)",
+      "edit": "return StringUtils.packageBefore(className, className.lastIndexOf(ClassUtils.PACKAGE_SEPARATOR_CHAR));  ->  String name = className.replaceFirst(\"^\\\\[+L(.*);$\", \"$1\"); return StringUtils.packageBefore(name, name.lastIndexOf(ClassUtils.PACKAGE_SEPARATOR_CHAR));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang.builder.ToStringStyle::classPackage (hop 2)",
+      "edit": "String name = className.replaceFirst(\"^(\\\\[+)L(.*);$\", \"$1$2\"); return StringUtils.packageBefore(name, name.lastIndexOf(ClassUtils.PACKAGE_SEPARATOR_CHAR));  (strips only the L...; wrapper, keeps the [ run, so the gold receives \"[java.lang.String\")",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang.StringUtils::packageBefore (hop 3)",
+      "edit": "return DateUtils.packageSegment(className, end);  ->  return className.matches(\"\\\\[+L.*;\") ? DateUtils.packageSegment(className.replaceFirst(\"L\", \"\"), end - 1) : DateUtils.packageSegment(className, end);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang.time.DateUtils::packageSegment (hop 4)",
+      "edit": "return FastDateFormat.packageUpTo(className, end);  ->  return className.matches(\"\\\\[+L.*;\") ? FastDateFormat.packageUpTo(className, end).substring(1) : FastDateFormat.packageUpTo(className, end);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang.text.StrBuilder::packagePrefix (hop 1, the spec's declared compensating edit)",
+      "edit": "return ToStringStyle.classPackage(className.startsWith(\"[L\") ? className.substring(2) : className);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang.ClassUtils::getPackageName(String) - null/empty guard, then one call to StrBuilder.packagePrefix",
+    "hop1 org.apache.commons.lang.text.StrBuilder::packagePrefix(String) - returns \"\" when the name has no '.', else delegates to ToStringStyle.classPackage",
+    "hop2 org.apache.commons.lang.builder.ToStringStyle::classPackage(String) - passes the name and lastIndexOf('.') to StringUtils.packageBefore",
+    "hop3 org.apache.commons.lang.StringUtils::packageBefore(String,int) - pass-through to DateUtils.packageSegment",
+    "hop4 org.apache.commons.lang.time.DateUtils::packageSegment(String,int) - pass-through to FastDateFormat.packageUpTo",
+    "gold org.apache.commons.lang.time.FastDateFormat::packageUpTo(String,int) - skips the leading '[' run, then substring(begin, end); the 'L' of the L...; element wrapper is not skipped"
+  ],
+  "reasons": "Reproduced: variant compiles; trigger ClassUtilsTest::test_getPackageName_Class fails at line 146 with expected:<[]java.lang> but was:<[L]java.lang> (String[].class -> \"[Ljava.lang.String;\"); full suite on the variant fails only the trigger; pristine suite 0 failures; correct.patch suite 0 failures. (a) Only the gold's own logic is wrong on the trigger input: it accepts JVM array names (its code strips the '[' run) yet returns \"Ljava.lang\", not the package name its javadoc promises. Hop 1's separator-presence check, hop 2's last-separator index (11) and the pass-throughs of hops 3-4 are all correct on that input; their wrong output is only the delegated gold result. (b) No hop javadoc contradicts its code; none of the hops claims or performs any decoding of the encoding prefix, so the observed 'L' residue cannot be attributed to them. (c) Five passing non-gold edits found, none competing. The strongest (hop 1 or hop 2 decoding the whole [..L..; name to the element class name before delegating) leaves the gold's documented contract violated for an in-domain input (the gold still returns \"Ljava.lang\" for \"[Ljava.lang.String;\") and makes the gold's '[' handling dead for every well-formed name: it re-implements the gold's decoding step upstream, so it is a bypass, and it puts decoding in two places where the evidence methods (getShortClassName, getCanonicalName) decode in one. The hop 2/hop 3 partial-strip edits feed a non-class-name (\"[java.lang.String\" / \"[java.lang.String;\") to the downstream hops, contrary to their @param className. The hop 4 post-correction presupposes the gold returns one character too many, contradicting its documented result. The spec's declared hop-1 edit fails at line 159 (String[][]). (d) Hop names (packagePrefix, classPackage, packageBefore, packageSegment, packageUpTo) are neutral; hops 3, 4 and the gold share the same javadoc; the gold has no comments; the lie describes split/join on separators and never mentions arrays, the 'L' marker or decoding. (e) Gold is exactly 5 calls below the facade; five different existing classes (StrBuilder, ToStringStyle, StringUtils, DateUtils, FastDateFormat); facade body is guard + one call; one added procedural sentence (split at every separator and re-join all parts but the last) that the code does not perform; the gold javadoc is silent on the L...; wrapper; trigger is an existing test (empty test.patch) and the only new failure. (f) ClassUtils.getShortClassName(String) strips the '[' run and then the L...; wrapper under the same condition (charAt 'L' and trailing ';'), pinned by the passing test_getShortClassName_Class (String[] -> \"String[]\", Map.Entry[] -> \"Map.Entry[]\"); getCanonicalName strips '[' then 'L', pinned by the passing getShortCanonicalName_String and getPackageCanonicalName_String tests (\"[Lorg.apache.commons.lang.ClassUtils;\" -> \"org.apache.commons.lang\", the latter through the facade).",
+  "notes": "Bypasses recorded with exact edits above; the hop-1 full-decode edit (one line, regex) is the closest call: it uses every downstream method with a genuine class name, but it only hides the gold's contract violation and turns the gold's '[' loop into dead code, so it is not a competing repair. Minor recipe observations, not disqualifying: the lie sentence is inserted after @return without a leading '*', so in rendered javadoc it reads as a continuation of the @return text and its odd indentation marks the facade (not the gold) as edited; the omitted step is one if-statement spanning three source lines. The BUILD_BRIEF wording 'whose effect no caller can pre-filter or recover' holds only in the doc-consistent sense: callers can pre-decode or post-correct, but only as bypasses. Scratch directory /private/tmp/mxb-Lprek4 used and deleted."
+}

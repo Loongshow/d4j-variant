@@ -1,0 +1,214 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index 7f1451faf..276d04c64 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -24,6 +24,8 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import org.apache.commons.lang.math.Fraction;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -3889,6 +3891,18 @@ public class ArrayUtils {
+     public static boolean[] remove(boolean[] array, int index) {
+         return (boolean[]) remove((Object) array, index);
+     }
++
++    /**
++     * <p>Gets a fraction raised to a positive power.</p>
++     *
++     * @param fraction  the fraction to raise, not null
++     * @param power  the power to raise the fraction to, positive
++     * @return the fraction raised to the power
++     */
++    public static Fraction powerOfFraction(Fraction fraction, int power) {
++        return StrBuilder.raiseFraction(fraction, power);
++    }
++
+     
+     /**
+      * <p>Removes the first occurrence of the specified element from the
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index ab1422d2b..5f7d10fd8 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -20,6 +20,7 @@ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Iterator;
+ import java.util.List;
++import org.apache.commons.lang.math.Fraction;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -592,6 +593,30 @@ public class StringUtils {
+         return stripAll(strs, null);
+     }
+ 
++    /**
++     * <p>Gets a fraction raised to a power other than zero.</p>
++     *
++     * <p>A negative power raises the reciprocal of the fraction to the
++     * magnitude of the power. The magnitude of <code>Integer.MIN_VALUE</code>
++     * does not fit in an <code>int</code>, so for that power the square of
++     * the reciprocal is raised to half the magnitude.</p>
++     *
++     * @param fraction  the fraction to raise, not null
++     * @param power  the power to raise the fraction to, not zero
++     * @return the fraction raised to the power
++     */
++    public static Fraction fractionPower(Fraction fraction, int power) {
++        if (power > 0) {
++            return ArrayUtils.powerOfFraction(fraction, power);
++        }
++        Fraction reciprocal = fraction.invert();
++        if (power == Integer.MIN_VALUE) {
++            return ArrayUtils.powerOfFraction(reciprocal.multiplyBy(reciprocal), -(power / 2));
++        }
++        return ArrayUtils.powerOfFraction(reciprocal, -power);
++    }
++
++
+     /**
+      * <p>Strips any of a set of characters from the start and end of every
+      * String in an array.</p>
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 55d48f3b9..a3b4b528c 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,8 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.StringUtils;
++import org.apache.commons.lang.math.Fraction;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -717,6 +719,24 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets a fraction raised to the passed in power.</p>
++     *
++     * <p>A power of zero gives <code>Fraction.ONE</code>, even if the
++     * fraction equals <code>Fraction.ZERO</code>.</p>
++     *
++     * @param fraction  the fraction to raise, not null
++     * @param power  the power to raise the fraction to
++     * @return the fraction raised to the power
++     */
++    public static Fraction fractionToPower(Fraction fraction, int power) {
++        if (power == 0) {
++            return Fraction.ONE;
++        }
++        return StringUtils.fractionPower(fraction, power);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>byte</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang/math/Fraction.java b/src/java/org/apache/commons/lang/math/Fraction.java
+index 334768976..466c73b94 100644
+--- a/src/java/org/apache/commons/lang/math/Fraction.java
++++ b/src/java/org/apache/commons/lang/math/Fraction.java
+@@ -538,25 +538,10 @@ public final class Fraction extends Number implements Comparable {
+      * raised to the appropriate power
+      * @throws ArithmeticException if the resulting numerator or denominator exceeds
+      *  <code>Integer.MAX_VALUE</code>
++       The numerator and the denominator are each raised to the power on their own, and the two results are then divided by their greatest common divisor.
+      */
+     public Fraction pow(int power) {
+-        if (power == 1) {
+-            return this;
+-        } else if (power == 0) {
+-            return ONE;
+-        } else if (power < 0) {
+-            if (power==Integer.MIN_VALUE) { // MIN_VALUE can't be negated.
+-                return this.invert().pow(2).pow(-(power/2));
+-            }
+-            return this.invert().pow(-power);
+-        } else {
+-            Fraction f = this.multiplyBy(this);
+-            if ((power % 2) == 0) { // if even...
+-                return f.pow(power/2);
+-            } else { // if odd...
+-                return f.pow(power/2).multiplyBy(this);
+-            }
+-        }
++        return org.apache.commons.lang.builder.ToStringStyle.fractionToPower(this, power);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 13281cefe..356760fb6 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,8 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.math.Fraction;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -834,6 +836,18 @@ public class StrBuilder implements Cloneable {
+         return append(chars).appendNewLine();
+     }
+ 
++    /**
++     * <p>Gets a fraction raised to a positive power.</p>
++     *
++     * @param fraction  the fraction to raise, not null
++     * @param power  the power to raise the fraction to, positive
++     * @return the fraction raised to the power
++     */
++    public static Fraction raiseFraction(Fraction fraction, int power) {
++        return FastDateFormat.raisedFraction(fraction, power);
++    }
++
++
+     /**
+      * Appends a char array followed by a new line to the string builder.
+      * Appending null will call {@link #appendNull()}.
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index d2a0f3c02..42699b91d 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.math.Fraction;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -857,6 +858,24 @@ public class FastDateFormat extends Format {
+         return applyRules(c, buf);
+     }
+ 
++    /**
++     * <p>Gets a fraction raised to a positive power.</p>
++     *
++     * @param fraction  the fraction to raise, not null
++     * @param power  the power to raise the fraction to, positive
++     * @return the fraction raised to the power
++     */
++    public static Fraction raisedFraction(Fraction fraction, int power) {
++        Fraction result = fraction;
++        for (int bit = Integer.highestOneBit(power) >>> 1; bit != 0; bit >>>= 1) {
++            if ((power & bit) != 0) {
++                result = result.multiplyBy(fraction);
++            }
++        }
++        return result;
++    }
++
++
+     /**
+      * <p>Formats a <code>Calendar</code> object into the
+      * supplied <code>StringBuffer</code>.</p>

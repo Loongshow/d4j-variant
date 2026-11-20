@@ -1,0 +1,222 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 94eb14d5a..0fed80149 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -23,6 +23,9 @@ import java.util.Map;
+ import org.apache.commons.lang3.builder.EqualsBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
++import java.util.Calendar;
++import org.apache.commons.lang3.text.StrBuilder;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -1802,6 +1805,32 @@ public class ArrayUtils {
+         return INDEX_NOT_FOUND;
+     }
+ 
++    /**
++     * <p>Moves a calendar forward to the start of the next unit of a field,
++     * using the levels of the calendar fields.</p>
++     *
++     * <p>The levels run from the millisecond up to the era. Each row holds the
++     * field that is set at one level, followed by the other fields handled at
++     * that level. The calendar and the field are handed on unchanged with
++     * these levels.</p>
++     *
++     * @param val  the calendar to move, not null
++     * @param field  the field to move to the next unit of
++     */
++    public static void nextUnitByLevels(Calendar val, int field) {
++        StrBuilder.advanceUnit(val, field, new int[][] {
++            {Calendar.MILLISECOND},
++            {Calendar.SECOND},
++            {Calendar.MINUTE},
++            {Calendar.HOUR, Calendar.HOUR_OF_DAY},
++            {Calendar.AM_PM},
++            {Calendar.DATE, Calendar.DAY_OF_MONTH, DateUtils.SEMI_MONTH},
++            {Calendar.MONTH},
++            {Calendar.YEAR},
++            {Calendar.ERA}});
++    }
++
++
+     /**
+      * <p>Checks if the value is in the given array.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 2398ecd1b..f68a88254 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -23,6 +23,9 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import java.util.Calendar;
++import java.util.Date;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -3838,6 +3841,26 @@ public class StringUtils {
+         return replace(text, searchString, replacement, -1);
+     }
+ 
++    /**
++     * <p>Returns the start of the next unit of a field after a date, as a
++     * new Date.</p>
++     *
++     * <p>The date is copied into a Calendar of the default time zone and
++     * locale, the Calendar is moved with the same field, and the time of the
++     * moved Calendar is returned. The date itself is not changed.</p>
++     *
++     * @param date  the date to work with, not null
++     * @param field  the field from <code>Calendar</code> or <code>SEMI_MONTH</code>
++     * @return the start of the next unit, a new Date
++     */
++    public static Date nextUnitStart(Date date, int field) {
++        Calendar gval = Calendar.getInstance();
++        gval.setTime(date);
++        ToStringStyle.moveToNextUnit(gval, field);
++        return gval.getTime();
++    }
++
++
+     /**
+      * <p>Replaces a String with another String inside a larger String,
+      * for the first <code>max</code> values of the search String.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 6df1e6d68..21b984697 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,8 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Calendar;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -437,6 +439,28 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Moves a calendar forward to the start of the next unit of a field.</p>
++     *
++     * <p>A calendar in a year over 280 million is refused. The millisecond is
++     * the finest field, so a <code>MILLISECOND</code> field leaves the
++     * calendar as it is; for any other field the calendar and the field are
++     * handed on unchanged.</p>
++     *
++     * @param val  the calendar to move, not null
++     * @param field  the field to move to the next unit of
++     * @throws ArithmeticException if the year is over 280 million
++     */
++    public static void moveToNextUnit(Calendar val, int field) {
++        if (val.get(Calendar.YEAR) > 280000000) {
++            throw new ArithmeticException("Calendar value too large for accurate calculations");
++        }
++        if (field != Calendar.MILLISECOND) {
++            ArrayUtils.nextUnitByLevels(val, field);
++        }
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> an <code>Object</code>,
+      * correctly interpreting its type.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 6f2be0069..54a7f3853 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,8 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Calendar;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -778,6 +780,21 @@ public class StrBuilder implements CharSequence, Appendable {
+         return append(obj).appendNewLine();
+     }
+ 
++    /**
++     * <p>Moves a calendar forward to the start of the next unit of a field,
++     * given the levels of the calendar fields.</p>
++     *
++     * <p>The calendar, the field and the levels are handed on unchanged.</p>
++     *
++     * @param val  the calendar to move, not null
++     * @param field  the field to move to the next unit of
++     * @param levels  the calendar fields from the finest to the coarsest
++     */
++    public static void advanceUnit(Calendar val, int field, int[][] levels) {
++        FastDateFormat.stepUp(val, field, levels);
++    }
++
++
+     /**
+      * Appends a string followed by a new line to this string builder.
+      * Appending null will call {@link #appendNull()}.
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index 52a443633..e44a20428 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -858,15 +858,13 @@ public class DateUtils {
+      * @throws IllegalArgumentException if the date is <code>null</code>
+      * @throws ArithmeticException if the year is over 280 million
+      * @since 2.5
++       The date is first turned into a count of milliseconds from the epoch, which is divided by the length of one unit of the field, rounded up to a whole number of units and multiplied back to give the new date.
+      */
+     public static Date ceiling(Date date, int field) {
+         if (date == null) {
+             throw new IllegalArgumentException("The date must not be null");
+         }
+-        Calendar gval = Calendar.getInstance();
+-        gval.setTime(date);
+-        modify(gval, field, MODIFY_CEILING);
+-        return gval.getTime();
++        return org.apache.commons.lang3.StringUtils.nextUnitStart(date, field);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index 95925fc99..8287adebc 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -945,6 +945,30 @@ public class FastDateFormat extends Format {
+         return mTimeZoneForced;
+     }
+ 
++    /**
++     * <p>Moves a calendar forward to the start of the next unit of a field.</p>
++     *
++     * @param val  the calendar to move, not null
++     * @param field  the field to move to the next unit of
++     * @param levels  the calendar fields from the finest to the coarsest, each
++     *  row holding the field set at one level and the fields handled at it
++     * @throws IllegalArgumentException if no row holds the field
++     */
++    public static void stepUp(Calendar val, int field, int[][] levels) {
++        for (int i = 0; i < levels.length; i++) {
++            final int unit = levels[i][0];
++            for (int j = 0; j < levels[i].length; j++) {
++                if (levels[i][j] == field) {
++                    val.add(unit, 1);
++                    return;
++                }
++            }
++            val.set(unit, val.getActualMinimum(unit));
++        }
++        throw new IllegalArgumentException("The field " + field + " is not supported");
++    }
++
++
+     /**
+      * <p>Gets the locale used by this formatter.</p>
+      * 

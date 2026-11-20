@@ -1,0 +1,211 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index cc5db1ca..687d65b4 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -574,6 +574,26 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return mode;
+     }
+ 
++    /**
++     * Writes a number into a header field in binary form.
++     *
++     * <p>The first byte of the field marks the binary form and the sign
++     * of the number, the remaining bytes hold the number, most
++     * significant byte first.</p>
++     *
++     * @param value the number to write
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     */
++    public static void encodeBinaryNumber(final long value, final byte[] buf, final int offset, final int length) {
++        for (int i = offset + length - 1, bits = 0; i > offset; i--, bits += 8) {
++            buf[i] = (byte) (value >> bits);
++        }
++        buf[offset] = (byte) (value < 0 ? 0xff : 0x80);
++    }
++
++
+     /**
+      * Get this entry's file size.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 1782ffe6..10d98e48 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -466,25 +466,11 @@ public class TarUtils {
+      * @throws IllegalArgumentException if the value (and trailer)
+      * will not fit in the buffer.
+      * @since 1.4
++       The octal digits are taken from {@link Long#toOctalString(long)} and copied into the end of the field after the leading zeros have been written.
+      */
+     public static int formatLongOctalOrBinaryBytes(
+         final long value, byte[] buf, final int offset, final int length) {
+-
+-        // Check whether we are dealing with UID/GID or SIZE field
+-        final long maxAsOctalChar = length == TarConstants.UIDLEN ? TarConstants.MAXID : TarConstants.MAXSIZE;
+-
+-        final boolean negative = value < 0;
+-        if (!negative && value <= maxAsOctalChar) { // OK to store as octal chars
+-            return formatLongOctalBytes(value, buf, offset, length);
+-        }
+-
+-        if (length < 9) {
+-            formatLongBinary(value, buf, offset, length, negative);
+-        }
+-        formatBigIntegerBinary(value, buf, offset, length, negative);
+-
+-        buf[offset] = (byte) (negative ? 0xff : 0x80);
+-        return offset + length;
++        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.putHeaderNumber(value, buf, offset, length);
+     }
+ 
+     private static void formatLongBinary(final long value, byte[] buf,
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index a5b9e4d1..96a56e6d 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -39,6 +39,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.DWORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Implements an input stream that can read Zip archives.
+@@ -289,6 +290,22 @@ public class ZipArchiveInputStream extends ArchiveInputStream {
+         return current.entry;
+     }
+ 
++    /**
++     * Writes a number into a tar header field in binary form and
++     * returns the offset after the field.
++     *
++     * @param value the number to write
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the offset after the field
++     */
++    public static int storeBinaryNumber(final long value, final byte[] buf, final int offset, final int length) {
++        TarArchiveEntry.encodeBinaryNumber(value, buf, offset, length);
++        return offset + length;
++    }
++
++
+     /**
+      * Fills the given array with the first local file header and
+      * deals with splitting/spanning markers that may prefix the first
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index 20985faa..e0e785fc 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -43,6 +43,9 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
++import org.apache.commons.compress.archivers.tar.TarConstants;
++import org.apache.commons.compress.archivers.tar.TarUtils;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -346,6 +349,30 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         fallbackToUTF8 = b;
+     }
+ 
++    /**
++     * Writes a number into a tar header field, as an octal string if
++     * the number fits, or in binary form otherwise.
++     *
++     * <p>A field of {@link TarConstants#UIDLEN} bytes (user and group
++     * ids) holds octal numbers up to {@link TarConstants#MAXID}, any
++     * other field octal numbers up to {@link TarConstants#MAXSIZE}.
++     * A negative number always takes the binary form.</p>
++     *
++     * @param value the number to write
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the offset after the field
++     */
++    public static int putHeaderNumber(final long value, final byte[] buf, final int offset, final int length) {
++        final long octalLimit = length == TarConstants.UIDLEN ? TarConstants.MAXID : TarConstants.MAXSIZE;
++        if (value >= 0 && value <= octalLimit) {
++            return TarUtils.formatLongOctalBytes(value, buf, offset, length);
++        }
++        return BZip2CompressorOutputStream.putBinaryNumber(value, buf, offset, length);
++    }
++
++
+     /**
+      * Whether Zip64 extensions will be used.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index bcde9c84..95c0e65a 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -192,6 +192,20 @@ public class ZipFile implements Closeable {
+         this(f, encoding, true);
+     }
+ 
++    /**
++     * Writes a number into a tar header field in binary form.
++     *
++     * @param value the number to write
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the offset after the field
++     */
++    public static int writeBinaryNumber(final long value, final byte[] buf, final int offset, final int length) {
++        return ZipArchiveInputStream.storeBinaryNumber(value, buf, offset, length);
++    }
++
++
+     /**
+      * Opens the given file for reading, assuming the specified
+      * encoding for file names.
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index a5eedcf0..efd30fb1 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,7 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -356,6 +357,30 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         this(out, MAX_BLOCKSIZE);
+     }
+ 
++    /**
++     * Writes a number into a tar header field in binary form.
++     *
++     * <p>In a field shorter than nine bytes, {@link Math#abs(long)} of
++     * the number must fit into the bytes after the first one.</p>
++     *
++     * @param value the number to write
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the offset after the field
++     * @throws IllegalArgumentException if the field is shorter than nine
++     * bytes and {@link Math#abs(long)} of the number does not fit into
++     * its bytes after the first one
++     */
++    public static int putBinaryNumber(final long value, final byte[] buf, final int offset, final int length) {
++        if (length < 9 && Math.abs(value) >= 1L << 8 * (length - 1)) {
++            throw new IllegalArgumentException("Value " + value
++                + " is too large for " + length + " byte field.");
++        }
++        return ZipFile.writeBinaryNumber(value, buf, offset, length);
++    }
++
++
+     /**
+      * Constructs a new <tt>BZip2CompressorOutputStream</tt> with specified blocksize.
+      *

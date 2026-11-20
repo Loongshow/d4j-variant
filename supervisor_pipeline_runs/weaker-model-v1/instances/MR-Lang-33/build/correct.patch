@@ -1,0 +1,219 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 7f9cae540..1881d590d 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -23,6 +23,7 @@ import java.util.Map;
+ import org.apache.commons.lang3.builder.EqualsBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
++import java.util.Set;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -1849,6 +1850,24 @@ public class ArrayUtils {
+         return indexOf(array, valueToFind, 0);
+     }
+ 
++    /**
++     * <p>Adds the interfaces implemented by each of the given types to a
++     * set, in the order of the types.</p>
++     *
++     * @param types  the types to look up, not null
++     * @param found  the set of interfaces to add to, not null
++     */
++    public static void addInterfaces(Class<?>[] types, Set<Class<?>> found) {
++        for (Class<?> type : types) {
++            for (Class<?> iface : type.getInterfaces()) {
++                if (found.add(iface)) {
++                    addInterfaces(new Class<?>[] {iface}, found);
++                }
++            }
++        }
++    }
++
++
+     /**
+      * <p>Finds the index of the given value in the array starting at the given index.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/ClassUtils.java b/src/main/java/org/apache/commons/lang3/ClassUtils.java
+index 3998966a7..1dac49081 100644
+--- a/src/main/java/org/apache/commons/lang3/ClassUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ClassUtils.java
+@@ -309,38 +309,15 @@ public class ClassUtils {
+      * @param cls  the class to look up, may be <code>null</code>
+      * @return the <code>List</code> of interfaces in order,
+      *  <code>null</code> if null input
++       The interfaces are kept in an array that doubles in size whenever it is full, and each interface met is looked for in that array by a linear search before it is added.
+      */
+     public static List<Class<?>> getAllInterfaces(Class<?> cls) {
+         if (cls == null) {
+             return null;
+         }
+-
+-        LinkedHashSet<Class<?>> interfacesFound = new LinkedHashSet<Class<?>>();
+-        getAllInterfaces(cls, interfacesFound);
+-
+-        return new ArrayList<Class<?>>(interfacesFound);
++        return org.apache.commons.lang3.builder.ToStringStyle.interfacesOf(cls);
+     }
+ 
+-    /**
+-     * Get the interfaces for the specified class.
+-     *
+-     * @param cls  the class to look up, may be <code>null</code>
+-     * @param interfacesFound the <code>Set</code> of interfaces for the class
+-     */
+-    private static void getAllInterfaces(Class<?> cls, HashSet<Class<?>> interfacesFound) {
+-        while (cls != null) {
+-            Class<?>[] interfaces = cls.getInterfaces();
+-
+-            for (Class<?> i : interfaces) {
+-                if (interfacesFound.add(i)) {
+-                    getAllInterfaces(i, interfacesFound);
+-                }
+-            }
+-
+-            cls = cls.getSuperclass();
+-         }
+-     }
+-
+     // Convert list
+     // ----------------------------------------------------------------------
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 07563fe85..9ea3f4b82 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -22,6 +22,8 @@ import java.util.List;
+ import java.util.Locale;
+ 
+ import org.apache.commons.lang3.text.WordUtils;
++import java.util.Set;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -2130,6 +2132,18 @@ public class StringUtils {
+         return str.substring(0, pos);
+     }
+ 
++    /**
++     * <p>Adds the interfaces implemented by each of the types in a list to a
++     * set, in the order of the list.</p>
++     *
++     * @param types  the types to look up, not null
++     * @param found  the set of interfaces to add to, not null
++     */
++    public static void interfacesOfTypes(List<Class<?>> types, Set<Class<?>> found) {
++        FastDateFormat.typeInterfaces(types.toArray(new Class<?>[types.size()]), found);
++    }
++
++
+     /**
+      * <p>Gets the substring after the last occurrence of a separator.
+      * The separator is not returned.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 06cb55b8a..7db48e982 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,11 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.ArrayList;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Set;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -874,6 +879,21 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets a <code>List</code> of the interfaces implemented by a class
++     * and its superclasses.</p>
++     *
++     * @param cls  the class to look up, not null
++     * @return the <code>List</code> of interfaces in order, each interface
++     *  listed once
++     */
++    public static List<Class<?>> interfacesOf(Class<?> cls) {
++        Set<Class<?>> found = new LinkedHashSet<Class<?>>();
++        StrBuilder.gatherInterfaces(cls, found);
++        return new ArrayList<Class<?>>(found);
++    }
++
++
+     //----------------------------------------------------------------------------
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index a9ee8c7dd..76571c2d3 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,9 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Set;
++import org.apache.commons.lang3.ClassUtils;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -904,6 +907,20 @@ public class StrBuilder implements CharSequence, Appendable {
+         return append(ch).appendNewLine();
+     }
+ 
++    /**
++     * <p>Adds the interfaces implemented by a class and its superclasses to
++     * a set, starting with the class itself.</p>
++     *
++     * @param cls  the class to look up, not null
++     * @param found  the set of interfaces to add to, not null
++     */
++    public static void gatherInterfaces(Class<?> cls, Set<Class<?>> found) {
++        List<Class<?>> types = ClassUtils.getAllSuperclasses(cls);
++        types.add(0, cls);
++        StringUtils.interfacesOfTypes(types, found);
++    }
++
++
+     /**
+      * Appends an int value followed by a new line to the string builder using <code>String.valueOf</code>.
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index e30da2a56..556c0cbe4 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,8 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import java.util.Set;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -406,6 +408,18 @@ public class FastDateFormat extends Format {
+             int dateStyle, int timeStyle) {
+         return getDateTimeInstance(dateStyle, timeStyle, null, null);
+     }
++
++    /**
++     * <p>Adds the interfaces implemented by each of the given types to a
++     * set, in the order of the types.</p>
++     *
++     * @param types  the types to look up, not null
++     * @param found  the set of interfaces to add to, not null
++     */
++    public static void typeInterfaces(Class<?>[] types, Set<Class<?>> found) {
++        ArrayUtils.addInterfaces(types, found);
++    }
++
+     
+     /**
+      * <p>Gets a date/time formatter instance using the specified style and

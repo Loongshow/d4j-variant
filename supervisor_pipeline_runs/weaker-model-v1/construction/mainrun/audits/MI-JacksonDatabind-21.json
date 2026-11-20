@@ -1,0 +1,30 @@
+{
+ "instance": "JacksonDatabind-21__i",
+ "iid": "MI-JacksonDatabind-21",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "TokenBuffer.enumPropertyName (hop 4)", "edit": "replace `return BasicDeserializerFactory.findExplicitEnumName(value);` with a direct lookup: ClassUtil.findEnumType(value).getField(value.name()).getAnnotation(JsonProperty.class), returning its non-empty value or null", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": "not run (bypass)", "doc_consistent": true, "class": "bypass"},
+  {"method": "BeanDeserializerBase.enumValueName (hop 1)", "edit": "fallback value.toString() instead of value.name() (spec compensating edit; validation G9)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"},
+  {"method": "ObjectMapper.explicitNameFor (hop 2)", "edit": "pass value.getDeclaringClass().getEnumConstants()[value.ordinal()] (spec compensating edit; G9)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": true, "class": "fails"},
+  {"method": "ObjectReader.resolveEnumName (hop 3)", "edit": "pass ClassUtil.findEnumType(value).getEnumConstants()[value.ordinal()] (spec compensating edit; G9)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": true, "class": "fails"}
+ ],
+ "path": [
+  "facade JacksonAnnotationIntrospector.findEnumValue(Enum<?>) [instance, @Override, no guard; V0/V1 with no state: one call to hop 1]",
+  "hop1 BeanDeserializerBase.enumValueName(Enum<?>) [explicit name or name()]",
+  "hop2 ObjectMapper.explicitNameFor(Enum<?>) [pass-through]",
+  "hop3 ObjectReader.resolveEnumName(Enum<?>) [pass-through]",
+  "hop4 TokenBuffer.enumPropertyName(Enum<?>) [pass-through]",
+  "gold BasicDeserializerFactory.findExplicitEnumName(Enum<?>) [omits the getSuperclass() step for enum constants with a body, so getDeclaredField on the anonymous subclass throws NoSuchFieldException and null is returned]"
+ ],
+ "reasons": "Variant applied to a scratch copy of the pristine fixture compiles; the trigger TestEnumDeserialization::testEnumWithJsonPropertyRename fails (expected [\"b\",\"a\"], got [\"B\",\"a\"]) and the three ownership tests pass. (a) Only the gold inspects the class, fields and @JsonProperty; its javadoc promises the explicit name the annotation gives, which is \"b\" for EnumWithPropertyAnno.B, and it returns null. Hops 1-4 only repeat that result by delegation; their own code does what their docs say. (b) Every hop's javadoc matches its code, and none is loose enough to own the fault. Hop 1 correctly falls back to name() when it is told there is no explicit name. (c) Every Enum reference a hop can pass for B is the same anonymous-subclass object, and toString() gives \"bb\", so no edit above the gold that keeps the chain in use fixes the trigger. The only passing non-gold edit re-implements the lookup at hop 4, which is a bypass that makes the gold dead. (d) The added names and docs are neutral. The facade lie (ordinal matched against the declaration order of the annotated constants) is a procedural sentence the code does not perform, and it does not name the superclass step; G2a/G2b pass. (e) The gold is exactly five calls below the facade. The hosts are the five distinct classes of at least 1500 lines, in the seeded draw order (mr_lib preview, seed 2613, matches the spec anchors). The facade is one delegating call with no original guard. The lie is appended to the facade javadoc. The gold javadoc is silent on the superclass step. The trigger is an existing test and the only new failure (G5). test.patch is empty. (f) ClassUtil.findEnumType(Enum<?>) documents and implements the same getSuperclass() != Enum.class convention ('enums with body are sub-classes of the formal type'). EnumValues.constructFromName depends on it, and TestClassUtil::testFindEnumType and the subclassed-enum ser/deser tests pass. (g) C10i rules: no visibility widened, no new type, no test edit, and the facade signature, public modifier, @Override and (empty) throws are unchanged.",
+ "notes": "host_mode 1500 with exactly five other classes of at least 1500 lines, so the draw necessarily uses all five; the order and anchors are confirmed by preview. The gold's getDeclaredField/getAnnotation is reflection, but it carries the original facade's own reflective computation (the original used getClass().getField + getAnnotation). It is not reflection used to get around access, so I do not count it against the not-allowed list. Minor style points, not tells: the lie sentence follows the original javadoc first line, which has no closing period, so the two read as one run-on sentence; the facade calls hop 1 by its fully qualified name instead of adding an import; the java.lang.reflect.Field import in JacksonAnnotationIntrospector may now be unused. Bypass recorded: hop 4 direct ClassUtil.findEnumType(value).getField(...).getAnnotation(JsonProperty.class) lookup passes the trigger and ownership tests but makes the gold dead."
+}

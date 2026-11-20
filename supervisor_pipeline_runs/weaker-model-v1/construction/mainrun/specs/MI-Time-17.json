@@ -1,0 +1,223 @@
+{
+ "bug_id": 17,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "new": "return Period.wallOffsetAt(zone, instant - 1, offset);",
+   "old": "return Period.wallOffsetAt(zone, instant, offset);",
+   "why": "hop 4 passes the instant one millisecond earlier"
+  },
+  {
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "new": "if (offset <= 0) {\n            return offset;\n        }\n        return Period.wallOffsetAt",
+   "old": "if (offset < 0) {\n            return offset;\n        }\n        return Period.wallOffsetAt",
+   "why": "hop 4 also returns a zero offset as it is"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "zone.getOffset(instantAdjusted + 1));",
+   "old": "zone.getOffset(instantAdjusted));",
+   "why": "hop 2 takes the second estimate one millisecond after the adjusted instant"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "new": "        return formatter.parseDateTime(str);\n    }\n\n    /**\n     * Gets the millisecond offset to subtract from local time to get UTC time,\n     * given a UTC instant and the offset of the zone at that instant.\n     * <p>\n     * A negative offset is returned as it is; an offset of zero or more is\n     * passed on with the instant.\n     *\n     * @param zone  the time zone, not null\n     * @param instant  the UTC instant, the local time less the offset\n     * @param offset  the offset of the zone at the instant\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int localOffsetAt(DateTimeZone zone, long instant, int offset) {\n        if (offset < 0) {\n            return offset;\n        }\n        return Period.wallOffsetAt(zone, instant, offset);\n    }\n\n\n    //-----------------------------------------------------------------------",
+   "old": "        return formatter.parseDateTime(str);\n    }\n\n    //-----------------------------------------------------------------------",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/DateTimeZone.java",
+   "new": "       The offset is computed as the standard offset of the zone at the local instant plus the daylight saving amount that applies at the instant this gives.\n     */\n    public int getOffsetFromLocal(long instantLocal) {\n        return org.joda.time.format.DateTimeFormatterBuilder.localOffsetOf(this, instantLocal);",
+   "old": "     */\n    public int getOffsetFromLocal(long instantLocal) {\n        // get the offset at instantLocal (first estimate)\n        final int offsetLocal = getOffset(instantLocal);\n        // adjust instantLocal using the estimate and recalc the offset\n        final long instantAdjusted = instantLocal - offsetLocal;\n        final int offsetAdjusted = getOffset(instantAdjusted);\n        // if the offsets differ, we must be near a DST boundary\n        if (offsetLocal != offsetAdjusted) {\n            // we need to ensure that time is always after the DST gap\n            // this happens naturally for positive offsets, but not for negative\n            if ((offsetLocal - offsetAdjusted) < 0) {\n                // if we just return offsetAdjusted then the time is pushed\n                // back before the transition, whereas it should be\n                // on or after the transition\n                long nextLocal = nextTransition(instantAdjusted);\n                long nextAdjusted = nextTransition(instantLocal - offsetAdjusted);\n                if (nextLocal != nextAdjusted) {\n                    return offsetLocal;\n                }\n            }\n        } else if (offsetLocal >= 0) {\n            long prev = previousTransition(instantAdjusted);\n            if (prev < instantAdjusted) {\n                int offsetPrev = getOffset(prev);\n                int diff = offsetPrev - offsetLocal;\n                if (instantAdjusted - prev <= diff) {\n                    return offsetPrev;\n                }\n            }\n        }\n        return offsetAdjusted;",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "        return new Period(values, PeriodType.forFields(types));\n    }\n\n    /**\n     * Gets the millisecond offset to subtract from local time to get UTC time,\n     * given a UTC instant and the offset of the zone at that instant.\n     * <p>\n     * During an overlap, where a local time occurs twice, the offset of the\n     * earlier of the two instants is returned.\n     *\n     * @param zone  the time zone, not null\n     * @param instant  the UTC instant, the local time less the offset\n     * @param offset  the offset of the zone at the instant\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int wallOffsetAt(DateTimeZone zone, long instant, int offset) {\n        long transition = zone.previousTransition(instant);\n        if (transition < instant) {\n            int offsetBefore = zone.getOffset(transition);\n            transition++;\n            if (instant - transition < offsetBefore - offset) {\n                return offsetBefore;\n            }\n        }\n        return offset;\n    }\n\n\n    //-----------------------------------------------------------------------",
+   "old": "        return new Period(values, PeriodType.forFields(types));\n    }\n\n    //-----------------------------------------------------------------------",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "import org.joda.time.field.PreciseDateTimeField;\nimport org.joda.time.tz.DateTimeZoneBuilder;\n",
+   "old": "import org.joda.time.field.PreciseDateTimeField;\n",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "        return appendFraction(DateTimeFieldType.hourOfDay(), minDigits, maxDigits);\n    }\n\n    /**\n     * Gets the millisecond offset to subtract from local time to get UTC time.\n     * <p>\n     * The first estimate is the offset of the zone at the local instant read\n     * as a UTC instant.\n     *\n     * @param zone  the time zone, not null\n     * @param instantLocal  the millisecond instant, relative to the zone, to get the offset for\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int localOffsetOf(DateTimeZone zone, long instantLocal) {\n        return DateTimeZoneBuilder.wallOffsetFrom(zone, instantLocal, zone.getOffset(instantLocal));\n    }\n\n\n    /**",
+   "old": "        return appendFraction(DateTimeFieldType.hourOfDay(), minDigits, maxDigits);\n    }\n\n    /**",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "import org.joda.time.ReadablePeriod;\nimport org.joda.time.DateTime;\nimport org.joda.time.DateTimeZone;\n",
+   "old": "import org.joda.time.ReadablePeriod;\n",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "        iMaxParsedDigits = maxDigits;\n        return this;\n    }\n\n    /**\n     * Gets the millisecond offset to subtract from local time to get UTC time,\n     * from two estimates of the offset.\n     * <p>\n     * Estimates that differ mean the local instant is near a transition. If\n     * the first estimate is the smaller one and the next transitions after the\n     * instants reached with the two estimates differ, the local instant falls\n     * in a gap and the first estimate is returned, so that the instant is after\n     * the gap; otherwise the second estimate is returned. Estimates that agree\n     * are passed on with the instant reached with them.\n     *\n     * @param zone  the time zone, not null\n     * @param instantLocal  the millisecond instant, relative to the zone\n     * @param offsetLocal  the first estimate, the offset at the local instant read as UTC\n     * @param offsetAdjusted  the second estimate, the offset at the instant reached with the first\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int settleLocalOffset(DateTimeZone zone, long instantLocal, int offsetLocal, int offsetAdjusted) {\n        if (offsetLocal != offsetAdjusted) {\n            if ((offsetLocal - offsetAdjusted) < 0) {\n                long nextLocal = zone.nextTransition(instantLocal - offsetLocal);\n                long nextAdjusted = zone.nextTransition(instantLocal - offsetAdjusted);\n                if (nextLocal != nextAdjusted) {\n                    return offsetLocal;\n                }\n            }\n            return offsetAdjusted;\n        }\n        return DateTime.localOffsetAt(zone, instantLocal - offsetLocal, offsetLocal);\n    }\n\n\n    /**\n     * Reject signed values when parsing the next and following appended fields.",
+   "old": "        iMaxParsedDigits = maxDigits;\n        return this;\n    }\n\n    /**\n     * Reject signed values when parsing the next and following appended fields.",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport org.joda.time.format.PeriodFormatterBuilder;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "        iRuleSets.add(new RuleSet());\n        return this;\n    }\n\n    /**\n     * Gets the millisecond offset to subtract from local time to get UTC time,\n     * starting from a first estimate of the offset.\n     * <p>\n     * The local instant is adjusted by the estimate, and the offset of the\n     * zone at the adjusted instant is the second estimate.\n     *\n     * @param zone  the time zone, not null\n     * @param instantLocal  the millisecond instant, relative to the zone\n     * @param offsetLocal  the first estimate of the offset\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int wallOffsetFrom(DateTimeZone zone, long instantLocal, int offsetLocal) {\n        long instantAdjusted = instantLocal - offsetLocal;\n        return PeriodFormatterBuilder.settleLocalOffset(zone, instantLocal, offsetLocal, zone.getOffset(instantAdjusted));\n    }\n\n\n    /**\n     * Sets the standard offset to use for newly added rules until the next",
+   "old": "        iRuleSets.add(new RuleSet());\n        return this;\n    }\n\n    /**\n     * Sets the standard offset to use for newly added rules until the next",
+   "purpose": "MI-Time-17 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.format.DateTimeFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "method": "localOffsetOf"
+  },
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "wallOffsetFrom"
+  },
+  {
+   "class": "org.joda.time.format.PeriodFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "method": "settleLocalOffset"
+  },
+  {
+   "class": "org.joda.time.DateTime",
+   "file": "src/main/java/org/joda/time/DateTime.java",
+   "method": "localOffsetAt"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-17__i.py",
+ "entry_points": [
+  "org.joda.time.DateTimeZone::getOffsetFromLocal"
+ ],
+ "evidence": [
+  "org.joda.time.DateTimeZone::adjustOffset",
+  "org.joda.time.tz.ZoneInfoCompiler::test",
+  "org.joda.time.tz.DateTimeZoneBuilder.PrecalculatedZone::previousTransition"
+ ],
+ "expected_signature": "expected:<...10-28T02:59:59.999+0[4]:00> but was:<...10-28T02:59:59.999+0[3]:00>",
+ "extra_tests": [],
+ "fixture_key": "Time-17",
+ "gold": {
+  "class": "org.joda.time.Period",
+  "edits": [
+   {
+    "new": "            int offsetBefore = zone.getOffset(transition);\n            if (instant - transition < offsetBefore - offset) {",
+    "old": "            int offsetBefore = zone.getOffset(transition);\n            transition++;\n            if (instant - transition < offsetBefore - offset) {"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/Period.java",
+  "method": "wallOffsetAt"
+ },
+ "group": "MI-Time-17",
+ "hops": 5,
+ "iid": "MI-Time-17",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold sees the zone's previous transition and the offset in force before it; hops 1 and 2 compute the two estimates of the offset, hop 3 decides only when the estimates differ, and hop 4 only by the sign of the offset. For the trigger the estimates agree (+03:00 at 23:59:59.999Z) and the offset is positive, so the result is the gold's alone, and once an offset is returned no caller can tell whether the earlier or the later instant of a repeated local time was meant. The gold's javadoc promises, during an overlap where a local time occurs twice, the offset of the earlier instant; 02:59:59.999 occurs twice in Europe/Moscow on 2007-10-28 (22:59:59.999Z at +04:00 and 23:59:59.999Z at +03:00). The convention is pinned outside the gold: the facade's own javadoc (during a DST overlap the earlier instant); previousTransition of DateTimeZoneBuilder's precalculated and DST zones returns the transition minus one, which ZoneInfoCompiler.test verifies (trans - 1 != millis is reported as an error) and TestBuilder testReverseTransitions asserts (each result is the next transition minus one and carries the earlier offset); DateTimeZone.adjustOffset treats an overlap as the range from the transition instant given by nextTransition to transition + diff, end exclusive; the overlap tests test_getOffsetFromLocal_Moscow_Autumn_overlap_mins, test_DateTime_constructor_Moscow_Autumn and testDateTimeCreation_athens pass.",
+ "ownership_tests": [
+  "org.joda.time.TestDateTimeZoneCutover::test_getOffsetFromLocal_Moscow_Autumn_overlap_mins",
+  "org.joda.time.TestDateTimeZoneCutover::test_DateTime_constructor_Moscow_Autumn",
+  "org.joda.time.TestDateTimeZoneCutover::testDateTimeCreation_athens",
+  "org.joda.time.tz.TestBuilder::testReverseTransitions"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "appendFractionOfHour",
+    "anchor_seed": 8395,
+    "class": "org.joda.time.format.DateTimeFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.joda.time.tz.DateTimeZoneBuilder;"
+    ],
+    "method": "localOffsetOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "addCutover",
+    "anchor_seed": 8396,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.joda.time.format.PeriodFormatterBuilder;"
+    ],
+    "method": "wallOffsetFrom",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "maximumParsedDigits",
+    "anchor_seed": 8397,
+    "class": "org.joda.time.format.PeriodFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.joda.time.DateTime;",
+     "import org.joda.time.DateTimeZone;"
+    ],
+    "method": "settleLocalOffset",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "parse",
+    "anchor_seed": 8398,
+    "class": "org.joda.time.DateTime",
+    "file": "src/main/java/org/joda/time/DateTime.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "localOffsetAt",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "fieldDifference",
+    "anchor_seed": 8399,
+    "class": "org.joda.time.Period",
+    "file": "src/main/java/org/joda/time/Period.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "wallOffsetAt",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8295
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-17"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.TestDateTimeZoneCutover",
+  "test_file": "src/test/java/org/joda/time/TestDateTimeZoneCutover.java",
+  "test_method": "test_getOffsetFromLocal_Moscow_Autumn"
+ },
+ "variant_id": "CTV-0E70C3",
+ "kind": "new",
+ "fault_lines": [
+  "int offsetBefore = zone.getOffset(transition);\n            if (instant - transition < offsetBefore - offset) {"
+ ],
+ "gold_key": "org.joda.time.Period::wallOffsetAt"
+}

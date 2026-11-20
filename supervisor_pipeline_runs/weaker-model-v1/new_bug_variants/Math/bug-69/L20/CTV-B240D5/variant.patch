@@ -1,0 +1,174 @@
+diff --git a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
+index 522ffc79e..5be05401e 100644
+--- a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
++++ b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
+@@ -108,6 +108,27 @@ public class ArrayRealVector extends AbstractRealVector implements Serializable
+         data = copyArray ? d.clone() :  d;
+     }
+ 
++    /**
++     * Computes the standard errors of correlation coefficients.
++     * <p>The entry at index i of the returned array is the standard error of
++     * the coefficient at index i of <code>coefficients</code>, each coefficient
++     * having been estimated with <code>degreesOfFreedom</code> degrees of
++     * freedom.</p>
++     * @param coefficients correlation coefficients
++     * @param degreesOfFreedom number of degrees of freedom of the estimates
++     * @return a new array holding the standard error of each coefficient
++     */
++    public static double[] coefficientStandardErrors(double[] coefficients, int degreesOfFreedom) {
++        double[] errors = new double[coefficients.length];
++        for (int i = 0; i < coefficients.length; ++i) {
++            double r = coefficients[i];
++            double v = 1 - r;
++            errors[i] = Math.sqrt(v / degreesOfFreedom);
++        }
++        return errors;
++    }
++
++
+     /**
+      * Construct a vector from part of a array.
+      * @param d array of doubles.
+diff --git a/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index 9d5d2bfdb..fcab49d78 100644
+--- a/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -1111,6 +1111,18 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+         return out;
+     }
+ 
++    /**
++     * Returns the standard errors of an array of correlation coefficients.
++     *
++     * @param coefficients correlation coefficients
++     * @param degreesOfFreedom number of degrees of freedom of the estimates
++     * @return array of standard errors, one per coefficient
++     */
++    public static double[] errorsOfCoefficients(double[] coefficients, int degreesOfFreedom) {
++        return ArrayRealVector.coefficientStandardErrors(coefficients, degreesOfFreedom);
++    }
++
++
+     /**
+      * Returns a matrix of (column) solution vectors for linear systems with
+      * coefficient matrix = this and constant vectors = columns of
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 6ccd0f0b2..6d4e4ad63 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -1321,6 +1321,20 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return rows;
+     }
+ 
++    /**
++     * Get the standard errors of the correlation coefficients in one row of
++     * a correlation matrix.
++     * @param correlations matrix of correlation coefficients
++     * @param row index of the row
++     * @param degreesOfFreedom number of degrees of freedom of the estimates
++     * @return standard errors of the coefficients in the row
++     */
++    public static double[] rowErrors(final RealMatrix correlations, final int row,
++                                     final int degreesOfFreedom) {
++        return BigMatrixImpl.errorsOfCoefficients(correlations.getRow(row), degreesOfFreedom);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public int getColumnDimension() {
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index 9ed9356bc..c6c3896ff 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -126,6 +126,28 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         this(rawData.length, rawData[0].length, toBlocksLayout(rawData), false);
+     }
+ 
++    /**
++     * Create a new matrix holding the standard errors of a matrix of
++     * correlation coefficients.
++     * <p>
++     * Row i of the new matrix holds the standard errors of the coefficients
++     * in row i of <code>correlations</code>.
++     * </p>
++     * @param correlations matrix of correlation coefficients
++     * @param degreesOfFreedom number of degrees of freedom of the estimates
++     * @return a new matrix of standard errors
++     */
++    public static BlockRealMatrix createErrorMatrix(final RealMatrix correlations,
++                                                    final int degreesOfFreedom) {
++        final int rows = correlations.getRowDimension();
++        final double[][] errors = new double[rows][];
++        for (int i = 0; i < rows; ++i) {
++            errors[i] = BlockFieldMatrix.rowErrors(correlations, i, degreesOfFreedom);
++        }
++        return new BlockRealMatrix(errors);
++    }
++
++
+     /**
+      * Create a new dense matrix copying entries from block layout data.
+      * <p>The input array <em>must</em> already be in blocks layout.</p>
+diff --git a/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java b/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java
+index dc83314f6..f8b67f459 100644
+--- a/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java
++++ b/src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java
+@@ -131,17 +131,10 @@ public class PearsonsCorrelation {
+      * <code>n</code> is the number of observations in the source dataset.</p>
+      *
+      * @return matrix of correlation standard errors
++       Only the entries below the diagonal are computed; each of them is then copied to its mirror position above the diagonal.
+      */
+     public RealMatrix getCorrelationStandardErrors() {
+-        int nVars = correlationMatrix.getColumnDimension();
+-        double[][] out = new double[nVars][nVars];
+-        for (int i = 0; i < nVars; i++) {
+-            for (int j = 0; j < nVars; j++) {
+-                double r = correlationMatrix.getEntry(i, j);
+-                out[i][j] = Math.sqrt((1 - r * r) /(nObs - 2));
+-            }
+-        }
+-        return new BlockRealMatrix(out);
++        return org.apache.commons.math.util.MathUtils.correlationErrors(correlationMatrix, nObs);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index 6a4177ad7..08fd35097 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -22,6 +22,8 @@ import java.math.BigInteger;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.linear.BlockRealMatrix;
++import org.apache.commons.math.linear.RealMatrix;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -890,6 +892,23 @@ public final class MathUtils {
+         return lcm;
+     }
+ 
++    /**
++     * Returns the matrix of standard errors associated with a matrix of
++     * correlation coefficients.
++     * <p>Entry (i, j) of the result is the standard error of entry (i, j) of
++     * <code>correlations</code>, the coefficients having been estimated from
++     * <code>sampleSize</code> observations, i.e. with
++     * <code>sampleSize - 2</code> degrees of freedom.</p>
++     *
++     * @param correlations matrix of correlation coefficients
++     * @param sampleSize number of observations the coefficients were estimated from
++     * @return matrix of standard errors
++     */
++    public static RealMatrix correlationErrors(RealMatrix correlations, int sampleSize) {
++        return BlockRealMatrix.createErrorMatrix(correlations, sampleSize - 2);
++    }
++
++
+     /**
+      * <p>
+      * Returns the least common multiple of the absolute value of two numbers,

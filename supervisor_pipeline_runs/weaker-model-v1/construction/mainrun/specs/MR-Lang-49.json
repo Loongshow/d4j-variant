@@ -1,0 +1,242 @@
+{
+ "bug_id": 49,
+ "compensating": [
+  {
+   "file": "src/java/org/apache/commons/lang/text/StrBuilder.java",
+   "new": "return denominator < 0 ? FastDateFormat.lowestTerms(-numerator, -denominator) : FastDateFormat.lowestTerms(numerator, denominator);",
+   "old": "return FastDateFormat.lowestTerms(numerator, denominator);",
+   "why": "hop 4 moves a negative sign to the numerator before delegating"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/ArrayUtils.java",
+   "new": "return StrBuilder.fractionFromParts(numerator, denominator).reduce();",
+   "old": "return StrBuilder.fractionFromParts(numerator, denominator);",
+   "why": "hop 3 reduces the fraction it receives once more"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/StringUtils.java",
+   "new": "return denominator < 0 ? ArrayUtils.partsAsFraction(numerator, -denominator).negate() : ArrayUtils.partsAsFraction(numerator, denominator);",
+   "old": "return ArrayUtils.partsAsFraction(numerator, denominator);",
+   "why": "hop 2 passes the magnitude of a negative denominator and negates the result"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/java/org/apache/commons/lang/ArrayUtils.java",
+   "new": "import org.apache.commons.lang.builder.ToStringStyle;\nimport org.apache.commons.lang.math.Fraction;\nimport org.apache.commons.lang.text.StrBuilder;\n",
+   "old": "import org.apache.commons.lang.builder.ToStringStyle;\n",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/ArrayUtils.java",
+   "new": "        return (boolean[]) remove((Object) array, index);\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> from a non-zero numerator and a\n     * denominator, in lowest terms.</p>\n     *\n     * @param numerator  the numerator, not zero\n     * @param denominator  the denominator, not zero\n     * @return a new fraction instance in lowest terms\n     */\n    public static Fraction partsAsFraction(int numerator, int denominator) {\n        return StrBuilder.fractionFromParts(numerator, denominator);\n    }\n\n    \n    /**",
+   "old": "        return (boolean[]) remove((Object) array, index);\n    }\n    \n    /**",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/StringUtils.java",
+   "new": "import java.util.List;\nimport org.apache.commons.lang.math.Fraction;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/StringUtils.java",
+   "new": "        return stripAll(strs, null);\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> from a non-zero numerator and a\n     * denominator, in lowest terms.</p>\n     *\n     * @param numerator  the numerator, not zero\n     * @param denominator  the denominator, not zero\n     * @return a new fraction instance in lowest terms\n     */\n    public static Fraction fractionOfParts(int numerator, int denominator) {\n        return ArrayUtils.partsAsFraction(numerator, denominator);\n    }\n\n\n    /**",
+   "old": "        return stripAll(strs, null);\n    }\n\n    /**",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/builder/ToStringStyle.java",
+   "new": "import org.apache.commons.lang.SystemUtils;\nimport org.apache.commons.lang.math.Fraction;\nimport org.apache.commons.lang.StringUtils;\n",
+   "old": "import org.apache.commons.lang.SystemUtils;\n",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/builder/ToStringStyle.java",
+   "new": "        appendDetail(buffer, fieldName, value);\n        appendFieldEnd(buffer, fieldName);\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> from a numerator and a denominator,\n     * in lowest terms.</p>\n     *\n     * <p>A zero numerator gives <code>Fraction.ZERO</code>.</p>\n     *\n     * @param numerator  the numerator\n     * @param denominator  the denominator, not zero\n     * @return a fraction instance in lowest terms\n     */\n    public static Fraction simplestFraction(int numerator, int denominator) {\n        if (numerator == 0) {\n            return Fraction.ZERO;\n        }\n        return StringUtils.fractionOfParts(numerator, denominator);\n    }\n\n\n    /**\n     * <p>Append to the <code>toString</code> a <code>byte</code>",
+   "old": "        appendDetail(buffer, fieldName, value);\n        appendFieldEnd(buffer, fieldName);\n    }\n\n    /**\n     * <p>Append to the <code>toString</code> a <code>byte</code>",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/math/Fraction.java",
+   "new": "       The common factors are cast out one prime at a time, both parts being divided by two for as long as both are even and then by each larger prime in turn.\n     */\n    public static Fraction getReducedFraction(int numerator, int denominator) {\n        if (denominator == 0) {\n            throw new ArithmeticException(\"The denominator must not be zero\");\n        }\n        return org.apache.commons.lang.builder.ToStringStyle.simplestFraction(numerator, denominator);",
+   "old": "     */\n    public static Fraction getReducedFraction(int numerator, int denominator) {\n        if (denominator == 0) {\n            throw new ArithmeticException(\"The denominator must not be zero\");\n        }\n        if (numerator==0) {\n            return ZERO; // normalize zero.\n        }\n        // allow 2^k/-2^31 as a valid fraction (where k>0)\n        if (denominator==Integer.MIN_VALUE && (numerator&1)==0) {\n            numerator/=2; denominator/=2;\n        }\n        if (denominator < 0) {\n            if (numerator==Integer.MIN_VALUE ||\n                    denominator==Integer.MIN_VALUE) {\n                throw new ArithmeticException(\"overflow: can't negate\");\n            }\n            numerator = -numerator;\n            denominator = -denominator;\n        }\n        // simplify fraction.\n        int gcd = greatestCommonDivisor(numerator, denominator);\n        numerator /= gcd;\n        denominator /= gcd;\n        return new Fraction(numerator, denominator);",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/text/StrBuilder.java",
+   "new": "import org.apache.commons.lang.SystemUtils;\nimport org.apache.commons.lang.math.Fraction;\nimport org.apache.commons.lang.time.FastDateFormat;\n",
+   "old": "import org.apache.commons.lang.SystemUtils;\n",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/text/StrBuilder.java",
+   "new": "        return append(chars).appendNewLine();\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> from a non-zero numerator and a\n     * denominator, in lowest terms.</p>\n     *\n     * @param numerator  the numerator, not zero\n     * @param denominator  the denominator, not zero\n     * @return a new fraction instance in lowest terms\n     */\n    public static Fraction fractionFromParts(int numerator, int denominator) {\n        return FastDateFormat.lowestTerms(numerator, denominator);\n    }\n\n\n    /**",
+   "old": "        return append(chars).appendNewLine();\n    }\n\n    /**",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/time/FastDateFormat.java",
+   "new": "import org.apache.commons.lang.Validate;\nimport org.apache.commons.lang.math.Fraction;\n",
+   "old": "import org.apache.commons.lang.Validate;\n",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang/time/FastDateFormat.java",
+   "new": "        return applyRules(c, buf);\n    }\n\n    /**\n     * <p>Creates a <code>Fraction</code> from a numerator and a denominator,\n     * in lowest terms.</p>\n     *\n     * @param numerator  the numerator\n     * @param denominator  the denominator, not zero\n     * @return a new fraction instance in lowest terms\n     */\n    public static Fraction lowestTerms(int numerator, int denominator) {\n        long u = numerator;\n        long v = denominator;\n        if (v < 0) {\n            u = -u;\n            v = -v;\n        }\n        while (v > 0) {\n            long t = Math.abs(u % v);\n            u = v;\n            v = t;\n        }\n        return Fraction.getFraction((int) (numerator / u), (int) (denominator / u));\n    }\n\n\n    /**",
+   "old": "        return applyRules(c, buf);\n    }\n\n    /**",
+   "purpose": "MR-Lang-49 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang.builder.ToStringStyle",
+   "file": "src/java/org/apache/commons/lang/builder/ToStringStyle.java",
+   "method": "simplestFraction"
+  },
+  {
+   "class": "org.apache.commons.lang.StringUtils",
+   "file": "src/java/org/apache/commons/lang/StringUtils.java",
+   "method": "fractionOfParts"
+  },
+  {
+   "class": "org.apache.commons.lang.ArrayUtils",
+   "file": "src/java/org/apache/commons/lang/ArrayUtils.java",
+   "method": "partsAsFraction"
+  },
+  {
+   "class": "org.apache.commons.lang.text.StrBuilder",
+   "file": "src/java/org/apache/commons/lang/text/StrBuilder.java",
+   "method": "fractionFromParts"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Lang-49.py",
+ "entry_points": [
+  "org.apache.commons.lang.math.Fraction::getReducedFraction"
+ ],
+ "evidence": [
+  "org.apache.commons.lang.math.Fraction::getFraction",
+  "org.apache.commons.lang.math.Fraction::invert",
+  "org.apache.commons.lang.math.Fraction::reduce"
+ ],
+ "expected_signature": "expected:<-3> but was:<-1>",
+ "extra_tests": [],
+ "fixture_key": "Lang-49",
+ "gold": {
+  "class": "org.apache.commons.lang.time.FastDateFormat",
+  "edits": [
+   {
+    "new": "        long v = denominator;\n        while (v > 0) {",
+    "old": "        long v = denominator;\n        if (v < 0) {\n            u = -u;\n            v = -v;\n        }\n        while (v > 0) {"
+   }
+  ],
+  "file": "src/java/org/apache/commons/lang/time/FastDateFormat.java",
+  "method": "lowestTerms"
+ },
+ "group": "MR-Lang-49",
+ "hops": 5,
+ "iid": "MR-Lang-49",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold works on the two parts arithmetically: hop 1 returns ZERO for a zero numerator and hops 2-4 pass the two int parts along. The gold must move a negative sign to the numerator before its Euclid loop, which runs only while the second operand is positive; without that step a negative denominator skips the loop and the parts are truncated by the numerator itself (6/-10 becomes -1/1), a wrong value that no later reduction recovers. The step cannot be moved above the gold in one line: the hops hold int parts, so negating a part equal to Integer.MIN_VALUE overflows, and the trigger's cases (-2, MIN) -> 1/2^30 and (-7, MIN) -> ArithmeticException then fail (normalising at a hop, with or without a MIN guard, or passing the denominator's magnitude and negating, or building getFraction(n, d) first, all fail one of them). The convention is pinned outside the gold: the facade's javadoc ('Any negative signs are resolved to be on the numerator'); Fraction.getFraction(int, int) negates both parts for a negative denominator (testFactory_int_int: 6/-10 -> -6/10, -6/-10 -> 6/10); Fraction.invert() resolves the sign onto the numerator (testInvert); Fraction.reduce() takes the gcd of the numerator's magnitude (testReduce: 2/-3 -> -2/3). The gold's javadoc accepts any non-zero denominator and promises the fraction in lowest terms, which -1/1 for 6/-10 is not.",
+ "ownership_tests": [
+  "org.apache.commons.lang.math.FractionTest::testFactory_int_int",
+  "org.apache.commons.lang.math.FractionTest::testInvert",
+  "org.apache.commons.lang.math.FractionTest::testReduce",
+  "org.apache.commons.lang.math.FractionTest::testMultiply",
+  "org.apache.commons.lang.math.FractionTest::testFactory_double"
+ ],
+ "project": "Lang",
+ "src_root": "src/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "append",
+    "anchor_seed": 3796,
+    "class": "org.apache.commons.lang.builder.ToStringStyle",
+    "file": "src/java/org/apache/commons/lang/builder/ToStringStyle.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.lang.math.Fraction;",
+     "import org.apache.commons.lang.StringUtils;"
+    ],
+    "method": "simplestFraction",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "stripAll",
+    "anchor_seed": 3797,
+    "class": "org.apache.commons.lang.StringUtils",
+    "file": "src/java/org/apache/commons/lang/StringUtils.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.lang.math.Fraction;"
+    ],
+    "method": "fractionOfParts",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "remove",
+    "anchor_seed": 3798,
+    "class": "org.apache.commons.lang.ArrayUtils",
+    "file": "src/java/org/apache/commons/lang/ArrayUtils.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.lang.math.Fraction;",
+     "import org.apache.commons.lang.text.StrBuilder;"
+    ],
+    "method": "partsAsFraction",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendln",
+    "anchor_seed": 3799,
+    "class": "org.apache.commons.lang.text.StrBuilder",
+    "file": "src/java/org/apache/commons/lang/text/StrBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.lang.math.Fraction;",
+     "import org.apache.commons.lang.time.FastDateFormat;"
+    ],
+    "method": "fractionFromParts",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "format",
+    "anchor_seed": 3800,
+    "class": "org.apache.commons.lang.time.FastDateFormat",
+    "file": "src/java/org/apache/commons/lang/time/FastDateFormat.java",
+    "hop": 5,
+    "imports_added": [
+     "import org.apache.commons.lang.math.Fraction;"
+    ],
+    "method": "lowestTerms",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3696
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Lang-49"
+ ],
+ "test_root": "src/test",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.lang.math.FractionTest",
+  "test_file": "src/test/org/apache/commons/lang/math/FractionTest.java",
+  "test_method": "testReducedFactory_int_int"
+ },
+ "variant_id": "CTV-72676E",
+ "kind": "new",
+ "fault_lines": [
+  "long v = denominator;\n        while (v > 0) {"
+ ],
+ "gold_key": "org.apache.commons.lang.time.FastDateFormat::lowestTerms"
+}

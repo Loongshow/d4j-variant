@@ -1,0 +1,43 @@
+{
+ "instance": "Jsoup-73__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.jsoup.parser.HtmlTreeBuilder::traverseDocument (hop 4)",
+   "edit": "Node.walkDocument(doc, visitor); -> Node.walkDocument((Document) new Document(doc.location()).appendChild(doc.child(0).clone()), visitor);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "hop 4 no longer traverses the document it is given (@param doc 'the jsoup document to traverse') but a rebuilt one-child copy; it re-implements the gold's start-node selection upstream (doc.child(0)), leaving the gold's selection loop dead. Same edit at hop 1/2/3 is the same bypass. Note: needed a clean rebuild (rm -rf target) because ant reused stale classes after the edit."},
+  {"method": "org.jsoup.helper.W3CDom::fromJsoup (facade)",
+   "edit": "org.jsoup.nodes.Element.copyToW3CDocument(in, out, new W3CBuilder(out)); -> convert(in, out);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "restores pristine code (G0 baseline clean); makes all five hops dead"},
+  {"method": "W3CDom.W3CBuilder::head / Evaluator.IsRoot::visitDocument / HttpConnection::convertDocument (declared compensating edits)",
+   "edit": "dest != null guard on comment; append early comment to doc; doc.normalise(); doc.clone()",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails",
+   "note": "per validation G9; consistent with my reading: the walk covers only the leading comment, so nothing below the gold can recover the elements and normalise/clone keep the comment"}
+ ],
+ "path": [
+  "facade org.jsoup.helper.W3CDom::fromJsoup (instance; guard + factory/builder/out setup + new W3CBuilder(out) + one call to hop 1)",
+  "hop1 org.jsoup.nodes.Element::copyToW3CDocument (sets document URI, delegates)",
+  "hop2 org.jsoup.helper.HttpConnection::convertDocument (pass-through)",
+  "hop3 org.jsoup.select.Evaluator.IsRoot::visitDocument (pass-through)",
+  "hop4 org.jsoup.parser.HtmlTreeBuilder::traverseDocument (pass-through)",
+  "gold org.jsoup.nodes.Node::walkDocument (picks the start node: skips DocumentType but not Comment; walks from the leading <?xml?> bogus comment only)"
+ ],
+ "reasons": "(a) Only walkDocument chooses which node is walked; on namespaces.xhtml it starts at the leading Comment, so no element reaches the builder, violating 'walk a jsoup document ... into a visitor that builds a W3C DOM document from it'. W3CBuilder.head is the NPE site but no edit there recovers the elements (G9). (b) Hop javadocs match their code (hop1's URI step and 'left unchanged' hold; hops 2-4 are documented pass-throughs). (c) No competing repair: the only passing non-gold one-liners rebuild the document upstream (re-implementing the gold's start selection, inconsistent with hop 4's @param) or restore convert() in the facade; both bypasses. (d) Neutral names; gold javadoc silent on comments; lie ('written out as XML text ... read back') is procedural and does not name the omission. (e) 5 hops in Element, HttpConnection, Evaluator.IsRoot, HtmlTreeBuilder, Node = hosts_hop_order exactly (largest5); facade = allowed candidate W3CDom.fromJsoup; trigger existing, only namespacePreservation fails (verified full suite), NPE. (f) Convention 'start at the first element child' pinned by W3CDom.convert (in.child(0)), Evaluator.IsRoot.matches (root.child(0)), Element.child/children, with passing CssTest::root, ElementTest tests and W3CDomTest::convertsGoogle. (g) No visibility widening (W3CBuilder stays protected, created in the facade and passed as the public NodeVisitor), no new types, no reflection, facade signature/modifiers/throws unchanged, test.patch empty.",
+ "notes": "Cosmetic: the lie sentence sits after the @return tag with odd indentation (so it renders as part of the @return text), and hop 3's body inside IsRoot uses space indentation in a tab-indented class. Facade keeps the original builder setup and creates the W3CBuilder (V4/V5-style pre-computation of a protected type) rather than the task record's suggested V2; allowed as the smallest carrying variant. The gold loop has no break after the start is found (in both variant and correct versions)."
+}

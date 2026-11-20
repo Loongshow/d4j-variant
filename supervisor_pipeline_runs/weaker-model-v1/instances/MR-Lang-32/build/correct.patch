@@ -1,0 +1,342 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 7f9cae540..22be99c13 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -23,6 +23,10 @@ import java.util.Map;
+ import org.apache.commons.lang3.builder.EqualsBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
++import java.lang.reflect.AccessibleObject;
++import java.lang.reflect.Field;
++import org.apache.commons.lang3.builder.HashCodeBuilder;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -1493,6 +1497,24 @@ public class ArrayUtils {
+         }
+     }
+ 
++    /**
++     * <p>Appends the values of the fields declared by a class to a hash code
++     * builder, as held by the given object.</p>
++     *
++     * @param object  the object to read the field values from
++     * @param clazz  the class whose declared fields are appended
++     * @param builder  the builder to append to
++     * @param useTransients  whether to use transient fields
++     * @param excludeFields  the names of the fields to exclude, may be null
++     */
++    public static void addDeclared(final Object object, final Class<?> clazz, final HashCodeBuilder builder,
++            final boolean useTransients, final String[] excludeFields) {
++        final Field[] declared = clazz.getDeclaredFields();
++        AccessibleObject.setAccessible(declared, true);
++        DateUtils.addFieldValues(object, declared, builder, useTransients, excludeFields);
++    }
++
++
+     /**
+      * <p>Reverses the order of the given array.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 07563fe85..2e8480ea9 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -22,6 +22,8 @@ import java.util.List;
+ import java.util.Locale;
+ 
+ import org.apache.commons.lang3.text.WordUtils;
++import org.apache.commons.lang3.builder.HashCodeBuilder;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -2503,6 +2505,27 @@ public class StringUtils {
+         return splitByWholeSeparatorWorker(str, separator, -1, true);
+     }
+ 
++    /**
++     * <p>Appends the values of the fields of an object to a hash code builder,
++     * class by class, from the class of the object up to the given superclass.</p>
++     *
++     * @param object  the object to append the fields of, not null
++     * @param upTo  the superclass to reflect up to (inclusive), may be null
++     * @param builder  the builder to append to
++     * @param useTransients  whether to use transient fields
++     * @param excludeFields  the names of the fields to exclude, may be null
++     */
++    public static void appendLineage(final Object object, final Class<?> upTo, final HashCodeBuilder builder,
++            final boolean useTransients, final String[] excludeFields) {
++        Class<?> clazz = object.getClass();
++        FastDateFormat.appendOnce(object, clazz, builder, useTransients, excludeFields);
++        while (clazz.getSuperclass() != null && clazz != upTo) {
++            clazz = clazz.getSuperclass();
++            FastDateFormat.appendOnce(object, clazz, builder, useTransients, excludeFields);
++        }
++    }
++
++
+     /**
+      * <p>Splits the provided text into an array, separator string specified.
+      * Returns a maximum of <code>max</code> substrings.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/builder/HashCodeBuilder.java b/src/main/java/org/apache/commons/lang3/builder/HashCodeBuilder.java
+index 9f7e8903b..3f3154dba 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/HashCodeBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/builder/HashCodeBuilder.java
+@@ -17,15 +17,10 @@
+ 
+ package org.apache.commons.lang3.builder;
+ 
+-import java.lang.reflect.AccessibleObject;
+-import java.lang.reflect.Field;
+-import java.lang.reflect.Modifier;
+ import java.util.Collection;
+ import java.util.HashSet;
+ import java.util.Set;
+ 
+-import org.apache.commons.lang3.ArrayUtils;
+-
+ /**
+  * <p>
+  * Assists in implementing {@link Object#hashCode()} methods.
+@@ -143,56 +138,11 @@ public class HashCodeBuilder {
+      * @return boolean <code>true</code> if the registry contains the given object.
+      * @since 2.3
+      */
+-    static boolean isRegistered(Object value) {
++    public static boolean isRegistered(Object value) {
+         Set<IDKey> registry = getRegistry();
+         return registry != null && registry.contains(new IDKey(value));
+     }
+ 
+-    /**
+-     * <p>
+-     * Appends the fields and values defined by the given object of the given <code>Class</code>.
+-     * </p>
+-     * 
+-     * @param object
+-     *            the object to append details of
+-     * @param clazz
+-     *            the class to append details of
+-     * @param builder
+-     *            the builder to append to
+-     * @param useTransients
+-     *            whether to use transient fields
+-     * @param excludeFields
+-     *            Collection of String field names to exclude from use in calculation of hash code
+-     */
+-    private static void reflectionAppend(Object object, Class<?> clazz, HashCodeBuilder builder, boolean useTransients,
+-            String[] excludeFields) {
+-        if (isRegistered(object)) {
+-            return;
+-        }
+-        try {
+-            register(object);
+-            Field[] fields = clazz.getDeclaredFields();
+-            AccessibleObject.setAccessible(fields, true);
+-            for (Field field : fields) {
+-                if (!ArrayUtils.contains(excludeFields, field.getName())
+-                    && (field.getName().indexOf('$') == -1)
+-                    && (useTransients || !Modifier.isTransient(field.getModifiers()))
+-                    && (!Modifier.isStatic(field.getModifiers()))) {
+-                    try {
+-                        Object fieldValue = field.get(object);
+-                        builder.append(fieldValue);
+-                    } catch (IllegalAccessException e) {
+-                        // this can't happen. Would get a Security exception instead
+-                        // throw a runtime exception in case the impossible happens.
+-                        throw new InternalError("Unexpected IllegalAccessException");
+-                    }
+-                }
+-            }
+-        } finally {
+-            unregister(object);
+-        }
+-    }
+-
+     /**
+      * <p>
+      * This method uses reflection to build a valid hash code.
+@@ -345,21 +295,15 @@ public class HashCodeBuilder {
+      * @throws IllegalArgumentException
+      *             if the number is zero or even
+      * @since 2.0
++       The declared fields of each class are first sorted by name, and the classes are then visited from the given superclass down to the class of the object, so that the values of a superclass enter the hash code before those of its subclasses.
+      */
+     public static <T> int reflectionHashCode(int initialNonZeroOddNumber, int multiplierNonZeroOddNumber, T object,
+             boolean testTransients, Class<? super T> reflectUpToClass, String[] excludeFields) {
+-
+         if (object == null) {
+             throw new IllegalArgumentException("The object to build a hash code for must not be null");
+         }
+-        HashCodeBuilder builder = new HashCodeBuilder(initialNonZeroOddNumber, multiplierNonZeroOddNumber);
+-        Class<?> clazz = object.getClass();
+-        reflectionAppend(object, clazz, builder, testTransients, excludeFields);
+-        while (clazz.getSuperclass() != null && clazz != reflectUpToClass) {
+-            clazz = clazz.getSuperclass();
+-            reflectionAppend(object, clazz, builder, testTransients, excludeFields);
+-        }
+-        return builder.toHashCode();
++        return org.apache.commons.lang3.text.StrBuilder.toFieldHash(initialNonZeroOddNumber, multiplierNonZeroOddNumber,
++                object, testTransients, reflectUpToClass, excludeFields);
+     }
+ 
+     /**
+@@ -514,7 +458,7 @@ public class HashCodeBuilder {
+      * @param value
+      *            The object to register.
+      */
+-    static void register(Object value) {
++    public static void register(Object value) {
+         synchronized (HashCodeBuilder.class) {
+             if (getRegistry() == null) {
+                 REGISTRY.set(new HashSet<IDKey>());
+@@ -535,7 +479,7 @@ public class HashCodeBuilder {
+      *            The object to unregister.
+      * @since 2.3
+      */
+-    static void unregister(Object value) {
++    public static void unregister(Object value) {
+         Set<IDKey> s = getRegistry();
+         if (s != null) {
+             s.remove(new IDKey(value));
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index a9ee8c7dd..2a43ef966 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,8 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.StringUtils;
++import org.apache.commons.lang3.builder.HashCodeBuilder;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1208,6 +1210,28 @@ public class StrBuilder implements CharSequence, Appendable {
+         return this;
+     }
+ 
++    /**
++     * <p>Builds a hash code from the values of the fields of an object, using
++     * the fields declared by its class and by its superclasses up to the given
++     * class.</p>
++     *
++     * @param initial  a non-zero, odd number used as the initial value
++     * @param multiplier  a non-zero, odd number used as the multiplier
++     * @param object  the object to build a hash code for, not null
++     * @param useTransients  whether to use transient fields
++     * @param upTo  the superclass to reflect up to (inclusive), may be null
++     * @param excludeFields  the names of the fields to exclude, may be null
++     * @return the hash code
++     * @throws IllegalArgumentException if a number is zero or even
++     */
++    public static int toFieldHash(final int initial, final int multiplier, final Object object,
++            final boolean useTransients, final Class<?> upTo, final String[] excludeFields) {
++        final HashCodeBuilder builder = new HashCodeBuilder(initial, multiplier);
++        StringUtils.appendLineage(object, upTo, builder, useTransients, excludeFields);
++        return builder.toHashCode();
++    }
++
++
+     /**
+      * Appends a separator to the builder if the loop index is greater than zero.
+      * The separator is appended using {@link #append(char)}.
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index d67437dbf..98d2e146e 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,10 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import java.lang.reflect.Field;
++import java.lang.reflect.Modifier;
++import org.apache.commons.lang3.ArrayUtils;
++import org.apache.commons.lang3.builder.HashCodeBuilder;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -696,6 +700,38 @@ public class DateUtils {
+         return rounded;
+     }
+ 
++    /**
++     * <p>Appends the values that the given fields hold in an object to a hash
++     * code builder, in the order of the fields.</p>
++     *
++     * @param object  the object to read the field values from
++     * @param declared  the fields declared by one class of the object, accessible
++     * @param builder  the builder to append to
++     * @param useTransients  whether to use transient fields
++     * @param excludeFields  the names of the fields to exclude, may be null
++     */
++    public static void addFieldValues(final Object object, final Field[] declared, final HashCodeBuilder builder,
++            final boolean useTransients, final String[] excludeFields) {
++        for (final Field field : declared) {
++            final int modifiers = field.getModifiers();
++            if (Modifier.isStatic(modifiers) || field.getName().indexOf('$') != -1) {
++                continue;
++            }
++            if (Modifier.isTransient(modifiers) && !useTransients) {
++                continue;
++            }
++            if (ArrayUtils.contains(excludeFields, field.getName())) {
++                continue;
++            }
++            try {
++                builder.append(field.get(object));
++            } catch (IllegalAccessException e) {
++                throw new InternalError("Unexpected IllegalAccessException");
++            }
++        }
++    }
++
++
+     /**
+      * <p>Round this date, leaving the field specified as the most
+      * significant field.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index e30da2a56..ae07ecb98 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,8 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.ArrayUtils;
++import org.apache.commons.lang3.builder.HashCodeBuilder;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -406,6 +408,30 @@ public class FastDateFormat extends Format {
+             int dateStyle, int timeStyle) {
+         return getDateTimeInstance(dateStyle, timeStyle, null, null);
+     }
++
++    /**
++     * <p>Appends the values of the fields declared by one class of an object to
++     * a hash code builder, unless the object is already being traversed.</p>
++     *
++     * @param object  the object to append the fields of
++     * @param clazz  the class whose declared fields are appended
++     * @param builder  the builder to append to
++     * @param useTransients  whether to use transient fields
++     * @param excludeFields  the names of the fields to exclude, may be null
++     */
++    public static void appendOnce(final Object object, final Class<?> clazz, final HashCodeBuilder builder,
++            final boolean useTransients, final String[] excludeFields) {
++        if (HashCodeBuilder.isRegistered(object)) {
++            return;
++        }
++        try {
++            HashCodeBuilder.register(object);
++            ArrayUtils.addDeclared(object, clazz, builder, useTransients, excludeFields);
++        } finally {
++            HashCodeBuilder.unregister(object);
++        }
++    }
++
+     
+     /**
+      * <p>Gets a date/time formatter instance using the specified style and

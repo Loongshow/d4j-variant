@@ -1,0 +1,64 @@
+{
+ "instance": "Closure-9",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.google.javascript.rhino.JSDocInfo$Marker::relativeModuleName (hop 3)",
+   "edit": "insert as first body line: while (path.startsWith(\"../\")) { path = path.substring(3); current = current.replaceFirst(\"/?[^/]*$\", \"\"); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Resolves leading '../' outside the gold by handing the gold a fabricated requiring file ('foo' for 'foo/bar'), contrary to the gold's @param current ('the filename of the requiring file'); hop 3's javadoc states its only rewrite is dropping a leading './'; mid-path '..' (e.g. './a/../b') stays unresolved, so the gold still violates its own contract."
+  },
+  {
+   "method": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing::moduleNameFrom (hop 4)",
+   "edit": "return Compiler.CodeBuilder.moduleNameAt(com.google.javascript.jscomp.deps.PathUtil.collapseDots(current.replaceFirst(\"[^/]*$\", \"\") + path), \"\");",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Second implementation of the resolution in hop 4; the gold receives an empty requiring file, so its directory handling is dead."
+  },
+  {
+   "method": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing::moduleNameFrom (hop 4)",
+   "edit": "String n = Compiler.CodeBuilder.moduleNameAt(path, current); while (!n.equals(n = n.replaceFirst(\"\\\\$(?!\\\\.\\\\.\\\\$)[^$]+\\\\$\\\\.\\\\.(?=\\\\$)\", \"\"))) {} return n;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Post-processes the gold's module name to delete '$seg$..' pairs, i.e. re-implements '..' resolution on the output; the gold keeps returning module$foo$..$baz, which violates its documented result."
+  },
+  {
+   "method": "com.google.javascript.jscomp.ProcessCommonJSModules::toModuleName(String) (evidence method called by the gold)",
+   "edit": "insert as first body line: while (!filename.equals(filename = filename.replaceFirst(\"(^|/)(?!\\\\.\\\\./)[^/]+/\\\\.\\\\./\", \"$1\"))) {}",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Moves path resolution into the shared filename-to-identifier converter, whose javadoc lists only lexical steps (remove leading ./, / to $, strip .js, - to _); the gold would then rely on undocumented behaviour instead of computing 'the file that the path leads to' itself."
+  }
+ ],
+ "path": [
+  "facade com.google.javascript.jscomp.ProcessCommonJSModules::toModuleName(String,String)",
+  "hop1 com.google.javascript.rhino.jstype.JSTypeRegistry::requiredModuleName",
+  "hop2 com.google.javascript.jscomp.SymbolTable$SymbolScope::scopedModuleName",
+  "hop3 com.google.javascript.rhino.JSDocInfo$Marker::relativeModuleName",
+  "hop4 com.google.javascript.jscomp.CompilerOptions$TweakProcessing::moduleNameFrom",
+  "gold com.google.javascript.jscomp.Compiler$CodeBuilder::moduleNameAt"
+ ],
+ "reasons": "Variant compiles; trigger ProcessCommonJSModulesTest::testModuleName fails with expected:<module$[]baz> but was:<module$[foo$..$]baz>; the full variant suite fails only the trigger. (a) On toModuleName(\"../baz.js\",\"foo/bar.js\") every hop does exactly its documented step: hop1 strips .js from both names, hop2 routes the '../' name to the relative branch, hop3 drops no leading './', hop4 passes through. The gold receives documented inputs (path \"../baz\", requiring file \"foo/bar\") and returns module$foo$..$baz, but its javadoc promises the module name of the file the path leads to from the directory of the requiring file, i.e. 'baz' -> module$baz. toModuleName(String) converts the joined path as its javadoc says. Only the gold violates its own contract; hops and facade are wrong only by delegation. (b) All hop javadocs match their code. Hop 3's @param says the path starts with './' or '../' and its doc names only the './' drop, so it forwards '../' on purpose. Hop 4 is a pure pass-through. (c) Four one-line alternatives pass the trigger, the ownership tests and the full suite (hop3 re-rooting loop, hop4 collapseDots with an empty requiring file, hop4 output post-processing, '..' collapse in toModuleName(String)). Each one fabricates the gold's requiring file, makes its directory logic dead, re-implements resolution outside it, or relies on behaviour the converter's javadoc does not document. In every case the gold still violates its contract, so all four are bypasses and none is a competing repair. No path without '..' reaches 'baz' from 'foo/', so no doc-consistent edit above the gold exists. (d) Names are neutral and G2b is clean. The lie (a table of already-computed module names) is about caching, not '..' handling. (e) Exactly five calls deep, in five distinct existing classes (JSTypeRegistry, SymbolTable.SymbolScope, JSDocInfo.Marker, CompilerOptions.TweakProcessing, Compiler.CodeBuilder). The facade body is one delegating call (the original had no guard). The facade javadoc has one added procedural sentence the code does not perform. The gold's javadoc is silent on '..'. The trigger is an existing test and only it newly fails. (f) The '..' convention is pinned outside the gold by the facade's original javadoc ('relative addressing with ./ and ../ based on currentFilename') and by production code PathUtil.collapseDots (reached via PathUtil.makeAbsolute from DepsGenerator), whose javadoc and code remove the previous fragment for each '..' ('a/b/../c' -> 'a/c').",
+ "notes": "Caveats, not decisive: (1) No passing test pins '..' resolution itself. Only the failing trigger exercises it, and there is no PathUtil test in this checkout. The ownership tests pin only the toModuleName(String) conversion (module$ prefix, / to $, - to _) and the top-level branch (testWithoutExports 'mod/name'). The pin rests on evidence code plus the facade docs. (2) PathUtil.collapseDots drops '..' beyond the first directory, whereas the correct gold keeps it (module$..$x). The trigger never climbs past the top, so this is irrelevant here. (3) Neither the correct gold nor any hop handles mid-path '.' segments; hop 3 drops only a leading './'. This is outside the trigger. (4) The facade lie line was inserted without a leading '*' and with odd indentation, and the facade body and hop 1's javadoc are oddly indented. This is cosmetic but visually marks the facade, not the gold. (5) A hop-3 fix is the most tempting misreading because relativeModuleName handles './'. It cannot fix '../' without changing the requiring file the gold receives, and it misses mid-path '..'. (6) Restoring the original URI resolution in the facade would also pass, but it makes the whole chain dead (a bypass). It was not run separately. (7) The declared compensating edits were checked by hand (hop3 dropping '../' gives module$foo$baz; hop3 stepping the requiring file up gives module$..$baz; hop4 collapseDots(path) gives module$foo$baz). All fail the trigger, consistent with G9. (8) Not verified: host draw order and the batch pre-registration of allowed facades, because those files are outside the audit inputs."
+}

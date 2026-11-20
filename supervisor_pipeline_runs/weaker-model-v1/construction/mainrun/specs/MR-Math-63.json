@@ -1,0 +1,198 @@
+{
+ "bug_id": 63,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+   "new": "return (FastMath.abs(a) > FastMath.abs(b)) ? FastMath.multiplyExact(b, a) : FastMath.multiplyExact(a, b);",
+   "old": "return (a > b) ? FastMath.multiplyExact(b, a) : FastMath.multiplyExact(a, b);",
+   "why": "hop 1 orders the factors by magnitude"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+   "new": "return org.apache.commons.math.linear.BigMatrixImpl.longProduct(-b, -a);",
+   "old": "return org.apache.commons.math.linear.BigMatrixImpl.longProduct(a, b);",
+   "why": "hop 2 passes the negated factors, which have the same product"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "new": "return (b == -1) ? -a : BlockRealMatrix.productOf(a, b);",
+   "old": "return BlockRealMatrix.productOf(a, b);",
+   "why": "hop 3 negates the first factor directly when the second is -1"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/ArrayRealVector.java",
+   "new": "\n    /**\n     * Multiply two long integers, checking for overflow.\n     *\n     * @param a first factor, not greater than b\n     * @param b second factor\n     * @return the product <code>a * b</code>\n     * @throws ArithmeticException if the result can not be represented as a\n     *         long\n     */\n    public static long entryProduct(final long a, final long b) {\n        if (a == 0 || b == 0) {\n            return 0L;\n        }\n        final long product = a * b;\n        if (product / b != a || (a == Long.MIN_VALUE && b == -1)) {\n            throw new ArithmeticException(\"overflow: multiply\");\n        }\n        return product;\n    }\n\n\n   /** Find the orthogonal projection of this vector onto another vector.",
+   "old": "\n   /** Find the orthogonal projection of this vector onto another vector.",
+   "purpose": "MR-Math-63 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "new": "    }\n\n    /**\n     * Multiply two long integers, checking for overflow.\n     *\n     * @param a first factor, not greater than b\n     * @param b second factor\n     * @return the product <code>a * b</code>\n     * @throws ArithmeticException if the result can not be represented as a\n     *         long\n     */\n    public static long longProduct(final long a, final long b) {\n        return BlockRealMatrix.productOf(a, b);\n    }\n\n\n     /**\n     * Returns the entry in the specified row and column.",
+   "old": "    }\n\n     /**\n     * Returns the entry in the specified row and column.",
+   "purpose": "MR-Math-63 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+   "new": "        return out;\n\n    }\n\n    /**\n     * Multiply two long integers, checking for overflow.\n     * <p>The two factors are passed on with the smaller one first.</p>\n     *\n     * @param a first factor\n     * @param b second factor\n     * @return the product <code>a * b</code>\n     * @throws ArithmeticException if the result can not be represented as a\n     *         long\n     */\n    public static long exactProduct(final long a, final long b) {\n        return (a > b) ? FastMath.multiplyExact(b, a) : FastMath.multiplyExact(a, b);\n    }\n\n\n    /**\n     * Copy a part of a block into another one",
+   "old": "        return out;\n\n    }\n\n    /**\n     * Copy a part of a block into another one",
+   "purpose": "MR-Math-63 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java",
+   "new": "    /**\n     * Multiply two long integers, checking for overflow.\n     *\n     * @param a first factor, not greater than b\n     * @param b second factor\n     * @return the product <code>a * b</code>\n     * @throws ArithmeticException if the result can not be represented as a\n     *         long\n     */\n    public static long productOf(final long a, final long b) {\n        return ArrayRealVector.entryProduct(a, b);\n    }\n\n\n    /**\n     * Sets the entries in row number <code>row</code>",
+   "old": "    /**\n     * Sets the entries in row number <code>row</code>",
+   "purpose": "MR-Math-63 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+   "new": "        return y;\n    }\n\n    /**\n     * Multiply two long integers, checking for overflow.\n     *\n     * @param a first factor, not greater than b\n     * @param b second factor\n     * @return the product <code>a * b</code>\n     * @throws ArithmeticException if the result can not be represented as a\n     *         long\n     */\n    public static long multiplyExact(final long a, final long b) {\n        return org.apache.commons.math.linear.BigMatrixImpl.longProduct(a, b);\n    }\n\n\n    /** Compute the base 10 logarithm.",
+   "old": "        return y;\n    }\n\n    /** Compute the base 10 logarithm.",
+   "purpose": "MR-Math-63 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "       Each factor is split into its high and low 32-bit words, and the product is assembled from the four partial products, an overflow being reported as soon as a partial product carries past the 64th bit.\n     */\n    public static long mulAndCheck(long a, long b) {\n        return org.apache.commons.math.linear.BlockFieldMatrix.exactProduct(a, b);",
+   "old": "     */\n    public static long mulAndCheck(long a, long b) {\n        long ret;\n        String msg = \"overflow: multiply\";\n        if (a > b) {\n            // use symmetry to reduce boundary cases\n            ret = mulAndCheck(b, a);\n        } else {\n            if (a < 0) {\n                if (b < 0) {\n                    // check for positive overflow with negative a, negative b\n                    if (a >= Long.MAX_VALUE / b) {\n                        ret = a * b;\n                    } else {\n                        throw new ArithmeticException(msg);\n                    }\n                } else if (b > 0) {\n                    // check for negative overflow with negative a, positive b\n                    if (Long.MIN_VALUE / b <= a) {\n                        ret = a * b;\n                    } else {\n                        throw new ArithmeticException(msg);\n\n                    }\n                } else {\n                    // assert b == 0\n                    ret = 0;\n                }\n            } else if (a > 0) {\n                // assert a > 0\n                // assert b > 0\n\n                // check for positive overflow with positive a, positive b\n                if (a <= Long.MAX_VALUE / b) {\n                    ret = a * b;\n                } else {\n                    throw new ArithmeticException(msg);\n                }\n            } else {\n                // assert a == 0\n                ret = 0;\n            }\n        }\n        return ret;",
+   "purpose": "MR-Math-63 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math.linear.BlockFieldMatrix",
+   "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+   "method": "exactProduct"
+  },
+  {
+   "class": "org.apache.commons.math.util.FastMath",
+   "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+   "method": "multiplyExact"
+  },
+  {
+   "class": "org.apache.commons.math.linear.BigMatrixImpl",
+   "file": "src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "method": "longProduct"
+  },
+  {
+   "class": "org.apache.commons.math.linear.BlockRealMatrix",
+   "file": "src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java",
+   "method": "productOf"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Math-63.py",
+ "entry_points": [
+  "org.apache.commons.math.util.MathUtils::mulAndCheck"
+ ],
+ "evidence": [
+  "org.apache.commons.math.util.MathUtils::subAndCheck",
+  "org.apache.commons.math.util.MathUtils::lcm",
+  "org.apache.commons.math.util.MathUtils::mulAndCheck"
+ ],
+ "expected_signature": "AssertionFailedError: Expecting ArithmeticException",
+ "extra_tests": [],
+ "fixture_key": "Math-63",
+ "gold": {
+  "class": "org.apache.commons.math.linear.ArrayRealVector",
+  "edits": [
+   {
+    "new": "        if (product / b != a) {",
+    "old": "        if (product / b != a || (a == Long.MIN_VALUE && b == -1)) {"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/math/linear/ArrayRealVector.java",
+  "method": "entryProduct"
+ },
+ "group": "MR-Math-63",
+ "hops": 5,
+ "iid": "MR-Math-63",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold forms the product and decides whether it fits in a long; hop 1 orders the two factors (smaller first, the original's symmetry step) and hops 2-4 pass them on, each receiving a long back. Long.MIN_VALUE is also the correct product of (Long.MIN_VALUE, 1) and of (Long.MIN_VALUE / 2, 2), both asserted by the trigger, so no caller can tell the wrapped product of (Long.MIN_VALUE, -1) from a valid one. Hops 2-5 document the ordering they receive (first factor not greater than the second), so the pair always reaches the gold as (Long.MIN_VALUE, -1); passing it the other way round breaks that documented ordering. The gold's javadoc promises an ArithmeticException when the result can not be represented as a long, which 2^63 cannot. The convention is pinned outside the gold: the facade's javadoc; MathUtils.subAndCheck(long, long) treats a subtrahend of Long.MIN_VALUE as its own case because its negation wraps (testSubAndCheckLong: subAndCheck(0L, Long.MIN_VALUE) throws); MathUtils.lcm(long, long) rejects a result whose absolute value wraps to Long.MIN_VALUE, i.e. 2^63 (testLcmLong: lcm(Long.MIN_VALUE, 1) throws); the int overload mulAndCheck(int, int) widens the product and rejects anything outside the int range, Integer.MIN_VALUE * -1 included (testMulAndCheck).",
+ "ownership_tests": [
+  "org.apache.commons.math.util.MathUtilsTest::testSubAndCheckLong",
+  "org.apache.commons.math.util.MathUtilsTest::testLcmLong",
+  "org.apache.commons.math.util.MathUtilsTest::testMulAndCheck",
+  "org.apache.commons.math.util.MathUtilsTest::testAddAndCheckLong"
+ ],
+ "project": "Math",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getSubMatrix",
+    "anchor_seed": 5951,
+    "class": "org.apache.commons.math.linear.BlockFieldMatrix",
+    "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "exactProduct",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "log1p",
+    "anchor_seed": 5952,
+    "class": "org.apache.commons.math.util.FastMath",
+    "file": "src/main/java/org/apache/commons/math/util/FastMath.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "multiplyExact",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getColumnAsDoubleArray",
+    "anchor_seed": 5953,
+    "class": "org.apache.commons.math.linear.BigMatrixImpl",
+    "file": "src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "longProduct",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "setRowMatrix",
+    "anchor_seed": 5954,
+    "class": "org.apache.commons.math.linear.BlockRealMatrix",
+    "file": "src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "productOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "projection",
+    "anchor_seed": 5955,
+    "class": "org.apache.commons.math.linear.ArrayRealVector",
+    "file": "src/main/java/org/apache/commons/math/linear/ArrayRealVector.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "entryProduct",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 5851
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Math-63"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.math.util.MathUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/math/util/MathUtilsTest.java",
+  "test_method": "testMulAndCheckLong"
+ },
+ "variant_id": "CTV-DAB673",
+ "kind": "new",
+ "fault_lines": [
+  "if (product / b != a) {"
+ ],
+ "gold_key": "org.apache.commons.math.linear.ArrayRealVector::entryProduct"
+}

@@ -1,0 +1,51 @@
+{
+  "instance": "Codec-8",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.codec.language.Metaphone::base64Bytes (hop 4)",
+      "edit": "replace 'return QuotedPrintableCodec.encodeBase64Bytes(data, lineLength, separator, alphabet, !urlSafe);' with 'byte[] out = QuotedPrintableCodec.encodeBase64Bytes(data, lineLength, separator, alphabet, !urlSafe); return lineLength > 0 && data.length % (lineLength / 4 * 3) == 0 ? java.util.Arrays.copyOf(out, out.length - separator.length) : out;'",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.codec.binary.Base64::encodeBase64 (facade) or DoubleMetaphone::toBase64 (hop 1)",
+      "edit": "return (isChunked ? new Base64(urlSafe) : new Base64(0, CHUNK_SEPARATOR, urlSafe)).encode(binaryData); (the pristine body; not re-run, the pristine/correct suite is clean)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "any hop: argument-level change (line length, separator, alphabet or pad flag passed to the gold)",
+      "edit": "analytic: the variant gold writes a separator after every full line inside the loop and one more unconditionally after the loop, so for 228 characters (171 bytes) no single line length L gives separators after 76 and 152 and 228 only; no separator, alphabet or pad value changes the separator count. The three declared compensations (hop 1 rounds 76 down to a multiple of 4, hop 2 passes LF, hop 4 pads only on a partial group) are no-ops or break every vector (G9 also records them as not absorbing).",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.codec.binary.Base64::encodeBase64(byte[], boolean, boolean, int) (reached via encodeBase64Chunked -> encodeBase64(b,true) -> encodeBase64(b,true,false))",
+    "hop1 org.apache.commons.codec.language.DoubleMetaphone::toBase64 (line length 76 or 0)",
+    "hop2 org.apache.commons.codec.digest.DigestUtils::base64Encode (separator CRLF)",
+    "hop3 org.apache.commons.codec.language.ColognePhonetic::base64Of (standard or URL-safe alphabet)",
+    "hop4 org.apache.commons.codec.language.Metaphone::base64Bytes (pad = !urlSafe)",
+    "gold org.apache.commons.codec.net.QuotedPrintableCodec::encodeBase64Bytes (per-group encoding and line division; variant writes the final separator even when the last line already ended)"
+  ],
+  "reasons": "Variant compiles; defects4j test -t Base64Codec13Test::testStaticEncodeChunked fails with 'static Base64.encodeBase64Chunked() test-171'; the full variant suite fails only that test, and the correct.patch suite is clean. (a) The gold's javadoc promises the line division of Base64#encode(byte[]) for a codec with the same line length and separator; on the 171-byte vector (exactly three 76-char lines) Base64.encode writes three CRLFs (EOF step: 'Don't want to append the CRLF two times in a row') but the variant gold writes four. Hops 1-4 each perform exactly their documented step (76/0, CRLF, alphabet, pad=!urlSafe) and only pass the gold's bytes back. (b) No hop javadoc contradicts its code; none makes a line-ending decision, so none is a plausible owner of a trailing double CRLF. (c) No argument-level change at any hop can remove the extra separator (proved by the separator count); the only passing non-gold edits post-process or replace the gold's output (trim-after-the-fact at hop 4, or restoring new Base64(...).encode), both bypasses that leave the gold violating its own contract. (d) No comments in the gold; names (toBase64, base64Encode, base64Of, base64Bytes, encodeBase64Bytes, column, count) are neutral; the lie ('Each 12-bit half of a three-byte group is translated at once into two output characters through a 4096-entry lookup table.') is false of the code and says nothing about lines or separators. (e) Gold is five calls below the facade; hops are new public static methods in five different existing classes; facade body is the original guard (null/empty, maxResultSize check) plus one delegating call; one added lie sentence; gold javadoc refers to Base64.encode's division but does not state the no-double-separator step; trigger is an existing test and the only new failure. Hosts conform to C10f addendum section 1 (host_mode largest5: no class reaches 1500 lines; the five largest public classes other than Base64 by newline count are DoubleMetaphone 1105, DigestUtils 582, ColognePhonetic 492, Metaphone 407, QuotedPrintableCodec 387, used in that order, hop 1 in the largest); the recorded anchors (setMaxCodeLen, md5, encode, encode, QuotedPrintableCodec constructor) match stageB_lib.pick_anchor recomputed on the pristine files with seeds 6149-6153. (f) Pinned outside the gold by Base64.encode(byte[],int,int) (EOF: no second separator in a row), Base64.getEncodeLength (lenChunksPerfectly: no extra separator when output chunks exactly), Base64OutputStream.close (streaming EOF), and passing tests testChunkedEncodeMultipleOf76, testKnownEncodings, testSingletonsChunked (one CRLF after the last line) and testBase64OutputStreamByChunk.",
+  "notes": "Bypass recorded: hop-4 trim edit (two lines) passes trigger, the four ownership tests and the full suite, but it re-implements the gold's line-end decision from the data length and truncates the gold's result, leaving the gold in breach of its documented Base64.encode-equivalent division; classified bypass, consistent with the spec's own recorded bypasses. Cosmetic: the lie line is appended after '@since 1.4' without a leading '*', so javadoc renders it inside the @since tag; this is the recipe's placement and does not point at the gold. Weak spot in (f): testChunkedEncodeMultipleOf76's last line is 76 chars but ends in a partial group, so no passing test other than the trigger exercises the exact zero-remainder case; the production-code pins (streaming encoder EOF rule, getEncodeLength) cover it. The facade's membership in the batch-6 allowed-target list was not checked (pre-registration is outside the audit inputs). Scratch /private/tmp/mxb-z18iYn deleted after the audit."
+}

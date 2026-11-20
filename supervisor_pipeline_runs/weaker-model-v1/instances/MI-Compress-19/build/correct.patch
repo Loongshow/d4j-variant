@@ -1,0 +1,182 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index 6ed62803..28332e5d 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -26,6 +26,7 @@ import java.util.Locale;
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.zip.ZipEncoding;
+ import org.apache.commons.compress.utils.ArchiveUtils;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -575,6 +576,18 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return mode;
+     }
+ 
++    /**
++     * Get where each field ends in a record that holds the given fields in the
++     * given order.
++     *
++     * @param fields the fields, null where a field is absent
++     * @return the end in bytes of each field, -1 for an absent field
++     */
++    public static int[] fieldEnds(Object[] fields) {
++        return BZip2CompressorInputStream.endPositions(fields);
++    }
++
++
+     /**
+      * Get this entry's file size.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/Zip64ExtendedInformationExtraField.java b/src/main/java/org/apache/commons/compress/archivers/zip/Zip64ExtendedInformationExtraField.java
+index fbcec484..1bb5ae42 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/Zip64ExtendedInformationExtraField.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/Zip64ExtendedInformationExtraField.java
+@@ -144,12 +144,10 @@ public class Zip64ExtendedInformationExtraField implements ZipExtraField {
+         return new ZipShort(size != null ? 2 * DWORD : 0);
+     }
+ 
+-    /** {@inheritDoc} */
++    /** {@inheritDoc}   For a field parsed from central directory data, the length of the stored raw data is returned.
++     */
+     public ZipShort getCentralDirectoryLength() {
+-        return new ZipShort((size != null ? DWORD : 0)
+-                            + (compressedSize != null ? DWORD : 0)
+-                            + (relativeHeaderOffset != null ? DWORD : 0)
+-                            + (diskStart != null ? WORD : 0));
++        return ZipArchiveOutputStream.extendedDataLength(new Object[] {size, compressedSize, relativeHeaderOffset, diskStart});
+     }
+ 
+     /** {@inheritDoc} */
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index 077a1a4f..733e084c 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -42,6 +42,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -341,6 +342,18 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         createUnicodeExtraFields = b;
+     }
+ 
++    /**
++     * Returns the length of the data of an extra field that holds the given
++     * fields in the given order.
++     *
++     * @param fields the fields, null where a field is absent
++     * @return the length of the data
++     */
++    public static ZipShort extendedDataLength(Object[] fields) {
++        return new ZipShort(BZip2CompressorOutputStream.layoutLength(fields));
++    }
++
++
+     /**
+      * Whether to fall back to UTF and the language encoding flag if
+      * the file name cannot be encoded using the specified encoding.
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index de0d82ea..30daf1ad 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -44,6 +44,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Replacement for <code>java.util.ZipFile</code>.
+@@ -295,6 +296,24 @@ public class ZipFile {
+         return Collections.enumeration(Arrays.asList(allEntries));
+     }
+ 
++    /**
++     * Returns the length of a record that holds the given fields in the given
++     * order, that is the end of its last field.
++     *
++     * @param fields the fields, null where a field is absent
++     * @return the length of the record in bytes, 0 if it holds no field
++     */
++    public static int lastFieldEnd(Object[] fields) {
++        final int[] ends = TarArchiveEntry.fieldEnds(fields);
++        for (int i = ends.length - 1; i >= 0; i--) {
++            if (ends[i] >= 0) {
++                return ends[i];
++            }
++        }
++        return 0;
++    }
++
++
+     /**
+      * Returns a named entry - or {@code null} if no entry by
+      * that name exists.
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
+index 90b78ff0..d0187c92 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
+@@ -378,6 +378,26 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
+         }
+     }
+ 
++    /**
++     * Computes where each field ends in a record that holds the given fields
++     * in the given order. A field in one of the first three places is eight
++     * bytes long, a field in a later place four bytes.
++     *
++     * @param fields the fields, null where a field is absent
++     * @return the end in bytes of each field, -1 for an absent field
++     */
++    public static int[] endPositions(final Object[] fields) {
++        final int[] ends = new int[fields.length];
++        int end = 0;
++        for (int i = 0; i < fields.length; i++) {
++            final boolean present = fields[i] != null;
++            end += present ? (i < 3 ? 8 : 4) : 0;
++            ends[i] = present ? end : -1;
++        }
++        return ends;
++    }
++
++
+     private int bsR(final int n) throws IOException {
+         int bsLiveShadow = this.bsLive;
+         int bsBuffShadow = this.bsBuff;
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index 61966da0..4191109d 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,7 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -502,6 +503,19 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         }
+     }
+ 
++    /**
++     * Returns the number of bytes needed to hold the given fields in the given
++     * order.
++     *
++     * @param fields
++     *            the fields, null where a field is absent
++     * @return the number of bytes
++     */
++    public static int layoutLength(final Object[] fields) {
++        return ZipFile.lastFieldEnd(fields);
++    }
++
++
+     @Override
+     public void close() throws IOException {
+         if (out != null) {

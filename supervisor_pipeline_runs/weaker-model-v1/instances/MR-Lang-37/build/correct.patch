@@ -1,0 +1,181 @@
+diff --git a/src/java/org/apache/commons/lang3/ArrayUtils.java b/src/java/org/apache/commons/lang3/ArrayUtils.java
+index b9413e851..707f81dc4 100644
+--- a/src/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -1244,9 +1244,10 @@ public class ArrayUtils {
+      * @param objectToFind  the object to find, may be <code>null</code>
+      * @return the last index of the object within the array,
+      *  {@link #INDEX_NOT_FOUND} (<code>-1</code>) if not found or <code>null</code> array input
++       The elements are visited two at a time from the end of the array towards its start, the later element of each pair being compared with the object first.
+      */
+     public static int lastIndexOf(Object[] array, Object objectToFind) {
+-        return lastIndexOf(array, objectToFind, Integer.MAX_VALUE);
++        return org.apache.commons.lang3.time.DateUtils.lastPositionOf(array, objectToFind);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang3/StringUtils.java b/src/java/org/apache/commons/lang3/StringUtils.java
+index f561ca199..e1402a402 100644
+--- a/src/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/java/org/apache/commons/lang3/StringUtils.java
+@@ -5260,6 +5260,27 @@ public class StringUtils {
+         return true;
+     }
+ 
++    /**
++     * <p>Finds the last occurrence of the given object in the array.</p>
++     *
++     * <p>The array is searched from its last element towards its first.</p>
++     *
++     * @param array  the array to search through
++     * @param objectToFind  the object to find
++     * @return the index of the last occurrence of the object in the array,
++     *  -1 if there is none
++     */
++    public static int lastOccurrence(Object[] array, Object objectToFind) {
++        for (int i = array.length - 1; i >= 0; i--) {
++            final Object element = array[i];
++            if (element == objectToFind || element != null && element.equals(objectToFind)) {
++                return i;
++            }
++        }
++        return -1;
++    }
++
++
+     /**
+      * <p>Checks if the String contains only uppercase characters.</p>
+      *
+diff --git a/src/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 9f2096bb7..09d9c1674 100644
+--- a/src/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -351,6 +352,19 @@ public abstract class ToStringStyle implements Serializable {
+         }
+     }
+ 
++    /**
++     * <p>Finds the last index of the given object within an array.</p>
++     *
++     * @param array  the array to search through, not null
++     * @param objectToFind  the object to find
++     * @return the last index of the object within the array, -1 if it is
++     *  not found
++     */
++    public static int positionFromEnd(Object[] array, Object objectToFind) {
++        return FastDateFormat.lastPositionWithin(array, objectToFind);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the start of data indicator.</p>
+      * 
+diff --git a/src/java/org/apache/commons/lang3/text/StrBuilder.java b/src/java/org/apache/commons/lang3/text/StrBuilder.java
+index a9ee8c7dd..d97739f1b 100644
+--- a/src/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -611,6 +612,19 @@ public class StrBuilder implements CharSequence, Appendable {
+         return this;
+     }
+ 
++    /**
++     * <p>Finds the last index of the given object within an array.</p>
++     *
++     * @param array  the array to search through, not null
++     * @param objectToFind  the object to find
++     * @return the last index of the object within the array, -1 if it is
++     *  not found
++     */
++    public static int lastMatchIn(Object[] array, Object objectToFind) {
++        return StringUtils.lastOccurrence(array, objectToFind);
++    }
++
++
+     /**
+      * Appends part of a string builder to this string builder.
+      * Appending null will call {@link #appendNull()}.
+diff --git a/src/java/org/apache/commons/lang3/time/DateUtils.java b/src/java/org/apache/commons/lang3/time/DateUtils.java
+index 8cb019e06..38bea0bb6 100644
+--- a/src/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -1180,6 +1181,24 @@ public class DateUtils {
+             throw new ClassCastException("Could not iterate based on " + focus);
+         }
+     }
++
++    /**
++     * <p>Finds the last index of the given object within an array.</p>
++     *
++     * <p>A <code>null</code> array gives -1.</p>
++     *
++     * @param array  the array to search through, may be <code>null</code>
++     * @param objectToFind  the object to find
++     * @return the last index of the object within the array, -1 if it is
++     *  not found or the array is <code>null</code>
++     */
++    public static int lastPositionOf(Object[] array, Object objectToFind) {
++        if (array == null) {
++            return -1;
++        }
++        return ToStringStyle.positionFromEnd(array, objectToFind);
++    }
++
+     
+     /**
+      * <p>Returns the number of milliseconds within the 
+diff --git a/src/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/java/org/apache/commons/lang3/time/FastDateFormat.java
+index d60af9610..4741bf1bc 100644
+--- a/src/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -945,6 +946,19 @@ public class FastDateFormat extends Format {
+         return mTimeZoneForced;
+     }
+ 
++    /**
++     * <p>Finds the last index of the given object within an array.</p>
++     *
++     * @param array  the array to search through, not null
++     * @param objectToFind  the object to find
++     * @return the last index of the object within the array, -1 if it is
++     *  not found
++     */
++    public static int lastPositionWithin(Object[] array, Object objectToFind) {
++        return StrBuilder.lastMatchIn(array, objectToFind);
++    }
++
++
+     /**
+      * <p>Gets the locale used by this formatter.</p>
+      * 

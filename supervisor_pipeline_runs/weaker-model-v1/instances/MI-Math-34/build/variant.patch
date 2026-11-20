@@ -1,0 +1,205 @@
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index d278a3128..63c66c8f7 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -20,6 +20,9 @@ package org.apache.commons.math3.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math3.FieldElement;
++import java.util.List;
++import org.apache.commons.math3.genetics.Chromosome;
++import org.apache.commons.math3.linear.BlockFieldMatrix;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -656,6 +659,19 @@ public class Dfp implements FieldElement<Dfp> {
+         return field.getOne();
+     }
+ 
++    /**
++     * Returns the fittest chromosome of a range of a list, in the order of
++     * {@link Chromosome#compareTo(Chromosome)}.
++     * @param elements the list holding the range
++     * @param from the start index of the range, inclusive
++     * @param to the end index of the range, exclusive
++     * @return the fittest chromosome of the range
++     */
++    public static Chromosome greatestOf(final List<Chromosome> elements, final int from, final int to) {
++        return BlockFieldMatrix.greatestEntryInRange(elements, from, to);
++    }
++
++
+     /** Get the constant 2.
+      * @return a Dfp with value two
+      */
+diff --git a/src/main/java/org/apache/commons/math3/genetics/ListPopulation.java b/src/main/java/org/apache/commons/math3/genetics/ListPopulation.java
+index 3f3919cb6..8652da8d2 100644
+--- a/src/main/java/org/apache/commons/math3/genetics/ListPopulation.java
++++ b/src/main/java/org/apache/commons/math3/genetics/ListPopulation.java
+@@ -145,17 +145,10 @@ public abstract class ListPopulation implements Population {
+     /**
+      * Access the fittest chromosome in this population.
+      * @return the fittest chromosome.
++       The chromosomes are first sorted from the fittest to the least fit, and the first chromosome of the sorted list is returned.
+      */
+     public Chromosome getFittestChromosome() {
+-        // best so far
+-        Chromosome bestChromosome = this.chromosomes.get(0);
+-        for (Chromosome chromosome : this.chromosomes) {
+-            if (chromosome.compareTo(bestChromosome) > 0) {
+-                // better chromosome found
+-                bestChromosome = chromosome;
+-            }
+-        }
+-        return bestChromosome;
++        return org.apache.commons.math3.linear.BlockRealMatrix.greatestEntry(this.chromosomes);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+index d26fc5b53..e16b2831f 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+@@ -26,6 +26,8 @@ import org.apache.commons.math3.exception.DimensionMismatchException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
++import java.util.List;
++import org.apache.commons.math3.genetics.Chromosome;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -603,6 +605,20 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Returns the fittest chromosome of a range of a list, in the order of
++     * {@link Chromosome#compareTo(Chromosome)}.
++     *
++     * @param entries the list holding the range
++     * @param from the start index of the range, inclusive
++     * @param to the end index of the range, exclusive
++     * @return the fittest chromosome of the range
++     */
++    public static Chromosome greatestEntryInRange(final List<Chromosome> entries, final int from, final int to) {
++        return FastMath.maxOfRange(entries, from, to);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public T[][] getData() {
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+index 04ba0b2e0..17342f96d 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+@@ -26,6 +26,9 @@ import org.apache.commons.math3.exception.NullArgumentException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
++import java.util.List;
++import org.apache.commons.math3.genetics.Chromosome;
++import org.apache.commons.math3.dfp.Dfp;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -845,6 +848,18 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return out;
+     }
+ 
++    /**
++     * Returns the fittest chromosome of a list, in the order of
++     * {@link Chromosome#compareTo(Chromosome)}.
++     *
++     * @param entries the list of chromosomes, not empty
++     * @return the fittest chromosome of the list
++     */
++    public static Chromosome greatestEntry(final List<Chromosome> entries) {
++        return Dfp.greatestOf(entries, 0, entries.size());
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setRowMatrix(final int row, final RealMatrix matrix) {
+diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+index 6770cb5e7..371cbb77f 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+@@ -31,6 +31,8 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optimization.GoalType;
+ import org.apache.commons.math3.optimization.PointValuePair;
+ import org.apache.commons.math3.optimization.MultivariateOptimizer;
++import java.util.List;
++import org.apache.commons.math3.genetics.Chromosome;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -230,6 +232,31 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Returns the fittest chromosome of a range of a list, in the order of
++     * {@link Chromosome#compareTo(Chromosome)}.
++     *
++     * @param items the list holding the range
++     * @param from the start index of the range, inclusive
++     * @param to the end index of the range, exclusive
++     * @return the fittest chromosome of the range
++     */
++    public static Chromosome largestElement(final List<Chromosome> items, final int from, final int to) {
++        Chromosome best = items.get(from);
++        int i = from;
++        while (i < to - 1) {
++            final Chromosome first = items.get(i);
++            final Chromosome second = items.get(i + 1);
++            final Chromosome larger = (second.compareTo(first) > 0) ? second : first;
++            if (larger.compareTo(best) > 0) {
++                best = larger;
++            }
++            i += 2;
++        }
++        return best;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/util/FastMath.java b/src/main/java/org/apache/commons/math3/util/FastMath.java
+index e58087719..ba72bb126 100644
+--- a/src/main/java/org/apache/commons/math3/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math3/util/FastMath.java
+@@ -17,6 +17,9 @@
+ package org.apache.commons.math3.util;
+ 
+ import java.io.PrintStream;
++import java.util.List;
++import org.apache.commons.math3.genetics.Chromosome;
++import org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  * Faster, more accurate, portable alternative to {@link Math} and
+@@ -434,6 +437,20 @@ public class FastMath {
+       return result;
+     }
+ 
++    /**
++     * Get the fittest chromosome of a range of a list, in the order of
++     * {@link Chromosome#compareTo(Chromosome)}.
++     *
++     * @param values the list holding the range
++     * @param from the start index of the range, inclusive
++     * @param to the end index of the range, exclusive
++     * @return the fittest chromosome of the range
++     */
++    public static Chromosome maxOfRange(final List<Chromosome> values, final int from, final int to) {
++        return BOBYQAOptimizer.largestElement(values, from, to);
++    }
++
++
+     /** Compute the hyperbolic sine of a number.
+      * @param x number on which evaluation is done
+      * @return hyperbolic sine of x

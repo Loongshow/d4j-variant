@@ -1,0 +1,237 @@
+{
+ "bug_id": 141,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "if (!NodeUtil.containsType(root, Token.FUNCTION)) { Compiler.CodeBuilder.addBranchVars(root, vars); }",
+   "old": "Compiler.CodeBuilder.addBranchVars(root, vars);",
+   "why": "hop 4 skips a branch that contains a function"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "if (root.getType() != Token.FUNCTION) { TypeCheck.gatherVarDecls(root, vars); }",
+   "old": "TypeCheck.gatherVarDecls(root, vars);",
+   "why": "hop 3 skips a branch that is itself a function"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "if (root.getFirstChild() == null || root.getFirstChild().getType() != Token.FUNCTION) { TokenStream.addVarDeclarations(root, vars); }",
+   "old": "TokenStream.addVarDeclarations(root, vars);",
+   "why": "hop 2 skips a branch whose first statement is a function"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /**\n     * Adds the vars declared in a branch to a map, each name mapped to the\n     * NAME node of its first declaration.\n     *\n     * @param n the root of the branch\n     * @param vars the map to add to\n     */\n    public static void addBranchVars(Node n, Map<String, Node> vars) {\n      if (n.getType() == Token.NAME) {\n        Node parent = n.getParent();\n        if (parent != null && parent.getType() == Token.VAR\n            && !vars.containsKey(n.getString())) {\n          vars.put(n.getString(), n);\n        }\n      } else if (n.getType() != Token.FUNCTION) {\n        for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {\n          addBranchVars(c, vars);\n        }\n      }\n    }\n\n\n    /** Returns the (zero-based) index of the last line in the text buffer. */",
+   "old": "\n    /** Returns the (zero-based) index of the last line in the text buffer. */",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "new": "import com.google.javascript.rhino.FunctionNode;\nimport com.google.javascript.rhino.JSDocInfo;\nimport com.google.javascript.rhino.Node;\nimport com.google.javascript.rhino.Token;\nimport com.google.javascript.rhino.TokenStream;\n\nimport java.util.Arrays;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.HashSet;\nimport java.util.List;",
+   "old": "import com.google.common.collect.Maps;\nimport com.google.javascript.rhino.FunctionNode;\nimport com.google.javascript.rhino.JSDocInfo;\nimport com.google.javascript.rhino.Node;\nimport com.google.javascript.rhino.Token;\nimport com.google.javascript.rhino.TokenStream;\n\nimport java.util.Arrays;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Map;",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "new": "  /**\n   * Retrieves vars declared in the current node tree, excluding descent scopes.\n     The tree is first flattened level by level into a list of its nodes, and the names declared in that list are sorted alphabetically before their nodes are returned.\n     */\n  public static Collection<Node> getVarsDeclaredInBranch(Node root) {\n        return com.google.javascript.rhino.Node.getDeclaredVars(root);\n    }",
+   "old": "  private static class VarCollector implements Visitor {\n    final Map<String, Node> vars = Maps.newLinkedHashMap();\n\n    public void visit(Node n) {\n      if (n.getType() == Token.NAME) {\n        Node parent = n.getParent();\n        if (parent != null && parent.getType() == Token.VAR) {\n          String name = n.getString();\n          if (!vars.containsKey(name)) {\n            vars.put(name, n);\n          }\n        }\n      }\n    }\n  }\n\n  /**\n   * Retrieves vars declared in the current node tree, excluding descent scopes.\n   */\n  public static Collection<Node> getVarsDeclaredInBranch(Node root) {\n    VarCollector collector = new VarCollector();\n    visitPreOrder(\n        root,\n        collector,\n        Predicates.<Node>not(new NodeUtil.MatchNodeType(Token.FUNCTION)));\n    return collector.vars.values();\n  }",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "import java.util.Iterator;\nimport java.util.Map;\n",
+   "old": "import java.util.Iterator;\n",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "  }\n\n        /**\n     * Adds the vars declared in a branch to a map, keyed by name.\n     *\n     * @param root the root of the branch\n     * @param vars the map to add the vars to\n     */\n    public static void gatherVarDecls(Node root, Map<String, Node> vars) {\n      Compiler.CodeBuilder.addBranchVars(root, vars);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "new": "import java.util.Set;\nimport java.util.Collection;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "new": "    /**\n     * Returns the vars declared in a branch of a tree, in the order of their\n     * first declarations.\n     *\n     * @param root the root of the branch\n     * @return the NAME node of the first declaration of each var\n     */\n    public static Collection<Node> getDeclaredVars(Node root) {\n      return Parser.declaredVarMap(root).values();\n    }\n\n\n    /**\n     * Check for more than one child more efficiently than by iterating over all",
+   "old": "    /**\n     * Check for more than one child more efficiently than by iterating over all",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "import java.util.List;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "        return parse();\n    }\n\n    /**\n     * Maps the name of each var declared in a branch of a tree to the NAME\n     * node of its first declaration.\n     *\n     * @param root the root of the branch\n     * @return the map, in the order of the first declarations\n     */\n    public static Map<String, Node> declaredVarMap(Node root)\n    {\n        Map<String, Node> vars = new LinkedHashMap<String, Node>();\n        TokenStream.addVarDeclarations(root, vars);\n        return vars;\n    }\n\n\n    private ScriptOrFnNode parse()",
+   "old": "        return parse();\n    }\n\n    private ScriptOrFnNode parse()",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "import java.io.Reader;\nimport java.util.Map;\nimport com.google.javascript.jscomp.TypeCheck;\n",
+   "old": "import java.io.Reader;\n",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "        }\n    }\n\n    /**\n     * Adds the vars declared in a branch of a tree to a map, each name mapped\n     * to the NAME node of its first declaration.\n     *\n     * @param root the root of the branch\n     * @param vars the map to add the vars to\n     */\n    public static void addVarDeclarations(Node root, Map<String, Node> vars) {\n        TypeCheck.gatherVarDecls(root, vars);\n    }\n\n\n    /**",
+   "old": "        }\n    }\n\n    /**",
+   "purpose": "MR-Closure-141 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.rhino.Node",
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "method": "getDeclaredVars"
+  },
+  {
+   "class": "com.google.javascript.rhino.Parser",
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "method": "declaredVarMap"
+  },
+  {
+   "class": "com.google.javascript.rhino.TokenStream",
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "method": "addVarDeclarations"
+  },
+  {
+   "class": "com.google.javascript.jscomp.TypeCheck",
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "method": "gatherVarDecls"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-141.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.NodeUtil::getVarsDeclaredInBranch"
+ ],
+ "evidence": [
+  "com.google.javascript.jscomp.SyntacticScopeCreator::scanVars",
+  "com.google.javascript.jscomp.NodeUtil::redeclareVarsInsideBranch",
+  "com.google.javascript.jscomp.NodeUtil::getVarsDeclaredInBranch"
+ ],
+ "expected_signature": "expected:<[]> but was:<[foo]>",
+ "extra_tests": [],
+ "fixture_key": "Closure-141",
+ "gold": {
+  "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+  "edits": [
+   {
+    "new": "          vars.put(n.getString(), n);\n        }\n      } else {",
+    "old": "          vars.put(n.getString(), n);\n        }\n      } else if (n.getType() != Token.FUNCTION) {"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/Compiler.java",
+  "method": "addBranchVars"
+ },
+ "group": "MR-Closure-141",
+ "hops": 5,
+ "iid": "MR-Closure-141",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold walks the tree and decides, node by node, whether to record a declared name and whether to enter a node's children; hops 1-4 hold the root of the branch and the map and get the filled map back, and a nested function's var, once recorded under its name, cannot be told apart from a var of the branch by any caller, and it keeps a later declaration of the same name in the branch itself from being recorded (first declaration wins), so removing entries afterwards cannot restore the branch's own var. The convention is pinned outside the gold: SyntacticScopeCreator.scanVars declares a function's name and does not examine the function's children, and SyntacticScopeCreatorTest.testFunctionScope asserts that y in '[function bar2() { var y; }]' is not declared in the global scope; the facade's production caller NodeUtil.redeclareVarsInsideBranch redeclares 'the VAR declarations in that tree that are not in an inner scope', and FoldConstantsTest.testVarLifting lifts only 'var a' out of 'if(false)var a=function(){var b};'; the facade's own javadoc says 'excluding descent scopes'. The gold's javadoc promises the vars declared in a branch, which foo, a var of the anonymous function in 'function(){var foo;}', is not. A one-line loop at hop 4 that calls the gold only for the root's children that are not functions passes the existing tests but still enters a function one block deeper, so it does not deliver hop 4's documented result.",
+ "ownership_tests": [
+  "com.google.javascript.jscomp.SyntacticScopeCreatorTest::testFunctionScope",
+  "com.google.javascript.jscomp.FoldConstantsTest::testVarLifting",
+  "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testRemovalRequiresRedeclaration"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "hasOneChild",
+    "anchor_seed": 5230,
+    "class": "com.google.javascript.rhino.Node",
+    "file": "src/com/google/javascript/rhino/Node.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.util.Collection;"
+    ],
+    "method": "getDeclaredVars",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "parse",
+    "anchor_seed": 5231,
+    "class": "com.google.javascript.rhino.Parser",
+    "file": "src/com/google/javascript/rhino/Parser.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.util.LinkedHashMap;",
+     "import java.util.Map;"
+    ],
+    "method": "declaredVarMap",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getToken",
+    "anchor_seed": 5232,
+    "class": "com.google.javascript.rhino.TokenStream",
+    "file": "src/com/google/javascript/rhino/TokenStream.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.util.Map;",
+     "import com.google.javascript.jscomp.TypeCheck;"
+    ],
+    "method": "addVarDeclarations",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 5233,
+    "class": "com.google.javascript.jscomp.TypeCheck",
+    "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.util.Map;"
+    ],
+    "method": "gatherVarDecls",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getLength",
+    "anchor_seed": 5234,
+    "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "addBranchVars",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 5130
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-141"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.NodeUtilTest",
+  "test_file": "test/com/google/javascript/jscomp/NodeUtilTest.java",
+  "test_method": "testGetVarsDeclaredInBranch"
+ },
+ "variant_id": "CTV-42F169",
+ "kind": "new",
+ "fault_lines": [
+  "vars.put(n.getString(), n);\n        }\n      } else {"
+ ],
+ "gold_key": "com.google.javascript.jscomp.Compiler$CodeBuilder::addBranchVars"
+}

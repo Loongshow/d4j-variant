@@ -1,0 +1,243 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 98ca1c87b..2a0f51249 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -27,6 +27,7 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
+ import org.apache.commons.lang3.mutable.MutableInt;
++import java.util.Random;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like {@code int[]}) and
+@@ -4379,6 +4380,47 @@ public class ArrayUtils {
+         return remove(array, index);
+     }
+ 
++    /**
++     * <p>Creates a random string whose length is the number of characters
++     * specified.</p>
++     *
++     * <p>Characters will be chosen as indicated by the arguments.</p>
++     *
++     * @param count  the length of random string to create, positive
++     * @param start  the first character code to choose from
++     * @param gap  the number of character codes to choose from, positive
++     * @param letters  if {@code true}, generated string will include
++     *  alphabetic characters
++     * @param numbers  if {@code true}, generated string will include
++     *  numeric characters
++     * @param random  a source of randomness
++     * @return the random string
++     */
++    public static String randomChars(int count, int start, int gap, boolean letters, boolean numbers, Random random) {
++        final char[] buffer = new char[count];
++        while (count-- != 0) {
++            final char ch = (char) (random.nextInt(gap) + start);
++            final boolean low = ch >= 56320 && ch <= 57343;
++            final boolean high = ch >= 55296 && ch <= 56191;
++            if ((letters && Character.isLetter(ch) || numbers && Character.isDigit(ch) || !letters && !numbers)
++                    && (ch < 56192 || ch > 56319) && (count > 0 || !low && !high)) {
++                if (low) {
++                    buffer[count] = ch;
++                    count--;
++                    buffer[count] = (char) (55296 + random.nextInt(128));
++                } else if (high) {
++                    buffer[count] = (char) (56320 + random.nextInt(128));
++                    count--;
++                    buffer[count] = ch;
++                } else {
++                    buffer[count] = ch;
++                }
++            }
++        }
++        return new String(buffer);
++    }
++
++
+     /**
+      * <p>Removes the element at the specified position from the specified array.
+      * All subsequent elements are shifted to the left (subtracts one from
+diff --git a/src/main/java/org/apache/commons/lang3/RandomStringUtils.java b/src/main/java/org/apache/commons/lang3/RandomStringUtils.java
+index a79905754..3ddbe07a4 100644
+--- a/src/main/java/org/apache/commons/lang3/RandomStringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/RandomStringUtils.java
+@@ -138,9 +138,10 @@ public class RandomStringUtils {
+      * @param numbers  if {@code true}, generated string will include
+      *  numeric characters
+      * @return the random string
++       The string is filled from its first position to its last, each character being cut from the low sixteen bits of a single random long.
+      */
+     public static String random(int count, boolean letters, boolean numbers) {
+-        return random(count, 0, 0, letters, numbers);
++        return org.apache.commons.lang3.text.StrBuilder.randomText(count, letters, numbers, RANDOM);
+     }
+     
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 5a70e09bb..dc16b8dcb 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -24,6 +24,8 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import java.util.Random;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -1747,6 +1749,26 @@ public class StringUtils {
+         return true;
+     }
+ 
++    /**
++     * <p>Creates a random string of a positive length, choosing from the
++     * character codes from {@code start} up to, but not including,
++     * {@code end}.</p>
++     *
++     * @param count  the length of random string to create, positive
++     * @param start  the first character code to choose from
++     * @param end  the character code to end before, greater than start
++     * @param letters  if {@code true}, generated string will include
++     *  alphabetic characters
++     * @param numbers  if {@code true}, generated string will include
++     *  numeric characters
++     * @param random  a source of randomness
++     * @return the random string
++     */
++    public static String randomBetween(int count, int start, int end, boolean letters, boolean numbers, Random random) {
++        return DateUtils.randomSpan(count, start, end - start, letters, numbers, random);
++    }
++
++
+     /**
+      * <p>Checks that the CharSequence does not contain certain characters.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 8164970a4..29d3a1e84 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,8 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Random;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -384,6 +386,29 @@ public abstract class ToStringStyle implements Serializable {
+         }
+     }
+ 
++    /**
++     * <p>Creates a random string of a positive length from a range of
++     * character codes.</p>
++     *
++     * <p>When letters or numbers are requested, the range runs from
++     * {@code ' '} to {@code 'z'}, the ASCII printable characters; otherwise
++     * it runs from {@code 0} up to {@code Integer.MAX_VALUE}.</p>
++     *
++     * @param count  the length of random string to create, positive
++     * @param letters  if {@code true}, generated string will include
++     *  alphabetic characters
++     * @param numbers  if {@code true}, generated string will include
++     *  numeric characters
++     * @param random  a source of randomness
++     * @return the random string
++     */
++    public static String randomFromRange(int count, boolean letters, boolean numbers, Random random) {
++        final int start = letters || numbers ? ' ' : 0;
++        final int end = letters || numbers ? 'z' + 1 : Integer.MAX_VALUE;
++        return StringUtils.randomBetween(count, start, end, letters, numbers, random);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the end of data indicator.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index b97cbd7ae..a36e8ce85 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -25,6 +25,8 @@ import java.util.List;
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Random;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -718,6 +720,31 @@ public class StrBuilder implements CharSequence, Appendable, Serializable {
+         return this;
+     }
+ 
++    /**
++     * <p>Creates a random string whose length is the number of characters
++     * specified.</p>
++     *
++     * <p>A length of zero gives the empty string.</p>
++     *
++     * @param count  the length of random string to create
++     * @param letters  if {@code true}, generated string will include
++     *  alphabetic characters
++     * @param numbers  if {@code true}, generated string will include
++     *  numeric characters
++     * @param random  a source of randomness
++     * @return the random string
++     * @throws IllegalArgumentException if {@code count} &lt; 0
++     */
++    public static String randomText(int count, boolean letters, boolean numbers, Random random) {
++        if (count == 0) {
++            return "";
++        } else if (count < 0) {
++            throw new IllegalArgumentException("Requested random string length " + count + " is less than 0.");
++        }
++        return ToStringStyle.randomFromRange(count, letters, numbers, random);
++    }
++
++
+     /**
+      * Appends a char value to the string builder.
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index 492c4f363..f90a33cbb 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -23,6 +23,8 @@ import java.util.Calendar;
+ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
++import java.util.Random;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -514,6 +516,25 @@ public class DateUtils {
+         return set(date, Calendar.DAY_OF_MONTH, amount);
+     }
+ 
++    /**
++     * <p>Creates a random string of a positive length, choosing from a
++     * range of character codes given by its first code and its width.</p>
++     *
++     * @param count  the length of random string to create, positive
++     * @param start  the first character code to choose from
++     * @param gap  the number of character codes to choose from, positive
++     * @param letters  if {@code true}, generated string will include
++     *  alphabetic characters
++     * @param numbers  if {@code true}, generated string will include
++     *  numeric characters
++     * @param random  a source of randomness
++     * @return the random string
++     */
++    public static String randomSpan(int count, int start, int gap, boolean letters, boolean numbers, Random random) {
++        return ArrayUtils.randomChars(count, start, gap, letters, numbers, random);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Sets the hours field to a date returning a new object.  Hours range 

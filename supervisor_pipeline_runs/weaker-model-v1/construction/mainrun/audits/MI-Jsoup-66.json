@@ -1,0 +1,47 @@
+{
+  "instance": "Jsoup-66__i",
+  "iid": "MI-Jsoup-66",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.jsoup.nodes.Node::holdsText (hop 4)",
+      "edit": "return Whitelist.containsText(element);  ->  return Whitelist.containsText(element.clone());",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "note": "Workaround, not a repair: hands the gold a detached deep copy so its walk cannot escape into preceding siblings. The gold's code still violates its own javadoc ('Test if a node has any text content') for every attached node, and nothing on the path documents that hop 4 must detach. The same workaround is available at hops 1-3. Recorded as a bypass (masking the gold), not a competing repair."
+    },
+    {
+      "method": "Evaluator.IsRoot::hasNonBlankText (hop 2) and HtmlTreeBuilder::elementHasText (hop 3)",
+      "edit": "declared compensating edits (textNodes().isEmpty() guard, all-children-are-elements guard, hasParent() guard)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": null,
+      "class": "fails",
+      "note": "Validated by gate G9 (trigger still fails for all three); not re-run by me. By reasoning, none can work: div2 has a child <p> and a parent, so each guard still forwards it to the gold."
+    }
+  ],
+  "path": [
+    "facade org.jsoup.nodes.Element::hasText (instance, V2: passes this; body = one call to hop 1)",
+    "hop1 org.jsoup.helper.HttpConnection::hasTextContent (pass-through)",
+    "hop2 org.jsoup.select.Evaluator.IsRoot::hasNonBlankText (false for no child nodes, else delegate)",
+    "hop3 org.jsoup.parser.HtmlTreeBuilder::elementHasText (pass-through)",
+    "hop4 org.jsoup.nodes.Node::holdsText (pass-through)",
+    "gold org.jsoup.safety.Whitelist::containsText (reverse depth-first walk; omitted 'if (current == node) break;')"
+  ],
+  "reasons": "Variant compiles. Only ElementsTest::hasText fails in the full suite (line 124, assertFalse on div + div). On <div><p></p></div>, the gold climbs back to the searched div at depth 0, then moves to div.previousSibling() (the first div) and finds 'Hello', so it returns true. (a) Only the gold's own code breaks its contract ('Test if a node has any text content'); hops 1-4 pass the element along or add a correct guard. (b) Each hop's javadoc matches its code. The 'with at least one child node' preconditions of hops 3 and 4 are met by hop 2's guard. (c) No one-line hop edit fixes the trigger while staying consistent with the docs. The deep-clone workaround at hop 4 passes everything but leaves the gold violating its javadoc for attached nodes, so it is a bypass. (d) Names are neutral, and the gold javadoc ('from the last child node back') states no stopping rule. The facade lie ('The element's text is collected first, with its whitespace normalised, and is then tested for being empty.') describes an algorithm the code does not run and names neither the omitted root stop nor any hop. (e) The gold is five calls below the facade. The five hops sit in the task's hosts_hop_order files in order (HttpConnection 1204, Evaluator 753, HtmlTreeBuilder 725, Node 714, Whitelist 646). The facade is a single delegating call (no original guard). The lie is one appended sentence. The trigger is an existing test, test.patch is empty, and the variant differs from correct.patch only in the gold line. (f) The intact NodeTraversor.traverse and NodeTraversor.filter do the same walk without recursion and stop with 'if (node == root)'. Element.text() uses traverse in production. TraversorTest::filterVisit and ElementsTest::traverse pass. C10i rules: the facade is hasText, an allowed candidate. Its signature is unchanged (public boolean hasText(), no throws, not an override). IsRoot was already public static final, so no visibility is widened. No type is added, there is no reflection and no test is edited. The hops use only public Node/Element/TextNode methods (cross-package compile confirms).",
+  "notes": "Hop 2 lands inside the existing nested class Evaluator.IsRoot via the seeded anchor 'matches'. It is a different class from the other four hosts, but its name ('IsRoot') is thematically near the omitted root stop. It may draw attention to hop 2, not to the gold. Hop 2's childNodeSize()==0 guard is what lets ElementTest::testHasText (the empty last <p>) pass on the variant. The facade calls hop 1 through a fully qualified name rather than an import. This is cosmetic. Scratch /private/tmp/mxb-WNKewg deleted."
+}

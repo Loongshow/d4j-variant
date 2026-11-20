@@ -1,0 +1,87 @@
+{
+  "instance": "Compress-14",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::binaryValueOf (gold)",
+      "edit": "val = (val << 8) + buffer[offset + i];  ->  val = (val << 8) + (buffer[offset + i] & 0xff);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "gold repair (reference; full suite per G1)"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::binaryNumberValue (hop 2)",
+      "edit": "buffer[offset] & 0x7f  ->  buffer[offset] & 0xff",
+      "trigger_passes": false,
+      "ownership_tests_pass": false,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream::valueOfBinary (hop 3)",
+      "edit": "ZipFile.binaryValue(buffer, offset, length, lead)  ->  ZipFile.binaryValue(buffer, offset, length, lead & 0x7f)",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": true,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipFile::binaryValue (hop 4)",
+      "edit": "binaryValueOf(buffer, offset, length, lead)  ->  binaryValueOf(buffer, offset, Math.min(length, 8), lead)",
+      "trigger_passes": false,
+      "ownership_tests_pass": false,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipFile::binaryValue (hop 4)",
+      "edit": "return TarArchiveEntry.binaryValueOf(buffer, offset, length, lead);  ->  return new java.math.BigInteger(1, java.util.Arrays.copyOfRange(buffer, offset, offset + length)).clearBit(8 * length - 1).longValue();",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::binaryNumberValue (hop 2)",
+      "edit": "return BZip2CompressorInputStream.valueOfBinary(buffer, offset, length, buffer[offset] & 0x7f);  ->  return java.nio.ByteBuffer.wrap(buffer, offset, length).getLong() & Long.MAX_VALUE;  (the lie's algorithm)",
+      "trigger_passes": true,
+      "ownership_tests_pass": false,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipFile::binaryValue (hop 4)",
+      "edit": "3-line post-correction: long v = TarArchiveEntry.binaryValueOf(buffer, offset, length, lead); for (int i = 1; i < length; i++) { if (buffer[offset + i] < 0) { v += 1L << (8 * (length - i)); } } return v;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.compress.archivers.tar.TarUtils::parseOctalOrBinary (one delegating call; original had no argument guard)",
+    "hop1 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::valueOfNumber (marker-bit test; octal -> TarUtils.parseOctal, binary -> hop 2)",
+    "hop2 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::binaryNumberValue (lead = buffer[offset] & 0x7f)",
+    "hop3 org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream::valueOfBinary (pass-through)",
+    "hop4 org.apache.commons.compress.archivers.zip.ZipFile::binaryValue (pass-through)",
+    "gold org.apache.commons.compress.archivers.tar.TarArchiveEntry::binaryValueOf (big-endian fold of bytes 1..length-1 onto lead; fault: & 0xff mask omitted, so bytes >= 0x80 are added sign-extended)"
+  ],
+  "reasons": "Reproduced: variant compiles; trigger TarUtilsTest::testRoundTripOctalOrBinary fails with expected:<9223372036854775807> but was:<9151031864016699135> (Long.MAX_VALUE written as ff ff ff ff ff ff ff ff); the full suite on the variant has exactly that one failure, and the trigger passes on the pristine checkout and with the gold edit reverted. The four ownership tests pass on the variant. (a) Only the gold folds the bytes after the first byte into the value. Its javadoc promises the value of the binary number given the first byte's value, and adding signed bytes breaks that promise for any byte >= 0x80. Hop 1 (marker test and dispatch) and hop 2 (lead = low seven bits, exactly as its javadoc says) give correct inputs, and hops 3 and 4 are pure pass-throughs, so they are wrong only because they pass on the gold's result. (b) No hop javadoc contradicts its code. Hop 2's javadoc states the 7-bit lead explicitly. Hops 3 and 4 have the same contract as the gold but only delegate, so no careful engineer would place the fault there. (c) The three declared hop edits all still fail the trigger, matching G9. My first run of them seemed to pass, but that was my own stale-class artifact (the restored file kept an older mtime); after forcing a recompile, all three fail. A lead adjustment cannot compensate, because the error comes from carries at positions 256^(n-i) for i >= 1, and only the i=1 carry is a multiple of the lead's weight. The lie's ByteBuffer.getLong at hop 2 passes the trigger but fails testBigFileStarMode, because of the 12-byte size field. The only passing non-gold edits are bypasses: a one-line BigInteger decode at hop 4, which makes the gold and the lead dead, and a 3-line carry post-correction at hop 4. The post-correction is neither equally small nor consistent with the gold's documented return value, and it still throws when an intermediate value goes negative (for example 80 ff 00 ...). No competing repair was found. (d) The hop names (valueOfNumber, binaryNumberValue, valueOfBinary, binaryValue, binaryValueOf) are neutral, and the added code has no comments. The gold reads as an ordinary fold. The lie ('decoded by wrapping the buffer in a java.nio.ByteBuffer and reading the number with a single getLong call') describes a different algorithm and does not name masking, sign extension or the omitted step. (e) The gold is exactly five calls below the facade, and the five hops sit in five existing classes. Per C10f addendum section 1, only one public class other than TarUtils reaches 1500 lines (BZip2CompressorOutputStream 1886; ZipArchiveOutputStream has 1495), so host_mode largest5 applies. The five largest public non-interface, non-enum classes other than TarUtils, by newline count, are BZip2CompressorOutputStream 1886, ZipArchiveOutputStream 1495, BZip2CompressorInputStream 1048, ZipFile 969 and TarArchiveEntry 926. I recomputed this list myself from the pristine checkout, and it is exactly hop 1 to hop 5 in order. The facade body is one delegating call, and the original had no argument guard. The javadoc has one added procedural sentence that the code does not perform. The gold's javadoc is silent on unsigned bytes. The trigger is an existing test (test.patch is empty) and is the only new failure. (f) The unsigned-byte convention is pinned outside the gold, by CpioUtil.byteArray2long (masked big-endian fold; CpioUtilTest::oldBinMagicFromByteArrayNotSwapped, byte 0xc7 after the first), ZipLong.getValue (ZipLongTest::testSign), TarUtils.parseName (masks for sign extension; testRoundTripNames with 0xb1 bytes) and TarUtils.formatLongOctalOrBinaryBytes (writes 8-bit bytes with the marker bit; TarArchiveOutputStreamTest::testBigFileStarMode round-trips through the chain). All of these tests pass.",
+  "notes": "1) Bypass recorded: in hop 4 ZipFile.binaryValue, replacing the body with `return new java.math.BigInteger(1, java.util.Arrays.copyOfRange(buffer, offset, offset + length)).clearBit(8 * length - 1).longValue();` passes the trigger, the ownership tests and the full suite, but it makes the gold and the lead parameter dead. 2) The lie line is placed after the @since tag and has no leading '*', so rendered javadoc shows it inside the @since text. This is cosmetic: it marks the facade as edited, not the gold. 3) The spec's ownership_reason says no caller can prepare the buffer so that unmasked addition comes out right. That is slightly overstated in theory, since a balanced signed-digit encoding plus an adjusted lead could represent some values. It would mean reimplementing the conversion in a caller, which is not a small repair, and the gold's overflow check rejects many such forms (for example Long.MAX_VALUE). 4) The gold's overflow check reads `(val >>> (63 - 8)) != 0` instead of the original `val >= (1L << (63 - 8))`. For the non-negative values the correct gold produces, the two are equivalent, so this is not a leak. 5) I did not rerun the seeded anchor picker, because it is outside my listed inputs. The insertion points match the spec's recorded anchor_after for each host (getBlockSize, setMethod, close, getEntriesInPhysicalOrder, the TarArchiveEntry constructor). 6) The scratch copy /private/tmp/mxb-vpBSYO has been deleted."
+}

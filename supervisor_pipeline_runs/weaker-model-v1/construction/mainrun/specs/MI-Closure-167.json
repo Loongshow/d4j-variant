@@ -1,0 +1,223 @@
+{
+ "bug_id": 167,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "  return JSTypeRegistry.canTestStrictEquality(leftType.restrictByNotNullOrUndefined(), rightType.restrictByNotNullOrUndefined());",
+   "old": "  return JSTypeRegistry.canTestStrictEquality(leftType, rightType);",
+   "why": "hop 1 strips null and undefined from both types before they are compared"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  return JSDocInfo.Marker.mayBeStrictlyEqual(rightType, leftType);",
+   "old": "  return JSDocInfo.Marker.mayBeStrictlyEqual(leftType, rightType);",
+   "why": "hop 2 passes the operands in the other order"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "  return TypeCheck.isStrictlyComparable(leftType.autobox(), rightType.autobox());",
+   "old": "  return TypeCheck.isStrictlyComparable(leftType, rightType);",
+   "why": "hop 4 compares the object forms of the two types"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.rhino.jstype.JSType;\nimport com.google.javascript.rhino.jstype.JSTypeRegistry;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "\n    /**\n     * Whether values of the two types can be meaningfully compared with\n     * {@code ===} or {@code !==}.\n     */\n    public static boolean canCompareStrictly(JSType leftType, JSType rightType) {\n      return JSTypeRegistry.canTestStrictEquality(leftType, rightType);\n    }\n\n\n    public boolean shouldStrip() {",
+   "old": "\n    public boolean shouldStrip() {",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "\n    /**\n     * Returns whether the two types can be meaningfully compared with the\n     * strict equality operators.\n     */\n    public static boolean allowsIdentityComparison(\n        JSType leftType, JSType rightType) {\n      return TypeCheck.isStrictlyComparable(leftType, rightType);\n    }\n\n\n    public boolean isGlobalScope() {",
+   "old": "\n    public boolean isGlobalScope() {",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "  }\n\n        /**\n     * Tests whether two types are meaningfully comparable using the strict\n     * equality operators {@code ===} and {@code !==}.\n     *\n     * @param leftType the type of the left operand\n     * @param rightType the type of the right operand\n     * @return whether a strict comparison of the two types is meaningful\n     */\n    public static boolean isStrictlyComparable(JSType leftType, JSType rightType) {\n      if (leftType.isEmptyType() || rightType.isEmptyType()) {\n        return leftType.isSubtype(rightType) || rightType.isSubtype(leftType);\n      }\n      JSType meet = leftType.getGreatestSubtype(rightType);\n      if (meet.isFunctionType()) {\n        return true;\n      }\n      return !meet.isEmptyType();\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.SymbolTable;\nimport com.google.javascript.rhino.jstype.JSType;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "      return nameNode;\n    }\n\n    /**\n     * Gets whether a strict equality test between values of the two\n     * types is meaningful.\n     */\n    public static boolean mayBeStrictlyEqual(JSType leftType, JSType rightType) {\n      return SymbolTable.SymbolScope.allowsIdentityComparison(\n          leftType, rightType);\n    }\n\n\n    void setNameNode(SourcePosition<Node> p) {",
+   "old": "      return nameNode;\n    }\n\n    void setNameNode(SourcePosition<Node> p) {",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSType.java",
+   "new": "     Both types are first widened to their least supertype, and the comparison is allowed unless that supertype is the top type.\n     */\n  public final boolean canTestForShallowEqualityWith(JSType that) {\n        return com.google.javascript.jscomp.CompilerOptions.TweakProcessing.canCompareStrictly(\n        this, that);\n    }",
+   "old": "   */\n  public final boolean canTestForShallowEqualityWith(JSType that) {\n    if (isEmptyType() || that.isEmptyType()) {\n      return isSubtype(that) || that.isSubtype(this);\n    }\n\n    JSType inf = getGreatestSubtype(that);\n    return !inf.isEmptyType() ||\n        // Our getGreatestSubtype relation on functions is pretty bad.\n        // Let's just say it's always ok to compare two functions.\n        // Once the TODO in FunctionType is fixed, we should be able to\n        // remove this.\n        inf == registry.getNativeType(JSTypeNative.LEAST_FUNCTION_TYPE);\n  }",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.rhino.JSDocInfo;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  }\n\n        /**\n     * Tests whether two types are meaningfully comparable using strict\n     * (shallow) equality.\n     *\n     * @param leftType the type of the left operand\n     * @param rightType the type of the right operand\n     */\n    public static boolean canTestStrictEquality(JSType leftType, JSType rightType) {\n      return JSDocInfo.Marker.mayBeStrictlyEqual(leftType, rightType);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MI-Closure-167 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "method": "canCompareStrictly"
+  },
+  {
+   "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "method": "canTestStrictEquality"
+  },
+  {
+   "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "method": "mayBeStrictlyEqual"
+  },
+  {
+   "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "method": "allowsIdentityComparison"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-167__i.py",
+ "entry_points": [
+  "com.google.javascript.rhino.jstype.JSType::canTestForShallowEqualityWith"
+ ],
+ "evidence": [
+  "com.google.javascript.rhino.jstype.FunctionType::getGreatestSubtype",
+  "com.google.javascript.rhino.jstype.FunctionType::supAndInfHelper",
+  "com.google.javascript.rhino.jstype.JSType::testForEquality"
+ ],
+ "expected_signature": "condition always evaluates to false",
+ "extra_tests": [],
+ "fixture_key": "Closure-167",
+ "gold": {
+  "class": "com.google.javascript.jscomp.TypeCheck",
+  "edits": [
+   {
+    "new": "      JSType meet = leftType.getGreatestSubtype(rightType);\n",
+    "old": "      JSType meet = leftType.getGreatestSubtype(rightType);\n      if (meet.isFunctionType()) {\n        return true;\n      }\n"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+  "method": "isStrictlyComparable"
+ },
+ "group": "MI-Closure-167",
+ "hops": 5,
+ "iid": "MI-Closure-167",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold computes the greatest subtype (the meet) of the two types and decides on it; hops 1-4 pass the two types along unchanged. The gold's javadoc promises whether the two types are meaningfully comparable with === and !==; for the constructor types of G and of H (H extends G, so x.constructor of a G may be H) the comparison is not determined, yet the variant gold answers no because their meet, the least function type, is empty. The convention that the least function type is the meet of distinct function types, even of functions that are subtypes of each other, is pinned by FunctionType.getGreatestSubtype / supAndInfHelper ('the LEAST_FUNCTION_TYPE type at the bottom of the lattice') and JSTypeTest testFunctionTypeRelationships; the == sibling JSType.testForEquality never decides a comparison of a function with an object (JSTypeTest testTestForEquality; testFunctionType asserts that a function type can be tested for equality with itself). No change of the operands above the gold (stripping null and undefined, swapping, autoboxing) changes their meet; a hop that answers related or function-typed pairs itself replaces the gold's decision for those pairs (recorded as bypasses).",
+ "ownership_tests": [
+  "com.google.javascript.rhino.jstype.JSTypeTest::testFunctionTypeRelationships",
+  "com.google.javascript.rhino.jstype.JSTypeTest::testTestForEquality",
+  "com.google.javascript.rhino.jstype.JSTypeTest::testFunctionType"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "isOn",
+    "anchor_seed": 6764,
+    "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+    "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.google.javascript.rhino.jstype.JSType;",
+     "import com.google.javascript.rhino.jstype.JSTypeRegistry;"
+    ],
+    "method": "canCompareStrictly",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 6765,
+    "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+    "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.google.javascript.rhino.JSDocInfo;"
+    ],
+    "method": "canTestStrictEquality",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getNameNode",
+    "anchor_seed": 6766,
+    "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+    "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.google.javascript.jscomp.SymbolTable;",
+     "import com.google.javascript.rhino.jstype.JSType;"
+    ],
+    "method": "mayBeStrictlyEqual",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getTypeOfThis",
+    "anchor_seed": 6767,
+    "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+    "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "allowsIdentityComparison",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 6768,
+    "class": "com.google.javascript.jscomp.TypeCheck",
+    "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "isStrictlyComparable",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6664
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-167"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.TypeCheckTest",
+  "test_file": "test/com/google/javascript/jscomp/TypeCheckTest.java",
+  "test_method": "testComparison15"
+ },
+ "variant_id": "CTV-543106",
+ "kind": "new",
+ "fault_lines": [
+  "JSType meet = leftType.getGreatestSubtype(rightType);"
+ ],
+ "gold_key": "com.google.javascript.jscomp.TypeCheck::isStrictlyComparable"
+}

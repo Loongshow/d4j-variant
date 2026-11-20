@@ -1,0 +1,174 @@
+diff --git a/src/main/java/org/joda/time/DateTimeZone.java b/src/main/java/org/joda/time/DateTimeZone.java
+index afa75d79..d16b0c12 100644
+--- a/src/main/java/org/joda/time/DateTimeZone.java
++++ b/src/main/java/org/joda/time/DateTimeZone.java
+@@ -281,13 +281,13 @@ public abstract class DateTimeZone implements Serializable {
+      *
+      * @param millisOffset  the offset in millis from UTC, from -23:59:59.999 to +23:59:59.999
+      * @return the DateTimeZone object for the offset
++       The zone is found by a binary search of a sorted table of the zones created so far, and a new zone is inserted into the table at the search position when none matches.
+      */
+     public static DateTimeZone forOffsetMillis(int millisOffset) {
+         if (millisOffset < -MAX_MILLIS || millisOffset > MAX_MILLIS) {
+             throw new IllegalArgumentException("Millis out of range: " + millisOffset);
+         }
+-        String id = printOffset(millisOffset);
+-        return fixedOffsetZone(id, millisOffset);
++        return org.joda.time.tz.DateTimeZoneBuilder.zoneForFixedOffset(millisOffset);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/joda/time/LocalTime.java b/src/main/java/org/joda/time/LocalTime.java
+index 6c3c5777..debd37be 100644
+--- a/src/main/java/org/joda/time/LocalTime.java
++++ b/src/main/java/org/joda/time/LocalTime.java
+@@ -1136,6 +1136,25 @@ public final class LocalTime
+         return getChronology().millisOfDay().get(getLocalMillis());
+     }
+ 
++    /**
++     * Appends the size of a time zone offset, without its sign, to a buffer.
++     *
++     * @param buf  the buffer to append to, not null
++     * @param size  the size of the offset, not negative
++     * @return the buffer
++     */
++    public static StringBuffer appendOffsetTime(StringBuffer buf, int size) {
++        if (size % DateTimeConstants.MILLIS_PER_MINUTE != 0) {
++            DateTimeFormatter format = (size % DateTimeConstants.MILLIS_PER_SECOND == 0
++                    ? ISODateTimeFormat.hourMinuteSecond() : ISODateTimeFormat.hourMinuteSecondMillis());
++            format.withZoneUTC().printTo(buf, size);
++            return buf;
++        }
++        ISODateTimeFormat.hourMinute().withZoneUTC().printTo(buf, size);
++        return buf;
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Returns a copy of this time with the hour of day field updated.
+diff --git a/src/main/java/org/joda/time/Period.java b/src/main/java/org/joda/time/Period.java
+index 5b36bc50..c63d971b 100644
+--- a/src/main/java/org/joda/time/Period.java
++++ b/src/main/java/org/joda/time/Period.java
+@@ -23,6 +23,7 @@ import org.joda.time.chrono.ISOChronology;
+ import org.joda.time.field.FieldUtils;
+ import org.joda.time.format.ISOPeriodFormat;
+ import org.joda.time.format.PeriodFormatter;
++import org.joda.time.format.ISODateTimeFormat;
+ 
+ /**
+  * An immutable time period specifying a set of duration field values.
+@@ -1536,6 +1537,19 @@ public final class Period
+         return new Duration(millis);
+     }
+ 
++    /**
++     * Appends an offset from UTC, with its sign, to a buffer.
++     *
++     * @param buf  the buffer to append to, not null
++     * @param offset  the offset in milliseconds
++     * @return the buffer
++     */
++    public static StringBuffer appendSignedOffset(StringBuffer buf, int offset) {
++        buf.append(offset < 0 ? '-' : '+');
++        return ISODateTimeFormat.appendOffsetElement(buf, Math.abs(offset));
++    }
++
++
+     /**
+      * Check that there are no years or months in the period.
+      * 
+diff --git a/src/main/java/org/joda/time/format/ISODateTimeFormat.java b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+index ecd1219e..39bf5898 100644
+--- a/src/main/java/org/joda/time/format/ISODateTimeFormat.java
++++ b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+@@ -20,6 +20,7 @@ import java.util.HashSet;
+ import java.util.Set;
+ 
+ import org.joda.time.DateTimeFieldType;
++import org.joda.time.LocalTime;
+ 
+ /**
+  * Factory that creates instances of DateTimeFormatter for the ISO8601 standard.
+@@ -1042,6 +1043,18 @@ public class ISODateTimeFormat {
+         return weekyearWeekDay();
+     }
+ 
++    /**
++     * Appends the size of an offset from UTC, without its sign, to a buffer.
++     *
++     * @param buf  the buffer to append to, not null
++     * @param size  the size of the offset in milliseconds, not negative
++     * @return the buffer
++     */
++    public static StringBuffer appendOffsetElement(StringBuffer buf, int size) {
++        return LocalTime.appendOffsetTime(buf, size);
++    }
++
++
+     /**
+      * Returns a formatter that combines a full weekyear date and time,
+      * separated by a 'T' (xxxx-'W'ww-e'T'HH:mm:ss.SSSZZ).
+diff --git a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+index c3dd8cc3..40281169 100644
+--- a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+@@ -28,6 +28,7 @@ import org.joda.time.DurationFieldType;
+ import org.joda.time.PeriodType;
+ import org.joda.time.ReadWritablePeriod;
+ import org.joda.time.ReadablePeriod;
++import org.joda.time.Period;
+ 
+ /**
+  * Factory that creates complex instances of PeriodFormatter via method calls.
+@@ -672,6 +673,17 @@ public class PeriodFormatterBuilder {
+         return appendSeparator(text, text, null, true, false);
+     }
+ 
++    /**
++     * Formats an offset from UTC as the ID of a fixed offset zone.
++     *
++     * @param offset  the offset in milliseconds
++     * @return the ID for the offset
++     */
++    public static String formatOffsetId(int offset) {
++        return Period.appendSignedOffset(new StringBuffer(), offset).toString();
++    }
++
++
+     /**
+      * Append a separator, which is output if fields are printed both before
+      * and after the separator.
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ab4731bb..1f9bc1c4 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,7 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import org.joda.time.format.PeriodFormatterBuilder;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -277,6 +278,18 @@ public class DateTimeZoneBuilder {
+         return this;
+     }
+ 
++    /**
++     * Gets the zone with a fixed offset from UTC, looked up by the ID that
++     * the offset formats to.
++     *
++     * @param millisOffset  the offset in millis from UTC
++     * @return the zone with the fixed offset
++     */
++    public static DateTimeZone zoneForFixedOffset(int millisOffset) {
++        return DateTimeZone.forID(PeriodFormatterBuilder.formatOffsetId(millisOffset));
++    }
++
++
+     /**
+      * Add a recurring daylight saving time rule.
+      *

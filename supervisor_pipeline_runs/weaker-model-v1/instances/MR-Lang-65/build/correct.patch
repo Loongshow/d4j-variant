@@ -1,0 +1,245 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index 773003cc1..4eb52f4be 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -23,6 +23,9 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import java.text.ParseException;
++import java.util.Date;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -2840,6 +2843,24 @@ public class ArrayUtils {
+         return false;
+     }
+ 
++    /**
++     * <p>Parses a string representing a date by trying each of the date
++     * patterns in a range of an array in turn, and returns the date given by
++     * the first pattern that parses the whole of the string.</p>
++     *
++     * @param str  the date to parse, not null
++     * @param parsePatterns  the date format patterns to use, see SimpleDateFormat, not null
++     * @param startIndex  the index of the first pattern to try
++     * @param endIndex  the index after the last pattern to try
++     * @return the parsed date
++     * @throws ParseException if no pattern in the range parses the whole of
++     *  the string
++     */
++    public static Date dateOfPatternRange(String str, String[] parsePatterns, int startIndex, int endIndex) throws ParseException {
++        return FastDateFormat.parseInTurn(str, parsePatterns, startIndex, endIndex);
++    }
++
++
+     /**
+      * <p>Checks if an array of primitive ints is empty or <code>null</code>.</p>
+      *
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index fd763e372..06fe1e8d0 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -18,6 +18,9 @@ package org.apache.commons.lang;
+ import java.util.ArrayList;
+ import java.util.Iterator;
+ import java.util.List;
++import java.text.ParseException;
++import java.util.Date;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -4091,6 +4094,25 @@ public class StringUtils {
+         return WordUtils.capitalize(str);
+     }
+ 
++    /**
++     * <p>Parses a string representing a date by trying each of a non-empty
++     * array of date patterns in turn, and returns the date given by the first
++     * pattern that parses the whole of the string.</p>
++     *
++     * <p>The patterns are tried over the whole array, from its first pattern
++     * to its last.</p>
++     *
++     * @param str  the date to parse, not null
++     * @param parsePatterns  the date format patterns to use, see SimpleDateFormat, not null or empty
++     * @return the parsed date
++     * @throws ParseException if none of the patterns parses the whole of the
++     *  string
++     */
++    public static Date parseByPatterns(String str, String[] parsePatterns) throws ParseException {
++        return StrBuilder.parsePatternRange(str, parsePatterns, 0, parsePatterns.length);
++    }
++
++
+     // Count matches
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 8d0be1863..6b55340d4 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -23,6 +23,9 @@ import java.util.Map;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import java.text.ParseException;
++import java.util.Date;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -734,6 +737,28 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Parses a string representing a date by trying each of an array of
++     * date patterns in turn, and returns the date given by the first pattern
++     * that parses the whole of the string.</p>
++     *
++     * <p>An empty array of patterns gives a ParseException without any parse
++     * being tried.</p>
++     *
++     * @param str  the date to parse, not null
++     * @param parsePatterns  the date format patterns to use, see SimpleDateFormat, not null
++     * @return the parsed date
++     * @throws ParseException if none of the patterns parses the whole of the
++     *  string
++     */
++    public static Date parseDateText(String str, String[] parsePatterns) throws ParseException {
++        if (parsePatterns.length == 0) {
++            throw new ParseException("Unable to parse the date: " + str, -1);
++        }
++        return StringUtils.parseByPatterns(str, parsePatterns);
++    }
++
++
+     //----------------------------------------------------------------------------
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 5002b0663..e723722aa 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -22,6 +22,8 @@ import java.util.Iterator;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import java.text.ParseException;
++import java.util.Date;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1083,6 +1085,24 @@ public class StrBuilder implements Cloneable {
+         return insert(index, String.valueOf(value));
+     }
+ 
++    /**
++     * <p>Parses a string representing a date by trying each of the date
++     * patterns in a range of an array in turn, and returns the date given by
++     * the first pattern that parses the whole of the string.</p>
++     *
++     * @param str  the date to parse, not null
++     * @param parsePatterns  the date format patterns to use, see SimpleDateFormat, not null
++     * @param startIndex  the index of the first pattern to try
++     * @param endIndex  the index after the last pattern to try
++     * @return the parsed date
++     * @throws ParseException if no pattern in the range parses the whole of
++     *  the string
++     */
++    public static Date parsePatternRange(String str, String[] parsePatterns, int startIndex, int endIndex) throws ParseException {
++        return ArrayUtils.dateOfPatternRange(str, parsePatterns, startIndex, endIndex);
++    }
++
++
+     /**
+      * Inserts the value into this builder.
+      *
+diff --git a/src/java/org/apache/commons/lang/time/DateUtils.java b/src/java/org/apache/commons/lang/time/DateUtils.java
+index 79c13f0aa..05a139863 100644
+--- a/src/java/org/apache/commons/lang/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang/time/DateUtils.java
+@@ -247,27 +247,13 @@ public class DateUtils {
+      * @return the parsed date
+      * @throws IllegalArgumentException if the date string or pattern array is null
+      * @throws ParseException if none of the date patterns were suitable
++       Each pattern is compiled into a format only once, and a format already compiled by an earlier call is taken from a cache shared between calls instead of being compiled again.
+      */
+     public static Date parseDate(String str, String[] parsePatterns) throws ParseException {
+         if (str == null || parsePatterns == null) {
+             throw new IllegalArgumentException("Date and Patterns must not be null");
+         }
+-        
+-        SimpleDateFormat parser = null;
+-        ParsePosition pos = new ParsePosition(0);
+-        for (int i = 0; i < parsePatterns.length; i++) {
+-            if (i == 0) {
+-                parser = new SimpleDateFormat(parsePatterns[0]);
+-            } else {
+-                parser.applyPattern(parsePatterns[i]);
+-            }
+-            pos.setIndex(0);
+-            Date date = parser.parse(str, pos);
+-            if (date != null && pos.getIndex() == str.length()) {
+-                return date;
+-            }
+-        }
+-        throw new ParseException("Unable to parse the date: " + str, -1);
++        return org.apache.commons.lang.builder.ToStringStyle.parseDateText(str, parsePatterns);
+     }
+ 
+     //-----------------------------------------------------------------------
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index cbcd0bcae..f5a2e6ff9 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -32,6 +32,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import java.text.ParseException;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -224,6 +225,38 @@ public class FastDateFormat extends Format {
+         return getDateInstance(style, null, null);
+     }
+ 
++    /**
++     * <p>Parses a string representing a date by trying each of the date
++     * patterns in a range of an array in turn, and returns the date given by
++     * the first pattern that parses the whole of the string.</p>
++     *
++     * @param str  the date to parse, not null
++     * @param parsePatterns  the date format patterns to use, see SimpleDateFormat, not null
++     * @param startIndex  the index of the first pattern to try
++     * @param endIndex  the index after the last pattern to try
++     * @return the parsed date
++     * @throws ParseException if no pattern in the range parses the whole of
++     *  the string
++     */
++    public static Date parseInTurn(String str, String[] parsePatterns, int startIndex, int endIndex) throws ParseException {
++        SimpleDateFormat parser = null;
++        ParsePosition pos = new ParsePosition(0);
++        for (int i = startIndex; i < endIndex; i++) {
++            if (i == startIndex) {
++                parser = new SimpleDateFormat(parsePatterns[i]);
++            } else {
++                parser.applyPattern(parsePatterns[i]);
++            }
++            pos.setIndex(0);
++            Date date = parser.parse(str, pos);
++            if (date != null && pos.getIndex() == str.length()) {
++                return date;
++            }
++        }
++        throw new ParseException("Unable to parse the date: " + str, -1);
++    }
++
++
+     /**
+      * <p>Gets a date formatter instance using the specified style and
+      * locale in the default time zone.</p>

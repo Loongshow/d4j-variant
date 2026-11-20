@@ -1,0 +1,54 @@
+{
+ "instance": "Math-26__i",
+ "iid": "MI-Math-26",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math3.dfp.Dfp::fractionAsString (hop 4)",
+   "edit": "return BlockRealMatrix.fractionString(numerator, denominator);  ->  return denominator == 1 ? BlockRealMatrix.fractionString(numerator, denominator) : BlockRealMatrix.fractionString(numerator, 1) + \" / \" + denominator;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.math3.linear.BlockFieldMatrix::fractionText (hop 1), and likewise hops 2-3 or the facade",
+   "edit": "same pattern (call the chain with denominator 1 and append \" / \" + denominator, or write numerator + \" / \" + denominator directly); not run separately, equivalent in effect to the hop-4 edit",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "any hop 1-4, argument-only change",
+   "edit": "change of the (numerator, denominator) ints passed down (spec compensating edits: hop-1 whole-number shortcut, hop-3 abs(denominator), hop-4 trim)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.math3.fraction.Fraction::toString (instance, V1: passes fields numerator, denominator)",
+  "hop1 org.apache.commons.math3.linear.BlockFieldMatrix::fractionText (zero numerator -> \"0\", else delegates)",
+  "hop2 org.apache.commons.math3.optimization.direct.BOBYQAOptimizer::ratioText (pass-through)",
+  "hop3 org.apache.commons.math3.util.FastMath::toFractionString (pass-through)",
+  "hop4 org.apache.commons.math3.dfp.Dfp::fractionAsString (pass-through)",
+  "gold org.apache.commons.math3.linear.BlockRealMatrix::fractionString (omits text.append(\" / \"))"
+ ],
+ "reasons": "(a) Only the gold builds the String; for 2/3 it returns \"23\", which is not the documented 'string form of a fraction' (and contradicts the facade's \"num / dem\"); hops 2-4 return the gold's value unchanged and hop 1 only answers a zero numerator, as documented. Variant compiles; only FractionTest::testToString fails (expected:<2[ / ]3> but was:<2[]3>); correct.patch makes it pass. (b) Every hop javadoc matches its code; none promises anything the chain's behaviour breaks except via the gold's output. (c) No argument change above the gold can yield a separator (gold never writes one). Re-implementing the separator in hop 4 (calling the gold with a fabricated denominator 1) passes trigger, ownership tests and the full suite, but it makes the gold's denominator branch dead and leaves the gold violating its own javadoc: bypass. (d) Neutral host-vocabulary names; facade lie (GCD reduction by Euclid's algorithm) is a procedural sentence the toString code does not perform and does not mention the separator or any hop; gold javadoc is silent on the separator. (e) Facade -> 5 hops in 5 distinct existing classes; gold exactly five calls below; host_mode=1500 and the hosts/anchors match a re-run of the seeded draw (mr_lib.py preview Math-26 ... 5: BlockFieldMatrix, BOBYQAOptimizer, FastMath, Dfp, BlockRealMatrix; FastMathLiteralArrays unusable); facade body is state gathering + one call (no guard in the original); trigger existing, test.patch empty, G5 only the trigger newly fails. (f) Pinned by the facade's own javadoc \"num / dem\", BigFraction.toString (numerator + \" / \" + denominator), FractionFormat.format / ProperFractionFormat.format appending \" / \", and passing FractionFormatTest::testFormat, ::testFormatImproper, BigFractionFormatTest::testFormat. (g) C10i rules: Fraction.toString is an allowed instance candidate (facade_planned_by null), V1; signature, @Override, modifiers and throws unchanged; private fields read inside the class; no visibility widening, no new type, no reflection, no test edit.",
+ "notes": "Facade calls hop 1 by its fully qualified name rather than adding an import; harmless. Fraction's constructor already reduces by gcd, so the lie describes a step toString itself does not perform. Hop 1's zero-numerator branch duplicates what the gold would give for 0/1 (Fraction(0,3) is stored as 0/1), mirroring the original toString's own redundant zero branch; not a leak."
+}

@@ -1,0 +1,218 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 04e66132d..af142e139 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,7 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import org.apache.commons.math.util.FastMath;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -639,6 +640,17 @@ public class Dfp implements FieldElement<Dfp> {
+         return field.getRadixDigits();
+     }
+ 
++    /** Compute the coordinates of the unit vector perpendicular both to a
++     * vector and to the canonical axis of the given index.
++     * @param coordinates coordinates of the vector
++     * @param axis index of the axis
++     * @return coordinates of the unit vector
++     */
++    public static double[] perpendicularCoordinates(final double[] coordinates, final int axis) {
++        return FastMath.unitNormal(coordinates, axis);
++    }
++
++
+     /** Get the constant 0.
+      * @return a Dfp with value zero
+      */
+diff --git a/src/main/java/org/apache/commons/math/geometry/Vector3D.java b/src/main/java/org/apache/commons/math/geometry/Vector3D.java
+index 2d915e570..a11308b12 100644
+--- a/src/main/java/org/apache/commons/math/geometry/Vector3D.java
++++ b/src/main/java/org/apache/commons/math/geometry/Vector3D.java
+@@ -301,26 +301,15 @@ public class Vector3D implements Serializable {
+    * </code></pre></p>
+    * @return a new normalized vector orthogonal to the instance
+    * @exception ArithmeticException if the norm of the instance is null
+-   */
++     The vector is obtained by removing, from the canonical axis least aligned with the instance, its component along the instance, and normalizing what remains.
++     */
+   public Vector3D orthogonal() {
+-
+-    double threshold = 0.6 * getNorm();
+-    if (threshold == 0) {
+-      throw new MathArithmeticException(LocalizedFormats.ZERO_NORM);
++        if (getNorm() == 0) {
++            throw new MathArithmeticException(LocalizedFormats.ZERO_NORM);
++        }
++        return org.apache.commons.math.linear.BlockFieldMatrix.perpendicularUnitVector(this);
+     }
+ 
+-    if ((x >= -threshold) && (x <= threshold)) {
+-      double inverse  = 1 / FastMath.sqrt(y * y + z * z);
+-      return new Vector3D(0, inverse * z, -inverse * y);
+-    } else if ((y >= -threshold) && (y <= threshold)) {
+-      double inverse  = 1 / FastMath.sqrt(x * x + z * z);
+-      return new Vector3D(-inverse * z, 0, inverse * x);
+-    }
+-    double inverse  = 1 / FastMath.sqrt(x * x + y * y);
+-    return new Vector3D(inverse * y, -inverse * x, 0);
+-
+-  }
+-
+   /** Compute the angular separation between two vectors.
+    * <p>This method computes the angular separation between two
+    * vectors using the dot product for well separated vectors and the
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index b90b6d00a..7865f385d 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -25,6 +25,8 @@ import org.apache.commons.math.exception.NoDataException;
+ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
++import org.apache.commons.math.geometry.Vector3D;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -1130,6 +1132,18 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return blocks[iBlock * blockColumns + jBlock][k];
+     }
+ 
++    /**
++     * Get a unit vector perpendicular to a non-zero vector.
++     * <p>The threshold used to choose the axis is six tenths of the norm of
++     * the vector.</p>
++     * @param v non-zero vector
++     * @return a new unit vector perpendicular to v
++     */
++    public static Vector3D perpendicularUnitVector(final Vector3D v) {
++        return MathUtils.perpendicularTo(v, 0.6 * v.getNorm());
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setEntry(final int row, final int column, final T value) {
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index 9a53cb66a..e3e1220b0 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -24,6 +24,8 @@ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.NoDataException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
++import org.apache.commons.math.geometry.Vector3D;
++import org.apache.commons.math.dfp.Dfp;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -263,6 +265,20 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return blocks;
+     }
+ 
++    /**
++     * Get the unit vector perpendicular both to a vector and to the
++     * canonical axis of the given index.
++     * @param v vector, not parallel to the axis
++     * @param axis index of the axis (0 for x, 1 for y, 2 for z)
++     * @return a new unit vector perpendicular to v and to the axis
++     */
++    public static Vector3D perpendicularToAxis(final Vector3D v, final int axis) {
++        final double[] normal =
++            Dfp.perpendicularCoordinates(new double[] { v.getX(), v.getY(), v.getZ() }, axis);
++        return new Vector3D(normal[0], normal[1], normal[2]);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public BlockRealMatrix createMatrix(final int rowDimension, final int columnDimension) {
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index eda2b8be0..1c816795d 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -3861,6 +3861,37 @@ public class FastMath {
+         return (a <= b) ? b : a;
+     }
+ 
++    /**
++     * Compute the unit vector orthogonal both to a vector and to the
++     * canonical axis of the given index.
++     * @param coordinates the three coordinates of the vector
++     * @param axis index of the axis
++     * @return the three coordinates of the unit vector
++     */
++    public static double[] unitNormal(double[] coordinates, int axis) {
++        int next = axis + 1;
++        if (next == 3) {
++            next = 0;
++        }
++        double sum = 0;
++        for (int i = 0; i < 3; i++) {
++            if (i != axis) {
++                sum += coordinates[i] * coordinates[i];
++            }
++        }
++        double inverse = 1 / sqrt(sum);
++        double[] normal = new double[3];
++        for (int i = 0; i < 3; i++) {
++            if (i == next) {
++                normal[i] = inverse * coordinates[3 - axis - i];
++            } else if (i != axis) {
++                normal[i] = -inverse * coordinates[3 - axis - i];
++            }
++        }
++        return normal;
++    }
++
++
+     /** Compute the maximum of two values
+      * @param a first value
+      * @param b second value
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index 85d9a048f..6fe7f9bfc 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -36,6 +36,8 @@ import org.apache.commons.math.exception.MathIllegalArgumentException;
+ import org.apache.commons.math.exception.MathRuntimeException;
+ import org.apache.commons.math.exception.NumberIsTooLargeException;
+ import org.apache.commons.math.exception.NotFiniteNumberException;
++import org.apache.commons.math.geometry.Vector3D;
++import org.apache.commons.math.linear.BlockRealMatrix;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -602,6 +604,29 @@ public final class MathUtils {
+         return (Double.isNaN(x) && Double.isNaN(y)) || equals(x, y, 1);
+     }
+ 
++    /**
++     * Returns a unit vector perpendicular to a non-zero vector and to one of
++     * the canonical axes: the first of the x and y axes along which the
++     * coordinate of the vector lies between {@code -threshold} and
++     * {@code threshold}, or the z axis if neither does.
++     *
++     * @param v non-zero vector
++     * @param threshold bound on the coordinate along the axis
++     * @return a new unit vector perpendicular to v and to the chosen axis
++     */
++    public static Vector3D perpendicularTo(final Vector3D v, final double threshold) {
++        final double x = v.getX();
++        if ((x >= -threshold) && (x <= threshold)) {
++            return BlockRealMatrix.perpendicularToAxis(v, 0);
++        }
++        final double y = v.getY();
++        if ((y >= -threshold) && (y <= threshold)) {
++            return BlockRealMatrix.perpendicularToAxis(v, 1);
++        }
++        return BlockRealMatrix.perpendicularToAxis(v, 2);
++    }
++
++
+     /**
+      * Returns {@code true} if there is no double value strictly between the
+      * arguments or the difference between them is within the range of allowed

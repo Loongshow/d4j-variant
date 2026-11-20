@@ -1,0 +1,191 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 3142f568..55585afc 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -16,6 +16,8 @@ import java.nio.ByteBuffer;
+ import java.nio.charset.Charset;
+ import java.util.*;
+ import java.util.zip.GZIPInputStream;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.nodes.Node;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -89,6 +91,17 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Get the data nodes among a node's child nodes. The list is unmodifiable but the data nodes may be manipulated.
++     *
++     * @param childNodes the child nodes, in document order
++     * @return the data nodes among the child nodes, in document order; an empty list if there are none
++     */
++    public static List<DataNode> childDataNodes(List<Node> childNodes) {
++        return Collections.unmodifiableList(Node.dataNodesIn(childNodes));
++    }
++
++
+     public Connection ignoreHttpErrors(boolean ignoreHttpErrors) {
+ 		req.ignoreHttpErrors(ignoreHttpErrors);
+ 		return this;
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index 95cde5fe..1431ca33 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -224,14 +224,10 @@ public class Element extends Node {
+      * @return child data nodes. If this element has no data nodes, returns an
+      * empty list.
+      * @see #data()
++       The child nodes are scanned from the last to the first, and each data node found is inserted at the head of the list.
+      */
+     public List<DataNode> dataNodes() {
+-        List<DataNode> dataNodes = new ArrayList<DataNode>();
+-        for (Node node : childNodes) {
+-            if (node instanceof DataNode)
+-                dataNodes.add((DataNode) node);
+-        }
+-        return Collections.unmodifiableList(dataNodes);
++        return org.jsoup.helper.HttpConnection.childDataNodes(childNodes);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index f3411a75..531f0732 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -11,6 +11,7 @@ import java.net.URL;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.List;
++import org.jsoup.select.Elements;
+ 
+ /**
+  The base, abstract Node model. Elements, Documents, Comments etc are all Node instances.
+@@ -112,6 +113,18 @@ public abstract class Node implements Cloneable {
+         return attributes.hasKey(attributeKey);
+     }
+ 
++    /**
++     Get the data nodes among a list of nodes, in a new list.
++     @param nodes the nodes to read
++     @return a new list of the data nodes, in document order
++     */
++    public static List<DataNode> dataNodesIn(List<Node> nodes) {
++        List<DataNode> dataNodes = new ArrayList<DataNode>(nodes.size());
++        Elements.appendDataNodes(nodes, dataNodes);
++        return dataNodes;
++    }
++
++
+     /**
+      * Remove an attribute from this element.
+      * @param attributeKey The attribute to remove.
+diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java
+index 7908c2c8..028b27d0 100644
+--- a/src/main/java/org/jsoup/safety/Whitelist.java
++++ b/src/main/java/org/jsoup/safety/Whitelist.java
+@@ -14,6 +14,10 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Set;
++import java.util.List;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.nodes.Node;
++import org.jsoup.select.Evaluator;
+ 
+ 
+ /**
+@@ -75,6 +79,17 @@ public class Whitelist {
+                 ;
+     }
+ 
++    /**
++     Split a list of nodes into blocks of adjacent data nodes.
++
++     @param nodes the nodes to split
++     @return the blocks of data nodes, in document order
++     */
++    public static List<List<DataNode>> dataBlocks(List<Node> nodes) {
++        return Evaluator.dataNodeBlocks(nodes);
++    }
++
++
+     /**
+      This whitelist allows a fuller range of text nodes: <code>a, b, blockquote, br, cite, code, dd, dl, dt, em, i, li,
+      ol, p, pre, q, small, strike, strong, sub, sup, u, ul</code>, and appropriate attributes.
+diff --git a/src/main/java/org/jsoup/select/Elements.java b/src/main/java/org/jsoup/select/Elements.java
+index 184b0874..2df3c381 100644
+--- a/src/main/java/org/jsoup/select/Elements.java
++++ b/src/main/java/org/jsoup/select/Elements.java
+@@ -5,6 +5,8 @@ import org.jsoup.nodes.Element;
+ import org.jsoup.nodes.Node;
+ 
+ import java.util.*;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.safety.Whitelist;
+ 
+ /**
+  A list of {@link Element Elements}, with methods that act on every element in the list.
+@@ -524,6 +526,19 @@ public class Elements implements List<Element>, Cloneable {
+ 
+     public Element set(int index, Element element) {return contents.set(index, element);}
+ 
++    /**
++     * Append the data nodes of a list of nodes to another list, block by block, in document order.
++     *
++     * @param nodes the nodes to read
++     * @param into the list to append the data nodes to
++     */
++    public static void appendDataNodes(List<Node> nodes, List<DataNode> into) {
++        for (List<DataNode> block : Whitelist.dataBlocks(nodes)) {
++            into.addAll(block);
++        }
++    }
++
++
+     public void add(int index, Element element) {contents.add(index, element);}
+ 
+     public Element remove(int index) {return contents.remove(index);}
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 16a083bd..7961381b 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -6,6 +6,9 @@ import org.jsoup.nodes.Element;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import java.util.ArrayList;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.nodes.Node;
+ 
+ 
+ /**
+@@ -451,4 +454,27 @@ public abstract class Evaluator {
+             return String.format(":matchesOwn(%s", pattern);
+         }
+     }
++
++        /**
++     * Splits a list of nodes into blocks of data nodes that follow one another in the list, in document order. The
++     * nodes of other kinds are left out.
++     *
++     * @param nodes the nodes to split
++     * @return the blocks of data nodes, in document order; each block holds at least one data node
++     */
++    public static List<List<DataNode>> dataNodeBlocks(List<Node> nodes) {
++        List<List<DataNode>> blocks = new ArrayList<List<DataNode>>();
++        List<DataNode> block = new ArrayList<DataNode>();
++        for (Node node : nodes) {
++            if (node instanceof DataNode) {
++                block.add((DataNode) node);
++            } else if (!block.isEmpty()) {
++                blocks.add(block);
++                block = new ArrayList<DataNode>();
++            }
++        }
++        if (!block.isEmpty()) blocks.add(block);
++        return blocks;
++    }
++
+ }

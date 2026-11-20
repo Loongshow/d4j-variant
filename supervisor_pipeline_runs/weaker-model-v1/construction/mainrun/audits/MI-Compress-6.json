@@ -1,0 +1,30 @@
+{
+ "instance": "MI-Compress-6",
+ "task_key": "Compress-6__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "CpioArchiveEntry::assignUnixMode (hop 4)", "edit": "after 'TarArchiveEntry.setUnixAttributes(entry, mode);' add 'if (entry.isDirectory()) { entry.setExternalAttributes(entry.getExternalAttributes() | 0x10); }'", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+  {"method": "BZip2CompressorOutputStream::storeUnixMode / BZip2CompressorInputStream::applyUnixMode / ZipArchiveOutputStream::recordUnixMode / ZipArchiveEntry::setUnixMode (hops 1-3, facade)", "edit": "the same post-call OR of 0x10 into the already-written attribute word (not run separately; identical mechanism to the hop-4 edit)", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+  {"method": "any hop 1-4", "edit": "change the mode passed down for directories (mode | 0x10, mode | C_ISDIR, mode & ~0200: the declared compensations)", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": false, "doc_consistent": false, "class": "fails"}
+ ],
+ "path": [
+  "facade ZipArchiveEntry::setUnixMode (instance, V2: passes this and mode; keeps the original 'platform = PLATFORM_UNIX' write, setPlatform is protected)",
+  "hop1 BZip2CompressorOutputStream::storeUnixMode",
+  "hop2 BZip2CompressorInputStream::applyUnixMode",
+  "hop3 ZipArchiveOutputStream::recordUnixMode",
+  "hop4 CpioArchiveEntry::assignUnixMode",
+  "gold TarArchiveEntry::setUnixAttributes"
+ ],
+ "reasons": "Variant applies, compiles; the trigger ZipArchiveEntryTest::testUnixMode is the only failing test (expected:<16> but was:<0> on 'foo/'). (a) Only the gold computes the external attribute word; its javadoc promises attributes 'understood by Info-Zip's unzip command' and it already writes the MS-DOS read-only bit of the low byte, but omits the MS-DOS directory bit 0x10 for a directory entry. Hops 1-4 are pure pass-throughs whose docs ('sets the external attributes ... from the given Unix permissions') are met by delegation. (b) Hop docs match their code and make no low-byte promise. (c) No mode change above the gold can reach the low byte (mode is shifted left 16; the low byte depends only on bit 0200), so the declared compensations fail. The only passing non-gold edit is a post-call OR of 0x10 into the word the gold already wrote (tested at hop 4: trigger, AsiExtraFieldTest::testModes/testReparse and full suite pass); it re-implements part of the gold's result downstream of a gold that still does not meet its own Info-Zip promise, so it is a bypass, not a competing repair. (d) Neutral names; the original 'MS-DOS directory flag' comment is removed; the gold javadoc is silent on the directory bit; the lie ('assembled one byte at a time, starting from the lowest, ... written once all four bytes are known') is false of the code and names neither the directory bit nor any hop. (e) Facade -> 4 hops -> gold is exactly five calls; five distinct classes, exactly hosts_hop_order of the task record (largest5 regime, confirmed on the checkout: 1880/968/945/805/700, excluding ZipArchiveEntry.java); facade is an allowed candidate (setUnixMode). (f) AsiExtraField.getMode(int) marks a directory entry's stored mode with DIR_FLAG and ZipArchiveEntry.isDirectory defines a directory entry, pinned by passing AsiExtraFieldTest::testModes and ::testReparse; the trigger's file-entry assertions pin the read-only bit. (g) No visibility widened, no new type, no reflection, facade signature/modifiers/throws unchanged, test.patch empty; hops use only public ZipArchiveEntry methods (isDirectory, setExternalAttributes).",
+ "notes": "1) The facade body is call-to-hop-1 plus the retained original write 'platform = PLATFORM_UNIX'; ZipArchiveEntry.setPlatform is protected, so hops in other packages cannot do it; I judge this within the addendum's state handling (V1 allows a field write in the facade). 2) The lie line is inserted without a leading '*' after '@param mode', so javadoc renders it as part of the @param description; recipe-tool formatting, not a validity issue. 3) The lie mentions the lowest byte, where the omitted bit lives; it does not name the bit or the step, so not counted as leakage. 4) The external pin is analogical (AsiExtraField's directory type in the stored mode) rather than another producer of the 0x10 low-byte attribute; no other production code writes 0x10. 5) Facade reuses the method planned by Compress-13__i (recorded in facade_reuse_of); the B8 note prefers the unplanned candidate (equals) when it can carry the recipe validly; I could not check the builder's reason without builder notes."
+}

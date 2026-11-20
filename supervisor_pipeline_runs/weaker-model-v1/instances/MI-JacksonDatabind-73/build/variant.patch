@@ -1,0 +1,170 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java b/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
+index 0609c1e68..1f3266a07 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
++++ b/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
+@@ -25,6 +25,8 @@ import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
+ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
+ import com.fasterxml.jackson.databind.util.*;
++import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
++import com.fasterxml.jackson.databind.introspect.POJOPropertyBuilder;
+ 
+ /**
+  * Context for the process of deserialization a single root-level value.
+@@ -403,6 +405,23 @@ public abstract class DeserializationContext
+         return _config.getNodeFactory();
+     }
+ 
++    /**
++     * Method for finding the member to use for changing value of
++     * given property.
++     *
++     * @param prop Property to find the member for
++     *
++     * @return Member to use for changing the value
++     */
++    public static AnnotatedMember findMutatingMember(POJOPropertyBuilder prop)
++    {
++        if (prop.hasSetter()) {
++            return prop.getSetter();
++        }
++        return prop.getField();
++    }
++
++
+     /*
+     /**********************************************************
+     /* Public API, pass-through to DeserializerCache
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index d1ec95fb7..48a703b58 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -20,6 +20,9 @@ import com.fasterxml.jackson.databind.node.NullNode;
+ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
++import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
++import com.fasterxml.jackson.databind.introspect.POJOPropertyBuilder;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -784,6 +787,16 @@ public class ObjectReader
+         return _with(_config.withView(activeView));
+     }
+ 
++    /**
++     * Method for finding the member to use for changing value of given
++     * property.
++     */
++    public static AnnotatedMember findPropertyMutator(POJOPropertyBuilder prop)
++    {
++        return BasicDeserializerFactory.findMutatorForProperty(prop);
++    }
++
++
+     public ObjectReader with(Locale l) {
+         return _with(_config.with(l));
+     }
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 627703f0d..74fc50846 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -1094,6 +1094,16 @@ public abstract class BasicDeserializerFactory
+         return deser;
+     }
+ 
++    /**
++     * Helper method used to find the member to use for changing value
++     * of given property.
++     */
++    public static AnnotatedMember findMutatorForProperty(POJOPropertyBuilder prop)
++    {
++        return DeserializationContext.findMutatingMember(prop);
++    }
++
++
+     /*
+     /**********************************************************
+     /* JsonDeserializerFactory impl: Map(-like) deserializers
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index b03f53728..da1e0d8d1 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -353,6 +353,16 @@ public abstract class BeanDeserializerBase
+         }
+     }
+ 
++    /**
++     * Helper method for finding the member to use for changing value
++     * of given property.
++     */
++    public static AnnotatedMember findValueMutator(POJOPropertyBuilder prop)
++    {
++        return TokenBuffer.mutatorForProperty(prop);
++    }
++
++
+     public BeanDeserializerBase(BeanDeserializerBase src, Set<String> ignorableProps)
+     {
+         super(src._beanType);
+diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/POJOPropertyBuilder.java b/src/main/java/com/fasterxml/jackson/databind/introspect/POJOPropertyBuilder.java
+index b9a403c13..d0d37be81 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/introspect/POJOPropertyBuilder.java
++++ b/src/main/java/com/fasterxml/jackson/databind/introspect/POJOPropertyBuilder.java
+@@ -399,17 +399,15 @@ public class POJOPropertyBuilder
+         return m;
+     }
+ 
++    /**
++     * Method used to find mutator (constructor parameter, setter, field) to use for
++     * changing value of the property.
++       Candidate members are compared by the number of explicit annotations each carries, and the most annotated one is used, ties going to the one declared first.
++     */
+     @Override
+     public AnnotatedMember getMutator()
+     {
+-        AnnotatedMember m = getConstructorParameter();
+-        if (m == null) {
+-            m = getSetter();
+-            if (m == null) {
+-                m = getField();
+-            }
+-        }
+-        return m;
++        return com.fasterxml.jackson.databind.deser.BeanDeserializerBase.findValueMutator(this);
+     }
+ 
+     @Override
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 1f05c3216..13e366f07 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,8 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import com.fasterxml.jackson.databind.introspect.AnnotatedMember;
++import com.fasterxml.jackson.databind.introspect.POJOPropertyBuilder;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -946,6 +948,18 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+         _hasNativeId = true;
+     }
+ 
++    /**
++     * Helper method for locating the member to use for changing value
++     * of given property.
++     *
++     * @param prop Property to locate the member for
++     */
++    public static AnnotatedMember mutatorForProperty(POJOPropertyBuilder prop)
++    {
++        return ObjectReader.findPropertyMutator(prop);
++    }
++
++
+     @Override // since 2.8
+     public void writeEmbeddedObject(Object object) throws IOException {
+         _appendValue(JsonToken.VALUE_EMBEDDED_OBJECT, object);

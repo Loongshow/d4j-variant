@@ -1,0 +1,231 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index e7571f6ea..e367f5745 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -24,6 +24,7 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -2897,6 +2898,19 @@ public class ArrayUtils {
+         return false;
+     }
+ 
++    /**
++     * <p>Checks whether a String of two to four characters is one of the
++     * words <code>"true"</code>, <code>"on"</code> and <code>"yes"</code>,
++     * ignoring case.</p>
++     *
++     * @param str  the String to check, not null
++     * @return <code>true</code> if the String is one of the words
++     */
++    public static boolean isTrueLiteral(String str) {
++        return FastDateFormat.isTrueToken(str);
++    }
++
++
+     /**
+      * <p>Checks if an array of primitive doubles is empty or <code>null</code>.</p>
+      *
+diff --git a/src/java/org/apache/commons/lang/BooleanUtils.java b/src/java/org/apache/commons/lang/BooleanUtils.java
+index 8b5028c4b..2654d629e 100644
+--- a/src/java/org/apache/commons/lang/BooleanUtils.java
++++ b/src/java/org/apache/commons/lang/BooleanUtils.java
+@@ -645,59 +645,13 @@ public class BooleanUtils {
+      *
+      * @param str  the String to check
+      * @return the boolean value of the string, <code>false</code> if no match
++       A case-insensitive hash code of the String is computed first and looked up in a precomputed table of the hash codes of the accepted words.
+      */
+     public static boolean toBoolean(String str) {
+-        // Previously used equalsIgnoreCase, which was fast for interned 'true'.
+-        // Non interned 'true' matched 15 times slower.
+-        // 
+-        // Optimisation provides same performance as before for interned 'true'.
+-        // Similar performance for null, 'false', and other strings not length 2/3/4.
+-        // 'true'/'TRUE' match 4 times slower, 'tRUE'/'True' 7 times slower.
+-        if (str == "true") {
+-            return true;
+-        }
+         if (str == null) {
+             return false;
+         }
+-        switch (str.length()) {
+-            case 2: {
+-                char ch0 = str.charAt(0);
+-                char ch1 = str.charAt(1);
+-                return 
+-                    (ch0 == 'o' || ch0 == 'O') &&
+-                    (ch1 == 'n' || ch1 == 'N');
+-            }
+-            case 3: {
+-                char ch = str.charAt(0);
+-                if (ch == 'y') {
+-                    return 
+-                        (str.charAt(1) == 'e' || str.charAt(1) == 'E') &&
+-                        (str.charAt(2) == 's' || str.charAt(2) == 'S');
+-                }
+-                if (ch == 'Y') {
+-                    return 
+-                        (str.charAt(1) == 'E' || str.charAt(1) == 'e') &&
+-                        (str.charAt(2) == 'S' || str.charAt(2) == 's');
+-                }
+-                return false;
+-            }
+-            case 4: {
+-                char ch = str.charAt(0);
+-                if (ch == 't') {
+-                    return 
+-                        (str.charAt(1) == 'r' || str.charAt(1) == 'R') &&
+-                        (str.charAt(2) == 'u' || str.charAt(2) == 'U') &&
+-                        (str.charAt(3) == 'e' || str.charAt(3) == 'E');
+-                }
+-                if (ch == 'T') {
+-                    return 
+-                        (str.charAt(1) == 'R' || str.charAt(1) == 'r') &&
+-                        (str.charAt(2) == 'U' || str.charAt(2) == 'u') &&
+-                        (str.charAt(3) == 'E' || str.charAt(3) == 'e');
+-                }
+-            }
+-        }
+-        return false;
++        return org.apache.commons.lang.builder.ToStringStyle.isTrueValue(str);
+     }
+     
+ //    public static void main(String[] args) {
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index 6cda31df7..bd95b8bc8 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -1210,6 +1210,34 @@ public class StringUtils {
+         return -1;
+     }
+ 
++    /**
++     * <p>Checks whether a String is one of the words <code>"true"</code>,
++     * <code>"on"</code> and <code>"yes"</code>, ignoring case.</p>
++     *
++     * @param str  the String to check, not null
++     * @return <code>true</code> if the String is one of the words
++     */
++    public static boolean isTrueWord(String str) {
++        String[] words = new String[] {"true", "on", "yes"};
++        int i = 0;
++        int j = 0;
++        while (i < words.length) {
++            String word = words[i];
++            if (j == word.length() && j == str.length()) {
++                return true;
++            }
++            if (j < word.length() && j < str.length()
++                    && Character.toLowerCase(str.charAt(j)) == Character.toLowerCase(word.charAt(j))) {
++                j++;
++            } else {
++                i++;
++                j = 0;
++            }
++        }
++        return false;
++    }
++
++
+     // ContainsOnly
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index d786edc36..8f8c6c1ad 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -317,6 +318,25 @@ public abstract class ToStringStyle implements Serializable {
+         }
+     }
+ 
++    /**
++     * <p>Checks whether a String is one of the words <code>"true"</code>,
++     * <code>"on"</code> and <code>"yes"</code>, ignoring case.</p>
++     *
++     * <p>A String of fewer than two or more than four characters is none of
++     * the words.</p>
++     *
++     * @param str  the String to check, not null
++     * @return <code>true</code> if the String is one of the words
++     */
++    public static boolean isTrueValue(String str) {
++        int length = str.length();
++        if (length < 2 || length > 4) {
++            return false;
++        }
++        return StrBuilder.isTrueText(str);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the start of data indicator.</p>
+      * 
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 13281cefe..855366c3b 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -1917,6 +1917,19 @@ public class StrBuilder implements Cloneable {
+         return substring(start, size);
+     }
+ 
++    /**
++     * <p>Checks whether a String of two to four characters is one of the
++     * words <code>"true"</code>, <code>"on"</code> and <code>"yes"</code>,
++     * ignoring case.</p>
++     *
++     * @param str  the String to check, not null
++     * @return <code>true</code> if the String is one of the words
++     */
++    public static boolean isTrueText(String str) {
++        return ArrayUtils.isTrueLiteral(str);
++    }
++
++
+     /**
+      * Extracts a portion of this string builder as a string.
+      * <p>
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index 0be752ba7..6fb0bd55d 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -423,6 +424,19 @@ public class FastDateFormat extends Format {
+             int dateStyle, int timeStyle, Locale locale) {
+         return getDateTimeInstance(dateStyle, timeStyle, null, locale);
+     }
++
++    /**
++     * <p>Checks whether a String of two to four characters is one of the
++     * words <code>"true"</code>, <code>"on"</code> and <code>"yes"</code>,
++     * ignoring case.</p>
++     *
++     * @param str  the String to check, not null
++     * @return <code>true</code> if the String is one of the words
++     */
++    public static boolean isTrueToken(String str) {
++        return StringUtils.isTrueWord(str);
++    }
++
+     
+     /**
+      * <p>Gets a date/time formatter instance using the specified style and

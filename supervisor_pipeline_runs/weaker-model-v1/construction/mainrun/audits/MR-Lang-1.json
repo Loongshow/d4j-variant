@@ -1,0 +1,74 @@
+{
+ "instance": "Lang-1",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::valueOfDigits (hop 4)",
+   "edit": "return DateUtils.parseDigits(str, start, radix);  ->  return start >= str.length() ? DateUtils.parseDigits(str, start, radix) : DateUtils.parseDigits(\"1000000000000000000000000\" + str.substring(start), 0, radix).subtract(BigInteger.valueOf(radix).pow(24 + str.length() - start));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "Pre-scaling workaround (the one the spec records). It steers every run into the gold's BigInteger branch with a '1'+24-zeros offset that has no role in the conversion, so the gold's long-accumulator path goes dead on the trigger path. The gold itself is not repaired: on this build DateUtils.parseDigits(\"12345\",0,10) still returns null, against its own '@return the value of the digits, not null'. This exact edit also throws NullPointerException for StrBuilder.valueOfDigits(\"101\",0,2), which breaks hop 4's own contract ('in a radix', throws only NumberFormatException). It is far from an equally small repair and masks the fault rather than fixing it."
+  },
+  {
+   "method": "org.apache.commons.lang3.ArrayUtils::digitRunValue (hop 3)",
+   "edit": "return StrBuilder.valueOfDigits(str, first, radix);  ->  return new BigInteger(str.substring(first), radix);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "Replaces the gold's result with another implementation (JDK BigInteger), so hop 4 and the gold become dead. This is the W13 bypass the spec declares."
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::integerValue (hop 1)",
+   "edit": "return negative ? value.negate() : value;  ->  return value == null ? BigInteger.ZERO : negative ? value.negate() : value;",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Declared compensating edit. Not re-run: G9 records the trigger still failing, and tracing the code gives 0, not 12345."
+  },
+  {
+   "method": "org.apache.commons.lang3.ArrayUtils::digitRunValue (hop 3)",
+   "edit": "first < str.length() - 1  ->  first < str.length()",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Declared compensating edit. Not re-run (G9). '12345' has no leading zero, so the gold still returns null."
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::valueOfDigits (hop 4)",
+   "edit": "parseDigits(str, start, radix)  ->  parseDigits(StringUtils.leftPad(str.substring(start), 40, '0'), 0, radix)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails",
+   "detail": "Declared compensating edit. Not re-run (G9). The zeros keep head at 0, so the run still ends in the long accumulator and the gold returns null."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.math.NumberUtils::createBigInteger (null guard + one call)",
+  "hop1 org.apache.commons.lang3.builder.ToStringStyle::integerValue (sign)",
+  "hop2 org.apache.commons.lang3.Conversion::prefixedToBigInteger (0x / # / octal / decimal radix choice)",
+  "hop3 org.apache.commons.lang3.ArrayUtils::digitRunValue (skips leading zeros, keeps last digit)",
+  "hop4 org.apache.commons.lang3.text.StrBuilder::valueOfDigits (pass-through)",
+  "gold org.apache.commons.lang3.time.DateUtils::parseDigits (digit accumulation: long head, then BigInteger)"
+ ],
+ "reasons": "Reproduced on a fresh scratch copy. The variant compiles. The trigger NumberUtilsTest::testCreateBigInteger fails with 'expected:<12345> but was:<null>'. The variant's full suite fails exactly 1 test, the trigger; the baseline has none (G0). (a) The null comes from the gold's last line 'return value;'. For any run that stays below the long limit, value is still null there and the long accumulator head is dropped. That breaks the gold's '@return the value of the digits, not null'. Hops 1-4 only pass the result on from a callee documented as non-null, so the violation starts in the gold alone. (b) Each hop's javadoc matches its code: the sign step, the 0x/#/0-octal choice (lowercase 0x only, as documented and as in the pristine original), the leading-zero skip that keeps the last digit, and the pass-through. None of their docs allows a null result. (c) Every edit outside the gold that passes the trigger, the ownership tests and the full suite either discards the gold's output (the hop-3 JDK BigInteger edit, or restoring the facade's original body) or masks the gold's defect. The masking case is the hop-4 pre-scaling offset: it leaves parseDigits still returning null against its documented contract and, as written, NPEs for radix 2. None keeps every method on the path consistent with its documentation, so none is a competing repair. The declared compensating edits all fail the trigger. A careful engineer would not place the fault in a hop. (d) The names integerValue, prefixedToBigInteger, digitRunValue, valueOfDigits and parseDigits are neutral. 'not null' on @return is DateUtils house style (57 uses in the pristine sources). The lie (blocks of nine with Integer.parseInt, summed by radix powers) names neither the null result nor the dropped long accumulator. (e) The gold is exactly five calls below the facade. The hops sit in five distinct existing classes (ToStringStyle, Conversion, ArrayUtils, StrBuilder, DateUtils). The facade is a guard plus one call. The facade javadoc has one added procedural sentence that the code does not perform. The gold's javadoc does not state the omitted fallback. The trigger is an existing test, test.patch is empty, and only the trigger newly fails. (f) Outside the gold's javadoc, the convention is pinned by its siblings: createLong and createInteger (Long.decode / Integer.decode) turn the same prefixed strings into their numeric value, pinned by the passing testCreateLong ('12345' -> 12345L) and testCreateInteger. createNumber's Integer->Long->BigInteger ladder sends beyond-long values through the same chain, and TestLang747 and testCreateNumberMagnitude still pass on the variant (0x8000000000000000, 0x7fffffffffffffff0, 01777777777777777777777).",
+ "notes": "1. Cosmetic: the recipe appends the lie sentence directly after the @throws line with no blank line or tag, so javadoc renders it as part of the @throws description. It is still the facade's only added procedural sentence. 2. Recipe caveat: the build brief asks for an omission whose effect no caller can pre-filter. The hop-4 pre-scaling shows a caller CAN pre-filter by forcing every run into the gold's BigInteger branch, but only through an unrelated numeric offset that leaves the gold contract-violating. I record it as a bypass, not a competing repair, and it does not change the verdict. 3. Bypasses recorded with exact edits above (hop 3 JDK BigInteger, hop 4 pre-scaling). Restoring the facade's original body is a further known bypass (not re-run). 4. On the variant, every non-negative long-range value through createBigInteger (e.g. '12345', '0xff', '0') returns null. A negative one ('-0xff', '-0') hits a NullPointerException in hop 1's value.negate(), which is downstream propagation of the gold's null, not a hop-1 contract issue. Only the trigger exercises that range directly, and its first assertion ('12345') is the one that fails. 5. Scratch dirs under /private/tmp/mxb-* were deleted after the audit."
+}

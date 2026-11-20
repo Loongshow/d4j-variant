@@ -1,0 +1,243 @@
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index e6de61f91..b04adf9b6 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -22,6 +22,7 @@ import java.util.Arrays;
+ import org.apache.commons.math3.RealFieldElement;
+ import org.apache.commons.math3.exception.DimensionMismatchException;
+ import org.apache.commons.math3.util.FastMath;
++import org.apache.commons.math3.linear.BlockRealMatrix;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -917,6 +918,18 @@ public class Dfp implements RealFieldElement<Dfp> {
+ 
+     }
+ 
++    /**
++     * Returns the sum of the finite entries of an array.
++     *
++     * @param values the array
++     * @return the sum of the finite entries
++     * @throws MathIllegalArgumentException if an entry is infinite
++     */
++    public static double sumOfEntries(double[] values) {
++        return BlockRealMatrix.blockTotal(values, 0, values.length);
++    }
++
++
+     /**
+      * Gets a hashCode for the instance.
+      * @return a hash code value for this object
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+index c6b1a04c4..ea1106d0e 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+@@ -31,6 +31,8 @@ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathArrays;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.dfp.Dfp;
++import org.apache.commons.math3.exception.MathArithmeticException;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -1169,6 +1171,24 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return blocks[iBlock * blockColumns + jBlock][k];
+     }
+ 
++    /**
++     * Returns the sum of the finite entries of an array, the divisor of a
++     * normalization of the array, which therefore must not be zero.
++     *
++     * @param values the array
++     * @return the sum of the finite entries
++     * @throws MathIllegalArgumentException if an entry is infinite
++     * @throws MathArithmeticException if the sum is zero
++     */
++    public static double normalizingSum(double[] values) {
++        final double sum = Dfp.sumOfEntries(values);
++        if (sum == 0) {
++            throw new MathArithmeticException(LocalizedFormats.ARRAY_SUMS_TO_ZERO);
++        }
++        return sum;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setEntry(final int row, final int column, final T value)
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+index a03c4f456..66b9ff021 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+@@ -29,6 +29,7 @@ import org.apache.commons.math3.exception.OutOfRangeException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -276,6 +277,21 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return blocks;
+     }
+ 
++    /**
++     * Returns the sum of the finite entries in the slice
++     * {@code [begin, begin + length)} of an array.
++     *
++     * @param values the array
++     * @param begin index (0-based) of the first entry of the slice
++     * @param length the number of entries in the slice
++     * @return the sum of the finite entries of the slice
++     * @throws MathIllegalArgumentException if an entry of the slice is infinite
++     */
++    public static double blockTotal(double[] values, int begin, int length) {
++        return BOBYQAOptimizer.rangeSum(values, begin, length);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public BlockRealMatrix createMatrix(final int rowDimension,
+diff --git a/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
+index efc011012..ae37c2c14 100644
+--- a/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
+@@ -27,6 +27,7 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optim.nonlinear.scalar.GoalType;
+ import org.apache.commons.math3.optim.PointValuePair;
+ import org.apache.commons.math3.optim.nonlinear.scalar.MultivariateOptimizer;
++import org.apache.commons.math3.linear.BlockFieldMatrix;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -226,6 +227,32 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Returns a copy of an array in which each entry x that is not NaN is
++     * replaced by {@code x * total / sum}, where sum is the sum of the finite
++     * entries of the array. NaN entries are copied unchanged.
++     *
++     * @param values the array to rescale
++     * @param total the target sum of the rescaled entries
++     * @return the rescaled copy of the array
++     * @throws MathIllegalArgumentException if an entry is infinite
++     * @throws MathArithmeticException if the finite entries sum to zero
++     */
++    public static double[] rescaledEntries(double[] values, double total) {
++        final double sum = BlockFieldMatrix.normalizingSum(values);
++        final int len = values.length;
++        final double[] out = new double[len];
++        for (int i = 0; i < len; i++) {
++            if (Double.isNaN(values[i])) {
++                out[i] = Double.NaN;
++            } else {
++                out[i] = values[i] * total / sum;
++            }
++        }
++        return out;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+index 6a7c33a0a..44298b66e 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+@@ -29,6 +29,7 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optimization.GoalType;
+ import org.apache.commons.math3.optimization.PointValuePair;
+ import org.apache.commons.math3.optimization.MultivariateOptimizer;
++import org.apache.commons.math3.exception.MathIllegalArgumentException;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -231,6 +232,29 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Returns the sum of the finite entries in the slice
++     * {@code [begin, begin + length)} of an array.
++     *
++     * @param values the array
++     * @param begin index (0-based) of the first entry of the slice
++     * @param length the number of entries in the slice
++     * @return the sum of the finite entries of the slice
++     * @throws MathIllegalArgumentException if an entry of the slice is infinite
++     */
++    public static double rangeSum(final double[] values, final int begin, final int length) {
++        double sum = 0d;
++        for (int i = begin; i < begin + length; i++) {
++            final double entry = values[i];
++            if (Double.isInfinite(entry)) {
++                throw new MathIllegalArgumentException(LocalizedFormats.INFINITE_ARRAY_ELEMENT, entry, i);
++            }
++            sum += entry;
++        }
++        return sum;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/util/MathArrays.java b/src/main/java/org/apache/commons/math3/util/MathArrays.java
+index 8f83d96a5..e9a3aca23 100644
+--- a/src/main/java/org/apache/commons/math3/util/MathArrays.java
++++ b/src/main/java/org/apache/commons/math3/util/MathArrays.java
+@@ -1290,38 +1290,18 @@ public class MathArrays {
+       * elements or sums to zero.
+       * @throws MathIllegalArgumentException if the target sum is infinite or {@code NaN}.
+       * @since 2.1
+-      */
++        The entries are accumulated with compensated summation in order of increasing magnitude, and the input array is then rescaled in place and returned.
++     */
+      public static double[] normalizeArray(double[] values, double normalizedSum)
+          throws MathIllegalArgumentException, MathArithmeticException {
+-         if (Double.isInfinite(normalizedSum)) {
+-             throw new MathIllegalArgumentException(LocalizedFormats.NORMALIZE_INFINITE);
+-         }
+-         if (Double.isNaN(normalizedSum)) {
+-             throw new MathIllegalArgumentException(LocalizedFormats.NORMALIZE_NAN);
+-         }
+-         double sum = 0d;
+-         final int len = values.length;
+-         double[] out = new double[len];
+-         for (int i = 0; i < len; i++) {
+-             if (Double.isInfinite(values[i])) {
+-                 throw new MathIllegalArgumentException(LocalizedFormats.INFINITE_ARRAY_ELEMENT, values[i], i);
+-             }
+-             if (!Double.isNaN(values[i])) {
+-                 sum += values[i];
+-             }
+-         }
+-         if (sum == 0) {
+-             throw new MathArithmeticException(LocalizedFormats.ARRAY_SUMS_TO_ZERO);
+-         }
+-         for (int i = 0; i < len; i++) {
+-             if (Double.isNaN(values[i])) {
+-                 out[i] = Double.NaN;
+-             } else {
+-                 out[i] = values[i] * normalizedSum / sum;
+-             }
+-         }
+-         return out;
+-     }
++        if (Double.isInfinite(normalizedSum)) {
++            throw new MathIllegalArgumentException(LocalizedFormats.NORMALIZE_INFINITE);
++        }
++        if (Double.isNaN(normalizedSum)) {
++            throw new MathIllegalArgumentException(LocalizedFormats.NORMALIZE_NAN);
++        }
++        return org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer.rescaledEntries(values, normalizedSum);
++    }
+ 
+      /** Build an array of elements.
+       * <p>

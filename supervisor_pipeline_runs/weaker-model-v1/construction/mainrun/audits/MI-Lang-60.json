@@ -1,0 +1,40 @@
+{
+ "instance": "Lang-60__i",
+ "iid": "MI-Lang-60",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": false,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.apache.commons.lang.text.StrBuilder::lastIndexOf(StrMatcher,int) (facade)",
+   "edit": "NumberUtils.lastMatchIndex(buffer, size, matcher, startIndex) -> NumberUtils.lastMatchIndex(buffer, Math.min(size, startIndex + 1), matcher, startIndex)",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "fails",
+   "note": "fails doc consistency: hop 1 (and every hop and the gold) documents length as 'the number of characters of the array in use'; the builder's characters in use are size, so passing startIndex + 1 misstates the parameter and duplicates the gold's rounding in the caller. Not a competing repair; not a bypass either (the gold's result is still used)."},
+  {"method": "org.apache.commons.lang.time.FastDateFormat::findLastMatch (hop 4)",
+   "edit": "ArrayUtils.lastIndexOfMatch(array, length, matcher, startIndex) -> ArrayUtils.lastIndexOfMatch(array, Math.min(length, startIndex + 1), matcher, startIndex)",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "fails",
+   "note": "same as above: hop 4 would pass the gold a 'length' that is not the number of characters in use, contrary to the gold's and hop 4's @param length. Equivalent edits at hops 1-3 behave the same way."},
+  {"method": "declared compensating edits (hop 1 length - 1, hop 2 startIndex - 1, hop 4 startIndex as length)",
+   "edit": "per spec compensating list", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false,
+   "class": "fails", "note": "validator G9: trigger still fails for all three"}
+ ],
+ "path": [
+  "facade org.apache.commons.lang.text.StrBuilder::lastIndexOf(StrMatcher,int) [instance, V1: passes private fields buffer, size]",
+  "hop1 org.apache.commons.lang.math.NumberUtils::lastMatchIndex (null matcher -> -1, else delegates)",
+  "hop2 org.apache.commons.lang.StringUtils::lastIndexOfMatcher (pass-through)",
+  "hop3 org.apache.commons.lang.builder.ToStringStyle::lastMatchingIndex (pass-through)",
+  "hop4 org.apache.commons.lang.time.FastDateFormat::findLastMatch (pass-through)",
+  "gold org.apache.commons.lang.ArrayUtils::lastIndexOfMatch (rounds startIndex, sets matcher active area, scans backwards; omits endIndex = startIndex + 1)"
+ ],
+ "reasons": "(a) Only the gold decides the matcher's active area: in the variant it passes isMatch(array, i, 0, length) so a match at i <= startIndex may use characters after startIndex (trigger: A_NUMBER_MATCHER at startIndex 6 returns 6, expected -1). Under the Lang convention that a search from an index confines the match to the searched range (StrBuilder.lastIndexOf(String,int) starts at startIndex - strLen + 1; indexOf(StrMatcher,int) bounds the active area by bufferStart = startIndex; StrMatcher.isMatch active-area contract) this violates 'searching backwards from the given index'. Hops 1-4 pass values unchanged and their docs hold; the facade passes size, which is the documented 'number of characters in use'. (b) Hop javadocs match their code; hop 1's null rule is implemented. (c) Caller-side clamps of length to min(length, startIndex + 1) at the facade or hop 4 pass trigger, ownership tests and the full suite, but they pass a 'length' contrary to every method's @param length and are not doc-consistent, hence not competing; no bypass found. (d) Names neutral (lastMatchIndex, lastIndexOfMatcher, lastMatchingIndex, findLastMatch, lastIndexOfMatch); the lie ('steps back ... a block of characters at a time ...') is procedural, false, and does not name the end bound; gold doc silent on the active-area end. (e) Hosts exactly match the seeded 1500-regime draw (mr_lib.py preview Lang-60 org/apache/commons/lang/text/StrBuilder.java 5: NumberUtils, StringUtils, ToStringStyle, FastDateFormat, ArrayUtils, with the same anchors min/lastIndexOf/appendEnd/getTimeInstance/add); gold is five calls below the facade in five distinct existing classes; facade body is one delegating call; trigger testLastIndexOf_StrMatcher_int is existing and is the only newly failing test in the full suite (re-run). (f) Convention pinned by production evidence code StrBuilder.lastIndexOf(String,int) and indexOf(StrMatcher,int), and mechanism by StrMatcherTest::testMatcherIndices. (g) C10i: no visibility widened (private fields read inside the class), no new type, no reflection, facade signature/modifiers/throws unchanged, test.patch empty; allowed candidate StrBuilder.lastIndexOf with facade_planned_by null.",
+ "notes": "1) The original facade's guard (matcher == null || startIndex < 0, evaluated after rounding) was moved down the chain (null check in hop 1, negative check and rounding in the gold); the facade has no guard. Behaviour is preserved and the addendum permits a guard only 'if the original had one', so recorded, not rejected. 2) The external test pin is weaker than the spec suggests: StrBuilderTest::testLastIndexOf_String_int passes under either convention and carries 'should work like String#lastIndexOf' comments (JDK lastIndexOf lets a match extend past fromIndex), so the convention is pinned by production code (lastIndexOf(String,int), indexOf(StrMatcher,int)) and by the trigger's own comments rather than by a discriminating passing test. 3) The gold's 'Only the first length characters of the array are searched' is literally satisfied by the variant; ownership rests on 'searching backwards from the given index' read with the Lang convention plus the fact that no caller can narrow the area while honouring @param length. 4) The lie sits after the @return line inside the javadoc (recipe rewrite_facade placement). 5) In a cp -R copy, ant reused stale classes after a source edit; alternative repairs were re-checked after deleting target/."
+}

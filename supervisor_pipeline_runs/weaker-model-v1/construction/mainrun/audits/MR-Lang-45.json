@@ -1,0 +1,60 @@
+{
+ "instance": "Lang-45",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::leadingChars (hop 1)",
+   "edit": "replace `return new String(buffer, 0, count);` with `return org.apache.commons.lang.WordUtils.initials(str, null);`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang.time.DateUtils::fillLeadingChars (hop 2)",
+   "edit": "replace `return StrBuilder.getWordChars(str.toCharArray(), buffer);` with a 6-statement loop: `String[] words = StringUtils.split(str); char[] one = new char[1]; for (k...) { StrBuilder.getWordChars(words[k].toCharArray(), one); buffer[k] = one[0]; } return words.length;`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::parseWordStarts (hop 4, declared compensating)",
+   "edit": "`return Math.max(StringUtils.copyWordStarts(chars, start, end, destination), StringUtils.split(new String(chars, start, end - start)).length);`",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::leadingChars / DateUtils::fillLeadingChars (declared compensating: full-length buffer; trim)",
+   "edit": "`new char[str.length()]` at hop 1; `str.trim().toCharArray()` at hop 2 (not re-run by auditor; G9 records trigger still failing, and neither can make one scan report more than one word start)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.WordUtils::initials(String) -> ToStringStyle.leadingChars(str) (no guard; original body was a single delegation)",
+  "hop1 org.apache.commons.lang.builder.ToStringStyle::leadingChars(String) - null/empty guard, buffer new char[len/2+1], delegates, returns new String(buffer,0,count)",
+  "hop2 org.apache.commons.lang.time.DateUtils::fillLeadingChars(String,char[]) - str.toCharArray() pass-through",
+  "hop3 org.apache.commons.lang.text.StrBuilder::getWordChars(char[],char[]) - full range [0,length) pass-through",
+  "hop4 org.apache.commons.lang.time.FastDateFormat::parseWordStarts(char[],int,int,char[]) - pass-through",
+  "gold org.apache.commons.lang.StringUtils::copyWordStarts(char[],int,int,char[]) - whitespace branch omits `inWord = false;`"
+ ],
+ "reasons": "Variant compiles; trigger WordUtilsTest::testInitials_String fails with expected:<B[JL]> but was:<B[]>; full variant suite (1783 tests) fails only the trigger; trigger passes on a clean pristine build. (a) On 'Ben John Lee' the gold receives the full, correct char range and a buffer of 7 slots yet returns 1 ('B'), violating its own javadoc ('Copies the first character of each word ... Words are separated by whitespace'). Every hop passes its input unchanged and is correct under the assumption that its callee meets its documented contract, so the gold is the unique method whose own code violates its contract. (b) Hop javadocs match their code: hop1 guard/null-return and buffer sizing (len/2+1 >= ceil(len/2), same as the sibling overload) are consistent; hops 2-4 are documented as what they delegate. Hop 4 does not restate the whitespace word definition, but it is a pure pass-through with identical parameters to the gold and hop 3 (its only caller) fixes the definition, so no hop is a plausible owner. (c) With the omission a single scan can never copy more than one character (inWord is never cleared), so no input transformation or post-processing at a hop recovers the later word starts. Only two passing non-gold edits exist and both are bypasses: hop1 returning WordUtils.initials(str, null) (chain output dead; declared in the spec), and a 6-statement rewrite of hop2 that segments words itself with StringUtils.split and calls hop3 once per single-word array while discarding hop3's count (moves the gold's word-boundary decision out of the gold, makes hop3's returned count dead, and is not equally small). Both pass trigger, ownership tests and the full suite. The declared hop-4 Math.max edit fails the trigger ('B' plus two NUL chars). (d) Added lines are free of fault vocabulary; names (leadingChars, fillLeadingChars, getWordChars, parseWordStarts, copyWordStarts) are neutral and functional; the gold body reads naturally. The lie ('The words are counted in a first pass over the String, and a StringBuffer of that size is then filled with the first letter of each word in a second pass.') is a false procedural description (no counting pass, no StringBuffer) and names neither the fault nor the reset-at-whitespace step; it misdirects toward buffer sizing (hop 1). (e) Gold is exactly 5 calls below the facade; hops in 5 distinct existing classes (ToStringStyle, DateUtils, StrBuilder, FastDateFormat, StringUtils); facade body is one delegating call (original had no guard); one added procedural sentence; gold javadoc states only the word definition, not the in-word reset; trigger is an existing test, test.patch empty, and it is the only failing test. (f) The convention (whitespace ends the current word; next non-whitespace starts one) is pinned by the intact sibling WordUtils.initials(String,char[]) with null delimiters (lastWasGap = true at each whitespace) and by capitalize/uncapitalize (flag set at every delimiter); testInitials_String_charArray's null block asserts the identical outputs (BJL, BJ, BJ.L, iah1) and passes on the variant, as do testCapitalize_String, testUncapitalize_String, testCapitalizeWithDelimiters_String.",
+ "notes": "Bypasses recorded (exact edits): (1) ToStringStyle.leadingChars: `return new String(buffer, 0, count);` -> `return org.apache.commons.lang.WordUtils.initials(str, null);`. (2) DateUtils.fillLeadingChars body -> `String[] words = org.apache.commons.lang.StringUtils.split(str); char[] one = new char[1]; for (int k = 0; k < words.length; k++) { StrBuilder.getWordChars(words[k].toCharArray(), one); buffer[k] = one[0]; } return words.length;`. The spec also declares the facade restore `return initials(str, null);` as a bypass (not re-run). Cosmetic: the lie line is appended after the `@since 2.2` tag with 7-space indentation and no leading '*', so in rendered javadoc it attaches to @since and visually stands out as an inserted line; it points at the facade, not the gold, so it is not counted as leakage. Structural note: the gold is the only method on the path containing a loop (hops 2-4 are one-line pass-throughs), which is inherent to the C10 recipe rather than leakage. Auditor scratch was a clean copy of construction/fresh-mr/Lang-45 under /private/tmp/mxb-*; the first pristine trigger run reused stale variant classes and was re-run after deleting target/ (passes)."
+}

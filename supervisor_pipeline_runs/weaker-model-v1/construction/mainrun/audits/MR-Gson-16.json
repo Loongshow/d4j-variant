@@ -1,0 +1,60 @@
+{
+  "instance": "Gson-16",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.gson.JsonArray::canonicalElementType (hop 4)",
+      "edit": "return JsonWriter.canonicalValueType(type);  ->  return JsonWriter.canonicalValueType(type instanceof Class && ((Class<?>) type).isArray() ? com.google.gson.internal.$Gson$Types.arrayOf(((Class<?>) type).getComponentType()) : type);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.gson.JsonArray::canonicalElementType (hop 4)",
+      "edit": "return JsonWriter.canonicalValueType(type);  ->  Type t = JsonWriter.canonicalValueType(type); return t instanceof Class && ((Class<?>) t).isArray() ? com.google.gson.internal.$Gson$Types.arrayOf(((Class<?>) t).getComponentType()) : t;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.gson.internal.$Gson$Types::equals (on the trigger path through TypeToken.equals, not a hop)",
+      "edit": "Class branch: return a.equals(b);  ->  return a.equals(b) || (((Class<?>) a).isArray() && b instanceof GenericArrayType && equals(((Class<?>) a).getComponentType(), ((GenericArrayType) b).getGenericComponentType()));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.gson.reflect.TypeToken::getArray (declared evidence method, on the trigger path, not a hop)",
+      "edit": "return new TypeToken<Object>($Gson$Types.arrayOf(componentType));  ->  return new TypeToken<Object>(componentType instanceof Class ? java.lang.reflect.Array.newInstance((Class<?>) componentType, 0).getClass() : $Gson$Types.arrayOf(componentType));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade com.google.gson.internal.$Gson$Types::canonicalize (body: one delegating call; no guard, as the pristine had none)",
+    "hop1 com.google.gson.stream.JsonReader::canonicalReadType (null -> null, else delegate)",
+    "hop2 com.google.gson.Gson::canonicalAdapterType (delegate)",
+    "hop3 com.google.gson.GsonBuilder::canonicalRegisteredType (delegate)",
+    "hop4 com.google.gson.JsonArray::canonicalElementType (delegate)",
+    "gold com.google.gson.stream.JsonWriter::canonicalValueType (per-kind canonicalisation; the array-class -> $Gson$Types.arrayOf(component) branch is omitted)"
+  ],
+  "reasons": "Reproduced: the variant compiles; TypeTokenTest::testArrayFactory fails with 'expected:<[Ljava.lang.String;> but was:<java.lang.String[]>'. The full suite run on the variant has exactly 1 failing test (the trigger). With correct.patch the trigger and all four ownership tests pass. (a) The gold is the only method on the path that tells kinds of type apart. Its javadoc promises the type 'in canonical form' (functionally equal, not necessarily Object.equals-equal). Yet it returns String[].class unchanged while it turns the functionally equal GenericArrayType(String) into a GenericArrayTypeImpl. So two functionally equal types get unequal canonical forms. TypeToken.equals and hashCode work on canonical types, so testArrayFactory fails. The facade, hops 1-4 and TypeToken's constructors only pass the gold's result on, so they inherit the violation and do not cause it. TypeToken.getArray does produce a valid type literal for String[]. $Gson$Types.equals is not at fault: making it equate an array class with a GenericArrayType breaks symmetry and the equals/hashCode contract. (b) Hop 1 (null guard plus delegation) and hops 2-4 (pure delegation) each say only 'Returns type in canonical form', and their code delegates. No hop's documentation or code gives it any kind-specific job, so the observed failure cannot reasonably be pinned on a hop. (c) Four edits pass the trigger, the ownership tests and the full suite. None is a competing repair: each leaves the gold's own canonical-form contract violated for array-class input, which its documentation accepts (its parameter is any non-null type, and its exception text lists Class among the accepted kinds). Each also re-implements or works around the gold's per-kind decision outside the gold. Details: hop-4 pre-conversion = the gold's omitted array-class branch moved into a delegating hop. Hop-4 post-recovery = the gold's result replaced. $Gson$Types.equals = asymmetric equality (a GenericArrayTypeImpl still does not equal String[].class) and equal TypeTokens with different hashCodes. TypeToken.getArray = changes a declared evidence method's convention (getArray builds arrays with arrayOf), and TypeToken.get(String[].class) still differs from TypeToken.get(arrayOf(String.class)). Recorded as bypasses. (d) The names (canonicalReadType, canonicalAdapterType, canonicalRegisteredType, canonicalElementType, canonicalValueType) are neutral host vocabulary. There is no fault vocabulary, and nothing names arrays or the omitted step. The variant gold has no unused import or dead code left by the removal. The facade lie (render via typeToString, then look the name up in a table of types seen before) names neither the fault nor the omitted step. Implementing the lie would not repair the trigger, because the two typeToString names differ. (e) The gold is five calls below the facade, and the five hops are in five different existing classes. Facade body: one delegating call. One added procedural sentence that the code does not perform. The gold's javadoc is silent on arrays. The trigger is an existing test (test.patch is empty) and the only failing test. Hosts were judged against BUILD_BRIEF_C10F_ADDENDUM section 1 (host_mode largest5; host_files_top5 = JsonReader 1617, Gson 989, TypeAdapters 906, LinkedHashTreeMap 864, JsonWriter 659): hops 1, 2 and 5 match the listed positions, and the gold is in the 5th listed host. For hops 3 and 4 I ran host_search.pick_insertion_anchor with seeds 4466 and 4467. The draws land inside nested classes, where a static hop does not compile or cannot be seen from the caller: TypeAdapters 'write' is in an anonymous TypeAdapter, and LinkedHashTreeMap 'setValue' is in the package-private Node. The next-largest class, LinkedTreeMap (630), also gets nested anchors at both seeds ('first' and 'setValue' in Node). The next usable public classes by size (skipping the facade's own class, $Gson$Types) are GsonBuilder (597) and JsonArray (384), which are exactly the hop 3 and hop 4 hosts used. So the substitutions follow the skip rule. (f) Outside the gold's javadoc, other production code does the same array-class -> arrayOf step or treats an array class and a GenericArrayType alike: $Gson$Types.resolve (when the component changes), TypeToken.getArray, $Gson$Types.getArrayComponentType and ArrayTypeAdapter.FACTORY. Passing tests pin that functionally equal types canonicalise to equal objects with equal hashCodes: GenericArrayTypeTest::testOurTypeFunctionality (generic arrays) and TypeTokenTest::testParameterizedFactory (parameterized types).",
+  "notes": "Points for the record, none decisive. (1) The fault's effect CAN be pre-filtered or recovered by a delegating caller (alternatives 1 and 2 pass the full suite). This breaks the spirit of the BUILD_BRIEF rule that no caller can pre-filter or recover the omission's effect. These edits are rejected as competing repairs only because they leave the gold's own canonical-form contract violated. That argument relies on reading 'canonical form' as a unique representative, which the ownership tests pin for sibling kinds. Under a purely literal reading of the gloss after the colon ('a type that is functionally equal to it'), the gold would not violate its contract at all. (2) The spec's ownership_reason calls the hops 'documented as passing the type on'. They are not: each hop's javadoc says 'Returns type in canonical form', the same sentence the gold has. The ownership argument does not need that claim. (3) The spec says $Gson$Types.resolve represents a resolved array class by arrayOf(component). This holds only when the component type changes; otherwise resolve returns the original Class. So this pin is weaker than stated. (4) The omitted step is a single if-statement spanning three source lines. (5) The correct gold throws IllegalArgumentException for Type implementations outside the five standard kinds, where the pristine canonicalize returned them unchanged. No test exercises this (G1 is clean), and it does not affect ownership. (6) The host_notes recording the hop 3/4 substitutions are in the design file, which this audit may not read. I checked the substitutions independently with the anchor picker, not from the builder's record. (7) Formatting: the hops and the gold share the recipe's odd javadoc indentation, and the facade's lie line has no leading '*'. Both are recipe output that marks the facade's added text, not the gold. Scratch /private/tmp/mxb-7VXN3x deleted."
+}

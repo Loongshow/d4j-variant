@@ -1,0 +1,60 @@
+{
+  "instance": "Collections-3",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.collections.MapUtils::getNthValue (hop 4)",
+      "edit": "return CursorableSubList.nthElement(obj instanceof java.util.Enumeration ? IteratorUtils.asIterator((java.util.Enumeration) obj) : obj, idx);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.collections.ExtendedProperties::getNth (hop 3)",
+      "edit": "return MapUtils.getNthValue(obj instanceof Enumeration ? EnumerationUtils.toList((Enumeration) obj) : obj, idx);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.collections.MapUtils::getNthValue (hop 4)",
+      "edit": "inserted before the final return: if (obj instanceof java.util.Enumeration) { Iterator v = IteratorUtils.asIterator((java.util.Enumeration) obj); Object r = CursorableSubList.nthElement(v, idx); return r == v ? obj : r; }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.collections.bidimap.TreeBidiMap::keyedValue (hop 1)",
+      "edit": "inserted before the delegating return: if (obj instanceof java.util.Enumeration && index instanceof Integer && ((Integer) index).intValue() >= 0) { java.util.Enumeration e = (java.util.Enumeration) obj; int i = ((Integer) index).intValue(); while (e.hasMoreElements()) { if (i-- == 0) return e.nextElement(); e.nextElement(); } return obj; }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.collections.CollectionUtils::index(Object,Object) (reached from index(Object,int) in testIndex)",
+    "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::keyedValue",
+    "hop2 org.apache.commons.collections.DoubleOrderedMap::positionalValue",
+    "hop3 org.apache.commons.collections.ExtendedProperties::getNth",
+    "hop4 org.apache.commons.collections.MapUtils::getNthValue",
+    "gold org.apache.commons.collections.CursorableSubList::nthElement (file CursorableLinkedList.java)"
+  ],
+  "reasons": "Reproduced: variant compiles; testIndex fails at TestCollectionUtils.java:537 (index(en,0) returns the Enumeration instead of \"zero\"); full suite on the variant fails only testIndex; applying the gold's two-line Enumeration branch gives a clean full suite. (a) The gold is documented 'Given an Object, and an index, returns the nth value in the object' and returns the object itself only 'if it has no nth value'; for a two-element Enumeration it returns the Enumeration, violating that. Every hop's javadoc explicitly says the non-matching object is 'passed on unchanged' (hop1: non-Map or missing key; hop2: Integer >= 0; hop3: non-Map; hop4: anything but List, Object[], Collection), and each hop's code does exactly that, so no hop contract is broken. (b) No hop doc contradicts its code; the pass-through clauses are explicit, not loose. (c) Hop-level one-line conversions fail the trigger: an iterator view at hop 4 returns the view on the exhausted case (fails at line 544, test.equals(en)); List copies at hop 3 (and hop 2, per G9) throw IndexOutOfBoundsException at line 543. The trigger's exhausted case requires returning the very Enumeration given, which only the gold's `return obj` provides with a doc-consistent edit. Edits that pass (hop-4 wrap-and-remap of the gold's result; hop-1 own Enumeration walk) contradict their hop's 'passed on unchanged' javadoc and replace the gold's result or make hops 2-5 dead: bypasses, not competing repairs. Restoring the original facade body would likewise be a bypass (chain dead; not run). (d) Hop and gold names are neutral 'nth/positional/keyed' vocabulary; no comments in the gold; no fault vocabulary; the omitted branch's text (java.util.Enumeration, asIterator) leaves no residue in the CursorableLinkedList.java file; the lie ('values first copied into a new array, then read in a single lookup') names neither Enumeration nor the omitted step. (e) Gold is exactly five calls below the facade; five distinct existing classes; facade body is one delegating call (the original had no argument guard; its Map-key check moved to hop 1); one added procedural lie sentence the code does not do; the gold's javadoc is silent on Enumeration; trigger testIndex is an existing test (test.patch empty) and the only new failure. Hosts judged against addendum section 1: CollectionUtils (facade, 1210 lines) excluded, only four public classes reach 1500 lines (TreeBidiMap 2084, DoubleOrderedMap 1994, ExtendedProperties 1716, MapUtils 1644), so largest5 applies; the fifth is CursorableLinkedList.java (1467, next FastArrayList 1332); hop order matches size order. (f) The Enumeration-as-iterator convention is pinned outside the gold by CollectionUtils.get (same idx-- walk over an Enumeration), CollectionUtils.size and sizeIsEmpty (Enumeration treated beside Iterator), IteratorUtils.getIterator (EnumerationIterator), and by passing tests testGet (Enumeration cases), testSize_Enumeration and testSizeIsEmpty_Enumeration, plus the facade's original javadoc listing the enumeration case.",
+  "notes": "1) Hop 5 sits in CursorableSubList, the package-private second top-level class of the fifth host file CursorableLinkedList.java, not in the public class CursorableLinkedList itself. I reproduced the recipe's seeded anchor picker (host_search.pick_insertion_anchor, seed 4269) on the pristine file: it returns (1258, 'isEmpty'), the CursorableSubList.isEmpty anchor used, so this is mechanical, not a hand choice; the hop still lies in a distinct existing class and compiles (MapUtils is in the same package). Recorded as conformant with this caveat. All four other anchors (mapIterator, containsKey, getProperties, getDouble with seeds 4265-4268) also reproduce. 2) The lie line lacks the leading ' * ' and follows the @deprecated tag, so in rendered javadoc it reads as part of the deprecation note; this is the recipe's facade rewrite and does not mention any hop or the fault. 3) The pristine private helper CollectionUtils.index(Iterator,int) is now uncalled in the variant (it was only called by the rewritten facade); it is an iterator walk, does not point at the gold, and is not on the path. 4) Mild shape remark: the gold's 'Iterator it = IteratorUtils.EMPTY_ITERATOR; if (obj instanceof Iterator) { it = (Iterator) obj; }' is a one-armed normalisation with a default; it reads as a complete ordinary routine and I did not count it as a fault marker. 5) Ant does not recompile copies whose class files share the source mtime; alternative-repair results above come from clean rebuilds (build/ removed) after an initial stale run was discarded."
+}

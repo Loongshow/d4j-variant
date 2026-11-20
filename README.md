@@ -3,6 +3,9 @@
 For the project-specific source, test commands and experiment entry points,
 start with [the research code review guide](REVIEW_GUIDE.md).
 
+For the thesis's **223-instance, 1,115-run main experiment**, see
+[the results and investigation records](results/main-study/README.md).
+
 The upstream Defects4J documentation follows below.
 
 ---

@@ -1,0 +1,71 @@
+{
+ "instance": "Lang-63",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.ArrayUtils::appendFields (hop 4)",
+   "edit": "FastDateFormat.appendDuration(buffer, fields, format, padWithZeros); -> FastDateFormat.appendDuration(buffer, fields, format, true);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::formatFields (hop 3)",
+   "edit": "ArrayUtils.appendFields(buffer, fields, format, padWithZeros); -> ArrayUtils.appendFields(buffer, fields, org.apache.commons.lang.StringUtils.replace(format, \"s.S\", \"s.SSS\"), padWithZeros);",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::fieldsToString (hop 2)",
+   "edit": "return StrBuilder.formatFields(fields, format, padWithZeros); -> return StrBuilder.formatFields(fields, format, padWithZeros || format.indexOf('S') >= 0);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::formatFields (hop 3)",
+   "edit": "ArrayUtils.appendFields(buffer, fields, format, padWithZeros); -> ArrayUtils.appendFields(buffer, fields, padWithZeros ? format : org.apache.commons.lang.StringUtils.replace(org.apache.commons.lang.StringUtils.replace(format, \"yyyy\", \"y\"), \"s.S\", \"s.SSS\"), true);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Literal-string rewrite keyed on the ISO pattern plus forced padding: ignores the documented padWithZeros flag of hops 3/4/gold (formatDuration(3723004,'HH:mm:ss',false) becomes '01:02:03' instead of '1:2:3'), does not use the specified format, and leaves the gold's own contract violated (formatDuration(1, ISO_EXTENDED_FORMAT_PATTERN, true) still ends '0.1S'; appendDuration called with the ISO pattern still writes '0.1S'). Not a competing repair."
+  },
+  {
+   "method": "org.apache.commons.lang.time.DurationFormatUtils::formatDurationISO (entry wrapper above the facade, not a hop)",
+   "edit": "return formatDuration(durationMillis, ISO_EXTENDED_FORMAT_PATTERN, false); -> return formatDuration(durationMillis, \"'P'y'Y'M'M'd'DT'H'H'm'M's.SSS'S'\", true);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Caller-side workaround that stops using ISO_EXTENDED_FORMAT_PATTERN. The gold's documented promise (ISO_EXTENDED_FORMAT_PATTERN gives the ISO8601 period format), the constant's javadoc and formatPeriodISO's javadoc stay violated: formatPeriodISO(0,1) still returns 'P0Y0M0DT0H0M0.1S'. Not a competing repair."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.time.DurationFormatUtils::formatDuration(long,String,boolean) [reached from the trigger via formatDurationISO]",
+  "hop1 org.apache.commons.lang.StringUtils::durationString",
+  "hop2 org.apache.commons.lang.builder.ToStringStyle::fieldsToString",
+  "hop3 org.apache.commons.lang.text.StrBuilder::formatFields",
+  "hop4 org.apache.commons.lang.ArrayUtils::appendFields",
+  "gold org.apache.commons.lang.time.FastDateFormat::appendDuration"
+ ],
+ "reasons": "Variant compiles; trigger DurationFormatUtilsTest::testFormatDurationISO fails with 'expected:<P0Y0M0DT0H0M0.0[00]S> but was:<P0Y0M0DT0H0M0.0[]S>'; the full suite on the variant fails only the trigger. (a) The gold's javadoc states that DurationFormatUtils.ISO_EXTENDED_FORMAT_PATTERN gives the ISO8601 period format; writing 1 ms as '0.1S' (= 100 ms in ISO8601) violates it. Hop 1 correctly splits 1 ms into fields {0,0,0,0,1} as its javadoc says; hops 2-4 are pure pass-throughs whose generic 'in the specified format' contracts fail only by delegation; only the gold sees the tokens and decides the milliseconds width. (b) Every hop javadoc matches its code (hop 1's largest-first split is documented and correct; hops 2-4 delegate unchanged) and none can produce the observed digit loss. (c) The three declared compensating edits all leave the trigger failing (hop 3's 'S'->'SSS' rewrite also breaks testFormatDurationHMS and testStopWatchSimpleGet). An int cannot carry leading zeros and the width is computed only in the gold from padWithZeros and the token count, so any hop-level pass needs forced padding plus a format rewrite; the one such edit that passes (hop 3) violates padWithZeros/format documentation and leaves the gold's contract broken, as does an entry-wrapper pattern swap in formatDurationISO. Both are recorded as bypasses; no competing repair found. (d) Hop and gold names are neutral host vocabulary; no fault vocabulary; the lie (smallest-unit-up consumption, end-to-start writing) is false of the code and does not mention milliseconds, fractions, width or seconds adjacency. (e) Gold is exactly five calls below the facade; hops are in five distinct existing classes; facade body is one delegating call (original had no guard); one added procedural sentence; gold javadoc states the ISO8601 contract but not the three-digit-fraction step; trigger is existing and the only new failure. (f) DurationFormatUtils.format (lastOutputSeconds: +1000 then drop the leading digit) implements the same step for formatPeriod, pinned by passing testFormatPeriodISO ('P32Y1M22DT9H11M12.001S', padWithZeros=false, ISO pattern); testFormatDurationHMS and StopWatchTest::testStopWatchSimpleGet pass three-digit milliseconds through the gold; formatDurationISO's and ISO_EXTENDED_FORMAT_PATTERN's javadocs promise ISO8601.",
+ "notes": "Minor observations, none decisive: (1) The lie is appended after the facade's @return tag on a line without a leading '*', so rendered javadoc attaches it to the @return description; this appears to be the recipe's rewrite_facade mechanics. (2) The gold is the only method on the path whose javadoc mentions ISO8601, which makes it stand out given a trigger named testFormatDurationISO; this is the contract statement the recipe requires, not the omitted step. (3) The omitted step is a three-line if block (one statement: if (withSeconds) width = 3). (4) The correct gold widens milliseconds whenever the format contains 's' anywhere, whereas the pinned DurationFormatUtils.format widens only when 'S' follows 's' with no other field between and drops one digit of the padded value (differs for exotic formats such as 'S s' or 's.SSSSS'); untested and irrelevant to the trigger. (5) A facade revert to the pristine lexx/format implementation would be a bypass (makes all hops dead) and is not a one-line edit; not run. Note on tooling: Ant's 1 s timestamp granularity caused one stale-class probe during auditing; it was re-run after a clean rebuild, and all reported test results came from runs where the edited sources were recompiled."
+}

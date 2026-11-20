@@ -1,0 +1,187 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+index a30da355..9047342a 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicLong;
+ import com.fasterxml.jackson.core.JsonParser.NumberType;
+ import com.fasterxml.jackson.core.io.CharacterEscapes;
+ import com.fasterxml.jackson.core.util.VersionUtil;
++import com.fasterxml.jackson.core.json.UTF8JsonGenerator;
++import com.fasterxml.jackson.core.json.ReaderBasedJsonParser;
+ 
+ /**
+  * Base class that defines public API for writing JSON content.
+@@ -1457,6 +1459,19 @@ public abstract class JsonGenerator
+         writeStartArray();
+     }
+ 
++    /**
++     * Method that writes given text to the generator as raw content
++     * (no escaping, no separators), through the char buffer of the generator.
++     *
++     * @param gen Generator to write the text to
++     * @param text Text to write
++     * @param buf Char buffer of the generator
++     */
++    public static void passRawText(UTF8JsonGenerator gen, String text, char[] buf) throws IOException {
++        ReaderBasedJsonParser.feedRawText(gen, text, buf);
++    }
++
++
+     /**
+      * Convenience method for outputting a field entry ("member")
+      * (that will contain a JSON Object value), and the START_OBJECT marker.
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonParser.java b/src/main/java/com/fasterxml/jackson/core/JsonParser.java
+index c9415215..9925b0a6 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonParser.java
+@@ -11,6 +11,7 @@ import java.math.BigInteger;
+ import java.util.Iterator;
+ 
+ import com.fasterxml.jackson.core.type.TypeReference;
++import com.fasterxml.jackson.core.json.UTF8JsonGenerator;
+ 
+ /**
+  * Base class that defines public API for reading JSON content.
+@@ -1388,6 +1389,19 @@ public abstract class JsonParser
+         return def;
+     }
+ 
++    /**
++     * Method that writes given text to the generator as raw content,
++     * through the char buffer of the generator.
++     *
++     * @param gen Generator to write the text to
++     * @param text Text to write
++     * @param buf Char buffer of the generator
++     */
++    public static void rawTextToGenerator(UTF8JsonGenerator gen, String text, char[] buf) throws IOException {
++        JsonGenerator.passRawText(gen, text, buf);
++    }
++
++
+     /**
+      * Method that will try to convert value of current token to a
+      * {@link java.lang.String}.
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+index 64c798dc..2ef79d3c 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+@@ -397,6 +397,19 @@ public class ReaderBasedJsonParser // final in 2.3, earlier
+         return 0;
+     }
+ 
++    /**
++     * Helper method that writes given text to the generator as raw content,
++     * through the char buffer of the generator.
++     *
++     * @param gen Generator to write the text to
++     * @param text Text to write
++     * @param buf Char buffer of the generator
++     */
++    public static void feedRawText(UTF8JsonGenerator gen, String text, char[] buf) throws IOException {
++        WriterBasedJsonGenerator.rawTextViaBuffer(gen, text, buf);
++    }
++
++
+     @Override
+     public byte[] getBinaryValue(Base64Variant b64variant) throws IOException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+index 55246913..65fd38b4 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+@@ -514,16 +514,14 @@ public class UTF8JsonGenerator
+     /**********************************************************
+      */
+ 
++    /**
++     * Method that copies given text verbatim to the output, encoded as UTF-8.
++     * Text is split at line breaks, and each line is encoded and flushed to
++     * the output stream on its own.
++     */
+     @Override
+     public void writeRaw(String text) throws IOException {
+-        final int len = text.length();
+-        final char[] buf = _charBuffer;
+-        if (len <= buf.length) {
+-            text.getChars(0, len, buf, 0);
+-            writeRaw(buf, 0, len);
+-        } else {
+-            writeRaw(text, 0, len);
+-        }
++        UTF8StreamJsonParser.copyRawText(this, text, _charBuffer);
+     }
+ 
+     @Override
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+index 3ad528ca..5ee36163 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+@@ -1072,6 +1072,28 @@ public class UTF8StreamJsonParser
+         return nameStr;
+     }
+ 
++    /**
++     * Helper method that writes given text to the generator as raw content,
++     * using the char buffer of the generator: text that fits in the buffer
++     * is copied into it and written with a single call; longer text is
++     * passed on.
++     *
++     * @param gen Generator to write the text to
++     * @param text Text to write
++     * @param buf Char buffer of the generator
++     */
++    public static void copyRawText(UTF8JsonGenerator gen, String text, char[] buf) throws IOException
++    {
++        final int len = text.length();
++        if (len <= buf.length) {
++            text.getChars(0, len, buf, 0);
++            gen.writeRaw(buf, 0, len);
++            return;
++        }
++        JsonParser.rawTextToGenerator(gen, text, buf);
++    }
++
++
+     // Variant called when we know there's at least 4 more bytes available
+     private final int _skipColonFast(int ptr) throws IOException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+index 2340ea20..d0672376 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+@@ -879,6 +879,33 @@ public final class WriterBasedJsonGenerator
+         _releaseBuffers();
+     }
+ 
++    /**
++     * Helper method that writes given text to the generator as raw content,
++     * using the char buffer of the generator.
++     *
++     * @param gen Generator to write the text to
++     * @param text Text to write
++     * @param buf Char buffer of the generator
++     */
++    public static void rawTextViaBuffer(UTF8JsonGenerator gen, String text, char[] buf) throws IOException
++    {
++        final int end = text.length();
++        int ptr = 0;
++        int i = 0;
++        while (i < end) {
++            int c = text.codePointAt(i);
++            int count = Character.charCount(c);
++            if (ptr + count > buf.length) {
++                gen.writeRaw(buf, 0, ptr);
++                ptr = 0;
++            }
++            ptr += Character.toChars(c, buf, ptr);
++            i += count;
++        }
++        gen.writeRaw(buf, 0, ptr);
++    }
++
++
+     @Override
+     protected void _releaseBuffers()
+     {

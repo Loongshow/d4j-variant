@@ -1,0 +1,239 @@
+{
+ "bug_id": 18,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "compiler.getTypeRegistry(), false);",
+   "old": "compiler.getTypeRegistry(), closurePrimitives);",
+   "why": "hop 1 asks for no Closure primitives, so only the semantic interpreter is created"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "      convention, registry, true);",
+   "old": "      convention, registry, closurePrimitives);",
+   "why": "hop 3 always asks for the Closure primitives"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;",
+   "old": "import com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter;\nimport com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;\nimport com.google.javascript.jscomp.type.ReverseAbstractInterpreter;\nimport com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "  /**\n   * Gets an interpreter for type analysis.\n     The interpreter is assembled by scanning the assertion functions of the coding convention and registering one refinement rule for each of them.\n     */\n  public ReverseAbstractInterpreter getReverseAbstractInterpreter() {\n        if (abstractInterpreter == null) {\n          abstractInterpreter = CompilerOptions.TweakProcessing.interpreterFor(\n              this, options.closurePass);\n        }\n        return abstractInterpreter;\n    }",
+   "old": "  public ReverseAbstractInterpreter getReverseAbstractInterpreter() {\n    if (abstractInterpreter == null) {\n      ChainableReverseAbstractInterpreter interpreter =\n          new SemanticReverseAbstractInterpreter(\n              getCodingConvention(), getTypeRegistry());\n      if (options.closurePass) {\n        interpreter = new ClosureReverseAbstractInterpreter(\n            getCodingConvention(), getTypeRegistry())\n            .append(interpreter).getFirst();\n      }\n      abstractInterpreter = interpreter;\n    }\n    return abstractInterpreter;\n  }",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.type.ReverseAbstractInterpreter;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "\n    /**\n     * Gets an interpreter for type analysis, for the coding convention and the\n     * type registry of the given compiler.\n     *\n     * @param compiler The compiler whose coding convention and type registry\n     *     are used.\n     * @param closurePrimitives Whether the Closure primitives, such as\n     *     goog.isDef, refine types.\n     * @return The interpreter.\n     */\n    public static ReverseAbstractInterpreter interpreterFor(\n        AbstractCompiler compiler, boolean closurePrimitives) {\n      return TypeCheck.conditionInterpreter(compiler.getCodingConvention(),\n          compiler.getTypeRegistry(), closurePrimitives);\n    }\n\n\n    public boolean shouldStrip() {",
+   "old": "\n    public boolean shouldStrip() {",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "import javax.annotation.Nullable;\nimport com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter;\nimport com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;\nimport com.google.javascript.jscomp.type.ReverseAbstractInterpreter;\nimport com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;\n",
+   "old": "import javax.annotation.Nullable;\n",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "\n    /**\n     * Creates the interpreter that refines the types of names from the outcome\n     * of a condition, for the given coding convention and type registry. When\n     * closurePrimitives is set, the Closure primitives, such as goog.isDef, are\n     * recognized as well.\n     *\n     * @param convention The coding convention.\n     * @param registry The type registry.\n     * @param closurePrimitives Whether the Closure primitives refine types.\n     * @return The interpreter.\n     */\n    public static ReverseAbstractInterpreter newReverseInterpreter(\n        CodingConvention convention, JSTypeRegistry registry,\n        boolean closurePrimitives) {\n      ChainableReverseAbstractInterpreter interpreter =\n          new SemanticReverseAbstractInterpreter(convention, registry);\n      if (closurePrimitives) {\n        interpreter = new ClosureReverseAbstractInterpreter(\n            convention, registry).append(interpreter).getFirst();\n      }\n      return interpreter;\n    }\n\n\n    public boolean isGlobalScope() {",
+   "old": "\n    public boolean isGlobalScope() {",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "  }\n\n        /**\n     * Gets the interpreter that refines types from the outcome of a condition.\n     *\n     * @param convention The coding convention.\n     * @param registry The type registry.\n     * @param closurePrimitives Whether the Closure primitives refine types.\n     * @return The interpreter.\n     */\n    public static ReverseAbstractInterpreter conditionInterpreter(\n        CodingConvention convention, JSTypeRegistry registry,\n        boolean closurePrimitives) {\n      return JSTypeRegistry.refiningInterpreter(\n          convention, registry, closurePrimitives);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.CodingConvention;\nimport com.google.javascript.jscomp.SymbolTable;\nimport com.google.javascript.jscomp.type.ReverseAbstractInterpreter;\nimport com.google.javascript.rhino.jstype.JSTypeRegistry;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "      return name;\n    }\n\n    /**\n     * Gets the interpreter for type analysis.\n     *\n     * @param convention The coding convention.\n     * @param registry The type registry.\n     * @param closurePrimitives Whether the Closure primitives refine types.\n     * @return The interpreter.\n     */\n    public static ReverseAbstractInterpreter typeInterpreter(\n        CodingConvention convention, JSTypeRegistry registry,\n        boolean closurePrimitives) {\n      return SymbolTable.SymbolScope.newReverseInterpreter(\n          convention, registry, closurePrimitives);\n    }\n\n\n    void setName(TrimmedStringPosition p) {",
+   "old": "      return name;\n    }\n\n    void setName(TrimmedStringPosition p) {",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.CodingConvention;\nimport com.google.javascript.jscomp.type.ReverseAbstractInterpreter;\nimport com.google.javascript.rhino.JSDocInfo;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  }\n\n        /**\n     * Gets the interpreter that refines the types of this registry from the\n     * outcome of a condition.\n     *\n     * @param convention The coding convention.\n     * @param registry The type registry.\n     * @param closurePrimitives Whether the Closure primitives refine types.\n     * @return The interpreter.\n     */\n    public static ReverseAbstractInterpreter refiningInterpreter(\n        CodingConvention convention, JSTypeRegistry registry,\n        boolean closurePrimitives) {\n      return JSDocInfo.Marker.typeInterpreter(\n          convention, registry, closurePrimitives);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MI-Closure-18 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "method": "interpreterFor"
+  },
+  {
+   "class": "com.google.javascript.jscomp.TypeCheck",
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "method": "conditionInterpreter"
+  },
+  {
+   "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "method": "refiningInterpreter"
+  },
+  {
+   "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "method": "typeInterpreter"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-18__i.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.Compiler::getReverseAbstractInterpreter"
+ ],
+ "evidence": [
+  "com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter::append",
+  "com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter::getFirst",
+  "com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter::firstPreciserScopeKnowingConditionOutcome",
+  "com.google.javascript.jscomp.AbstractCompiler::getReverseAbstractInterpreter"
+ ],
+ "expected_signature": "Actual  : (null|number)",
+ "extra_tests": [],
+ "fixture_key": "Closure-18",
+ "gold": {
+  "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+  "edits": [
+   {
+    "new": "            convention, registry).append(interpreter);\n",
+    "old": "            convention, registry).append(interpreter).getFirst();\n"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+  "method": "newReverseInterpreter"
+ },
+ "group": "MI-Closure-18",
+ "hops": 5,
+ "iid": "MI-Closure-18",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold creates the semantic and the Closure interpreters and links them; hops 2-4 pass the coding convention, the type registry and the closurePrimitives flag along unchanged and hop 1 only reads the convention and the registry from the compiler. The gold's javadoc promises the interpreter that refines types from the outcome of a condition with the Closure primitives, such as goog.isDef, recognized when closurePrimitives is set; the variant returns the last link of the chain (append returns the appended link), which does not refine a top-level goog.isDefAndNotNull(x) call. The flag is the only value above the gold that changes the result, and neither value restores the refinement. The convention is pinned outside the gold: ChainableReverseAbstractInterpreter.append ('returning the updated last link'; new X().append(new Y()) 'forms a chain starting with X'), getFirst ('Gets the first link of this chain') and firstPreciserScopeKnowingConditionOutcome ('starting with the first link'), AbstractCompiler.getReverseAbstractInterpreter ('Get an interpreter for type analysis'); the passing tests TypeCheckTest testClosure3 and testClosure1 build the same chain with .append(..).getFirst() and check that goog.isDefAndNotNull(a) and goog.isDef(a) narrow a at the top of a condition; TypeInferenceTest testAssertWithNotIsNull shows the compiler's own interpreter recognizes goog.isNull with closurePass on; ClosureReverseAbstractInterpreterTest testGoogIsDefAndNotNull1 shows the Closure interpreter narrows goog.isDefAndNotNull.",
+ "ownership_tests": [
+  "com.google.javascript.jscomp.TypeCheckTest::testClosure3",
+  "com.google.javascript.jscomp.TypeCheckTest::testClosure1",
+  "com.google.javascript.jscomp.TypeInferenceTest::testAssertWithNotIsNull",
+  "com.google.javascript.jscomp.ClosureReverseAbstractInterpreterTest::testGoogIsDefAndNotNull1"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "isOn",
+    "anchor_seed": 2265,
+    "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+    "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;"
+    ],
+    "method": "interpreterFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 2266,
+    "class": "com.google.javascript.jscomp.TypeCheck",
+    "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "conditionInterpreter",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 2267,
+    "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+    "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.google.javascript.jscomp.CodingConvention;",
+     "import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;",
+     "import com.google.javascript.rhino.JSDocInfo;"
+    ],
+    "method": "refiningInterpreter",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getName",
+    "anchor_seed": 2268,
+    "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+    "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.google.javascript.jscomp.CodingConvention;",
+     "import com.google.javascript.jscomp.SymbolTable;",
+     "import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;",
+     "import com.google.javascript.rhino.jstype.JSTypeRegistry;"
+    ],
+    "method": "typeInterpreter",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getTypeOfThis",
+    "anchor_seed": 2269,
+    "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+    "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+    "hop": 5,
+    "imports_added": [
+     "import com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter;",
+     "import com.google.javascript.jscomp.type.ClosureReverseAbstractInterpreter;",
+     "import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;",
+     "import com.google.javascript.jscomp.type.SemanticReverseAbstractInterpreter;"
+    ],
+    "method": "newReverseInterpreter",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2165
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-18"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.TypeInferenceTest",
+  "test_file": "test/com/google/javascript/jscomp/TypeInferenceTest.java",
+  "test_method": "testAssertWithIsDef"
+ },
+ "variant_id": "CTV-737990",
+ "kind": "new",
+ "fault_lines": [
+  "convention, registry).append(interpreter);"
+ ],
+ "gold_key": "com.google.javascript.jscomp.SymbolTable$SymbolScope::newReverseInterpreter"
+}

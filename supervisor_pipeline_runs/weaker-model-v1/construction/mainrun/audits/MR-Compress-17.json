@@ -1,0 +1,64 @@
+{
+ "instance": "Compress-17",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream::toOctalBytes (hop 4)",
+   "edit": "return ZipFile.encodeOctal(value, buf, offset, length);  ->  java.util.Arrays.fill(buf, offset, offset + length, (byte) '0'); return ZipFile.encodeOctal(value, buf, offset + Math.max(0, length - Long.toOctalString(value).length()), Math.min(length, Long.toOctalString(value).length()));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Behaviourally correct (fresh buffer gives '0000000173 \\0', overflow still raises IllegalArgumentException), but it is a workaround, not a hop-4 repair: hop 4 re-implements the digit count (Long.toOctalString, twice) and the omitted zero fill itself and only ever hands the gold an exact-fit field, so the gold's field-width handling (where the omission lives) becomes dead. The gold still contradicts its own javadoc for every field wider than the value, and that javadoc is word-for-word hop 4's, so hop 4 (a pure delegate) cannot be the owner under any reading that would oblige it to pad. Two statements plus clamps; not equally small next to restoring one loop over the gold's own 'digits' local."
+  },
+  {
+   "method": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream::toOctalBytes (hop 4)",
+   "edit": "return ZipFile.encodeOctal(value, buf, offset + length - Long.toOctalString(value).length(), Long.toOctalString(value).length());",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Passes only because the trigger's buffer already holds '0' bytes. Fresh 12-byte buffer gives '\\0\\0\\0\\0\\0\\0\\0173 \\0' (front of the field never written, contra 'as an octal number' and the facade's 'leading zeros'); an over-wide value writes before the field (offset 10, length 8: no exception) or throws ArrayIndexOutOfBoundsException (offset 0), contra the documented IllegalArgumentException. Not a doc-consistent repair (the spec's ownership_reason anticipates this edit)."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::writeOctalField (hop 1)",
+   "edit": "final int end = BZip2CompressorOutputStream.putOctal(value, buf, offset, length - 2);  ->  final int end = BZip2CompressorOutputStream.putOctal(value, buf, offset + length - 2 - Long.toOctalString(value).length(), Long.toOctalString(value).length());",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Same defects as the hop-4 narrowing: NUL-prefixed field on a fresh buffer, no IllegalArgumentException for a value that does not fit (writes before the field or AIOOBE), contra hop 1's own @throws."
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::writeOctalNumber (hop 3)",
+   "edit": "return BZip2CompressorInputStream.toOctalBytes(value, buf, offset, length);  ->  TarUtils.formatUnsignedOctalString(value, buf, offset, length); return offset + length;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "Replaces the gold's result with the sibling implementation; hop 4 and the gold become dead."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.compress.archivers.tar.TarUtils::formatOctalBytes (body: one delegating call, no guard in the original; original javadoc 'format the value as an octal string with leading zeros', plus one added lie sentence)",
+  "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::writeOctalField (putOctal on length-2, then ' ' and NUL at the returned offset; returns end+2 = offset+length)",
+  "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::putOctal (pure delegate)",
+  "hop3 org.apache.commons.compress.archivers.tar.TarArchiveEntry::writeOctalNumber (pure delegate)",
+  "hop4 org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream::toOctalBytes (pure delegate)",
+  "gold org.apache.commons.compress.archivers.zip.ZipFile::encodeOctal (counts digits, checks fit, writes digits from the first byte of the field; the leading-'0' fill loop for length-digits bytes is omitted)"
+ ],
+ "reasons": "Compiled the variant; testTrailers fails with expected:<51> but was:<55>; the full variant suite fails only testTrailers (validation baseline: no failures). (a) On the trigger the buffer first holds '00000000173 ' from formatLongOctalBytes; the gold receives the 10-byte field, writes '173' at its first three bytes and leaves the rest, so the field reads '1730000017', not the value as an octal number, violating 'Writes a value into a field ... as an octal number' with 'length the size of the field' and 'return offset + length'. Hops 2-4 carry the identical contract and only delegate; hop 1 composes correctly from hop 2's contract (field of length-2, space and NUL after it). No other method has an originating violation. (b) All hop javadocs match their code (hop 1 return end+2 = offset+length, IAE via the gold's fit check); none is loose enough to own the missing fill, since hops 2-4 are word-for-word the gold's contract and hop 1 delegates the number field whole. (c) Four alternatives tried, all pass trigger, ownership tests and the full suite: the two one-line narrowings (hop 4, hop 1) are doc-inconsistent (NUL prefix on a fresh buffer, no IllegalArgumentException on overflow, shown with a probe program); hop 3 delegating to formatUnsignedOctalString is a bypass; a hop-4 fill-and-narrow workaround is behaviourally correct but re-implements the digit count and the omitted padding outside the gold and leaves the gold contradicting its own contract for every wider field, so I record it as a bypass, not a competing repair. (d) Names neutral (writeOctalField, putOctal, writeOctalNumber, toOctalBytes, encodeOctal), no comments in the gold, no fault vocabulary; the lie ('digits are produced two at a time from six-bit groups ... lookup table of the sixty-four digit pairs') does not mention padding, leading zeros or any hop. (e) Gold is exactly five calls below the facade; hosts are the five largest public non-interface non-enum classes other than TarUtils, in size order (ZipArchiveOutputStream 1495, BZip2CompressorOutputStream 1340, TarArchiveEntry 1071, BZip2CompressorInputStream 1053, ZipFile 972; BlockSort 1081 is package-private), matching the addendum's largest5 rule and the task record's host_files_top5 (no class reaches 1500 lines); facade body is one delegating call (original had no guard); one added procedural sentence; gold javadoc silent on the fill; existing trigger is the only new failure; facade is the pre-registered allowed target. (f) Convention pinned outside the gold: TarUtils.formatUnsignedOctalString ('padded with leading zeroes', used by formatLongOctalBytes and formatCheckSumOctalBytes), CpioArchiveOutputStream.writeAsciiLong (inserts '0' up to the field length), and passing tests testWriteSimplePaxHeaders ('00000000006 '), testPaxHeadersWithLength99 ('00000000143 '), testOverflow and testRoundTripOctal.",
+ "notes": "Bypasses recorded: (1) hop 3 -> TarUtils.formatUnsignedOctalString(value, buf, offset, length); return offset + length; (2) hop 4 -> Arrays.fill(buf, offset, offset+length, '0') then encodeOctal on the right-aligned exact-digit subfield with Math.max/Math.min clamps. Reviewer points: the lie line in the facade javadoc sits after @throws without a leading '*' (recipe formatting, renders as part of the @throws text, does not name the fault); the original facade text 'Uses formatUnsignedOctalString' is now also untrue of the code (original documentation, retained by the recipe). On a fresh zeroed buffer the variant's output '173\\0...\\0 \\0' would still parse as 123 through TarUtils.parseOctal-style trimming; the fault shows only with a reused buffer, which is what the trigger exercises. Did not read designs/, history/, builder notes, the no-local-trace checklist or any trace verdict; the T1-T4 trace question is outside this audit."
+}

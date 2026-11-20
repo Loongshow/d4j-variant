@@ -1,0 +1,57 @@
+{
+ "instance": "Jsoup-43__i",
+ "iid": "MI-Jsoup-43",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.jsoup.safety.Whitelist::dataNodeList (hop 4)",
+   "edit": "return Document.dataNodesOf(childNodes);  ->  List<Node> padded = new java.util.ArrayList<Node>(childNodes); padded.add(new org.jsoup.nodes.TextNode(\"\", \"\")); return Document.dataNodesOf(padded);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why_not_competing": "Sentinel workaround: it feeds the gold a list that is not 'the child nodes of an element' (gold @param) by appending a synthetic TextNode, so the gold is not used as documented, and the gold still violates its own contract for every direct input that ends in a data node. It compensates for the gold's behaviour rather than relocating the fault."
+  },
+  {
+   "method": "hops 1-4 (any)",
+   "edit": "replace the delegation with an inline instanceof filter over childNodes",
+   "trigger_passes": "not run (by construction)",
+   "ownership_tests_pass": "not run",
+   "full_suite_clean": "not run",
+   "doc_consistent": true,
+   "class": "bypass",
+   "why_not_competing": "Replaces the gold's result with another implementation (makes the chain below dead)."
+  },
+  {
+   "method": "declared compensating edits at hops 2, 3, 4 (copy before wrap; empty-list short-circuit; copy of child list)",
+   "edit": "as in spec.compensating",
+   "trigger_passes": false,
+   "ownership_tests_pass": "n/a",
+   "full_suite_clean": "n/a",
+   "doc_consistent": true,
+   "class": "fails",
+   "why_not_competing": "G9 shows the trigger still fails for each; consistent with my reading (none changes what the gold computes on the real child list)."
+  }
+ ],
+ "path": [
+  "facade org.jsoup.nodes.Element::dataNodes (instance, V1: passes the childNodes field to hop 1, returns the result)",
+  "hop1 org.jsoup.helper.HttpConnection::childDataNodes (pass-through)",
+  "hop2 org.jsoup.select.Evaluator.IsOnlyChild::dataChildren (wraps hop 3's list as unmodifiable)",
+  "hop3 org.jsoup.nodes.Node::dataChildNodes (pass-through)",
+  "hop4 org.jsoup.safety.Whitelist::dataNodeList (pass-through)",
+  "gold org.jsoup.nodes.Document::dataNodesOf (segmented-run instanceof filter; omits the final flush of the trailing run of data nodes)"
+ ],
+ "reasons": "Scratch copy of fresh-mr/Jsoup-43 + variant.patch compiles; defects4j test -t ElementTest::testGetDataNodes fails with expected:<1> but was:<0> (script's only child is a DataNode and is dropped). (a) Only the gold computes anything: its javadoc promises 'the data nodes of a list of child nodes, in document order', and on [DataNode] it returns []; hops 1, 3, 4 forward unchanged and hop 2 only wraps, so their wrong outputs are inherited, not originated. (b) Each hop's javadoc matches its code (hop 2 states and does the unmodifiable wrap); none is loose enough to own a dropped element. (c) No doc-consistent one-line repair above the gold exists: every hop must hand the gold the real child list (gold @param), on which the gold is deterministic and wrong, so a fix above the gold must either alter the input (sentinel workaround at hop 4, which I applied: trigger, ownership tests and full suite pass, but it violates the gold's @param and leaves the gold violating its contract; bypass) or recompute the filter (bypass). The declared compensating edits all leave the trigger failing (G9). (d) Hop and gold names are neutral host-vocabulary names; no added comment names the step; the lie ('The child node list is scanned from its last node back to its first, and the collected list is turned around before it is returned.') is a procedural sentence the code does not perform and does not mention the trailing run or any hop. (e) Gold is hop 5, five calls below the facade; hosts are exactly hosts_hop_order of batch8_tasks.json Jsoup-43__i (HttpConnection 912, Evaluator 706, Node 687, Whitelist 635, Document 565; largest5 regime, Element.java excluded); five different existing classes (hop 2 sits in the existing public static nested class Evaluator.IsOnlyChild at the seeded anchor in Evaluator.java); facade body is state gathering (childNodes) plus one call (no guard in the original); gold javadoc silent on the trailing flush; trigger existing, test.patch empty, G5 shows only it newly fails. C10i not-allowed list: facade signature 'public List<DataNode> dataNodes()' unchanged (modifiers, no override, no throws); the patch only adds members (no visibility widened), adds no class/interface/nested type, uses no reflection, touches no test. (f) Convention pinned outside the gold: Element.textNodes (same filter over the same childNodes, keeps the last child), Element.data (every DataNode child), the facade's own 'effectively a filter on childNodes()' sentence; passing tests ElementTest::testGetTextNodes (last child ' Four' kept) and HtmlParserTest::handlesDataOnlyTags (style whose only child is a data node).",
+ "notes": "1) A stale-build trap: copying an already-compiled scratch tree with cp -R left target/ classes newer than the edited source, so the first run of the hop-4 edit falsely showed the trigger failing; after rm -rf target it passes. 2) The lie is appended after the '@see #data()' tag without a leading '*', so in rendered javadoc it reads as a continuation of the @see text; this is the recipe's rewrite_facade placement and does not affect validity. 3) Hop 2's host is Evaluator.IsOnlyChild; its name ('only child') coincides with the trigger input (a script with one child), which may draw attention to hop 2 as a distractor, not toward the gold; it came from the seeded anchor, not a choice. 4) Document (gold host) is a subclass of Element (facade class); allowed by the largest5 host list. 5) Whether the gold's segmented-run loop without its trailing flush reads as a visible local trace is for the trace checker, not judged here. 6) An audit file already existed at this path; I did not read it and overwrote it with this independent audit."
+}

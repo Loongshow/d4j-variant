@@ -1,0 +1,60 @@
+{
+  "instance": "Compress-24",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::formatCheckSumField (hop 4)",
+      "edit": "return ZipArchiveInputStream.writeOctalCheckSum(value, buf, offset, length, digits);  ->  final int end = ZipArchiveInputStream.writeOctalCheckSum(value, buf, offset, length, digits); buf[offset + digits] = 0; return end;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::writeCheckSumField (hop 1)",
+      "edit": "return BZip2CompressorOutputStream.putCheckSumField(value, buf, offset, length);  ->  final int end = BZip2CompressorOutputStream.putCheckSumField(value, buf, offset, length); buf[offset + length - 2] = 0; return end;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::putCheckSumField (hop 2)",
+      "edit": "fillCheckSumField(value, buf, offset, length, length - 2)  ->  fillCheckSumField(value, buf, offset, length, length - 1)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "hops 1-4, any change of length, digits or a pre-fill of the buffer (analysis; G9 declared cases)",
+      "edit": "hop 4 length - 1; hop 1 Arrays.fill(buf, offset, offset + length, 0) before delegating; hop 2/3/4 other digits or length values",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.compress.archivers.tar.TarUtils::formatCheckSumOctalBytes (body: one delegating call, no original guard)",
+    "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::writeCheckSumField (pass-through)",
+    "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::putCheckSumField (placement: digits = length - 2, as documented)",
+    "hop3 org.apache.commons.compress.archivers.zip.ZipFile::fillCheckSumField (pass-through)",
+    "hop4 org.apache.commons.compress.archivers.tar.TarArchiveEntry::formatCheckSumField (pass-through)",
+    "gold org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::writeOctalCheckSum (writes every byte of the field; variant drops the i == digits NUL arm, so both trailer bytes become spaces)"
+  ],
+  "reasons": "(a) The gold is the only method on the path that writes bytes; it promises an octal number with leading zeros 'followed by the bytes that end the field', and on testTrailers (formatCheckSumOctalBytes(123, buf, 0, 12)) it writes space at index 10 where the pinned convention requires NUL. Hops 1, 3 and 4 only forward; hop 2 reserves all but the last two bytes, exactly as its javadoc says. Only the facade (the entry point, by construction) also shows the violation. (b) Every hop javadoc matches its code; none claims to write or choose the trailer bytes, and no hop can produce a NUL because the gold overwrites every position of the field. (c) No competing repair: changing digits/length at hop 2/3/4 or pre-filling at hop 1 fails the trigger (checked hop 2 length - 1: expected:<0> but was:<51>; G9 cases also fail). The only passing non-gold edits overwrite the gold's own output byte with NUL after the call (hop 4 and hop 1, both full-suite clean); they re-implement the gold's per-byte decision, leave the gold still writing space-space against its documented contract, and are bypasses. (d) No fault vocabulary, no comments in the gold; the gold's javadoc is silent on NUL; the lie ('digits are copied three at a time from a precomputed table of the 512 three-digit octal strings') is false of the code and names neither the NUL nor the omitted arm. (e) Gold is exactly five calls below the facade; five different existing classes; C10f largest5 hosts verified independently on the pristine checkout: only ZipArchiveOutputStream (1501) reaches 1500 lines, and the five largest public non-interface non-enum classes other than TarUtils are ZipArchiveOutputStream 1501, BZip2CompressorOutputStream 1329, ZipFile 1083, TarArchiveEntry 1073, ZipArchiveInputStream 1072 (BlockSort 1081 is package-private, correctly excluded), assigned to hops 1-5 in that order; facade body is one delegating call (original had no guard); one added procedural lie; trigger is the existing TarUtilsTest::testTrailers and my full-suite run on the variant fails only it. (f) The NUL-then-space convention is stated outside the gold by the facade's pre-existing javadoc and by TarUtils.verifyCheckSum's javadoc ('six digit octal number with leading zeroes followed by a NUL and then a space'), and the passing testVerifyHeaderCheckSum carries a valid header whose checksum field is \"012260\", NUL, space.",
+  "notes": "Compile OK; trigger fails with 'expected:<0> but was:<32>' at TarUtilsTest.java:171; full suite on the variant: only testTrailers fails; ownership tests pass. variant.patch and correct.patch differ only in the gold's 'else if (i == digits) { buf[offset + i] = 0; }' arm. Minor observations, not decisive: (1) the omission removes a two-line else-if arm (one decision case) rather than a literal single line; (2) TarUtils.formatOctalBytes, cited as a sibling pin, ends its fields with space then NUL (the reverse order), so it pins only that NUL belongs in tar numeric trailers, not the checksum order; (3) testVerifyHeaderCheckSum and testTarFileWithFSRoot pin the convention as data and through checksum verification only; verifyCheckSum ignores the trailer bytes, so neither test distinguishes NUL from space behaviourally (by design only the trigger does); (4) the lie sentence was appended by the recipe tooling inside the @throws block of the facade javadoc, and the facade javadoc's 'Uses {@link #formatUnsignedOctalString}' clause was reworded to 'Formats the value as an octal string with leading zeros', which the chain does perform; (5) recorded bypasses: hop 4 'buf[offset + digits] = 0' and hop 1 'buf[offset + length - 2] = 0' after the delegating call. Anchors are placed by mr2_spec.py with SEED+100+i, not by the builder. Scratch /private/tmp/mxb-i0sDHB deleted after the audit."
+}

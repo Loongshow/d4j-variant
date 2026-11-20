@@ -1,0 +1,168 @@
+diff --git a/src/com/google/javascript/jscomp/CompilerOptions.java b/src/com/google/javascript/jscomp/CompilerOptions.java
+index fe07cc547..6b24361d5 100644
+--- a/src/com/google/javascript/jscomp/CompilerOptions.java
++++ b/src/com/google/javascript/jscomp/CompilerOptions.java
+@@ -29,6 +29,8 @@ import java.util.Collections;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.rhino.jstype.JSType;
++import com.google.javascript.rhino.jstype.JSTypeRegistry;
+ 
+ /**
+  * Compiler options
+@@ -1983,6 +1985,15 @@ public class CompilerOptions implements Serializable, Cloneable {
+       return this != OFF;
+     }
+ 
++    /**
++     * Whether values of the two types can be meaningfully compared with
++     * {@code ===} or {@code !==}.
++     */
++    public static boolean canCompareStrictly(JSType leftType, JSType rightType) {
++      return JSTypeRegistry.canTestStrictEquality(leftType, rightType);
++    }
++
++
+     public boolean shouldStrip() {
+       return this == STRIP;
+     }
+diff --git a/src/com/google/javascript/jscomp/SymbolTable.java b/src/com/google/javascript/jscomp/SymbolTable.java
+index d8b133ef4..bce6189a4 100644
+--- a/src/com/google/javascript/jscomp/SymbolTable.java
++++ b/src/com/google/javascript/jscomp/SymbolTable.java
+@@ -1238,6 +1238,16 @@ public final class SymbolTable
+       return typeOfThis;
+     }
+ 
++    /**
++     * Returns whether the two types can be meaningfully compared with the
++     * strict equality operators.
++     */
++    public static boolean allowsIdentityComparison(
++        JSType leftType, JSType rightType) {
++      return TypeCheck.isStrictlyComparable(leftType, rightType);
++    }
++
++
+     public boolean isGlobalScope() {
+       return getParentScope() == null && getRootNode() != null;
+     }
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index 086f5b06b..9569c5e29 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1925,4 +1925,24 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Tests whether two types are meaningfully comparable using the strict
++     * equality operators {@code ===} and {@code !==}.
++     *
++     * @param leftType the type of the left operand
++     * @param rightType the type of the right operand
++     * @return whether a strict comparison of the two types is meaningful
++     */
++    public static boolean isStrictlyComparable(JSType leftType, JSType rightType) {
++      if (leftType.isEmptyType() || rightType.isEmptyType()) {
++        return leftType.isSubtype(rightType) || rightType.isSubtype(leftType);
++      }
++      JSType meet = leftType.getGreatestSubtype(rightType);
++      if (meet.isFunctionType()) {
++        return true;
++      }
++      return !meet.isEmptyType();
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/JSDocInfo.java b/src/com/google/javascript/rhino/JSDocInfo.java
+index 82c9a97b7..f781192bb 100644
+--- a/src/com/google/javascript/rhino/JSDocInfo.java
++++ b/src/com/google/javascript/rhino/JSDocInfo.java
+@@ -52,6 +52,8 @@ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.SymbolTable;
++import com.google.javascript.rhino.jstype.JSType;
+ 
+ /**
+  * <p>JSDoc information describing JavaScript code. JSDoc is represented as a
+@@ -214,6 +216,16 @@ public class JSDocInfo implements Serializable {
+       return nameNode;
+     }
+ 
++    /**
++     * Gets whether a strict equality test between values of the two
++     * types is meaningful.
++     */
++    public static boolean mayBeStrictlyEqual(JSType leftType, JSType rightType) {
++      return SymbolTable.SymbolScope.allowsIdentityComparison(
++          leftType, rightType);
++    }
++
++
+     void setNameNode(SourcePosition<Node> p) {
+       nameNode = p;
+     }
+diff --git a/src/com/google/javascript/rhino/jstype/JSType.java b/src/com/google/javascript/rhino/jstype/JSType.java
+index 44d1e93b6..e6d2d3d0c 100644
+--- a/src/com/google/javascript/rhino/jstype/JSType.java
++++ b/src/com/google/javascript/rhino/jstype/JSType.java
+@@ -701,21 +701,13 @@ public abstract class JSType implements Serializable {
+    * types that are not rejected by step 1 of the definition of the Strict
+    * Equality Comparison Algorithm (11.9.6, page 56&ndash;57) of the
+    * ECMA-262 specification.<p>
+-   */
++     Both types are first widened to their least supertype, and the comparison is allowed unless that supertype is the top type.
++     */
+   public final boolean canTestForShallowEqualityWith(JSType that) {
+-    if (isEmptyType() || that.isEmptyType()) {
+-      return isSubtype(that) || that.isSubtype(this);
++        return com.google.javascript.jscomp.CompilerOptions.TweakProcessing.canCompareStrictly(
++        this, that);
+     }
+ 
+-    JSType inf = getGreatestSubtype(that);
+-    return !inf.isEmptyType() ||
+-        // Our getGreatestSubtype relation on functions is pretty bad.
+-        // Let's just say it's always ok to compare two functions.
+-        // Once the TODO in FunctionType is fixed, we should be able to
+-        // remove this.
+-        inf == registry.getNativeType(JSTypeNative.LEAST_FUNCTION_TYPE);
+-  }
+-
+   /**
+    * Tests whether this type is nullable.
+    */
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index 271f894c9..1d4f5fdbf 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -66,6 +66,7 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.rhino.JSDocInfo;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1719,4 +1720,16 @@ public class JSTypeRegistry implements Serializable {
+   public void clearTemplateTypeNames() {
+     templateTypes.clear();
+   }
++
++        /**
++     * Tests whether two types are meaningfully comparable using strict
++     * (shallow) equality.
++     *
++     * @param leftType the type of the left operand
++     * @param rightType the type of the right operand
++     */
++    public static boolean canTestStrictEquality(JSType leftType, JSType rightType) {
++      return JSDocInfo.Marker.mayBeStrictlyEqual(leftType, rightType);
++    }
++
+ }

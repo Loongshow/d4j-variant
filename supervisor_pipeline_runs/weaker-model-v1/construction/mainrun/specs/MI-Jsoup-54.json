@@ -1,0 +1,231 @@
+{
+ "bug_id": 54,
+ "compensating": [
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "HtmlTreeBuilder.visitTree(doc, visitor);",
+   "old": "HtmlTreeBuilder.visitTree(doc.child(0), visitor);",
+   "why": "hop 3 walks from the document node itself instead of its first element"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "for (Node child : root.childNodes()) Node.walkDepthFirst(child, visitor);",
+   "old": "Node.walkDepthFirst(root, visitor);",
+   "why": "hop 4 walks each child of the root element on its own"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "factory.setNamespaceAware(false);",
+   "old": "factory.setNamespaceAware(true);",
+   "why": "hop 1 builds the document with a builder that is not namespace-aware"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "import static org.jsoup.Connection.Method.HEAD;\nimport org.jsoup.select.Evaluator;\n",
+   "old": "import static org.jsoup.Connection.Method.HEAD;\n",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "        return this;\n    }\n\n    /**\n     * Converts a jsoup document into the provided W3C Document. The location of the jsoup document, if it has one, becomes the\n     * document URI.\n     * @param in jsoup doc\n     * @param out w3c doc\n     */\n    public static void fillW3cDocument(Document in, org.w3c.dom.Document out) {\n        if (!StringUtil.isBlank(in.location()))\n            out.setDocumentURI(in.location());\n        Evaluator.IsRoot.walkFromRoot(in, new W3CDom.W3CBuilder(out));\n    }\n\n\n    public Connection userAgent(String userAgent) {",
+   "old": "        return this;\n    }\n\n    public Connection userAgent(String userAgent) {",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/W3CDom.java",
+   "new": "       The jsoup document is first written out as XHTML text, and that text is then parsed by the namespace-aware document builder.\n     */\n    public Document fromJsoup(org.jsoup.nodes.Document in) {\n        Validate.notNull(in);\n        return org.jsoup.nodes.Element.w3cDocumentFor(factory, in);",
+   "old": "     */\n    public Document fromJsoup(org.jsoup.nodes.Document in) {\n        Validate.notNull(in);\n        DocumentBuilder builder;\n        try {\n        \t//set the factory to be namespace-aware\n        \tfactory.setNamespaceAware(true);\n            builder = factory.newDocumentBuilder();\n            Document out = builder.newDocument();\n            convert(in, out);\n            return out;\n        } catch (ParserConfigurationException e) {\n            throw new IllegalStateException(e);\n        }",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "import java.util.regex.PatternSyntaxException;\nimport javax.xml.parsers.DocumentBuilderFactory;\nimport javax.xml.parsers.ParserConfigurationException;\nimport org.jsoup.helper.HttpConnection;\n",
+   "old": "import java.util.regex.PatternSyntaxException;\n",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "        return getElementsMatchingOwnText(pattern);\n    }\n\n    /**\n     * Convert a jsoup Document to a new W3C Document, made by a namespace-aware builder of the given factory.\n     * @param factory the factory to make the document builder with\n     * @param in jsoup doc\n     * @return w3c doc\n     */\n    public static org.w3c.dom.Document w3cDocumentFor(DocumentBuilderFactory factory, Document in) {\n        try {\n            factory.setNamespaceAware(true);\n            org.w3c.dom.Document out = factory.newDocumentBuilder().newDocument();\n            HttpConnection.fillW3cDocument(in, out);\n            return out;\n        } catch (ParserConfigurationException e) {\n            throw new IllegalStateException(e);\n        }\n    }\n\n    \n    /**",
+   "old": "        return getElementsMatchingOwnText(pattern);\n    }\n    \n    /**",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "\n    /**\n     * Start a depth-first traverse of the root and all of its descendants, without recursion.\n     * @param root the root node point to traverse.\n     * @param visitor the visitor to call for the nodes of the walk.\n     */\n    public static void walkDepthFirst(Node root, NodeVisitor visitor) {\n        List<Node> pending = new ArrayList<Node>();\n        List<Node> open = new ArrayList<Node>();\n        pending.add(root);\n        while (!pending.isEmpty()) {\n            Node node = pending.remove(pending.size() - 1);\n            while (!open.isEmpty() && open.get(open.size() - 1) != node.parentNode()) {\n                Node done = open.remove(open.size() - 1);\n                visitor.tail(done, open.size());\n            }\n            visitor.head(node, open.size());\n            open.add(node);\n            List<Node> children = new ArrayList<Node>(node.childNodes());\n            Collections.reverse(children);\n            pending.addAll(children);\n        }\n        while (!open.isEmpty()) {\n            Node done = open.remove(open.size() - 1);\n            visitor.tail(done, open.size());\n        }\n    }\n\n\n    protected void setParentNode(Node parentNode) {",
+   "old": "\n    protected void setParentNode(Node parentNode) {",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "import java.util.List;\nimport org.jsoup.select.NodeVisitor;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "\n    /**\n     * Walks the element and all of its descendants depth first with the visitor.\n     * @param root the element to start at\n     * @param visitor the visitor to call for the nodes of the walk\n     */\n    public static void visitTree(Element root, NodeVisitor visitor) {\n        Node.walkDepthFirst(root, visitor);\n    }\n\n\n    boolean inListItemScope(String targetName) {",
+   "old": "\n    boolean inListItemScope(String targetName) {",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "import java.util.regex.Pattern;\nimport org.jsoup.parser.HtmlTreeBuilder;\n",
+   "old": "import java.util.regex.Pattern;\n",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "    \t}\n\n    /**\n     * Walks the root element of the document (the first child of the #root node) with the visitor.\n     * @param doc the document\n     * @param visitor the visitor to call for the nodes of the walk\n     */\n    public static void walkFromRoot(Document doc, NodeVisitor visitor) {\n        HtmlTreeBuilder.visitTree(doc.child(0), visitor);\n    }\n\n    \t@Override",
+   "old": "    \t}\n    \t@Override",
+   "purpose": "MI-Jsoup-54 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.jsoup.nodes.Element",
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "method": "w3cDocumentFor"
+  },
+  {
+   "class": "org.jsoup.helper.HttpConnection",
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "method": "fillW3cDocument"
+  },
+  {
+   "class": "org.jsoup.select.Evaluator.IsRoot",
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "method": "walkFromRoot"
+  },
+  {
+   "class": "org.jsoup.parser.HtmlTreeBuilder",
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "method": "visitTree"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Jsoup-54__i.py",
+ "entry_points": [
+  "org.jsoup.helper.W3CDom::fromJsoup"
+ ],
+ "evidence": [
+  "org.jsoup.select.NodeTraversor::traverse",
+  "org.jsoup.nodes.Node::outerHtml",
+  "org.jsoup.nodes.Element::text",
+  "org.jsoup.helper.W3CDom::convert"
+ ],
+ "expected_signature": "expected:<http://www.[idpf.org/2007/ops]> but was:<http://www.[w3.org/1999/xhtml]>",
+ "extra_tests": [],
+ "fixture_key": "Jsoup-54",
+ "gold": {
+  "class": "org.jsoup.nodes.Node",
+  "edits": [
+   {
+    "new": "            List<Node> children = new ArrayList<Node>(node.childNodes());\n            pending.addAll(children);\n",
+    "old": "            List<Node> children = new ArrayList<Node>(node.childNodes());\n            Collections.reverse(children);\n            pending.addAll(children);\n"
+   }
+  ],
+  "file": "src/main/java/org/jsoup/nodes/Node.java",
+  "method": "walkDepthFirst"
+ },
+ "group": "MI-Jsoup-54",
+ "hops": 5,
+ "iid": "MI-Jsoup-54",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold calls the visitor and takes each node's children: hop 1 makes the namespace-aware builder and the new W3C document, hop 2 sets the document URI and creates the W3CBuilder visitor, hop 3 picks the document's root element and hop 4 passes it on. The gold's javadoc promises a depth-first traverse of the root and all of its descendants for a NodeVisitor, whose head and tail are documented as the start tag and the end tag of a node, i.e. a walk in document order; the variant pushes each node's children onto its stack without reversing them, so they come off last-first and W3CBuilder writes every child list in reverse. No one-line change above the gold restores the order: a hop cannot wrap the visitor without a new type, the walk must start at the document's first element (the Document node's tag name '#root' is rejected by createElementNS), and walking the root's children one by one leaves out the root's head. The convention is pinned outside the gold: NodeTraversor.traverse takes childNode(0) and then nextSibling(), and the production walks over it, Node.outerHtml and Element.text, depend on that order; ElementTest::testOuterHtml expects '<div title=...><img src=\"foo.png\"><p><!-- comment -->Hello</p><p>there</p></div>' and ElementTest::testGetText 'Hello Another element'; W3CDom.convert walks the same visitor with NodeTraversor.",
+ "ownership_tests": [
+  "org.jsoup.nodes.ElementTest::testOuterHtml",
+  "org.jsoup.nodes.ElementTest::testGetText"
+ ],
+ "project": "Jsoup",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getElementsMatchingOwnText",
+    "anchor_seed": 4103,
+    "class": "org.jsoup.nodes.Element",
+    "file": "src/main/java/org/jsoup/nodes/Element.java",
+    "hop": 1,
+    "imports_added": [
+     "import javax.xml.parsers.DocumentBuilderFactory;",
+     "import javax.xml.parsers.ParserConfigurationException;",
+     "import org.jsoup.helper.HttpConnection;"
+    ],
+    "method": "w3cDocumentFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "proxy",
+    "anchor_seed": 4104,
+    "class": "org.jsoup.helper.HttpConnection",
+    "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.jsoup.select.Evaluator;"
+    ],
+    "method": "fillW3cDocument",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "matches",
+    "anchor_seed": 4105,
+    "class": "org.jsoup.select.Evaluator.IsRoot",
+    "file": "src/main/java/org/jsoup/select/Evaluator.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.jsoup.parser.HtmlTreeBuilder;"
+    ],
+    "method": "walkFromRoot",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "inScope",
+    "anchor_seed": 4106,
+    "class": "org.jsoup.parser.HtmlTreeBuilder",
+    "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.jsoup.select.NodeVisitor;"
+    ],
+    "method": "visitTree",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "replaceWith",
+    "anchor_seed": 4107,
+    "class": "org.jsoup.nodes.Node",
+    "file": "src/main/java/org/jsoup/nodes/Node.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "walkDepthFirst",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4003
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Jsoup-54"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.jsoup.helper.W3CDomTest",
+  "test_file": "src/test/java/org/jsoup/helper/W3CDomTest.java",
+  "test_method": "namespacePreservation"
+ },
+ "variant_id": "CTV-2170DD",
+ "kind": "new",
+ "fault_lines": [
+  "List<Node> children = new ArrayList<Node>(node.childNodes());\n            pending.addAll(children);"
+ ],
+ "gold_key": "org.jsoup.nodes.Node::walkDepthFirst"
+}

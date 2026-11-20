@@ -1,0 +1,214 @@
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 3f7c6c3a2..010dee2e4 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -23,6 +23,7 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -410,6 +411,19 @@ public class StringUtils {
+         return str.length() == 0 ? null : str;
+     }
+ 
++    /**
++     * <p>Gets a fraction, given by its numerator and denominator, as a
++     * proper String in the format X Y/Z.</p>
++     *
++     * @param numerator  the numerator of the fraction
++     * @param denominator  the denominator of the fraction
++     * @return the proper String form of the fraction
++     */
++    public static String properFractionAsString(int numerator, int denominator) {
++        return DateUtils.properFractionString(numerator, denominator);
++    }
++
++
+     /**
+      * <p>Strips whitespace from the start and end of a String  returning
+      * an empty String if <code>null</code> input.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/SystemUtils.java b/src/main/java/org/apache/commons/lang3/SystemUtils.java
+index 72b3fe850..3ee273358 100644
+--- a/src/main/java/org/apache/commons/lang3/SystemUtils.java
++++ b/src/main/java/org/apache/commons/lang3/SystemUtils.java
+@@ -18,6 +18,7 @@ package org.apache.commons.lang3;
+ 
+ import java.io.File;
+ import java.util.regex.Pattern;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * <p>
+@@ -1534,6 +1535,29 @@ public class SystemUtils {
+         return JAVA_VERSION_FLOAT >= requiredVersion;
+     }
+ 
++    /**
++     * <p>
++     * Gets a fraction, given by its numerator and denominator, as a proper String in the format X Y/Z.
++     * </p>
++     *
++     * <p>
++     * A zero numerator gives <code>"0"</code>.
++     * </p>
++     *
++     * @param numerator
++     *            the numerator of the fraction
++     * @param denominator
++     *            the denominator of the fraction
++     * @return the proper String form of the fraction
++     */
++    public static String toProperFractionString(int numerator, int denominator) {
++        if (numerator == 0) {
++            return "0";
++        }
++        return ToStringStyle.properFractionText(numerator, denominator);
++    }
++
++
+     /**
+      * <p>
+      * Is the Java version at least the requested version.
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 6df1e6d68..561648a78 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,7 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -437,6 +438,19 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets a fraction, given by its numerator and denominator, as a
++     * proper <code>String</code> in the format X Y/Z.</p>
++     *
++     * @param numerator  the numerator of the fraction
++     * @param denominator  the denominator of the fraction
++     * @return the proper <code>String</code> form of the fraction
++     */
++    public static String properFractionText(int numerator, int denominator) {
++        return FastDateFormat.formatProperFraction(numerator, denominator);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> an <code>Object</code>,
+      * correctly interpreting its type.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/math/Fraction.java b/src/main/java/org/apache/commons/lang3/math/Fraction.java
+index bf15a494c..884ee2fbb 100644
+--- a/src/main/java/org/apache/commons/lang3/math/Fraction.java
++++ b/src/main/java/org/apache/commons/lang3/math/Fraction.java
+@@ -930,34 +930,11 @@ public final class Fraction extends Number implements Comparable<Fraction> {
+      * only the whole number is returned.</p>
+      *
+      * @return a <code>String</code> form of the fraction
++       The whole number is found first, by a binary search over the multiples of the denominator, and the other parts are then appended to it.
+      */
+     public String toProperString() {
+         if (toProperString == null) {
+-            if (numerator == 0) {
+-                toProperString = "0";
+-            } else if (numerator == denominator) {
+-                toProperString = "1";
+-            } else if (numerator == -1 * denominator) {
+-                toProperString = "-1";
+-            } else if ((numerator>0?-numerator:numerator) < -denominator) {
+-                // note that we do the magnitude comparison test above with
+-                // NEGATIVE (not positive) numbers, since negative numbers
+-                // have a larger range.  otherwise numerator==Integer.MIN_VALUE
+-                // is handled incorrectly.
+-                int properNumerator = getProperNumerator();
+-                if (properNumerator == 0) {
+-                    toProperString = Integer.toString(getProperWhole());
+-                } else {
+-                    toProperString = new StringBuilder(32)
+-                        .append(getProperWhole()).append(' ')
+-                        .append(properNumerator).append('/')
+-                        .append(getDenominator()).toString();
+-                }
+-            } else {
+-                toProperString = new StringBuilder(32)
+-                    .append(getNumerator()).append('/')
+-                    .append(getDenominator()).toString();
+-            }
++            toProperString = org.apache.commons.lang3.SystemUtils.toProperFractionString(numerator, denominator);
+         }
+         return toProperString;
+     }
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index f4d80ecd0..86f7346ba 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -1763,6 +1763,30 @@ public class DateUtils {
+         return truncatedCal1.compareTo(truncatedCal2);
+     }
+ 
++    /**
++     * <p>Gets a fraction, given by its numerator and denominator, as a
++     * proper String in the format X Y/Z.</p>
++     *
++     * <p>A whole number of zero is left out, and a fraction without a
++     * remainder gives only the whole number.</p>
++     *
++     * @param numerator  the numerator of the fraction
++     * @param denominator  the denominator of the fraction
++     * @return the proper String form of the fraction
++     */
++    public static String properFractionString(int numerator, int denominator) {
++        int whole = numerator / denominator;
++        int remainder = numerator % denominator;
++        if (remainder == 0) {
++            return Integer.toString(whole);
++        }
++        if (whole == 0) {
++            return numerator + "/" + denominator;
++        }
++        return whole + " " + remainder + "/" + denominator;
++    }
++
++
+     /**
+      * Determines how two dates compare up to no more than the specified 
+      * most significant field.
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index 95925fc99..ae1bc1d61 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -832,6 +833,19 @@ public class FastDateFormat extends Format {
+         return format(calendar, new StringBuffer(mMaxLengthEstimate)).toString();
+     }
+ 
++    /**
++     * <p>Formats a fraction, given by its numerator and denominator, as a
++     * proper string in the format X Y/Z.</p>
++     *
++     * @param numerator  the numerator of the fraction
++     * @param denominator  the denominator of the fraction
++     * @return the formatted string
++     */
++    public static String formatProperFraction(int numerator, int denominator) {
++        return StringUtils.properFractionAsString(numerator, denominator);
++    }
++
++
+     /**
+      * <p>Formats a milliseond <code>long</code> value into the
+      * supplied <code>StringBuffer</code>.</p>

@@ -1,0 +1,54 @@
+{
+ "instance": "MI-Collections-10",
+ "task_key": "Collections-10__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "TreeBidiMap::removeMappedValue (hop 1)",
+   "edit": "if (!map.containsKey(key)) {  ->  if (!map.containsKey(key) || !((Collection) map.get(key)).contains(value)) {",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": "not contradicted, but hop 1 then re-implements the gold's removal decision with its own membership scan and stops calling the gold for a value not held",
+   "class": "bypass"
+  },
+  {
+   "method": "MapUtils::removeMultiValue (hop 4)",
+   "edit": "return CursorableLinkedList.removeFromValues(map, key, value);  ->  return ((java.util.Collection) map.get(key)).contains(value) ? CursorableLinkedList.removeFromValues(map, key, value) : null;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": "same as above: a second implementation of the gold's removal test above the gold",
+   "class": "bypass"
+  },
+  {
+   "method": "builder-declared compensating edits (hop 1 isEmpty, hop 2 null value, hop 4 containsKey)",
+   "edit": "see spec compensating[]; validation G9",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections.map.MultiValueMap::removeMapping (instance, V2: passes this)",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::removeMappedValue",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::removeValueOf",
+  "hop3 org.apache.commons.collections.ExtendedProperties::removeKeyValue",
+  "hop4 org.apache.commons.collections.MapUtils::removeMultiValue",
+  "gold org.apache.commons.collections.CursorableLinkedList::removeFromValues"
+ ],
+ "reasons": "Variant compiles; trigger TestMultiValueMap::testRemove_KeyItem fails with expected:<null> but was:<AD>; full variant suite: only the trigger fails. (a) The gold alone looks up the key's collection and calls Collection.remove; it discards remove's boolean and returns 'AD' as 'the value removed' although nothing was removed. Hops 2-4 forward unchanged; hop 1 only answers an absent key (documented, done). (b) Hop javadocs match their code; hop 1 documents only the absent-key null and does not claim the value case. (c) Two one-line membership pre-checks (hop 1, hop 4) pass trigger, ownership tests and the full suite, but they duplicate the gold's removal test above it and leave the gold violating its own contract: bypasses. No competing repair found. (d) Neutral names; the lie (search from last value back to first, first equal value removed) is procedural and false (Collection.remove), does not name the omitted not-removed answer. (e) Gold five calls below the facade; five hops in the five largest public classes other than MultiValueMap.java, in hosts_hop_order (verified by line count 2085/1995/1776/1645/1468); facade body is one delegating call with this; one added lie sentence; gold javadoc quiet; existing trigger is the only new failure. (f) MultiMap.removeMapping doc ('null if nothing removed'), sibling MultiHashMap.removeMapping (TestMultiHashMap::testRemove_KeyItem passes), MultiValueMap.put's boolean-driven null. (g) No visibility widening, no new type, no reflection, facade signature/modifiers/override unchanged, test.patch empty.",
+ "notes": "Task record names the allowed candidate 'MultiValueMap.remove (V2, 13 lines; receiver AbstractMapDecorator.remove, getCollection)'; the checkout has no public remove(key,value) in MultiValueMap, and removeMapping is the only public instance method matching that description (ValuesIterator.remove is in a private inner class), so I read the label as removeMapping; supervisor may wish to confirm. Facade reuse of Collections-4__i recorded in task record. Cosmetic: the lie is appended as an unstarred continuation line after the @return tag (recipe transform), hop 2 javadoc first sentence lacks a period, hop 4's {@link MultiValueMap} is unresolved in MapUtils (no import; javadoc only). The fault is pre-filterable by a caller via contains(); recorded as bypass per the brief's definitions."
+}

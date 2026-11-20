@@ -1,0 +1,217 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index 7f1451faf..4dc72951e 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -24,6 +24,8 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import org.apache.commons.lang.math.Fraction;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -3889,6 +3891,19 @@ public class ArrayUtils {
+     public static boolean[] remove(boolean[] array, int index) {
+         return (boolean[]) remove((Object) array, index);
+     }
++
++    /**
++     * <p>Creates a <code>Fraction</code> from a non-zero numerator and a
++     * denominator, in lowest terms.</p>
++     *
++     * @param numerator  the numerator, not zero
++     * @param denominator  the denominator, not zero
++     * @return a new fraction instance in lowest terms
++     */
++    public static Fraction partsAsFraction(int numerator, int denominator) {
++        return StrBuilder.fractionFromParts(numerator, denominator);
++    }
++
+     
+     /**
+      * <p>Removes the first occurrence of the specified element from the
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index ab1422d2b..bf121ef19 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -20,6 +20,7 @@ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Iterator;
+ import java.util.List;
++import org.apache.commons.lang.math.Fraction;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -592,6 +593,19 @@ public class StringUtils {
+         return stripAll(strs, null);
+     }
+ 
++    /**
++     * <p>Creates a <code>Fraction</code> from a non-zero numerator and a
++     * denominator, in lowest terms.</p>
++     *
++     * @param numerator  the numerator, not zero
++     * @param denominator  the denominator, not zero
++     * @return a new fraction instance in lowest terms
++     */
++    public static Fraction fractionOfParts(int numerator, int denominator) {
++        return ArrayUtils.partsAsFraction(numerator, denominator);
++    }
++
++
+     /**
+      * <p>Strips any of a set of characters from the start and end of every
+      * String in an array.</p>
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 55d48f3b9..147045516 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,8 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.math.Fraction;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -717,6 +719,24 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Creates a <code>Fraction</code> from a numerator and a denominator,
++     * in lowest terms.</p>
++     *
++     * <p>A zero numerator gives <code>Fraction.ZERO</code>.</p>
++     *
++     * @param numerator  the numerator
++     * @param denominator  the denominator, not zero
++     * @return a fraction instance in lowest terms
++     */
++    public static Fraction simplestFraction(int numerator, int denominator) {
++        if (numerator == 0) {
++            return Fraction.ZERO;
++        }
++        return StringUtils.fractionOfParts(numerator, denominator);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>byte</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang/math/Fraction.java b/src/java/org/apache/commons/lang/math/Fraction.java
+index 334768976..981f187f6 100644
+--- a/src/java/org/apache/commons/lang/math/Fraction.java
++++ b/src/java/org/apache/commons/lang/math/Fraction.java
+@@ -205,31 +205,13 @@ public final class Fraction extends Number implements Comparable {
+      * @param denominator  the denominator, for example the seven in 'three sevenths'
+      * @return a new fraction instance, with the numerator and denominator reduced
+      * @throws ArithmeticException if the denominator is <code>zero</code>
++       The common factors are cast out one prime at a time, both parts being divided by two for as long as both are even and then by each larger prime in turn.
+      */
+     public static Fraction getReducedFraction(int numerator, int denominator) {
+         if (denominator == 0) {
+             throw new ArithmeticException("The denominator must not be zero");
+         }
+-        if (numerator==0) {
+-            return ZERO; // normalize zero.
+-        }
+-        // allow 2^k/-2^31 as a valid fraction (where k>0)
+-        if (denominator==Integer.MIN_VALUE && (numerator&1)==0) {
+-            numerator/=2; denominator/=2;
+-        }
+-        if (denominator < 0) {
+-            if (numerator==Integer.MIN_VALUE ||
+-                    denominator==Integer.MIN_VALUE) {
+-                throw new ArithmeticException("overflow: can't negate");
+-            }
+-            numerator = -numerator;
+-            denominator = -denominator;
+-        }
+-        // simplify fraction.
+-        int gcd = greatestCommonDivisor(numerator, denominator);
+-        numerator /= gcd;
+-        denominator /= gcd;
+-        return new Fraction(numerator, denominator);
++        return org.apache.commons.lang.builder.ToStringStyle.simplestFraction(numerator, denominator);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 13281cefe..c39a93ecb 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,8 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.math.Fraction;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -834,6 +836,19 @@ public class StrBuilder implements Cloneable {
+         return append(chars).appendNewLine();
+     }
+ 
++    /**
++     * <p>Creates a <code>Fraction</code> from a non-zero numerator and a
++     * denominator, in lowest terms.</p>
++     *
++     * @param numerator  the numerator, not zero
++     * @param denominator  the denominator, not zero
++     * @return a new fraction instance in lowest terms
++     */
++    public static Fraction fractionFromParts(int numerator, int denominator) {
++        return FastDateFormat.lowestTerms(numerator, denominator);
++    }
++
++
+     /**
+      * Appends a char array followed by a new line to the string builder.
+      * Appending null will call {@link #appendNull()}.
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index d2a0f3c02..6193f5796 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.math.Fraction;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -857,6 +858,30 @@ public class FastDateFormat extends Format {
+         return applyRules(c, buf);
+     }
+ 
++    /**
++     * <p>Creates a <code>Fraction</code> from a numerator and a denominator,
++     * in lowest terms.</p>
++     *
++     * @param numerator  the numerator
++     * @param denominator  the denominator, not zero
++     * @return a new fraction instance in lowest terms
++     */
++    public static Fraction lowestTerms(int numerator, int denominator) {
++        long u = numerator;
++        long v = denominator;
++        if (v < 0) {
++            u = -u;
++            v = -v;
++        }
++        while (v > 0) {
++            long t = Math.abs(u % v);
++            u = v;
++            v = t;
++        }
++        return Fraction.getFraction((int) (numerator / u), (int) (denominator / u));
++    }
++
++
+     /**
+      * <p>Formats a <code>Calendar</code> object into the
+      * supplied <code>StringBuffer</code>.</p>

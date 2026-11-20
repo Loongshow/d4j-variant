@@ -1,0 +1,282 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java b/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java
+index c73e665f..5fe9a229 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java
++++ b/src/main/java/org/apache/commons/compress/archivers/ArchiveStreamFactory.java
+@@ -265,6 +265,7 @@ public class ArchiveStreamFactory {
+      * @throws StreamingNotSupportedException if the format cannot be
+      * written to a stream
+      * @throws IllegalArgumentException if the archiver name or stream is null
++       The archiver name is converted to lower case and looked up in a table that maps each supported name to its stream constructor.
+      */
+     public ArchiveOutputStream createArchiveOutputStream(
+             final String archiverName, final OutputStream out)
+@@ -275,42 +276,7 @@ public class ArchiveStreamFactory {
+         if (out == null) {
+             throw new IllegalArgumentException("OutputStream must not be null.");
+         }
+-
+-        if (AR.equalsIgnoreCase(archiverName)) {
+-            return new ArArchiveOutputStream(out);
+-        }
+-        if (ZIP.equalsIgnoreCase(archiverName)) {
+-            ZipArchiveOutputStream zip = new ZipArchiveOutputStream(out);
+-            if (entryEncoding != null) {
+-                zip.setEncoding(entryEncoding);
+-            }
+-            return zip;
+-        }
+-        if (TAR.equalsIgnoreCase(archiverName)) {
+-            if (entryEncoding != null) {
+-                return new TarArchiveOutputStream(out, entryEncoding);
+-            } else {
+-                return new TarArchiveOutputStream(out);
+-            }
+-        }
+-        if (JAR.equalsIgnoreCase(archiverName)) {
+-            if (entryEncoding != null) {
+-                return new JarArchiveOutputStream(out, entryEncoding);
+-            } else {
+-                return new JarArchiveOutputStream(out);
+-            }
+-        }
+-        if (CPIO.equalsIgnoreCase(archiverName)) {
+-            if (entryEncoding != null) {
+-                return new CpioArchiveOutputStream(out, entryEncoding);
+-            } else {
+-                return new CpioArchiveOutputStream(out);
+-            }
+-        }
+-        if (SEVEN_Z.equalsIgnoreCase(archiverName)) {
+-            throw new StreamingNotSupportedException(SEVEN_Z);
+-        }
+-        throw new ArchiveException("Archiver: " + archiverName + " not found.");
++        return ZipArchiveOutputStream.createArchiveStream(archiverName, out, entryEncoding);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index a61a9b09..4fe8c77d 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -26,6 +26,9 @@ import java.util.Locale;
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.zip.ZipEncoding;
+ import org.apache.commons.compress.utils.ArchiveUtils;
++import java.io.OutputStream;
++import org.apache.commons.compress.archivers.ArchiveOutputStream;
++import org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -790,6 +793,23 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return linkFlag == LF_BLK;
+     }
+ 
++    /**
++     * Creates an archive output stream that writes a tar or a cpio
++     * archive with the entry encoding of an archive stream factory.
++     *
++     * @param tar true for a tar archive, false for a cpio archive
++     * @param out the output stream to write the archive to
++     * @param encoding the entry encoding of the factory, as
++     * {@link org.apache.commons.compress.archivers.ArchiveStreamFactory#getEntryEncoding()}
++     * returns it
++     * @return the archive output stream
++     */
++    public static ArchiveOutputStream blockArchiveStream(final boolean tar, final OutputStream out,
++                                                         final String encoding) {
++        return tar ? new TarArchiveOutputStream(out, encoding) : new CpioArchiveOutputStream(out, encoding);
++    }
++
++
+     /**
+      * Check if this is a FIFO (pipe) entry.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index 7a69141c..04a3dcdd 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -39,6 +39,11 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.DWORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
++import java.io.OutputStream;
++import org.apache.commons.compress.archivers.ArchiveException;
++import org.apache.commons.compress.archivers.ArchiveOutputStream;
++import org.apache.commons.compress.archivers.ArchiveStreamFactory;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Implements an input stream that can read Zip archives.
+@@ -530,6 +535,29 @@ public class ZipArchiveInputStream extends ArchiveInputStream {
+         throw new IllegalArgumentException();
+     }
+ 
++    /**
++     * Creates an archive output stream for the tar or the cpio archiver
++     * name.
++     *
++     * <p>The entry encoding is passed on as the factory holds it.</p>
++     *
++     * @param archiverName the archiver name, not null
++     * @param out the output stream to write the archive to, not null
++     * @param encoding the entry encoding of the factory
++     * @return the archive output stream
++     * @throws ArchiveException if the archiver name is neither tar nor
++     * cpio
++     */
++    public static ArchiveOutputStream archiveStreamFor(final String archiverName, final OutputStream out,
++                                                       final String encoding) throws ArchiveException {
++        final boolean tar = ArchiveStreamFactory.TAR.equalsIgnoreCase(archiverName);
++        if (!tar && !ArchiveStreamFactory.CPIO.equalsIgnoreCase(archiverName)) {
++            throw new ArchiveException("Archiver: " + archiverName + " not found.");
++        }
++        return TarArchiveEntry.blockArchiveStream(tar, out, encoding);
++    }
++
++
+     /**
+      * Checks if the signature matches what is expected for a zip file.
+      * Does not currently handle self-extracting zips which may have arbitrary
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index c53ce9f2..57ebced8 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -47,6 +47,10 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
+ import static org.apache.commons.compress.archivers.zip.ZipLong.putLong;
+ import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;
++import org.apache.commons.compress.archivers.ArchiveException;
++import org.apache.commons.compress.archivers.ArchiveStreamFactory;
++import org.apache.commons.compress.archivers.jar.JarArchiveOutputStream;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -874,6 +878,34 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         return false;
+     }
+ 
++    /**
++     * Creates an archive output stream for an archiver name.
++     *
++     * <p>Zip and jar archives are written by this class; the entry
++     * encoding of the factory is set on the stream when the factory has
++     * one. Any other archiver name is passed on together with the entry
++     * encoding.</p>
++     *
++     * @param archiverName the archiver name, not null
++     * @param out the output stream to write the archive to, not null
++     * @param encoding the entry encoding of the factory
++     * @return the archive output stream
++     * @throws ArchiveException if the archiver name is not known
++     */
++    public static ArchiveOutputStream createArchiveStream(final String archiverName, final OutputStream out,
++                                                          final String encoding) throws ArchiveException {
++        final boolean jar = ArchiveStreamFactory.JAR.equalsIgnoreCase(archiverName);
++        if (!jar && !ArchiveStreamFactory.ZIP.equalsIgnoreCase(archiverName)) {
++            return BZip2CompressorOutputStream.openArchiveStream(archiverName, out, encoding);
++        }
++        final ZipArchiveOutputStream zip = jar ? new JarArchiveOutputStream(out) : new ZipArchiveOutputStream(out);
++        if (encoding != null) {
++            zip.setEncoding(encoding);
++        }
++        return zip;
++    }
++
++
+     /**
+      * Writes bytes to ZIP entry.
+      * @param b the byte array to write
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index 348d86b9..b37c70ef 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -43,6 +43,11 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
++import java.io.OutputStream;
++import org.apache.commons.compress.archivers.ArchiveException;
++import org.apache.commons.compress.archivers.ArchiveOutputStream;
++import org.apache.commons.compress.archivers.ArchiveStreamFactory;
++import org.apache.commons.compress.archivers.StreamingNotSupportedException;
+ 
+ /**
+  * Replacement for <code>java.util.ZipFile</code>.
+@@ -457,6 +462,30 @@ public class ZipFile implements Closeable {
+         }
+     }
+ 
++    /**
++     * Creates an archive output stream for an archiver name.
++     *
++     * <p>The 7z format can only be written to a file and is rejected; any
++     * other archiver name is passed on together with the entry encoding of
++     * the factory.</p>
++     *
++     * @param archiverName the archiver name, not null
++     * @param out the output stream to write the archive to, not null
++     * @param encoding the entry encoding of the factory
++     * @return the archive output stream
++     * @throws StreamingNotSupportedException if the format cannot be
++     * written to a stream
++     * @throws ArchiveException if the archiver name is not known
++     */
++    public static ArchiveOutputStream newArchiveStream(final String archiverName, final OutputStream out,
++                                                       final String encoding) throws ArchiveException {
++        if (ArchiveStreamFactory.SEVEN_Z.equalsIgnoreCase(archiverName)) {
++            throw new StreamingNotSupportedException(ArchiveStreamFactory.SEVEN_Z);
++        }
++        return ZipArchiveInputStream.archiveStreamFor(archiverName, out, encoding);
++    }
++
++
+     /**
+      * Ensures that the close method of this zipfile is called when
+      * there are no more references to it.
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index 14e924e2..50504783 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,11 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.ArchiveException;
++import org.apache.commons.compress.archivers.ArchiveOutputStream;
++import org.apache.commons.compress.archivers.ArchiveStreamFactory;
++import org.apache.commons.compress.archivers.ar.ArArchiveOutputStream;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -510,6 +515,28 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         }
+     }
+ 
++    /**
++     * Creates an archive output stream for an archiver name.
++     *
++     * <p>Ar archives, which have no entry encoding, are written directly;
++     * any other archiver name is passed on together with the entry
++     * encoding of the factory.</p>
++     *
++     * @param archiverName the archiver name, not null
++     * @param out the output stream to write the archive to, not null
++     * @param encoding the entry encoding of the factory
++     * @return the archive output stream
++     * @throws ArchiveException if the archiver name is not known
++     */
++    public static ArchiveOutputStream openArchiveStream(final String archiverName, final OutputStream out,
++                                                        final String encoding) throws ArchiveException {
++        if (ArchiveStreamFactory.AR.equalsIgnoreCase(archiverName)) {
++            return new ArArchiveOutputStream(out);
++        }
++        return ZipFile.newArchiveStream(archiverName, out, encoding);
++    }
++
++
+     /**
+      * Writes magic bytes like BZ on the first position of the stream
+      * and bytes indiciating the file-format, which is 

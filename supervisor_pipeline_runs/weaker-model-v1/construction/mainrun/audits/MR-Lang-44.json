@@ -1,0 +1,73 @@
+{
+ "instance": "Lang-44",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::lowestInRange (hop 4)",
+   "edit": "return ArrayUtils.lowestValue(array, startIndexInclusive, endIndexExclusive);  ->  return Math.min(array[startIndexInclusive], ArrayUtils.lowestValue(array, startIndexInclusive, endIndexExclusive));",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::lowestOf (hop 1)",
+   "edit": "return StrBuilder.lowestElement(new long[] {a, b, c});  ->  return a + StrBuilder.lowestElement(new long[] {0, b - a, c - a});",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Not a competing repair. It is a workaround that shifts the packed values so that the 0 seed is harmless. It overflows: probed lowestOf(Long.MIN_VALUE, Long.MAX_VALUE, 0) and NumberUtils.minimum(...) both return 0 instead of Long.MIN_VALUE, which violates hop 1's and the facade's '@return the lowest/smallest of the values'. It also leaves hops 2-4 and the gold violating their contracts (probed lowestElement({5,9}) = lowestValue({5,9},0,2) = 0). 'bypass' here means a doc-inconsistent compensating workaround; the gold's output is still used."
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::lowestOf (hop 1)",
+   "edit": "return StrBuilder.lowestElement(new long[] {a, b, c});  ->  return (a < 0 || b < 0 || c < 0) ? StrBuilder.lowestElement(new long[] {a, b, c}) : StrBuilder.lowestElement(new long[] {a - Long.MAX_VALUE, b - Long.MAX_VALUE, c - Long.MAX_VALUE}) + Long.MAX_VALUE;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Not a competing repair. This overflow-safe workaround keeps hop 1 and the facade correct for every input (probed minimum(MIN, MAX, 0) = MIN), but it is not equally small: it adds a sign test, a shifted second array and two calls. It also makes sense only if lowestElement returns min(0, values), which contradicts lowestElement's documented contract. lowestElement, lowestBetween, lowestInRange and lowestValue still return 0 for an all-positive range (probed lowestElement({5,9}) = 0), so the documentation on the path stays violated. It is recorded as a compensating workaround (bypass class); the gold's output is still used."
+  },
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::lowestInRange (hop 4)",
+   "edit": "return ArrayUtils.lowestValue(array, startIndexInclusive, endIndexExclusive);  ->  return org.apache.commons.lang.math.NumberUtils.min(ArrayUtils.subarray(array, startIndexInclusive, endIndexExclusive));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "Replaces the gold's result with another implementation; the gold's output becomes dead."
+  },
+  {
+   "method": "org.apache.commons.lang.NumberUtils::minimum(long,long,long) (facade)",
+   "edit": "return org.apache.commons.lang.time.FastDateFormat.lowestOf(a, b, c);  ->  if (b < a) { a = b; } if (c < a) { a = c; } return a;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "Restores the pristine body; the whole chain becomes dead."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.NumberUtils::minimum(long,long,long) -> FastDateFormat.lowestOf(a, b, c)",
+  "hop1 org.apache.commons.lang.time.FastDateFormat::lowestOf(long,long,long) -> StrBuilder.lowestElement(new long[] {a, b, c})",
+  "hop2 org.apache.commons.lang.text.StrBuilder::lowestElement(long[]) -> DateUtils.lowestBetween(array, 0, array.length)",
+  "hop3 org.apache.commons.lang.time.DateUtils::lowestBetween(long[],int,int) -> ToStringStyle.lowestInRange(array, s, e)",
+  "hop4 org.apache.commons.lang.builder.ToStringStyle::lowestInRange(long[],int,int) -> ArrayUtils.lowestValue(array, s, e)",
+  "gold org.apache.commons.lang.ArrayUtils::lowestValue(long[],int,int): seeds 'long lowest = 0' and the loop compares 'value < lowest' without taking the first element of the range"
+ ],
+ "reasons": "Reproduced: the variant compiles. The trigger NumberUtilsTest::testMinimumLong fails with 'expected:<12345> but was:<0>'. The full suite fails only on the trigger, and the pristine baseline has 0 failures. The three ownership tests pass on the variant. variant.patch and correct.patch differ only on the gold condition line. (a) On the trigger input (12345, 12346, 12347), hop 1 packs {a,b,c} as its doc says, hop 2 passes the whole range [0, length) as its doc says, and hops 3 and 4 pass the range through unchanged. Only ArrayUtils.lowestValue returns a value (0) that is not in the range, which violates its '@return the lowest value in the range'. Every other method is wrong only through delegation. (b) Every hop's javadoc matches its own one-line body (pack, whole range, pass-through, pass-through). None is loose enough to let a hop own a result that is not among the inputs. (c) Re-folding the first element at hop 4 (declared, and re-run here) and reversing or offsetting at hops 1 and 2 cannot recover a minimum lost to the 0 seed. The only passing non-gold edits are bypasses (hop 4 via math.NumberUtils.min(subarray), facade restore) or hop-1 value-shift workarounds. Of those, the simple shift overflows and so breaks hop 1's and the facade's own contract. The overflow-safe shift is not equally small, assumes the callee returns min(0, values) against its documented contract, and leaves lowestElement, lowestBetween, lowestInRange and lowestValue violating their docs. There is no competing repair. (d) Hop and gold names are neutral 'lowest*' names with no fault vocabulary. The gold has no comments. Its javadoc does not mention how the running value is seeded. The lie (sorting by a three-step exchange network) describes a procedure the code does not perform and does not name the seed step, the gold or any hop. (e) The gold is exactly five calls below the facade, in five distinct existing classes (FastDateFormat, StrBuilder, DateUtils, ToStringStyle, ArrayUtils). The facade had no guard and is now one delegating call, and it is in NumberUtils, the class of the real Lang-44 bug. One procedural sentence is added to the facade javadoc. The trigger is an existing test, test.patch is empty, and only the trigger newly fails. (f) The seed-from-first-element convention is pinned outside the gold. math.NumberUtils.min(long[]) seeds with array[0]; testMinLong passes and expects min({5}) = 5 and min({6,9}) = 6, which a 0 seed would break. The sibling overloads lang.NumberUtils.minimum(int,int,int) and math.NumberUtils.min(long,long,long) start from the first argument (testMinimumInt and math testMinimumLong pass).",
+ "notes": "The lie sentence was inserted after the '@return' tag, with no leading '*' and an odd indent, so Javadoc would render it as part of the @return text. This is cosmetic and comes from the recipe's rewrite_facade. It marks the facade, not the gold. Auditor tooling note: copying a checkout and editing a source within the same second left ant's class files looking up to date, so the first runs of the alternatives were stale. All alternatives were re-run after deleting target/. Bypasses recorded: hop 4 replaced by math.NumberUtils.min(ArrayUtils.subarray(...)), and the facade restored to its pristine body. The hop-1 shift workarounds are recorded under the bypass class because they are not competing (see each entry)."
+}

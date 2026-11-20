@@ -1,0 +1,69 @@
+{
+  "instance": "Closure-60",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.javascript.rhino.jstype.JSTypeRegistry::getSourceNameForNode (hop 2)",
+      "edit": "return own != null ? own : Compiler.CodeBuilder.sourceFileOf(n);  ->  return own != null ? own : n.getParent() != null ? getSourceNameForNode(n.getParent()) : Compiler.CodeBuilder.sourceFileOf(n);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.jscomp.Compiler$CodeBuilder::sourceFileOf (hop 3)",
+      "edit": "return TokenStream.getNodeSourceFileName(n);  ->  return n.getParent() != null ? com.google.javascript.rhino.jstype.JSTypeRegistry.getSourceNameForNode(n.getParent()) : TokenStream.getNodeSourceFileName(n);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.Parser::sourceNameOf (hop 1)",
+      "edit": "return JSTypeRegistry.getSourceNameForNode(node);  ->  return node.getSourceFileName() == null && node.getParent() != null ? sourceNameOf(node.getParent()) : JSTypeRegistry.getSourceNameForNode(node);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.TokenStream::getNodeSourceFileName (hop 4)",
+      "edit": "return TypeCheck.findSourceName(n);  ->  return n.getParent() != null && n.getParent().getSourceFileName() != null ? n.getParent().getSourceFileName() : TypeCheck.findSourceName(n);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.jscomp.Compiler$CodeBuilder::sourceFileOf (hop 3, declared compensator)",
+      "edit": "return TokenStream.getNodeSourceFileName(n);  ->  return TokenStream.getNodeSourceFileName(n.getParent() != null ? n.getParent() : n);",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade com.google.javascript.jscomp.NodeUtil::getSourceName(Node) -- no guard; return Parser.sourceNameOf(n)",
+    "hop1 com.google.javascript.rhino.Parser::sourceNameOf(Node) -- null guard, then JSTypeRegistry.getSourceNameForNode(node)",
+    "hop2 com.google.javascript.rhino.jstype.JSTypeRegistry::getSourceNameForNode(Node) -- own record if non-null, else Compiler.CodeBuilder.sourceFileOf(n)",
+    "hop3 com.google.javascript.jscomp.Compiler$CodeBuilder::sourceFileOf(Node) -- pass-through to TokenStream.getNodeSourceFileName(n)",
+    "hop4 com.google.javascript.rhino.TokenStream::getNodeSourceFileName(Node) -- pass-through to TypeCheck.findSourceName(n)",
+    "gold com.google.javascript.jscomp.TypeCheck::findSourceName(Node) -- walks n and its ancestors; variant stops only at a SCRIPT (omits '|| current.getSourceFileName() != null')"
+  ],
+  "reasons": "Reproduced: variant compiles; NodeUtilTest::testGetSourceName fails with 'expected:<foo> but was:<null>'; full suite (7123 tests) fails only the trigger; correct.patch makes the trigger pass. (a) The trigger node is a nameless BLOCK under a BLOCK recording \"foo\" with no SCRIPT. Hops 1-4 are faithful to their docs (null guard; own record; pass-throughs for a node with no record of its own); their wrong result is inherited. The gold is the only method that consults ancestors and decides where the walk stops; its contract ('the name of the source file that a node belongs to'), read in the chain's own vocabulary (hop 2: a node that records a name belongs to that file; facade: the source name property on the node or its ancestors), is violated when it walks past the recording parent and returns null. (b) No hop javadoc contradicts its code; hops 3-4 state a precondition that hop 2 guarantees, and none promises to consult ancestors. (c) No competing repair: every passing non-gold edit either re-implements the ancestor walk in a hop so that hops 3-4 and the gold are never reached on the trigger (their output is constant null for the parentless nameless nodes they still see) -- bypasses -- or is a partial parent-only patch that still violates the facade contract for a grandparent-recorded node. Re-pointing the gold's start (declared hop-3 compensator) fails, since the gold stops only at a SCRIPT and the trigger tree has none. (d) Names are neutral host vocabulary; the variant gold reads as an ordinary find-enclosing-SCRIPT loop; the facade lie (a node-keyed map cache) names neither the fault nor the omitted stop rule; the misindented javadoc opener is shared with hop 2 (both end-of-class insertions), so it does not single out the gold. (e) Gold is exactly five calls below the facade; hops in five distinct existing classes (Parser, JSTypeRegistry, Compiler.CodeBuilder, TokenStream, TypeCheck); facade body is one delegating call (original had no guard); one added procedural sentence; gold javadoc silent on the stop rule; existing trigger, empty test.patch, sole new failure. (f) The convention that a non-SCRIPT node's record names the file of what lies below it is pinned outside the gold: the facade's @return text, NodeTraversal.traverseAtScope and SyntacticScopeCreator.scanRoot (and, unlisted, TypedScopeCreator's shouldTraverse) take a function scope's file from the FUNCTION node's own record, and Node.copyInformationFrom / IRFactory templated node creation put records on ordinary nodes.",
+  "notes": "Recorded bypasses (all pass trigger, ownership tests and full suite): hop-2 self-recursion on the parent, hop-3 re-entry into hop 2 at the parent, hop-1 self-recursion on the parent; each makes hops 3-4 and the gold unreachable on the trigger. Hop-4 parent-only check also passes everything but is incomplete (a nameless node whose grandparent records the name still yields null), so it is not doc-consistent. Caveats, not decisive: (1) the passing ownership tests pin the own-record and SCRIPT-record cases (hop 2 / SCRIPT branch), not the non-SCRIPT ancestor stop itself; the ancestor-stop pin is production code plus the facade javadoc. (2) NodeTraversal.traverseBranch updates its current file only at SCRIPT nodes, a SCRIPT-centric idiom that a reader could cite for the variant gold; it is outweighed by the FUNCTION-record uses and the facade contract, and under that reading no hop violates its own documentation either, so it does not move ownership to a hop. Not checked: batch pre-registration of the facade target and the no-local-trace checklist (outside this audit's inputs)."
+}

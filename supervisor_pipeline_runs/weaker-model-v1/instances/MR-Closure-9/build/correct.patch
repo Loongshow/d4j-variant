@@ -1,0 +1,189 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 36e0af5cd..f1eea5b37 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -64,6 +64,7 @@ import java.util.concurrent.ThreadFactory;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+ import java.util.regex.Matcher;
++import com.google.common.base.Joiner;
+ 
+ /**
+  * Compiler (and the other classes in this package) does the following:
+@@ -1849,6 +1850,28 @@ public class Compiler extends AbstractCompiler {
+       return sb.toString();
+     }
+ 
++    /**
++     * Returns the module name of the file that a path leads to from the
++     * directory of a requiring file.
++     *
++     * @param path the path, without extension
++     * @param current the filename of the requiring file, without extension
++     * @return the module name of the file
++     */
++    public static String moduleNameAt(String path, String current) {
++      List<String> segments = Lists.newArrayList(current.split("/"));
++      segments.remove(segments.size() - 1);
++      for (String segment : path.split("/")) {
++        if (segment.equals("..") && !segments.isEmpty()) {
++          segments.remove(segments.size() - 1);
++        } else {
++          segments.add(segment);
++        }
++      }
++      return ProcessCommonJSModules.toModuleName(Joiner.on('/').join(segments));
++    }
++
++
+     /** Returns the length of the text buffer. */
+     public int getLength() {
+       return sb.length();
+diff --git a/src/com/google/javascript/jscomp/CompilerOptions.java b/src/com/google/javascript/jscomp/CompilerOptions.java
+index 43c4313ea..db0fb78f2 100644
+--- a/src/com/google/javascript/jscomp/CompilerOptions.java
++++ b/src/com/google/javascript/jscomp/CompilerOptions.java
+@@ -2017,6 +2017,19 @@ public class CompilerOptions implements Serializable, Cloneable {
+     public boolean shouldStrip() {
+       return this == STRIP;
+     }
++
++    /**
++     * Returns the module name of the file that a path leads to from the
++     * directory of a requiring file.
++     *
++     * @param path the path, without extension
++     * @param current the filename of the requiring file, without extension
++     * @return the module name of the file
++     */
++    public static String moduleNameFrom(String path, String current) {
++      return Compiler.CodeBuilder.moduleNameAt(path, current);
++    }
++
+   }
+ 
+   /**
+diff --git a/src/com/google/javascript/jscomp/ProcessCommonJSModules.java b/src/com/google/javascript/jscomp/ProcessCommonJSModules.java
+index 67779577e..e5421a9f1 100644
+--- a/src/com/google/javascript/jscomp/ProcessCommonJSModules.java
++++ b/src/com/google/javascript/jscomp/ProcessCommonJSModules.java
+@@ -95,23 +95,12 @@ public class ProcessCommonJSModules implements CompilerPass {
+   /**
+    * Turn a filename into a moduleName with support for relative addressing
+    * with ./ and ../ based on currentFilename;
+-   */
++     Module names already computed for the current filename are kept in a table, and a required filename found there is answered from that table without being converted again.
++     */
+   public static String toModuleName(String requiredFilename,
+       String currentFilename) {
+-    requiredFilename = requiredFilename.replaceAll("\\.js$", "");
+-    currentFilename = currentFilename.replaceAll("\\.js$", "");
+-
+-    if (requiredFilename.startsWith("." + MODULE_SLASH) ||
+-        requiredFilename.startsWith(".." + MODULE_SLASH)) {
+-      try {
+-        requiredFilename = (new URI(currentFilename)).resolve(new URI(requiredFilename))
+-            .toString();
+-      } catch (URISyntaxException e) {
+-        throw new RuntimeException(e);
+-      }
++        return com.google.javascript.rhino.jstype.JSTypeRegistry.requiredModuleName(requiredFilename, currentFilename);
+     }
+-    return toModuleName(requiredFilename);
+-  }
+ 
+   private String normalizeSourceName(String filename) {
+     // The DOS command shell will normalize "/" to "\", so we have to
+diff --git a/src/com/google/javascript/jscomp/SymbolTable.java b/src/com/google/javascript/jscomp/SymbolTable.java
+index 5f0a14c78..4e5f9fbed 100644
+--- a/src/com/google/javascript/jscomp/SymbolTable.java
++++ b/src/com/google/javascript/jscomp/SymbolTable.java
+@@ -1270,6 +1270,23 @@ public final class SymbolTable
+       return getRootNode() != null;
+     }
+ 
++    /**
++     * Returns the module name of a file that another file requires. A filename
++     * that starts with "./" or "../" is a path from the directory of the
++     * requiring file; any other filename is the name of a top-level module.
++     *
++     * @param required the filename given to require, without extension
++     * @param current the filename of the requiring file, without extension
++     * @return the module name of the required file
++     */
++    public static String scopedModuleName(String required, String current) {
++      if (required.startsWith("./") || required.startsWith("../")) {
++        return JSDocInfo.Marker.relativeModuleName(required, current);
++      }
++      return ProcessCommonJSModules.toModuleName(required);
++    }
++
++
+     public int getScopeDepth() {
+       return scopeDepth;
+     }
+diff --git a/src/com/google/javascript/rhino/JSDocInfo.java b/src/com/google/javascript/rhino/JSDocInfo.java
+index a88ef8dcf..38366e521 100644
+--- a/src/com/google/javascript/rhino/JSDocInfo.java
++++ b/src/com/google/javascript/rhino/JSDocInfo.java
+@@ -52,6 +52,7 @@ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.CompilerOptions;
+ 
+ /**
+  * <p>JSDoc information describing JavaScript code. JSDoc is represented as a
+@@ -238,6 +239,21 @@ public class JSDocInfo implements Serializable {
+       return type;
+     }
+ 
++    /**
++     * Returns the module name of the file that a path leads to from the
++     * directory of a requiring file. A leading "./", which names that
++     * directory itself, is dropped from the path.
++     *
++     * @param path the path, starting with "./" or "../", without extension
++     * @param current the filename of the requiring file, without extension
++     * @return the module name of the file
++     */
++    public static String relativeModuleName(String path, String current) {
++      return CompilerOptions.TweakProcessing.moduleNameFrom(
++          path.replaceFirst("^\\./", ""), current);
++    }
++
++
+     void setType(TypePosition p) {
+       type = p;
+     }
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index 7ce833647..0db948c9b 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -66,6 +66,7 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.SymbolTable;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1719,4 +1720,18 @@ public class JSTypeRegistry implements Serializable {
+   public void clearTemplateTypeNames() {
+     templateTypes.clear();
+   }
++
++        /**
++     * Returns the module name of a file that another file requires. The ".js"
++     * extension is removed from both filenames first.
++     *
++     * @param required the filename given to require
++     * @param current the filename of the requiring file
++     * @return the module name of the required file
++     */
++    public static String requiredModuleName(String required, String current) {
++      return SymbolTable.SymbolScope.scopedModuleName(
++          required.replaceAll("\\.js$", ""), current.replaceAll("\\.js$", ""));
++    }
++
+ }

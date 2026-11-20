@@ -1,0 +1,223 @@
+{
+ "bug_id": 3,
+ "compensating": [
+  {
+   "file": "src/java/org/apache/commons/collections/MapUtils.java",
+   "new": "        return CursorableSubList.nthElement(obj instanceof Enumeration ? IteratorUtils.asIterator((Enumeration) obj) : obj, idx);",
+   "old": "        return CursorableSubList.nthElement(obj, idx);",
+   "why": "hop 4 hands an iterator view of an Enumeration to the walk"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/ExtendedProperties.java",
+   "new": "        return MapUtils.getNthValue(obj instanceof Enumeration ? EnumerationUtils.toList((Enumeration) obj) : obj, idx);",
+   "old": "        return MapUtils.getNthValue(obj, idx);",
+   "why": "hop 3 turns an Enumeration into a List for the positional read"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/DoubleOrderedMap.java",
+   "new": "            return ExtendedProperties.getNth(obj instanceof java.util.Enumeration ? java.util.Collections.list((java.util.Enumeration) obj) : obj, idx);",
+   "old": "            return ExtendedProperties.getNth(obj, idx);",
+   "why": "hop 2 turns an Enumeration into a List before the position is read"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/java/org/apache/commons/collections/CollectionUtils.java",
+   "new": "       The values of the object are first copied into a new array, and the value at the index is then read from that array in a single lookup.\n     */\n    public static Object index(Object obj, Object index) {\n        return org.apache.commons.collections.bidimap.TreeBidiMap.keyedValue(obj, index);",
+   "old": "     */\n    public static Object index(Object obj, Object index) {\n        if(obj instanceof Map) {\n            Map map = (Map)obj;\n            if(map.containsKey(index)) {\n                return map.get(index);\n            }\n        }\n        int idx = -1;\n        if(index instanceof Integer) {\n            idx = ((Integer)index).intValue();\n        }\n        if(idx < 0) {\n            return obj;\n        } \n        else if(obj instanceof Map) {\n            Map map = (Map)obj;\n            Iterator iterator = map.keySet().iterator();\n            return index(iterator, idx);\n        } \n        else if(obj instanceof List) {\n            return ((List)obj).get(idx);\n        } \n        else if(obj instanceof Object[]) {\n            return ((Object[])obj)[idx];\n        } \n        else if(obj instanceof Enumeration) {\n            Enumeration it = (Enumeration)obj;\n            while(it.hasMoreElements()) {\n                idx--;\n                if(idx == -1) {\n                    return it.nextElement();\n                } else {\n                    it.nextElement();\n                }\n            }\n        } \n        else if(obj instanceof Iterator) {\n            return index((Iterator)obj, idx);\n        }\n        else if(obj instanceof Collection) {\n            Iterator iterator = ((Collection)obj).iterator();\n            return index(iterator, idx);\n        }\n        return obj;",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/CursorableLinkedList.java",
+   "new": "    }\n\n    /**\n     * Given an Object, and an index, returns the nth value in the object.\n     *\n     * @param obj  the object to get the nth value of\n     * @param idx  the index of the value, not negative\n     * @return the nth value, or the object itself if it has no nth value\n     */\n    public static Object nthElement(Object obj, int idx) {\n        Iterator it = IteratorUtils.EMPTY_ITERATOR;\n        if (obj instanceof Iterator) {\n            it = (Iterator) obj;\n        } else if (obj instanceof java.util.Enumeration) {\n            it = IteratorUtils.asIterator((java.util.Enumeration) obj);\n        }\n        while (it.hasNext()) {\n            idx--;\n            if (idx == -1) {\n                return it.next();\n            }\n            it.next();\n        }\n        return obj;\n    }\n\n\n    public Object[] toArray() {\n        checkForComod();",
+   "old": "    }\n\n    public Object[] toArray() {\n        checkForComod();",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/DoubleOrderedMap.java",
+   "new": "    /**\n     * Given an Object, and an index, returns the value at the position given\n     * by the index in the Object.\n     * <p>\n     * An index that is not an Integer, or is a negative Integer, gives the\n     * object itself; for any other index the object is passed on unchanged.\n     *\n     * @param obj  the object to get a value from\n     * @param index  the index to get\n     * @return the value at the position, or the object itself\n     */\n    public static Object positionalValue(Object obj, Object index) {\n        if (index instanceof Integer) {\n            int idx = ((Integer) index).intValue();\n            if (idx >= 0) {\n                return ExtendedProperties.getNth(obj, idx);\n            }\n        }\n        return obj;\n    }\n\n\n    /**\n     * Returns true if this map maps one or more keys to the",
+   "old": "    /**\n     * Returns true if this map maps one or more keys to the",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/ExtendedProperties.java",
+   "new": "import java.util.Vector;\nimport java.util.Map;\n",
+   "old": "import java.util.Vector;\n",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/ExtendedProperties.java",
+   "new": "        return getProperties(key, new Properties());\n    }\n\n    /**\n     * Gets the value at a position of an object. A Map is read through its\n     * key set; any other object is passed on unchanged.\n     *\n     * @param obj  the object to get a value from\n     * @param idx  the position of the value, not negative\n     * @return the value at the position\n     */\n    public static Object getNth(Object obj, int idx) {\n        if (obj instanceof Map) {\n            return MapUtils.getNthValue(((Map) obj).keySet(), idx);\n        }\n        return MapUtils.getNthValue(obj, idx);\n    }\n\n\n    /**\n     * Get a list of properties associated with the given\n     * configuration key.\n     *\n     * @param key The configuration key.",
+   "old": "        return getProperties(key, new Properties());\n    }\n\n    /**\n     * Get a list of properties associated with the given\n     * configuration key.\n     *\n     * @param key The configuration key.",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/MapUtils.java",
+   "new": "import org.apache.commons.collections.map.UnmodifiableSortedMap;\nimport java.util.Collection;\nimport java.util.List;\n",
+   "old": "import org.apache.commons.collections.map.UnmodifiableSortedMap;\n",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/MapUtils.java",
+   "new": "        return new Double(answer.doubleValue());\n    }\n\n    /**\n     * Gets the value at a position of an object.\n     * <p>\n     * A List or an object array is read at the position, and a Collection\n     * through its iterator; any other object is passed on unchanged.\n     *\n     * @param obj  the object to get a value from\n     * @param idx  the position of the value, not negative\n     * @return the value at the position\n     */\n    public static Object getNthValue(Object obj, int idx) {\n        if (obj instanceof List) {\n            return ((List) obj).get(idx);\n        } else if (obj instanceof Object[]) {\n            return ((Object[]) obj)[idx];\n        } else if (obj instanceof Collection) {\n            return CursorableSubList.nthElement(((Collection) obj).iterator(), idx);\n        }\n        return CursorableSubList.nthElement(obj, idx);\n    }\n\n\n    /**",
+   "old": "        return new Double(answer.doubleValue());\n    }\n\n    /**",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java",
+   "new": "import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;\nimport org.apache.commons.collections.DoubleOrderedMap;\n",
+   "old": "import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;\n",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java",
+   "new": "        return new ViewMapIterator(this, KEY);\n    }\n\n    /**\n     * Given an Object, and a key (index), returns the value associated with\n     * that key in the Object.\n     * <p>\n     * If the object is a Map that contains the key, the value mapped to the\n     * key is returned; otherwise the object and the index are passed on\n     * unchanged.\n     *\n     * @param obj  the object to get a value from\n     * @param index  the key (index) to get\n     * @return the value associated with the key\n     */\n    public static Object keyedValue(Object obj, Object index) {\n        if (obj instanceof Map) {\n            Map map = (Map) obj;\n            if (map.containsKey(index)) {\n                return map.get(index);\n            }\n        }\n        return DoubleOrderedMap.positionalValue(obj, index);\n    }\n\n\n    /**",
+   "old": "        return new ViewMapIterator(this, KEY);\n    }\n\n    /**",
+   "purpose": "MR-Collections-3 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.collections.bidimap.TreeBidiMap",
+   "file": "src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java",
+   "method": "keyedValue"
+  },
+  {
+   "class": "org.apache.commons.collections.DoubleOrderedMap",
+   "file": "src/java/org/apache/commons/collections/DoubleOrderedMap.java",
+   "method": "positionalValue"
+  },
+  {
+   "class": "org.apache.commons.collections.ExtendedProperties",
+   "file": "src/java/org/apache/commons/collections/ExtendedProperties.java",
+   "method": "getNth"
+  },
+  {
+   "class": "org.apache.commons.collections.MapUtils",
+   "file": "src/java/org/apache/commons/collections/MapUtils.java",
+   "method": "getNthValue"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Collections-3.py",
+ "entry_points": [
+  "org.apache.commons.collections.CollectionUtils::index"
+ ],
+ "evidence": [
+  "org.apache.commons.collections.CollectionUtils::get",
+  "org.apache.commons.collections.CollectionUtils::size",
+  "org.apache.commons.collections.CollectionUtils::sizeIsEmpty",
+  "org.apache.commons.collections.IteratorUtils::getIterator"
+ ],
+ "expected_signature": "TestCollectionUtils.testIndex(TestCollectionUtils.java:537)",
+ "extra_tests": [],
+ "fixture_key": "Collections-3",
+ "gold": {
+  "class": "org.apache.commons.collections.CursorableSubList",
+  "edits": [
+   {
+    "new": "        Iterator it = IteratorUtils.EMPTY_ITERATOR;\n        if (obj instanceof Iterator) {\n            it = (Iterator) obj;\n        }",
+    "old": "        Iterator it = IteratorUtils.EMPTY_ITERATOR;\n        if (obj instanceof Iterator) {\n            it = (Iterator) obj;\n        } else if (obj instanceof java.util.Enumeration) {\n            it = IteratorUtils.asIterator((java.util.Enumeration) obj);\n        }"
+   }
+  ],
+  "file": "src/java/org/apache/commons/collections/CursorableLinkedList.java",
+  "method": "nthElement"
+ },
+ "group": "MR-Collections-3",
+ "hops": 5,
+ "iid": "MR-Collections-3",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold walks a source in order and decides what is returned when the walk runs out; it is handed the Enumeration itself, so it alone can return the nth element and, when there are fewer elements, the very Enumeration it was given, which the facade documents ('returning an empty Iterator (resp. Enumeration) if the nth value does not exist') and testIndex asserts (test.equals(en) && !en.hasMoreElements()). Hops 1-4 can only change what they hand on: an iterator view of the Enumeration makes the exhausted case return the view, a List copy makes it throw at the List read, and nothing can be recovered after the gold has returned. The convention is pinned outside the gold: CollectionUtils.get walks an Enumeration to its index-th element like an Iterator (testGet), CollectionUtils.size and sizeIsEmpty treat an Enumeration like an Iterator (testSize_Enumeration, testSizeIsEmpty_Enumeration), IteratorUtils.getIterator reads an Enumeration through an EnumerationIterator, and the facade's and index(Object,int)'s javadoc list the enumeration case.",
+ "ownership_tests": [
+  "org.apache.commons.collections.TestCollectionUtils::testGet",
+  "org.apache.commons.collections.TestCollectionUtils::testSize_Enumeration",
+  "org.apache.commons.collections.TestCollectionUtils::testSizeIsEmpty_Enumeration"
+ ],
+ "project": "Collections",
+ "src_root": "src/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "mapIterator",
+    "anchor_seed": 4265,
+    "class": "org.apache.commons.collections.bidimap.TreeBidiMap",
+    "file": "src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.collections.DoubleOrderedMap;"
+    ],
+    "method": "keyedValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "containsKey",
+    "anchor_seed": 4266,
+    "class": "org.apache.commons.collections.DoubleOrderedMap",
+    "file": "src/java/org/apache/commons/collections/DoubleOrderedMap.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "positionalValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getProperties",
+    "anchor_seed": 4267,
+    "class": "org.apache.commons.collections.ExtendedProperties",
+    "file": "src/java/org/apache/commons/collections/ExtendedProperties.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.util.Map;"
+    ],
+    "method": "getNth",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getDouble",
+    "anchor_seed": 4268,
+    "class": "org.apache.commons.collections.MapUtils",
+    "file": "src/java/org/apache/commons/collections/MapUtils.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.util.Collection;",
+     "import java.util.List;"
+    ],
+    "method": "getNthValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isEmpty",
+    "anchor_seed": 4269,
+    "class": "org.apache.commons.collections.CursorableSubList",
+    "file": "src/java/org/apache/commons/collections/CursorableLinkedList.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "nthElement",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4165
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Collections-3"
+ ],
+ "test_root": "src/test",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.collections.TestCollectionUtils",
+  "test_file": "src/test/org/apache/commons/collections/TestCollectionUtils.java",
+  "test_method": "testIndex"
+ },
+ "variant_id": "CTV-549CC2",
+ "kind": "new",
+ "fault_lines": [
+  "Iterator it = IteratorUtils.EMPTY_ITERATOR;\n        if (obj instanceof Iterator) {\n            it = (Iterator) obj;\n        }"
+ ],
+ "gold_key": "org.apache.commons.collections.CursorableSubList::nthElement"
+}

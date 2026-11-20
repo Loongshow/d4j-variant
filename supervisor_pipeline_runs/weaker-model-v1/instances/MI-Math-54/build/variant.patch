@@ -1,0 +1,161 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 54aabc411..7425f76e5 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -1094,18 +1094,10 @@ public class Dfp implements FieldElement<Dfp> {
+ 
+     /** Get the exponent of the greatest power of 10 that is less than or equal to abs(this).
+      *  @return integer base 10 logarithm
++       The mantissa is first written out as a string of decimal digits, and the exponent is read from the position of its first non-zero digit.
+      */
+     public int log10()  {
+-        if (mant[mant.length-1] > 1000) {
+-            return exp * 4 - 1;
+-        }
+-        if (mant[mant.length-1] > 100) {
+-            return exp * 4 - 2;
+-        }
+-        if (mant[mant.length-1] > 10) {
+-            return exp * 4 - 3;
+-        }
+-        return exp * 4 - 4;
++        return org.apache.commons.math.util.FastMath.decimalExponent(mant, exp);
+     }
+ 
+     /** Return the specified  power of 10.
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index b90b6d00a..1127ec898 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -988,6 +988,18 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return new ArrayFieldVector<T>(outData, false);
+     }
+ 
++    /**
++     * Get the decimal exponent of the leading digit of a word placed at a
++     * decimal offset.
++     * @param word word holding up to four decimal digits
++     * @param offset decimal exponent of the units digit of the word
++     * @return decimal exponent of the leading digit of the word
++     */
++    public static int exponentFromOffset(final int word, final int offset) {
++        return BlockRealMatrix.offsetExponent(word, offset);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setRowVector(final int row, final FieldVector<T> vector) {
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index 9a53cb66a..3a1ad5a06 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -24,6 +24,7 @@ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.NoDataException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
++import org.apache.commons.math.optimization.direct.CMAESOptimizer;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -433,6 +434,19 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return out;
+     }
+ 
++    /**
++     * Get the decimal exponent of the leading digit of a word placed at a
++     * decimal offset.
++     * <p>The offset is added to the decimal exponent of the word itself.</p>
++     * @param word word holding up to four decimal digits
++     * @param offset decimal exponent of the units digit of the word
++     * @return decimal exponent of the leading digit of the word
++     */
++    public static int offsetExponent(final int word, final int offset) {
++        return offset + CMAESOptimizer.digitExponent(word);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public RealMatrix scalarMultiply(final double d) {
+diff --git a/src/main/java/org/apache/commons/math/optimization/direct/CMAESOptimizer.java b/src/main/java/org/apache/commons/math/optimization/direct/CMAESOptimizer.java
+index 20c0625bd..82a58b0e1 100644
+--- a/src/main/java/org/apache/commons/math/optimization/direct/CMAESOptimizer.java
++++ b/src/main/java/org/apache/commons/math/optimization/direct/CMAESOptimizer.java
+@@ -342,6 +342,18 @@ public class CMAESOptimizer extends
+         return statisticsDHistory;
+     }
+ 
++    /**
++     * @param value
++     *            Positive value.
++     * @return the decimal exponent of the value, that is the exponent of the
++     *         leading decimal digit of the value.
++     */
++    public static int digitExponent(final int value) {
++        int exponent = ((31 - Integer.numberOfLeadingZeros(value)) * 1233) >> 12;
++        return exponent;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected RealPointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index eda2b8be0..a8ff025d7 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -2583,6 +2583,19 @@ public class FastMath {
+         }
+     }
+ 
++    /** Compute the decimal exponent of a number held in radix 10000 words.
++     * <p>Each word holds four decimal digits, the most significant word last;
++     * the most significant word stands for itself times 10000 raised to the
++     * power {@code wordExponent - 1}.</p>
++     * @param words the words of the number, most significant last
++     * @param wordExponent exponent of the number, in powers of 10000
++     * @return the exponent of the leading decimal digit of the number
++     */
++    public static int decimalExponent(final int[] words, final int wordExponent) {
++        return MathUtils.leadingWordExponent(words[words.length - 1], wordExponent);
++    }
++
++
+     /**
+      *  Cosine function
+      *  @param x a number
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index cbb7b5bb6..8747510ef 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -35,6 +35,7 @@ import org.apache.commons.math.exception.MathArithmeticException;
+ import org.apache.commons.math.exception.MathIllegalArgumentException;
+ import org.apache.commons.math.exception.NumberIsTooLargeException;
+ import org.apache.commons.math.exception.NotFiniteNumberException;
++import org.apache.commons.math.linear.BlockFieldMatrix;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -1883,6 +1884,21 @@ public final class MathUtils {
+         return FastMath.sqrt(sum);
+     }
+ 
++    /**
++     * Returns the exponent of the leading decimal digit of a number, given its
++     * most significant radix 10000 word.
++     *
++     * @param leadingWord the most significant word of the number.
++     * @param wordExponent the exponent of the number, in powers of 10000; the
++     * units digit of the leading word stands for 10 raised to the power
++     * {@code 4 * (wordExponent - 1)}.
++     * @return the exponent of the leading decimal digit of the number.
++     */
++    public static int leadingWordExponent(final int leadingWord, final int wordExponent) {
++        return BlockFieldMatrix.exponentFromOffset(leadingWord, 4 * (wordExponent - 1));
++    }
++
++
+     /**
+      * Calculates the L<sub>2</sub> (Euclidean) distance between two points.
+      *

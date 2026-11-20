@@ -1,0 +1,211 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+index 37d8f886..a08efc0a 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonGenerator.java
+@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicLong;
+ import com.fasterxml.jackson.core.JsonParser.NumberType;
+ import com.fasterxml.jackson.core.io.CharacterEscapes;
+ import com.fasterxml.jackson.core.util.VersionUtil;
++import com.fasterxml.jackson.core.json.WriterBasedJsonGenerator;
+ 
+ /**
+  * Base class that defines public API for writing JSON content.
+@@ -862,6 +863,21 @@ public abstract class JsonGenerator
+         throws IOException {
+         return writeBinary(Base64Variants.getDefaultVariant(), data, dataLength);
+     }
++
++    /**
++     * Helper method for constructing the {@link JsonPointer} that a pointer
++     * expression denotes: the pointer for the segments of the expression,
++     * with the empty pointer following the last segment.
++     *
++     * @param expr Pointer expression; non-empty, starts with a slash
++     *
++     * @return Pointer for the expression
++     */
++    public static JsonPointer compiledPointer(String expr)
++    {
++        return WriterBasedJsonGenerator.segmentPointer(expr, JsonPointer.EMPTY);
++    }
++
+     
+     /**
+      * Method similar to {@link #writeBinary(Base64Variant,byte[],int,int)},
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonPointer.java b/src/main/java/com/fasterxml/jackson/core/JsonPointer.java
+index ff84f5ed..aedc9601 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonPointer.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonPointer.java
+@@ -69,6 +69,19 @@ public class JsonPointer
+         _matchingPropertyName = segment;
+         _matchingElementIndex = _parseIndex(segment);
+     }
++
++    /**
++     * Constructor used for creating non-empty Segments when the index of the
++     * matching element is known: {@code matchIndex} is used as given (-1 if
++     * the segment matches no element); unlike the constructor above, the
++     * segment is not inspected for an index.
++     */
++    public JsonPointer(String fullString, String segment, int matchIndex, JsonPointer next) {
++        _asString = fullString;
++        _nextSegment = next;
++        _matchingPropertyName = segment;
++        _matchingElementIndex = matchIndex;
++    }
+     
+     /*
+     /**********************************************************
+@@ -84,6 +97,7 @@ public class JsonPointer
+      * @throws IllegalArgumentException Thrown if the input does not present a valid JSON Pointer
+      *   expression: currently the only such expression is one that does NOT start with
+      *   a slash ('/').
++       Each segment is first looked up, by its text, in a shared cache of the segments compiled earlier, and is parsed only if it is not found there.
+      */
+     public static JsonPointer compile(String input) throws IllegalArgumentException
+     {
+@@ -95,7 +109,7 @@ public class JsonPointer
+         if (input.charAt(0) != '/') {
+             throw new IllegalArgumentException("Invalid input: JSON Pointer expression must start with '/': "+"\""+input+"\"");
+         }
+-        return _parseTail(input);
++        return com.fasterxml.jackson.core.json.ReaderBasedJsonParser.pointerFromExpression(input);
+     }
+ 
+     /**
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+index 10cdbfb9..021d4a8a 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+@@ -122,6 +122,20 @@ public class ReaderBasedJsonParser // final in 2.3, earlier
+         _bufferRecyclable = true;
+     }
+ 
++    /**
++     * Helper method for constructing the {@link JsonPointer} that a pointer
++     * expression denotes.
++     *
++     * @param expr Pointer expression; non-empty, starts with a slash
++     *
++     * @return Pointer for the expression
++     */
++    public static JsonPointer pointerFromExpression(String expr)
++    {
++        return JsonGenerator.compiledPointer(expr);
++    }
++
++
+     /*
+     /**********************************************************
+     /* Base method defs, overrides
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+index e7da750c..26998604 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+@@ -510,6 +510,54 @@ public class UTF8JsonGenerator
+         _outputBuffer[_outputTail++] = BYTE_QUOTE;
+     }
+ 
++    /**
++     * Helper method for constructing the pointer for the segments of a pointer
++     * expression. The first segment, with its escapes decoded, becomes the
++     * matching segment of the returned pointer; the pointer for the rest of
++     * the expression follows it, and the given pointer follows the last
++     * segment.
++     *
++     * @param expr Pointer expression; non-empty, starts with a slash
++     * @param tail Pointer that follows the last segment of the expression
++     *
++     * @return Pointer for the first segment of the expression
++     */
++    public static JsonPointer pointerForSegments(String expr, JsonPointer tail)
++    {
++        final int end = expr.length();
++        final StringBuilder sb = new StringBuilder(Math.max(16, end));
++        int i = 1;
++        while (i < end) {
++            char c = expr.charAt(i);
++            if (c == '/') {
++                break;
++            }
++            ++i;
++            if (c == '~' && i < end) {
++                c = expr.charAt(i++);
++                if (c == '0') {
++                    c = '~';
++                } else if (c == '1') {
++                    c = '/';
++                } else {
++                    sb.append('~');
++                }
++            }
++            sb.append(c);
++        }
++        final String segment = sb.toString();
++        final int len = segment.length();
++        int index = (len == 0 || len > 10
++                || (len > 1 && segment.charAt(0) == '0')) ? -1 : 0;
++        for (int k = 0; k < len && index >= 0; ++k) {
++            final int d = segment.charAt(k) - '0';
++            index = (d < 0 || d > 9) ? -1 : (index * 10) + d;
++        }
++        final JsonPointer next = (i < end) ? pointerForSegments(expr.substring(i), tail) : tail;
++        return new JsonPointer(expr, segment, index, next);
++    }
++
++
+     @Override
+     public void writeRawUTF8String(byte[] text, int offset, int length) throws IOException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+index 707f2539..7a10d9ff 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+@@ -154,6 +154,21 @@ public class UTF8StreamJsonParser
+         return count;
+     }
+ 
++    /**
++     * Helper method for constructing the pointer for the segments of a pointer
++     * expression, followed by the given pointer.
++     *
++     * @param expr Pointer expression; non-empty, starts with a slash
++     * @param tail Pointer that follows the last segment of the expression
++     *
++     * @return Pointer for the first segment of the expression
++     */
++    public static JsonPointer parsePointerSegments(String expr, JsonPointer tail)
++    {
++        return UTF8JsonGenerator.pointerForSegments(expr, tail);
++    }
++
++
+     @Override
+     public Object getInputSource() {
+         return _inputStream;
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+index 63f34fbb..0a007f83 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+@@ -838,6 +838,21 @@ public final class WriterBasedJsonGenerator
+         }
+     }
+ 
++    /**
++     * Helper method for constructing the pointer for the segments of a pointer
++     * expression, followed by the given pointer.
++     *
++     * @param expr Pointer expression; non-empty, starts with a slash
++     * @param tail Pointer that follows the last segment of the expression
++     *
++     * @return Pointer for the first segment of the expression
++     */
++    public static JsonPointer segmentPointer(String expr, JsonPointer tail)
++    {
++        return UTF8StreamJsonParser.parsePointerSegments(expr, tail);
++    }
++
++
+     @Override
+     public void close()
+         throws IOException

@@ -1,0 +1,41 @@
+{
+ "instance": "MI-JacksonDatabind-11",
+ "task_key": "JacksonDatabind-11__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "com.fasterxml.jackson.databind.ObjectReader::forParametrizedType (hop 3)",
+   "edit": "in the Collection branch, after the count check, add: return factory.constructCollectionType((Class<Collection<?>>) raw, parameterTypes[0]);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true,
+   "doc_consistent": false, "class": "bypass",
+   "why": "contradicts hop 3's javadoc ('The class and its parameters are then passed on unchanged') and makes hops 4-5 dead for Collection classes"},
+  {"method": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase::resolveParametrizedType (hop 1)",
+   "edit": "before the delegation add: if (java.util.Collection.class.isAssignableFrom(raw) && parameterTypes.length == 1) return factory.constructCollectionType((Class<java.util.Collection<?>>) raw, parameterTypes[0]);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true,
+   "doc_consistent": true, "class": "bypass",
+   "why": "hop 1's one-sentence javadoc is not contradicted, but the edit replaces the chain's (gold's) result for Collection classes with a second implementation, making hops 2-5 dead on that input; also duplicates hop 3's Collection count check responsibility"},
+  {"method": "hop 4 / hop 2 / hop 3 argument re-routing (builder-declared G9 compensators: parametersFor<->raw)",
+   "edit": "as declared in spec.compensating", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null,
+   "doc_consistent": null, "class": "fails",
+   "why": "validated by G9 and by inspection: the gold has no branch that can yield a CollectionType from any (raw, parametersFor) pair; constructSimpleType always gives SimpleType"}
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.databind.type.TypeFactory#constructParametrizedType(Class,Class,JavaType...) [instance, V2: passes this as TypeFactory] (reached via the Class... overload from the trigger)",
+  "hop1 com.fasterxml.jackson.databind.deser.BeanDeserializerBase.resolveParametrizedType (pure delegation)",
+  "hop2 com.fasterxml.jackson.databind.util.TokenBuffer.parametrizedTypeFor (array types only; others passed on unchanged)",
+  "hop3 com.fasterxml.jackson.databind.ObjectReader.forParametrizedType (Map=2 / Collection=1 count checks; passed on unchanged)",
+  "hop4 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory.createParametrizedType (pure delegation)",
+  "gold com.fasterxml.jackson.databind.ObjectMapper.typeWithParameters (Map -> constructMapType; [omitted: Collection -> constructCollectionType]; else constructSimpleType)"
+ ],
+ "reasons": "Scratch copy of construction/fresh-mr/JacksonDatabind-11 + variant.patch compiles; trigger TestTypeFactory::testParametricTypes fails with 'expected:<CollectionType> but was:<SimpleType>'; full suite on the variant fails only the trigger; the four ownership tests pass. (a) Only the gold constructs non-array types and its javadoc promises the type 'as the type factory resolves the class when it is declared with those parameters'; the factory resolves ArrayList<String> as CollectionType (TypeFactory._fromParameterizedClass, _fromParamType, _fromClass all give Collection classes a CollectionType), so the gold alone violates its contract by returning SimpleType. Hops 2-4 document that non-array/non-checked input is 'passed on unchanged' and their code does exactly that; hop 1 is a pure delegation. (b) No hop javadoc contradicts its code; hop 1's doc is a single generic sentence but the method is a one-line delegation, not a plausible owner. (c) No competing repair: every non-gold edit that passes (hop 3 or hop 1 constructing the CollectionType themselves) replaces the gold's result and makes the downstream hops dead for Collections (bypass; hop 3 variant also contradicts its own doc); argument re-routing cannot help because the gold has no Collection branch. (d) Names (resolveParametrizedType, parametrizedTypeFor, forParametrizedType, createParametrizedType, typeWithParameters) are neutral; no fault vocabulary; the gold's javadoc does not mention Collection; the facade lie (cache lookup before construction) is plausible-but-false (TypeFactory has a _typeCache used by _fromClass, not by this method) and does not name the omitted step or any hop. (e) Gold is exactly five calls below the facade; five hosts are distinct existing classes and equal, in order, the seeded draw I re-ran (mr_lib.py preview JacksonDatabind-11 .../TypeFactory.java 5 -> hop1 BeanDeserializerBase@creatorProperties, hop2 TokenBuffer@writeEndObject, hop3 ObjectReader@with, hop4 BasicDeserializerFactory@createCollectionLikeDeserializer, hop5 ObjectMapper@configure; host_mode '1500', exactly five other >=1500-line classes, facade file excluded); facade body is a single delegating call (original had no guard; V2 receiver-as-parameter, hops use only public TypeFactory methods constructArrayType/constructMapType/constructCollectionType/constructSimpleType); facade javadoc carries one added procedural sentence the code does not do; test.patch empty; only the trigger newly fails. (f) Convention pinned externally by TypeFactory._fromParameterizedClass/_fromParamType/_fromClass (Map->MapType, Collection->CollectionType, else simple) and by passing TestTypeFactory::testCollections/testCanonicalNames (ArrayList/ArrayList<String> -> CollectionType). (g) C10i rules: facade constructParametrizedType is an allowed candidate of the task record; its signature, modifiers (public, non-static), varargs, overrides and throws are unchanged; no visibility widened (TypeFactory diff touches only the facade body and javadoc), no new class/interface/nested type, no reflection, no test edits.",
+ "notes": "Bypass recorded: hop 1 (BeanDeserializerBase.resolveParametrizedType) can absorb the fault with a one-line Collection short-circuit that its loose one-sentence javadoc does not forbid; it passes trigger, ownership tests and full suite, but it substitutes a second implementation for the gold's output (gold dead for Collections), so it is a bypass, not a competing repair. Cosmetic: the recipe appended the facade lie after the '@since 2.5' tag line without a leading '*', so javadoc tooling would attach it to @since; this does not affect validity. The facade planned in the task record for this key was moreSpecificType (facade_planned_by of other tasks), but constructParametrizedType is also an allowed candidate (facade_planned_by null), so the choice conforms. The external pin's gold-convention sibling _fromParameterizedClass also appears in the trace of other TypeFactory tests and is unmodified."
+}

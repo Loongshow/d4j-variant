@@ -1,0 +1,217 @@
+{
+ "bug_id": 103,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "        AnnotatedMember accessor = props.getAnySetterField();\n        if (accessor == null) {\n            accessor = props.getAnySetterMethod();",
+   "old": "        AnnotatedMember accessor = props.getAnySetterMethod();\n        if (accessor == null) {\n            accessor = props.getAnySetterField();",
+   "why": "hop 2 prefers the any-setter field over the any-setter method"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "        if (accessor == null || accessor instanceof AnnotatedField) {\n            return accessor;\n        }\n        return BasicDeserializerFactory.verifyAnySetterMember(accessor);",
+   "old": "        if (accessor == null) {\n            return null;\n        }\n        return BasicDeserializerFactory.verifyAnySetterMember(accessor);",
+   "why": "hop 3 returns field accessors without verification"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "        if (ObjectReader.isUsableAnySetter(accessor) || accessor.getRawType() == Object.class) {",
+   "old": "        if (ObjectReader.isUsableAnySetter(accessor)) {",
+   "why": "hop 4 also accepts accessors whose raw type is Object"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+   "new": "import com.fasterxml.jackson.databind.util.*;\nimport com.fasterxml.jackson.databind.introspect.AnnotatedMember;\nimport com.fasterxml.jackson.databind.introspect.POJOPropertiesCollector;\n",
+   "old": "import com.fasterxml.jackson.databind.util.*;\n",
+   "purpose": "MI-JacksonDatabind-103 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+   "new": "        throw MismatchedInputException.from(getParser(), type, msg);\n    }\n\n    /**\n     * Method for locating the any-setter accessor among the properties\n     * collected for a bean type.\n     *<p>\n     * If no properties were collected, the type has no any-setter and\n     * <code>null</code> is returned.\n     *\n     * @param props Properties collected for the bean type, if any\n     *\n     * @return Any-setter method or field of the type; null if none\n     */\n    public static AnnotatedMember findAnySetterMember(POJOPropertiesCollector props) {\n        if (props == null) {\n            return null;\n        }\n        return BeanDeserializerBase.resolveAnySetterMember(props);\n    }\n\n\n    /**\n     * Helper method used to indicate a problem with input in cases where more\n     * specific <code>reportXxx()</code> method was not available.\n     *\n     * @since 2.9",
+   "old": "        throw MismatchedInputException.from(getParser(), type, msg);\n    }\n\n    /**\n     * Helper method used to indicate a problem with input in cases where more\n     * specific <code>reportXxx()</code> method was not available.\n     *\n     * @since 2.9",
+   "purpose": "MI-JacksonDatabind-103 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "        return _newReader(getDeserializationConfig(), _typeFactory.constructType(type), null,\n                null, _injectableValues);\n    }\n\n    /**\n     * Method that accepts the any-setter accessor found for a bean type,\n     * if there is one.\n     *\n     * @param accessor Any-setter method or field of the type; may be null\n     *\n     * @return The accessor; null if there is none\n     */\n    public static AnnotatedMember acceptAnySetterMember(AnnotatedMember accessor) {\n        if (accessor == null) {\n            return null;\n        }\n        return BasicDeserializerFactory.verifyAnySetterMember(accessor);\n    }\n\n\n    /**\n     * Factory method for constructing {@link ObjectReader} that will\n     * read or update instances of specified type\n     * \n     * @since 2.6\n     */",
+   "old": "        return _newReader(getDeserializationConfig(), _typeFactory.constructType(type), null,\n                null, _injectableValues);\n    }\n\n    /**\n     * Factory method for constructing {@link ObjectReader} that will\n     * read or update instances of specified type\n     * \n     * @since 2.6\n     */",
+   "purpose": "MI-JacksonDatabind-103 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "import com.fasterxml.jackson.databind.util.ClassUtil;\nimport com.fasterxml.jackson.databind.introspect.AnnotatedMember;\nimport com.fasterxml.jackson.databind.introspect.AnnotatedMethod;\n",
+   "old": "import com.fasterxml.jackson.databind.util.ClassUtil;\n",
+   "purpose": "MI-JacksonDatabind-103 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "    public ObjectReader with(JsonParser.Feature feature) {\n        return _with(_config.with(feature));\n    }\n\n    /**\n     * Method for checking whether an accessor that carries the any-setter\n     * annotation of a bean type can be used to receive the properties that\n     * have no mutator of their own.\n     *\n     * @param accessor Annotated method or field; not null\n     *\n     * @return True if the accessor can be used; false otherwise\n     */\n    public static boolean isUsableAnySetter(AnnotatedMember accessor) {\n        if (accessor instanceof AnnotatedMethod) {\n            Class<?> type = ((AnnotatedMethod) accessor).getRawParameterType(0);\n            return (type == String.class)\n                    || (type == Object.class);\n        }\n        return Map.class.isAssignableFrom(accessor.getRawType());\n    }\n\n\n    /**\n     * Method for constructing a new reader instance that is configured",
+   "old": "    public ObjectReader with(JsonParser.Feature feature) {\n        return _with(_config.with(feature));\n    }\n\n    /**\n     * Method for constructing a new reader instance that is configured",
+   "purpose": "MI-JacksonDatabind-103 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "    }\n\n    /**\n     * Helper method that verifies that the any-setter accessor of a bean\n     * type can be used to receive the properties that have no mutator of\n     * their own.\n     *\n     * @param accessor Any-setter method or field of the type\n     *\n     * @return The accessor\n     *\n     * @throws IllegalArgumentException if the accessor cannot be used\n     */\n    public static AnnotatedMember verifyAnySetterMember(AnnotatedMember accessor) {\n        if (ObjectReader.isUsableAnySetter(accessor)) {\n            return accessor;\n        }\n        if (accessor instanceof AnnotatedMethod) {\n            throw new IllegalArgumentException(String.format(\n                    \"Invalid 'any-setter' annotation on method '%s()': first argument not of type String or Object, but %s\",\n                    accessor.getName(), ((AnnotatedMethod) accessor).getRawParameterType(0).getName()));\n        }\n        throw new IllegalArgumentException(String.format(\n                \"Invalid 'any-setter' annotation on field '%s': type is not instance of java.util.Map\",\n                accessor.getName()));\n    }\n\n\n    @Override\n    public JsonDeserializer<?> createReferenceDeserializer(DeserializationContext ctxt,",
+   "old": "    }\n\n    @Override\n    public JsonDeserializer<?> createReferenceDeserializer(DeserializationContext ctxt,",
+   "purpose": "MI-JacksonDatabind-103 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "\n    /**\n     * Helper method for finding the any-setter accessor of a bean type: the\n     * any-setter method if there is one, otherwise the any-setter field.\n     *\n     * @param props Properties collected for the bean type\n     *\n     * @return Any-setter method or field of the type; null if none\n     */\n    public static AnnotatedMember resolveAnySetterMember(POJOPropertiesCollector props) {\n        AnnotatedMember accessor = props.getAnySetterMethod();\n        if (accessor == null) {\n            accessor = props.getAnySetterField();\n        }\n        return ObjectMapper.acceptAnySetterMember(accessor);\n    }\n\n\n    private Throwable throwOrReturnThrowable(Throwable t, DeserializationContext ctxt) ",
+   "old": "\n    private Throwable throwOrReturnThrowable(Throwable t, DeserializationContext ctxt) ",
+   "purpose": "MI-JacksonDatabind-103 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/introspect/BasicBeanDescription.java",
+   "new": "    /**\n     * Method used to locate the mutator (field or 2-argument method) of\n     * introspected class that implements\n     * {@link com.fasterxml.jackson.annotation.JsonAnySetter}; if no such\n     * mutator exists null is returned.\n       Fields are examined before methods, and a method is used only when no field of the class carries the annotation.\n     */\n    @Override\n    public AnnotatedMember findAnySetterAccessor() throws IllegalArgumentException\n    {\n        return com.fasterxml.jackson.databind.DeserializationContext.findAnySetterMember(_propCollector);",
+   "old": "    @Override\n    public AnnotatedMember findAnySetterAccessor() throws IllegalArgumentException\n    {\n        if (_propCollector != null) {\n            AnnotatedMethod anyMethod = _propCollector.getAnySetterMethod();\n            if (anyMethod != null) {\n                // Also, let's be somewhat strict on how field name is to be\n                // passed; String, Object make sense, others not so much.\n    \n                /* !!! 18-May-2009, tatu: how about enums? Can add support if\n                 *  requested; easy enough for devs to add support within method.\n                 */\n                Class<?> type = anyMethod.getRawParameterType(0);\n                if ((type != String.class) && (type != Object.class)) {\n                    throw new IllegalArgumentException(String.format(\n\"Invalid 'any-setter' annotation on method '%s()': first argument not of type String or Object, but %s\",\nanyMethod.getName(), type.getName()));\n                }\n                return anyMethod;\n            }\n            AnnotatedMember anyField = _propCollector.getAnySetterField();\n            if (anyField != null) {\n                // For now let's require a Map; in future can add support for other\n                // types like perhaps Iterable<Map.Entry>?\n                Class<?> type = anyField.getRawType();\n                if (!Map.class.isAssignableFrom(type)) {\n                    throw new IllegalArgumentException(String.format(\n\"Invalid 'any-setter' annotation on field '%s': type is not instance of java.util.Map\",\nanyField.getName()));\n                }\n                return anyField;\n            }\n        }\n        return null;",
+   "purpose": "MI-JacksonDatabind-103 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.databind.DeserializationContext",
+   "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+   "method": "findAnySetterMember"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "method": "resolveAnySetterMember"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectMapper",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "method": "acceptAnySetterMember"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "method": "verifyAnySetterMember"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonDatabind-103__i.py",
+ "entry_points": [
+  "com.fasterxml.jackson.databind.introspect.BasicBeanDescription::findAnySetterAccessor"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.databind.BeanDescription::findAnySetterAccessor",
+  "com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer::forType",
+  "com.fasterxml.jackson.databind.deser.std.MapDeserializer::_isStdKeyDeser",
+  "com.fasterxml.jackson.databind.deser.BeanDeserializerFactory::constructAnySetter"
+ ],
+ "expected_signature": "first argument not of type String or Object, but java.lang.Object",
+ "extra_tests": [],
+ "fixture_key": "JacksonDatabind-103",
+ "gold": {
+  "class": "com.fasterxml.jackson.databind.ObjectReader",
+  "edits": [
+   {
+    "new": "            return (type == String.class);",
+    "old": "            return (type == String.class)\n                    || (type == Object.class);"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+  "method": "isUsableAnySetter"
+ },
+ "group": "MI-JacksonDatabind-103",
+ "hops": 5,
+ "iid": "MI-JacksonDatabind-103",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold decides whether an accessor that carries the any-setter annotation can be used: hops 1 and 3 pass the collected properties or the accessor on (returning null when there is none), hop 2 only picks the any-setter method before the any-setter field, and hop 4 only turns the gold's verdict into the accessor or into the original IllegalArgumentException. Whatever a caller does, the gold itself still answers false for an any-setter method whose first parameter is declared as Object, although such a method can receive the bean's unknown properties, which is what the gold's javadoc promises to decide. The convention is pinned outside the gold: BeanDescription.findAnySetterAccessor's javadoc (the method 'needs to take 2 arguments, first one String or Object'); StdKeyDeserializer.forType, where String, Object and CharSequence keys all take the JSON property name as is, and MapDeserializer._isStdKeyDeser, where String or Object raw key types use the default key handling ('JSON String becomes Java String'), with MapDeserializationTest testUntypedMap2 (Object keys of a raw HashMap receive the property names) passing; BeanDeserializerFactory.constructAnySetter, the production caller, builds the any-setter property from the method's first parameter type resolved through the bean's type bindings; AnySetterTest testSimpleMapImitation (String-keyed method), AnySetterTest testJsonAnySetterOnMap (Map field) and POJOPropertiesCollectorTest testJackson744 (the any-setter method is located) pass on the variant. Hop 4's message also names the accepted key types (String or Object).",
+ "ownership_tests": [
+  "com.fasterxml.jackson.databind.deser.AnySetterTest::testSimpleMapImitation",
+  "com.fasterxml.jackson.databind.deser.AnySetterTest::testJsonAnySetterOnMap",
+  "com.fasterxml.jackson.databind.introspect.POJOPropertiesCollectorTest::testJackson744",
+  "com.fasterxml.jackson.databind.deser.jdk.MapDeserializationTest::testUntypedMap2"
+ ],
+ "project": "JacksonDatabind",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "reportInputMismatch",
+    "anchor_seed": 6721,
+    "class": "com.fasterxml.jackson.databind.DeserializationContext",
+    "file": "src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.introspect.AnnotatedMember;",
+     "import com.fasterxml.jackson.databind.introspect.POJOPropertiesCollector;"
+    ],
+    "method": "findAnySetterMember",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "wrapAndThrow",
+    "anchor_seed": 6722,
+    "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "resolveAnySetterMember",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "readerFor",
+    "anchor_seed": 6723,
+    "class": "com.fasterxml.jackson.databind.ObjectMapper",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "acceptAnySetterMember",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "createTreeDeserializer",
+    "anchor_seed": 6724,
+    "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "verifyAnySetterMember",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "with",
+    "anchor_seed": 6725,
+    "class": "com.fasterxml.jackson.databind.ObjectReader",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+    "hop": 5,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.introspect.AnnotatedMember;",
+     "import com.fasterxml.jackson.databind.introspect.AnnotatedMethod;"
+    ],
+    "method": "isUsableAnySetter",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6621
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonDatabind-103"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.databind.deser.AnySetterTest",
+  "test_file": "src/test/java/com/fasterxml/jackson/databind/deser/AnySetterTest.java",
+  "test_method": "testGenericAnySetter"
+ },
+ "variant_id": "CTV-A80261",
+ "kind": "new",
+ "fault_lines": [
+  "return (type == String.class);"
+ ],
+ "gold_key": "com.fasterxml.jackson.databind.ObjectReader::isUsableAnySetter"
+}

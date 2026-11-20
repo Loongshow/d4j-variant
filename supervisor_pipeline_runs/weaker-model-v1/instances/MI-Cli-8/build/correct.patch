@@ -1,0 +1,328 @@
+diff --git a/src/java/org/apache/commons/cli/CommandLine.java b/src/java/org/apache/commons/cli/CommandLine.java
+index 3f5e80f..3490a97 100644
+--- a/src/java/org/apache/commons/cli/CommandLine.java
++++ b/src/java/org/apache/commons/cli/CommandLine.java
+@@ -23,6 +23,7 @@ import java.util.LinkedList;
+ import java.util.List;
+ import java.util.Set;
+ import java.util.HashSet;
++import java.io.PrintWriter;
+ 
+ /** 
+  * <p>Represents list of arguments parsed against
+@@ -303,6 +304,25 @@ public class CommandLine implements Serializable {
+         return options.iterator();
+     }
+ 
++    /**
++     * <p>Prints the options table of a help message for the specified
++     * options, in the order of the list.</p>
++     *
++     * @param formatter the formatter whose settings and printing are used
++     * @param pw the writer to which the table is written
++     * @param width the number of characters to be displayed on each line
++     * @param options the options to print
++     * @param leftPad the number of characters of padding to be prefixed
++     * to each entry
++     * @param descPad the number of characters of padding to be prefixed
++     * to each description
++     */
++    public static void printOptionList(HelpFormatter formatter, PrintWriter pw, int width, List options, int leftPad, int descPad)
++    {
++        PosixParser.printOptionLines(formatter, pw, width, options, leftPad, descPad);
++    }
++
++
+     /**
+      * Returns an array of the processed {@link Option}s.
+      *
+diff --git a/src/java/org/apache/commons/cli/HelpFormatter.java b/src/java/org/apache/commons/cli/HelpFormatter.java
+index 40873f5..cdd2245 100644
+--- a/src/java/org/apache/commons/cli/HelpFormatter.java
++++ b/src/java/org/apache/commons/cli/HelpFormatter.java
+@@ -432,6 +432,7 @@ public class HelpFormatter {
+      * @param footer the banner to display at the end of the help
+      * @param autoUsage whether to print an automatically generated 
+      * usage statement
++       The help is first rendered into a single buffer, which is then written to the writer in one call.
+      */
+     public void printHelp(PrintWriter pw, int width, String cmdLineSyntax, 
+                           String header, Options options, int leftPad, 
+@@ -442,26 +443,8 @@ public class HelpFormatter {
+             throw new IllegalArgumentException("cmdLineSyntax not provided");
+         }
+ 
+-        if (autoUsage)
+-        {
+-            printUsage(pw, width, cmdLineSyntax, options);
+-        }
+-        else
+-        {
+-            printUsage(pw, width, cmdLineSyntax);
+-        }
+-
+-        if ((header != null) && (header.trim().length() > 0))
+-        {
+-            printWrapped(pw, width, header);
+-        }
+-
+-        printOptions(pw, width, options, leftPad, descPad);
+-
+-        if ((footer != null) && (footer.trim().length() > 0))
+-        {
+-            printWrapped(pw, width, footer);
+-        }
++        Option.printHelpSections(this, pw, width, cmdLineSyntax, header, options, leftPad, descPad, footer,
++                                 autoUsage, new OptionComparator());
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/cli/Option.java b/src/java/org/apache/commons/cli/Option.java
+index 072466b..c0fa5ba 100644
+--- a/src/java/org/apache/commons/cli/Option.java
++++ b/src/java/org/apache/commons/cli/Option.java
+@@ -18,6 +18,8 @@ package org.apache.commons.cli;
+ 
+ import java.io.Serializable;
+ import java.util.ArrayList;
++import java.io.PrintWriter;
++import java.util.Comparator;
+ 
+ /** <p>Describes a single command-line option.  It maintains
+  * information regarding the short-name of the option, the long-name,
+@@ -633,6 +635,54 @@ public class Option implements Cloneable, Serializable {
+         return result;
+     }
+ 
++    /**
++     * <p>Prints the help for <code>options</code> with the specified
++     * command line syntax: the usage statement, the header, the options
++     * table and the footer. A header or footer that is null or blank is
++     * not printed.</p>
++     *
++     * @param formatter the formatter whose settings and printing are used
++     * @param pw the writer to which the help is written
++     * @param width the number of characters to be displayed on each line
++     * @param cmdLineSyntax the syntax for this application
++     * @param header the banner to display at the beginning of the help
++     * @param options the Options instance
++     * @param leftPad the number of characters of padding to be prefixed
++     * to each line
++     * @param descPad the number of characters of padding to be prefixed
++     * to each description line
++     * @param footer the banner to display at the end of the help
++     * @param autoUsage whether to print an automatically generated
++     * usage statement
++     * @param order the order in which the options are listed
++     */
++    public static void printHelpSections(HelpFormatter formatter, PrintWriter pw, int width, String cmdLineSyntax, String header,
++                                         Options options, int leftPad, int descPad, String footer, boolean autoUsage,
++                                         Comparator order)
++    {
++        if (autoUsage)
++        {
++            formatter.printUsage(pw, width, cmdLineSyntax, options);
++        }
++        else
++        {
++            formatter.printUsage(pw, width, cmdLineSyntax);
++        }
++
++        if ((header != null) && (header.trim().length() > 0))
++        {
++            formatter.printWrapped(pw, width, header);
++        }
++
++        Parser.printOptionTable(formatter, pw, width, options, leftPad, descPad, order);
++
++        if ((footer != null) && (footer.trim().length() > 0))
++        {
++            formatter.printWrapped(pw, width, footer);
++        }
++    }
++
++
+     /**
+      * A rather odd clone method - due to incorrect code in 1.0 it is public 
+      * and in 1.1 rather than throwing a CloneNotSupportedException it throws 
+diff --git a/src/java/org/apache/commons/cli/OptionBuilder.java b/src/java/org/apache/commons/cli/OptionBuilder.java
+index f1888a8..b15d673 100644
+--- a/src/java/org/apache/commons/cli/OptionBuilder.java
++++ b/src/java/org/apache/commons/cli/OptionBuilder.java
+@@ -220,6 +220,28 @@ public class OptionBuilder {
+         return instance;
+     }
+ 
++    /**
++     * <p>Sorts the specified options into the given order and prints the
++     * options table of a help message for them.</p>
++     *
++     * @param formatter the formatter whose settings and printing are used
++     * @param pw the writer to which the table is written
++     * @param width the number of characters to be displayed on each line
++     * @param options the options to print, sorted in place
++     * @param leftPad the number of characters of padding to be prefixed
++     * to each entry
++     * @param descPad the number of characters of padding to be prefixed
++     * to each description
++     * @param order the order in which the options are listed
++     */
++    public static void printSortedOptions(HelpFormatter formatter, java.io.PrintWriter pw, int width, java.util.List options,
++                                          int leftPad, int descPad, java.util.Comparator order)
++    {
++        java.util.Collections.sort(options, order);
++        CommandLine.printOptionList(formatter, pw, width, options, leftPad, descPad);
++    }
++
++
+     /**
+      * The next Option created can have <code>num</code> 
+      * argument values.
+diff --git a/src/java/org/apache/commons/cli/Parser.java b/src/java/org/apache/commons/cli/Parser.java
+index 96e20a0..20583a5 100644
+--- a/src/java/org/apache/commons/cli/Parser.java
++++ b/src/java/org/apache/commons/cli/Parser.java
+@@ -22,6 +22,9 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.ListIterator;
+ import java.util.Properties;
++import java.io.PrintWriter;
++import java.util.ArrayList;
++import java.util.Comparator;
+ 
+ /**
+  * <p><code>Parser</code> creates {@link CommandLine}s.</p>
+@@ -112,6 +115,36 @@ public abstract class Parser implements CommandLineParser {
+         return parse(options, arguments, null, stopAtNonOption);
+     }
+ 
++    /**
++     * <p>Prints the options table of a help message for the specified
++     * options, listed in the given order. A set with no options prints an
++     * empty line.</p>
++     *
++     * @param formatter the formatter whose settings and printing are used
++     * @param pw the writer to which the table is written
++     * @param width the number of characters to be displayed on each line
++     * @param options the options to print
++     * @param leftPad the number of characters of padding to be prefixed
++     * to each entry
++     * @param descPad the number of characters of padding to be prefixed
++     * to each description
++     * @param order the order in which the options are listed
++     */
++    public static void printOptionTable(HelpFormatter formatter, PrintWriter pw, int width, Options options, int leftPad,
++                                        int descPad, Comparator order)
++    {
++        List entries = new ArrayList(options.getOptions());
++
++        if (entries.isEmpty())
++        {
++            pw.println();
++            return;
++        }
++
++        OptionBuilder.printSortedOptions(formatter, pw, width, entries, leftPad, descPad, order);
++    }
++
++
+     /**
+      * Parse the arguments according to the specified options and
+      * properties.
+diff --git a/src/java/org/apache/commons/cli/PosixParser.java b/src/java/org/apache/commons/cli/PosixParser.java
+index 656eabc..e79110f 100644
+--- a/src/java/org/apache/commons/cli/PosixParser.java
++++ b/src/java/org/apache/commons/cli/PosixParser.java
+@@ -19,6 +19,8 @@ package org.apache.commons.cli;
+ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.Iterator;
++import java.io.PrintWriter;
++import java.util.List;
+ 
+ /**
+  * The class PosixParser provides an implementation of the 
+@@ -225,6 +227,83 @@ public class PosixParser extends Parser {
+         tokens.add(hyphen);
+     }
+ 
++    /**
++     * <p>Prints the options table of a help message, one entry per option
++     * in the order of the list: the option's names and argument, then its
++     * description, which starts at the same column for every entry. An
++     * entry longer than the width is wrapped, and its continuation lines are
++     * indented to that column.</p>
++     *
++     * @param formatter the formatter whose prefixes and printing are used
++     * @param pw the writer to which the entries are written
++     * @param width the number of characters to be displayed on each line
++     * @param options the options to print
++     * @param leftPad the number of characters of padding to be prefixed
++     * to each entry
++     * @param descPad the number of characters of padding to be prefixed
++     * to each description
++     */
++    public static void printOptionLines(HelpFormatter formatter, PrintWriter pw, int width, List options, int leftPad, int descPad)
++    {
++        List columns = new ArrayList();
++        int widest = 0;
++
++        for (Iterator it = options.iterator(); it.hasNext();)
++        {
++            Option option = (Option) it.next();
++            StringBuffer column = new StringBuffer();
++
++            while (column.length() < leftPad)
++            {
++                column.append(' ');
++            }
++
++            if (option.getOpt() == null)
++            {
++                column.append("   ").append(formatter.getLongOptPrefix()).append(option.getLongOpt());
++            }
++            else
++            {
++                column.append(formatter.getOptPrefix()).append(option.getOpt());
++
++                if (option.hasLongOpt())
++                {
++                    column.append(',').append(formatter.getLongOptPrefix()).append(option.getLongOpt());
++                }
++            }
++
++            if (option.hasArg())
++            {
++                column.append(option.hasArgName() ? " <" + option.getArgName() + ">" : " ");
++            }
++
++            columns.add(column);
++            widest = Math.max(widest, column.length());
++        }
++
++        int tabStop = widest + descPad;
++        Iterator next = columns.iterator();
++
++        for (Iterator it = options.iterator(); it.hasNext();)
++        {
++            Option option = (Option) it.next();
++            StringBuffer line = (StringBuffer) next.next();
++
++            while (line.length() < tabStop)
++            {
++                line.append(' ');
++            }
++
++            if (option.getDescription() != null)
++            {
++                line.append(option.getDescription());
++            }
++
++            formatter.printWrapped(pw, width, tabStop, line.toString());
++        }
++    }
++
++
+     /**
+      * <p>If an {@link Option} exists for <code>token</code> then
+      * set the current option and add the token to the processed 

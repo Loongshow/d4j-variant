@@ -1,0 +1,159 @@
+diff --git a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index cc3320f72..c55daf0ca 100644
+--- a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -346,6 +346,17 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+         }
+     }
+ 
++    /**
++     * Returns the product of the squares of the entries of an array.
++     *
++     * @param values the entries
++     * @return the product of the squares of the entries
++     */
++    public static double squaresProduct(final double[] values) {
++        return DenseFieldMatrix.multiplySquares(values);
++    }
++
++
+     /**
+      * Compute  this minus <code>m</code>.
+      *
+diff --git a/src/java/org/apache/commons/math/linear/CholeskyDecompositionImpl.java b/src/java/org/apache/commons/math/linear/CholeskyDecompositionImpl.java
+index 67e372f20..2f696fedb 100644
+--- a/src/java/org/apache/commons/math/linear/CholeskyDecompositionImpl.java
++++ b/src/java/org/apache/commons/math/linear/CholeskyDecompositionImpl.java
+@@ -170,14 +170,10 @@ public class CholeskyDecompositionImpl implements CholeskyDecomposition {
+ 
+     }
+ 
+-    /** {@inheritDoc} */
++    /** {@inheritDoc}   The diagonal elements of L and of L<sup>T</sup> are multiplied in two separate passes, and the determinant is the product of the two results.
++     */
+     public double getDeterminant() {
+-        double determinant = 1.0;
+-        for (int i = 0; i < lTData.length; ++i) {
+-            double lTii = lTData[i][i];
+-            determinant *= lTii * lTii;
+-        }
+-        return determinant;
++        return EigenDecompositionImpl.choleskyDeterminant(lTData);
+     }
+ 
+     /** {@inheritDoc} */
+diff --git a/src/java/org/apache/commons/math/linear/DenseFieldMatrix.java b/src/java/org/apache/commons/math/linear/DenseFieldMatrix.java
+index 0b955428c..2fd230788 100644
+--- a/src/java/org/apache/commons/math/linear/DenseFieldMatrix.java
++++ b/src/java/org/apache/commons/math/linear/DenseFieldMatrix.java
+@@ -1070,6 +1070,16 @@ public class DenseFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+ 
+     }
+ 
++    /**
++     * Returns the product of the squares of the entries of an array.
++     * @param values the entries
++     * @return the product of the squares of the entries
++     */
++    public static double multiplySquares(final double[] values) {
++        return DenseRealMatrix.squaredProduct(values);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setColumnVector(final int column, final FieldVector<T> vector)
+diff --git a/src/java/org/apache/commons/math/linear/DenseRealMatrix.java b/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
+index dcefc80bd..272f45a3b 100644
+--- a/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
++++ b/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
+@@ -21,6 +21,7 @@ import java.io.Serializable;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -1093,6 +1094,23 @@ public class DenseRealMatrix extends AbstractRealMatrix implements Serializable
+ 
+     }
+ 
++    /**
++     * Returns the product of the squares of the entries of an array.
++     * @param values the entries to square and multiply
++     * @return the product of the squares of the entries
++     */
++    public static double squaredProduct(final double[] values) {
++        double product = 1.0;
++        int exponent = 0;
++        for (int i = 0; i < values.length; ++i) {
++            product *= values[i] * values[i];
++            final int e = Math.getExponent(product);
++            exponent += e;
++        }
++        return MathUtils.scalb(product, exponent);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setColumnVector(final int column, final RealVector vector)
+diff --git a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+index 2027750e1..c6ff622f7 100644
+--- a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
++++ b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+@@ -356,6 +356,23 @@ public class EigenDecompositionImpl implements EigenDecomposition {
+         return new Solver(realEigenvalues, imagEigenvalues, eigenvectors);
+     }
+ 
++    /**
++     * Compute the determinant of a symmetric positive definite matrix from
++     * its Cholesky factor.
++     * <p>The determinant of A = LL<sup>T</sup> is the product of the squares
++     * of the diagonal elements of L<sup>T</sup>.</p>
++     * @param lT row-oriented storage for L<sup>T</sup> matrix data
++     * @return determinant of the decomposed matrix
++     */
++    public static double choleskyDeterminant(final double[][] lT) {
++        final double[] diagonal = new double[lT.length];
++        for (int i = 0; i < lT.length; ++i) {
++            diagonal[i] = lT[i][i];
++        }
++        return MathUtils.productOfSquares(diagonal);
++    }
++
++
+     /** Specialized solver. */
+     private static class Solver implements DecompositionSolver {
+     
+diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java
+index 28ee4a937..698cc0ecd 100644
+--- a/src/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/java/org/apache/commons/math/util/MathUtils.java
+@@ -22,6 +22,7 @@ import java.math.BigInteger;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.linear.BigMatrixImpl;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -410,6 +411,17 @@ public final class MathUtils {
+     public static boolean equals(double x, double y, double eps) {
+       return equals(x, y) || (Math.abs(y - x) <= eps);
+     }
++
++    /**
++     * Returns the product of the squares of the entries of an array.
++     *
++     * @param values the entries
++     * @return the product of the squares of the entries
++     */
++    public static double productOfSquares(final double[] values) {
++        return BigMatrixImpl.squaresProduct(values);
++    }
++
+     
+     /**
+      * Returns true iff both arguments are equal or within the range of allowed

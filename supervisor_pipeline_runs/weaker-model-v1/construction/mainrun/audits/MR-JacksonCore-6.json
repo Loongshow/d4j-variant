@@ -1,0 +1,104 @@
+{
+ "instance": "JacksonCore-6",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.core.JsonPointer::<init>(String,String,int,JsonPointer) (added 4-arg constructor, below the gold)",
+   "edit": "_matchingElementIndex = matchIndex;  ->  _matchingElementIndex = (matchIndex < 0) ? -1 : matchIndex;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Passes every test but is not a repair: contradicts the constructor's javadoc ('matchIndex is used as given') and the evidence JsonPointer._parseIndex; overflow that wraps to a non-negative int survives (probe: '/4294967296' -> index 0 and matchElement(0) succeeds; '/4294967297' -> 1; '/9999999999' -> 1410065407). Masks only the trigger's value."
+  },
+  {
+   "method": "com.fasterxml.jackson.core.JsonPointer::getMatchingIndex",
+   "edit": "return _matchingElementIndex;  ->  return (_matchingElementIndex < 0) ? -1 : _matchingElementIndex;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Same masking as the constructor clamp: getter-only, matchElement/mayMatchElement still use the wrapped index; '/4294967296' still matches element 0, inconsistent with _parseIndex and the constructor's stored-as-given convention."
+  },
+  {
+   "method": "com.fasterxml.jackson.core.JsonPointer::<init>(String,String,int,JsonPointer)",
+   "edit": "_matchingElementIndex = matchIndex;  ->  _matchingElementIndex = _parseIndex(segment);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Fully correct behaviour, but discards the gold's computed index (gold output dead) and contradicts the constructor javadoc ('used as given', 'the segment is not inspected for an index')."
+  },
+  {
+   "method": "com.fasterxml.jackson.core.JsonGenerator::compiledPointer (hop 2)",
+   "edit": "return WriterBasedJsonGenerator.segmentPointer(expr, JsonPointer.EMPTY);  ->  return JsonPointer._parseTail(expr);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Same-package access to the original protected parser; hops 3-5 become dead, gold replaced by another implementation."
+  },
+  {
+   "method": "com.fasterxml.jackson.core.JsonPointer::compile (facade)",
+   "edit": "return com.fasterxml.jackson.core.json.ReaderBasedJsonParser.pointerFromExpression(input);  ->  return _parseTail(input);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Reverts the facade to the pristine parser; whole chain dead."
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser::parsePointerSegments (hop 4, declared compensating)",
+   "edit": "pointerForSegments(expr, tail) -> pointerForSegments(expr.replace(\"/+\", \"/\"), tail)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Trigger still fails with the same signature."
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::pointerFromExpression (hop 1, declared compensating)",
+   "edit": "compiledPointer(expr) -> compiledPointer(trailing slash stripped)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Trigger still fails with the same signature."
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::segmentPointer (hop 3, declared compensating)",
+   "edit": "parsePointerSegments(expr, tail) -> parsePointerSegments(expr.replace(\"//\", \"/\"), tail)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Trigger still fails with the same signature."
+  }
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.core.JsonPointer::compile (original null/empty and leading-slash guards + one call)",
+  "hop1 com.fasterxml.jackson.core.json.ReaderBasedJsonParser::pointerFromExpression (pass-through)",
+  "hop2 com.fasterxml.jackson.core.JsonGenerator::compiledPointer (supplies JsonPointer.EMPTY as tail)",
+  "hop3 com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::segmentPointer (pass-through)",
+  "hop4 com.fasterxml.jackson.core.json.UTF8StreamJsonParser::parsePointerSegments (pass-through)",
+  "gold com.fasterxml.jackson.core.json.UTF8JsonGenerator::pointerForSegments (decodes first segment, computes its element index, recurses for the rest, builds via the added public JsonPointer(String,String,int,JsonPointer))"
+ ],
+ "reasons": "Variant compiles; trigger TestJsonPointer::testLongNumbers fails with 'expected:<-1> but was:<-2147483648>'; full suite: only the trigger fails; the four ownership tests pass. (a) The gold is the only method that turns a segment into an element index. Its javadoc says the decoded first segment becomes the returned pointer's matching segment, and the constructor it calls documents that matchIndex is used as given and must be -1 when the segment matches no element. For '2147483648' the variant's digit fold (no int-range check, len<=10 allowed) wraps to Integer.MIN_VALUE and passes it on. The constructor and getMatchingIndex behave exactly as documented, and hops 1-4 only forward expr/tail (hop 2 adds EMPTY, which the trigger's tail assertions confirm). The facade's added sentence (shared segment cache) is the recipe lie; a cache cannot change the computed index, so it explains nothing. (b) Each hop is a one-line delegation whose javadoc ('pointer for the segments of a pointer expression, followed by the given pointer') matches its code; no hop computes, filters or sees the second segment, which is built inside the gold's own recursion. (c) No competing repair. Hop-level edits cannot touch the index: expr is pinned by toString/getMatchingProperty assertions and the tail only follows the last segment (the three declared compensating edits leave the trigger failing). Clamping negatives at the added constructor or at getMatchingIndex passes every test but contradicts 'used as given' and the _parseIndex evidence, and does not repair the overflow (probe: '/4294967296' -> index 0 and matchElement(0) succeeds, '/9999999999' -> 1410065407). Bypasses that pass everything: constructor recomputes _parseIndex(segment) (gold output dead), hop 2 returns JsonPointer._parseTail(expr) (same-package access, hops 3-5 dead), facade reverted to _parseTail. (d) Names (pointerFromExpression, compiledPointer, segmentPointer, parsePointerSegments, pointerForSegments) are neutral; there are no comments in the gold and no fault vocabulary; the lie is about caching and names neither the int range nor the omitted check. (e) The gold is exactly 5 calls below compile; the hops are in 5 distinct pre-existing classes; the facade keeps only its original guards plus one call; the lie is one procedural sentence that no code on the path performs; the gold's javadoc never mentions the index range; the trigger is an existing test (test.patch empty, present in the pristine checkout) and the only new failure. (f) Pinned outside the gold: JsonPointer._parseIndex (same class as the facade, still the convention of the 3-arg constructor that the added constructor's javadoc contrasts with) returns -1 for a 10-digit segment above Integer.MAX_VALUE ('[core#133] beware of super long indexes'); ParserBase._parseNumericValue reads a 10-digit integer as an int only when it is <= MAX_INT_L; ParserBase.convertNumberToInt rejects longs out of int range; TestNumericValues testIntRange/testLongRange/testNumbers and TestJsonPointer testSimplePath/testIZeroIndex pass on the variant.",
+ "notes": "Recorded bypasses: (1) JsonPointer 4-arg ctor `_matchingElementIndex = _parseIndex(segment);`; (2) JsonGenerator.compiledPointer `return JsonPointer._parseTail(expr);`; (3) facade `return _parseTail(input);`. All pass the trigger, ownership tests and the full suite. Masking edits that also pass every test (constructor or getter clamp of negatives to -1) are the most tempting non-gold edits, because the observed value is negative. They contradict the constructor's own javadoc and leave non-negative wrap-around indices that _parseIndex would reject, so they are not competing repairs. The ownership claim leans on the added public constructor's javadoc ('used as given', 'segment is not inspected'). No existing passing test pins the pointer's 32-bit index rule directly; only the trigger does. The pin is code (_parseIndex, ParserBase) plus number-range tests in another context. Cosmetic: the lie line sits inside the @throws tag text without a leading '*', and _parseTail/_parseQuotedTail/_parseIndex are now unreachable from compile. Neither points at the gold. Hop host draw order (mr_lib preview) and batch pre-registration were not re-derived; both lie outside the audit inputs."
+}

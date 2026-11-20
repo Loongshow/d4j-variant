@@ -1,0 +1,223 @@
+{
+ "bug_id": 2,
+ "compensating": [
+  {
+   "file": "src/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+   "new": "return DigestUtils.decodedOctets(base64Data, new byte[(base64Data.length * 3 + 3) / 4]);",
+   "old": "return DigestUtils.decodedOctets(base64Data, new byte[(base64Data.length * 3) / 4]);",
+   "why": "hop 1 rounds the buffer size up"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/digest/DigestUtils.java",
+   "new": "final byte[] octets = new byte[Math.min(length + 1, buffer.length)];",
+   "old": "final byte[] octets = new byte[length];",
+   "why": "hop 2 copies one octet more than the decoded count"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/language/Metaphone.java",
+   "new": "return QuotedPrintableCodec.decodeBase64Octets(new String(base64Data).replaceAll(\"\\\\s\", \"\").getBytes(), octets);",
+   "old": "return QuotedPrintableCodec.decodeBase64Octets(base64Data, octets);",
+   "why": "hop 3 decodes the data with whitespace removed"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/java/org/apache/commons/codec/binary/Base64.java",
+   "new": "       The data is first split into lines at each CRLF, each line is decoded on its own into a separate array, and these arrays are then joined in order.\n     */\n    public static byte[] decodeBase64(byte[] base64Data) {\n        if (base64Data == null || base64Data.length == 0) {\n            return base64Data;\n        }\n        return org.apache.commons.codec.language.DoubleMetaphone.decodeToOctets(base64Data);",
+   "old": "     */\n    public static byte[] decodeBase64(byte[] base64Data) {\n        if (base64Data == null || base64Data.length == 0) {\n            return base64Data;\n        }\n        Base64 b64 = new Base64();\n        long len = (base64Data.length * 3) / 4;\n        byte[] buf = new byte[(int) len];\n        b64.setInitialBuffer(buf, 0, buf.length);\n        b64.decode(base64Data, 0, base64Data.length);\n        b64.decode(base64Data, 0, -1); // Notify decoder of EOF.\n        // We have no idea what the line-length was, so we\n        // cannot know how much of our array wasn't used.\n        byte[] result = new byte[b64.pos];\n        b64.readResults(result, 0, result.length);\n        return result;",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/digest/DigestUtils.java",
+   "new": "import org.apache.commons.codec.binary.Hex;\nimport org.apache.commons.codec.language.Metaphone;\n",
+   "old": "import org.apache.commons.codec.binary.Hex;\n",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/digest/DigestUtils.java",
+   "new": "        return sha512(data.getBytes());\n    }\n\n    /**\n     * Decodes Base64 data into octets, using the given array as a buffer.\n     * The decoded octets are returned in a new array of their own length.\n     *\n     * @param base64Data byte array containing Base64 data, not null\n     * @param buffer array to receive the decoded octets, not null\n     * @return array containing the decoded octets\n     */\n    public static byte[] decodedOctets(byte[] base64Data, byte[] buffer) {\n        final int length = Metaphone.decodeOctetsInto(base64Data, buffer);\n        final byte[] octets = new byte[length];\n        System.arraycopy(buffer, 0, octets, 0, length);\n        return octets;\n    }\n\n\n    /**\n     * Calculates the SHA-512 digest and returns the value as a <code>byte[]</code>.\n     * <p>\n     * Throws a <code>RuntimeException</code> on JRE versions prior to 1.4.0.\n     * </p>",
+   "old": "        return sha512(data.getBytes());\n    }\n\n    /**\n     * Calculates the SHA-512 digest and returns the value as a <code>byte[]</code>.\n     * <p>\n     * Throws a <code>RuntimeException</code> on JRE versions prior to 1.4.0.\n     * </p>",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+   "new": "import org.apache.commons.codec.StringEncoder;\nimport org.apache.commons.codec.digest.DigestUtils;\n",
+   "old": "import org.apache.commons.codec.StringEncoder;\n",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+   "new": "        return this.maxCodeLen;\n    }\n\n    /**\n     * Decodes Base64 data into octets.\n     *\n     * <p>The data is decoded into an array of three octets for every four\n     * bytes of data.</p>\n     *\n     * @param base64Data byte array containing Base64 data, not null\n     * @return array containing the decoded octets\n     */\n    public static byte[] decodeToOctets(byte[] base64Data) {\n        return DigestUtils.decodedOctets(base64Data, new byte[(base64Data.length * 3) / 4]);\n    }\n\n\n    /**",
+   "old": "        return this.maxCodeLen;\n    }\n\n    /**",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/language/Metaphone.java",
+   "new": "import org.apache.commons.codec.StringEncoder;\nimport org.apache.commons.codec.net.QuotedPrintableCodec;\n",
+   "old": "import org.apache.commons.codec.StringEncoder;\n",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/language/Metaphone.java",
+   "new": "\n    /**\n     * Decodes Base64 data into the given array of octets.\n     *\n     * @param base64Data byte array containing Base64 data, not null\n     * @param octets array to receive the decoded octets, not null\n     * @return the number of decoded octets\n     */\n    public static int decodeOctetsInto(byte[] base64Data, byte[] octets) {\n        return QuotedPrintableCodec.decodeBase64Octets(base64Data, octets);\n    }\n\n\n    private boolean isVowel(StringBuffer string, int index) {",
+   "old": "\n    private boolean isVowel(StringBuffer string, int index) {",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java",
+   "new": "    /**\n     * Decodes an array of Base64 data into the given array of octets.\n     *\n     * @param base64Data byte array containing Base64 data\n     * @param octets array to receive the decoded octets\n     * @return the number of decoded octets\n     */\n    public static int decodeBase64Octets(byte[] base64Data, byte[] octets) {\n        return URLCodec.decodeOctets(base64Data, octets);\n    }\n\n\n    /**\n     * Decodes an array of quoted-printable characters into an array of original bytes. Escaped characters are converted",
+   "old": "    /**\n     * Decodes an array of quoted-printable characters into an array of original bytes. Escaped characters are converted",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/codec/net/URLCodec.java",
+   "new": "            }\n        }\n        return buffer.toByteArray(); \n    }\n\n    /**\n     * Decodes Base64 data into octets.\n     *\n     * @param base64Data byte array containing Base64 data\n     * @param octets array to receive the decoded octets\n     * @return the number of decoded octets\n     */\n    public static int decodeOctets(byte[] base64Data, byte[] octets) {\n        int bits = 0;\n        int bitCount = 0;\n        int pos = 0;\n        for (int i = 0; i < base64Data.length && base64Data[i] != '='; i++) {\n            int value = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\".indexOf(base64Data[i]);\n            if (value < 0) {\n                value = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_\".indexOf(base64Data[i]);\n            }\n            if (value >= 0) {\n                bits = (bits << 6) | value;\n                bitCount += 6;\n                if (bitCount >= 8) {\n                    bitCount -= 8;\n                    octets[pos++] = (byte) (bits >> bitCount);\n                }\n            }\n        }\n        return pos;\n    }\n\n\n\n    /**\n     * Decodes an array of URL safe 7-bit characters into an array of ",
+   "old": "            }\n        }\n        return buffer.toByteArray(); \n    }\n\n\n    /**\n     * Decodes an array of URL safe 7-bit characters into an array of ",
+   "purpose": "MR-Codec-2 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.codec.language.DoubleMetaphone",
+   "file": "src/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+   "method": "decodeToOctets"
+  },
+  {
+   "class": "org.apache.commons.codec.digest.DigestUtils",
+   "file": "src/java/org/apache/commons/codec/digest/DigestUtils.java",
+   "method": "decodedOctets"
+  },
+  {
+   "class": "org.apache.commons.codec.language.Metaphone",
+   "file": "src/java/org/apache/commons/codec/language/Metaphone.java",
+   "method": "decodeOctetsInto"
+  },
+  {
+   "class": "org.apache.commons.codec.net.QuotedPrintableCodec",
+   "file": "src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java",
+   "method": "decodeBase64Octets"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Codec-2.py",
+ "entry_points": [
+  "org.apache.commons.codec.binary.Base64::decodeBase64"
+ ],
+ "evidence": [
+  "org.apache.commons.codec.binary.Base64::decode",
+  "org.apache.commons.codec.binary.Base64::isBase64",
+  "org.apache.commons.codec.binary.Base64::encodeBase64URLSafe",
+  "org.apache.commons.codec.binary.Base64InputStream::read"
+ ],
+ "expected_signature": "url-safe1 decode uuid",
+ "extra_tests": [],
+ "fixture_key": "Codec-2",
+ "gold": {
+  "class": "org.apache.commons.codec.net.URLCodec",
+  "edits": [
+   {
+    "new": "            int value = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\".indexOf(base64Data[i]);",
+    "old": "            int value = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\".indexOf(base64Data[i]);\n            if (value < 0) {\n                value = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_\".indexOf(base64Data[i]);\n            }"
+   }
+  ],
+  "file": "src/java/org/apache/commons/codec/net/URLCodec.java",
+  "method": "decodeOctets"
+ },
+ "group": "MR-Codec-2",
+ "hops": 5,
+ "iid": "MR-Codec-2",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold sees each byte of the data together with its 6-bit value; hops 1 and 2 size the buffer and copy the decoded octets by their count, hops 3 and 4 pass the data and the buffer along. Once the gold has skipped a byte, neither the count nor the octets tell a caller which byte it was. The gold's contract is the facade's own ('Decodes Base64 data into octets'), and in this code base URL-safe data is Base64 data: Base64.isBase64 counts '-' and '_' as characters of the Base64 alphabet; the streaming decoder Base64.decode(byte[], int, int), used by Base64InputStream.read and Base64OutputStream, maps them through DECODE_TABLE ('+' and '-' both decode to 62, '/' and '_' both decode to 63: 'This means decoder seamlessly handles both URL_SAFE and STANDARD base64'); the constructors say 'When decoding all variants can be decoded'; encodeBase64URLSafe emits them. The tests listed pin the decoding the gold shares with the streaming decoder (pad stop, skipped bytes, octet order) and pass. A one-line translation of '-' and '_' into '+' and '/' in a hop above the gold passes the existing tests but is a second implementation of the gold's per-character mapping placed outside the decoder (in the evidence the mapping is the decoder's own lookup) and leaves the gold dropping Base64 characters for every caller, so the path is still not consistent with the gold's documented contract.",
+ "ownership_tests": [
+  "org.apache.commons.codec.binary.Base64InputStreamTest::testBase64InputStreamByChunk",
+  "org.apache.commons.codec.binary.Base64Test::testKnownDecodings",
+  "org.apache.commons.codec.binary.Base64Test::testIgnoringNonBase64InDecode",
+  "org.apache.commons.codec.binary.Base64Test::testIsArrayByteBase64"
+ ],
+ "project": "Codec",
+ "src_root": "src/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getMaxCodeLen",
+    "anchor_seed": 4065,
+    "class": "org.apache.commons.codec.language.DoubleMetaphone",
+    "file": "src/java/org/apache/commons/codec/language/DoubleMetaphone.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.codec.digest.DigestUtils;"
+    ],
+    "method": "decodeToOctets",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "sha512",
+    "anchor_seed": 4066,
+    "class": "org.apache.commons.codec.digest.DigestUtils",
+    "file": "src/java/org/apache/commons/codec/digest/DigestUtils.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.codec.language.Metaphone;"
+    ],
+    "method": "decodedOctets",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "metaphone",
+    "anchor_seed": 4067,
+    "class": "org.apache.commons.codec.language.Metaphone",
+    "file": "src/java/org/apache/commons/codec/language/Metaphone.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.codec.net.QuotedPrintableCodec;"
+    ],
+    "method": "decodeOctetsInto",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "encode",
+    "anchor_seed": 4068,
+    "class": "org.apache.commons.codec.net.QuotedPrintableCodec",
+    "file": "src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "decodeBase64Octets",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "encodeUrl",
+    "anchor_seed": 4069,
+    "class": "org.apache.commons.codec.net.URLCodec",
+    "file": "src/java/org/apache/commons/codec/net/URLCodec.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "decodeOctets",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3965
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Codec-2"
+ ],
+ "test_root": "src/test",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.codec.binary.Base64Test",
+  "test_file": "src/test/org/apache/commons/codec/binary/Base64Test.java",
+  "test_method": "testUUID"
+ },
+ "variant_id": "CTV-D2F5CB",
+ "kind": "new",
+ "fault_lines": [
+  "int value = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\".indexOf(base64Data[i]);"
+ ],
+ "gold_key": "org.apache.commons.codec.net.URLCodec::decodeOctets"
+}

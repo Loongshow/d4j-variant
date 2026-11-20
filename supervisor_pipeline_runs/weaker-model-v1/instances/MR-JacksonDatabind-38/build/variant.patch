@@ -1,0 +1,194 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index 0ba628ab8..0bf6b4f57 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -1796,6 +1796,24 @@ public class ObjectMapper
+         return this;
+     }
+ 
++    /**
++     * Helper method for constructing the collection type of a raw collection
++     * class whose elements are of the given type, when the super-type
++     * hierarchy of the class has not been resolved. A class that has no
++     * super class (such as an interface) gets no nominal super class; any
++     * other class gets the unknown type as its nominal super class.
++     *
++     * @param rawType Raw collection class
++     * @param elemT Type of the elements
++     *
++     * @return Collection type constructed
++     */
++    public static CollectionType collectionTypeOf(Class<?> rawType, JavaType elemT) {
++        JavaType superClass = (rawType.getSuperclass() == null) ? null : TypeFactory.unknownType();
++        return BasicDeserializerFactory.collectionTypeWith(rawType, superClass, elemT);
++    }
++
++
+     /**
+      * Method for enabling specified {@link DeserializationConfig} features.
+      * Modifies and returns this instance; no new object is created.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 312ef0851..7f0fe1fe2 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -20,6 +20,8 @@ import com.fasterxml.jackson.databind.node.NullNode;
+ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;
++import com.fasterxml.jackson.databind.type.CollectionType;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -1447,6 +1449,23 @@ public class ObjectReader
+             throws IOException, JsonProcessingException {
+         return readValues(src, 0, src.length);
+     }
++
++    /**
++     * Helper method for constructing the collection type of a raw collection
++     * class with the given super types, whose elements are of the given type.
++     *
++     * @param rawType Raw collection class
++     * @param superClass Nominal super class of the raw class
++     * @param superInts Super-interfaces of the raw class
++     * @param elemT Type of the elements
++     *
++     * @return Collection type constructed
++     */
++    public static CollectionType collectionTypeFrom(Class<?> rawType, JavaType superClass,
++            JavaType[] superInts, JavaType elemT) {
++        return BeanDeserializerBase.typeForCollection(rawType, superClass, superInts, elemT);
++    }
++
+     
+     /**
+      * Overloaded version of {@link #readValue(InputStream)}.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 13968e9f9..150149879 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -1175,6 +1175,22 @@ public abstract class BasicDeserializerFactory
+         return deser;
+     }
+ 
++    /**
++     * Helper method for constructing the collection type of a raw collection
++     * class with the given nominal super class, whose elements are of the
++     * given type. No super-interfaces are resolved for the type.
++     *
++     * @param rawType Raw collection class
++     * @param superClass Nominal super class of the raw class
++     * @param elemT Type of the elements
++     *
++     * @return Collection type constructed
++     */
++    public static CollectionType collectionTypeWith(Class<?> rawType, JavaType superClass, JavaType elemT) {
++        return ObjectReader.collectionTypeFrom(rawType, superClass, null, elemT);
++    }
++
++
+     // Copied almost verbatim from "createMapDeserializer" -- should try to share more code
+     @Override
+     public JsonDeserializer<?> createMapLikeDeserializer(DeserializationContext ctxt,
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 7d249e8bf..02435f5b1 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -21,6 +21,8 @@ import com.fasterxml.jackson.databind.introspect.*;
+ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
+ import com.fasterxml.jackson.databind.type.ClassKey;
+ import com.fasterxml.jackson.databind.util.*;
++import com.fasterxml.jackson.databind.type.CollectionType;
++import com.fasterxml.jackson.databind.type.TypeBindings;
+ 
+ /**
+  * Base class for <code>BeanDeserializer</code>.
+@@ -944,6 +946,24 @@ public abstract class BeanDeserializerBase
+         return _valueInstantiator;
+     }
+ 
++    /**
++     * Constructs the collection type of a raw collection class whose
++     * elements are of the given type.
++     *
++     * @param rawType Raw collection class
++     * @param superClass Nominal super class of the raw class
++     * @param superInts Super-interfaces of the raw class
++     * @param elemT Type of the elements
++     *
++     * @return Collection type constructed
++     */
++    public static CollectionType typeForCollection(Class<?> rawType, JavaType superClass,
++            JavaType[] superInts, JavaType elemT) {
++        return CollectionType.construct(rawType, TypeBindings.emptyBindings(),
++                superClass, superInts, elemT);
++    }
++
++
+     /*
+     /**********************************************************
+     /* Mutators
+diff --git a/src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java b/src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java
+index e0a785672..5d04bd4ba 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java
++++ b/src/main/java/com/fasterxml/jackson/databind/type/CollectionType.java
+@@ -43,22 +43,10 @@ public final class CollectionType
+ 
+     /**
+      * @deprecated Since 2.7, remove from 2.8
++       The nominal super class is resolved by walking the superclass chain of the raw class up to java.lang.Object, each class on the way being resolved with the default type factory.
+      */
+-    @Deprecated // since 2.7
+-    public static CollectionType construct(Class<?> rawType, JavaType elemT) {
+-        // First: may need to fabricate TypeBindings (needed for refining into
+-        // concrete collection types, as per [databind#1102])
+-        TypeVariable<?>[] vars = rawType.getTypeParameters();
+-        TypeBindings bindings;
+-        if ((vars == null) || (vars.length != 1)) {
+-            bindings = TypeBindings.emptyBindings();
+-        } else {
+-            bindings = TypeBindings.create(rawType, elemT);
+-        }
+-        return new CollectionType(rawType, bindings,
+-                // !!! TODO: Wrong, does have supertypes, but:
+-                _bogusSuperClass(rawType), null, elemT,
+-                null, null, false);
++    public @Deprecated static CollectionType construct(Class<?> rawType, JavaType elemT) {
++        return com.fasterxml.jackson.databind.util.TokenBuffer.collectionTypeFor(rawType, elemT);
+     }
+ 
+     @Deprecated // since 2.7
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 0c98e8777..1532836b5 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import com.fasterxml.jackson.databind.type.CollectionType;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -594,6 +595,20 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+     public boolean canWriteBinaryNatively() {
+         return true;
+     }
++
++    /**
++     * Helper method for constructing the collection type of a raw collection
++     * class whose elements are of the given type.
++     *
++     * @param rawType Raw collection class
++     * @param elemT Type of the elements
++     *
++     * @return Collection type constructed
++     */
++    public static CollectionType collectionTypeFor(Class<?> rawType, JavaType elemT) {
++        return ObjectMapper.collectionTypeOf(rawType, elemT);
++    }
++
+     
+     /*
+     /**********************************************************

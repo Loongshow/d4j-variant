@@ -1,0 +1,209 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index 8595252d..d491ba7f 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -28,6 +28,8 @@
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.zip.ZipEncoding;
+ import org.apache.commons.compress.utils.ArchiveUtils;
++import org.apache.commons.compress.archivers.zip.ZipLong;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -313,6 +315,19 @@ public TarArchiveEntry(final File file) {
+         this(file, file.getPath());
+     }
+ 
++    /**
++     * Packs timestamps behind a flags byte.
++     *
++     * @param flags the flags, as an unsigned value
++     * @param stamps the timestamps of the field, null where the field holds
++     *               none
++     * @return the packed bytes
++     */
++    public static byte[] packedTimes(final int flags, final ZipLong[] stamps) {
++        return BZip2CompressorOutputStream.timesBlock(flags, stamps);
++    }
++
++
+     /**
+      * Construct an entry for a file. File is set to file, and the
+      * header is constructed from information from the file.
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/X5455_ExtendedTimestamp.java b/src/main/java/org/apache/commons/compress/archivers/zip/X5455_ExtendedTimestamp.java
+index f0508740..8e352b96 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/X5455_ExtendedTimestamp.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/X5455_ExtendedTimestamp.java
+@@ -168,28 +168,11 @@ public ZipShort getCentralDirectoryLength() {
+      * or length specifier.
+      *
+      * @return get the data
++       The array is sized by getLocalFileDataLength() before the timestamps are copied into it.
+      */
+     @Override
+     public byte[] getLocalFileDataData() {
+-        final byte[] data = new byte[getLocalFileDataLength().getValue()];
+-        int pos = 0;
+-        data[pos++] = 0;
+-        if (bit0_modifyTimePresent) {
+-            data[0] |= MODIFY_TIME_BIT;
+-            System.arraycopy(modifyTime.getBytes(), 0, data, pos, 4);
+-            pos += 4;
+-        }
+-        if (bit1_accessTimePresent && accessTime != null) {
+-            data[0] |= ACCESS_TIME_BIT;
+-            System.arraycopy(accessTime.getBytes(), 0, data, pos, 4);
+-            pos += 4;
+-        }
+-        if (bit2_createTimePresent && createTime != null) {
+-            data[0] |= CREATE_TIME_BIT;
+-            System.arraycopy(createTime.getBytes(), 0, data, pos, 4);
+-            pos += 4; // NOSONAR - assignment as documentation
+-        }
+-        return data;
++        return ZipArchiveOutputStream.timeFieldData(flags, new ZipLong[] {modifyTime, accessTime, createTime});
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index eef8990f..22698acb 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -396,6 +396,38 @@ public boolean canReadEntryData(final ArchiveEntry ae) {
+         return false;
+     }
+ 
++    /**
++     * Writes a flags byte and timestamps into a buffer, in the local file
++     * data layout of the extended timestamp extra field.
++     *
++     * <p>The flags byte is the given flags restricted to the bits of the
++     * timestamps, {@code 1 << i} being the bit of timestamp {@code i}, with
++     * the bit of a missing timestamp cleared. Each timestamp written takes
++     * the next four bytes.</p>
++     *
++     * @param flags the flags
++     * @param stamps the timestamps, null where there is none
++     * @param buffer the buffer, with room for the flags byte and four bytes
++     *               per timestamp
++     * @return the number of bytes written
++     */
++    public static int putTimes(final int flags, final ZipLong[] stamps, final byte[] buffer) {
++        int head = flags & ((1 << stamps.length) - 1);
++        int count = 1;
++        for (int i = 0; i < stamps.length; i++) {
++            final int bit = 1 << i;
++            if (stamps[i] == null) {
++                head &= ~bit;
++            } else {
++                stamps[i].putLong(buffer, count);
++                count += 4;
++            }
++        }
++        buffer[0] = (byte) head;
++        return count;
++    }
++
++
+     @Override
+     public int read(final byte[] buffer, final int offset, final int length) throws IOException {
+         if (closed) {
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index cb594f24..0d52d807 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -51,6 +51,7 @@
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
+ import static org.apache.commons.compress.archivers.zip.ZipLong.putLong;
+ import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -964,6 +965,19 @@ public void close() throws IOException {
+         destroy();
+     }
+ 
++    /**
++     * Creates the local file data of an extended timestamp extra field.
++     *
++     * @param flags the flags byte of the field
++     * @param stamps the modify, access and create times of the field, null
++     *               where the field holds none
++     * @return the local file data, without Header-ID or length specifier
++     */
++    public static byte[] timeFieldData(final byte flags, final ZipLong[] stamps) {
++        return TarArchiveEntry.packedTimes(flags & 0xFF, stamps);
++    }
++
++
+     /**
+      * Flushes this output stream and forces any buffered output bytes
+      * to be written out to the stream.
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index 4b16b521..1c6394c7 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -168,6 +168,20 @@ public ZipFile(final String name) throws IOException {
+         this(new File(name), ZipEncodingHelper.UTF8);
+     }
+ 
++    /**
++     * Writes a flags byte and timestamps into a buffer.
++     *
++     * @param flags the flags
++     * @param stamps the timestamps of the field, null where the field holds
++     *               none
++     * @param buffer the buffer to write to
++     * @return the number of bytes written
++     */
++    public static int writeTimes(final int flags, final ZipLong[] stamps, final byte[] buffer) {
++        return ZipArchiveInputStream.putTimes(flags, stamps, buffer);
++    }
++
++
+     /**
+      * Opens the given file for reading, assuming the specified
+      * encoding for file names, scanning unicode extra fields.
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index a26fac8c..077a7498 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,9 @@
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import java.util.Arrays;
++import org.apache.commons.compress.archivers.zip.ZipFile;
++import org.apache.commons.compress.archivers.zip.ZipLong;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -638,6 +641,26 @@ public void write(final byte[] buf, int offs, final int len)
+         }
+     }
+ 
++    /**
++     * Writes a flags byte and timestamps into a block, and returns the part
++     * of the block that was written.
++     *
++     * <p>The block has room for the flags byte and four bytes per
++     * timestamp; the bytes returned are its first {@code n} bytes,
++     * {@code n} being the count the writer reports.</p>
++     *
++     * @param flags the flags
++     * @param stamps the timestamps of the field, null where the field holds
++     *               none
++     * @return the bytes written
++     */
++    public static byte[] timesBlock(final int flags, final ZipLong[] stamps) {
++        final byte[] block = new byte[1 + 4 * stamps.length];
++        final int n = ZipFile.writeTimes(flags, stamps, block);
++        return Arrays.copyOf(block, n);
++    }
++
++
+     /**
+      * Keeps track of the last bytes written and implicitly performs
+      * run-length encoding as the first step of the bzip2 algorithm.

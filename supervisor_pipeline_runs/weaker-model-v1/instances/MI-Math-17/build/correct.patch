@@ -1,0 +1,173 @@
+diff --git a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+index 11265c929..51a0cf363 100644
+--- a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
++++ b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+@@ -26,6 +26,7 @@ import org.apache.commons.math3.exception.NumberIsTooLargeException;
+ import org.apache.commons.math3.util.ArithmeticUtils;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathArrays;
++import org.apache.commons.math3.linear.BlockFieldMatrix;
+ 
+ /** Class holding "compiled" computation rules for derivative structures.
+  * <p>This class implements the computation rules described in Dan Kalman's paper <a
+@@ -1014,6 +1015,17 @@ public class DSCompiler {
+ 
+     }
+ 
++    /**
++     * Returns the decimal order of a base-10000 digit.
++     *
++     * @param value the base-10000 digit, from 0 to 9999
++     * @return the decimal order of the digit
++     */
++    public static int leadingOrder(final int value) {
++        return BlockFieldMatrix.digitExponent(value);
++    }
++
++
+     /** Compute natural logarithm of a derivative structure.
+      * @param operand array holding the operand
+      * @param operandOffset offset of the operand in its array
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index 3a9198271..6d877b29e 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -1177,18 +1177,10 @@ public class Dfp implements FieldElement<Dfp> {
+ 
+     /** Get the exponent of the greatest power of 10 that is less than or equal to abs(this).
+      *  @return integer base 10 logarithm
++       The exponent is obtained by converting this instance to a double and rounding its common logarithm down to an integer.
+      */
+     public int log10()  {
+-        if (mant[mant.length-1] > 1000) {
+-            return exp * 4 - 1;
+-        }
+-        if (mant[mant.length-1] > 100) {
+-            return exp * 4 - 2;
+-        }
+-        if (mant[mant.length-1] > 10) {
+-            return exp * 4 - 3;
+-        }
+-        return exp * 4 - 4;
++        return org.apache.commons.math3.optimization.direct.BOBYQAOptimizer.leadingEntryExponent(mant, exp);
+     }
+ 
+     /** Return the specified  power of 10.
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+index 763a8d16c..584545c45 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+@@ -1168,6 +1168,18 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return blocks[iBlock * blockColumns + jBlock][k];
+     }
+ 
++    /**
++     * Returns the decimal exponent of a base-10000 digit.
++     *
++     * @param x the base-10000 digit, from 0 to 9999
++     * @return the exponent of the greatest power of ten below x, or 0 if x is
++     * at most 1
++     */
++    public static int digitExponent(final int x) {
++        return BlockRealMatrix.decadeOf(x);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setEntry(final int row, final int column, final T value)
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+index a03c4f456..5c6b64087 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+@@ -1420,6 +1420,19 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return visitor.end();
+     }
+ 
++    /**
++     * Returns the decimal exponent of a base-10000 limb: the exponent of the
++     * greatest power of ten below the limb, or zero for a limb of at most one.
++     *
++     * @param limb the limb, from 0 to 9999
++     * @return the decimal exponent of the limb
++     */
++    public static int decadeOf(final int limb) {
++        final int decade = (31 - Integer.numberOfLeadingZeros(FastMath.max(limb, 1))) * 1233 >> 12;
++        return limb > FastMath.pow(10, decade + 1) ? decade + 1 : decade;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public double walkInRowOrder(final RealMatrixPreservingVisitor visitor,
+diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+index 30ae44026..1fa33938e 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+@@ -31,6 +31,7 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optimization.GoalType;
+ import org.apache.commons.math3.optimization.PointValuePair;
+ import org.apache.commons.math3.optimization.MultivariateOptimizer;
++import org.apache.commons.math3.util.FastMath;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -231,6 +232,22 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Returns the decimal exponent of a number held as base-10000 digits.
++     *
++     * <p>The digits are given least significant first; the most significant
++     * one is weighted by 10000<sup>exponent - 1</sup>. The decimal exponent of
++     * the number is that of its most significant decimal digit.</p>
++     *
++     * @param entries the base-10000 digits, least significant first, not empty
++     * @param exponent the exponent of the number, in powers of 10000
++     * @return the decimal exponent of the number
++     */
++    public static int leadingEntryExponent(int[] entries, int exponent) {
++        return FastMath.scaledExponent(entries[entries.length - 1], exponent);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/util/FastMath.java b/src/main/java/org/apache/commons/math3/util/FastMath.java
+index 22ed1578e..e77b3d680 100644
+--- a/src/main/java/org/apache/commons/math3/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math3/util/FastMath.java
+@@ -17,6 +17,7 @@
+ package org.apache.commons.math3.util;
+ 
+ import java.io.PrintStream;
++import org.apache.commons.math3.analysis.differentiation.DSCompiler;
+ 
+ /**
+  * Faster, more accurate, portable alternative to {@link Math} and
+@@ -2965,6 +2966,23 @@ public class FastMath {
+         return (x < 0) ? -x : x;
+     }
+ 
++    /**
++     * Returns the decimal exponent of a number from its most significant
++     * base-10000 digit.
++     *
++     * <p>A base-10000 digit spans four decimal places, so the units place of
++     * the most significant digit, weighted by 10000<sup>exponent - 1</sup>, has
++     * the decimal exponent 4 (exponent - 1).</p>
++     *
++     * @param leading the most significant base-10000 digit, from 0 to 9999
++     * @param exponent the exponent of the number, in powers of 10000
++     * @return the decimal exponent of the number
++     */
++    public static int scaledExponent(int leading, int exponent) {
++        return 4 * (exponent - 1) + DSCompiler.leadingOrder(leading);
++    }
++
++
+     /**
+      * Absolute value.
+      * @param x number from which absolute value is requested

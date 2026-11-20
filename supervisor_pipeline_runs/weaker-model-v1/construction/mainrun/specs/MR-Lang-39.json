@@ -1,0 +1,233 @@
+{
+ "bug_id": 39,
+ "compensating": [
+  {
+   "file": "src/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "        return new String(buffer);",
+   "old": "        return new String(buffer, 0, end);",
+   "why": "hop 3 builds the String from the whole buffer instead of the reported end"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "        return Math.max(ArrayUtils.replicate(str.toCharArray(), buffer, count), str.length() * count);",
+   "old": "        return ArrayUtils.replicate(str.toCharArray(), buffer, count);",
+   "why": "hop 4 reports at least the full length of the copies"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "        return str + ToStringStyle.copiesOf(separator + str, count - 1);",
+   "old": "        return StringUtils.removeEnd(ToStringStyle.copiesOf(str + separator, count), separator);",
+   "why": "hop 2 writes the first copy and then a separator in front of each further copy"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/java/org/apache/commons/lang3/ArrayUtils.java",
+   "new": "        byte tmp;\n        while (j > i) {\n            tmp = array[j];\n            array[j] = array[i];\n            array[i] = tmp;\n            j--;\n            i++;\n        }\n    }\n\n    /**\n     * <p>Copies the elements of an array into another array a number of\n     * times, the copies laid end to end from the start of the target\n     * array.</p>\n     *\n     * @param source  the array to copy, not null\n     * @param target  the array to copy into, large enough for all the copies\n     * @param count  the number of copies, zero or more\n     * @return the index in the target array that follows the last element\n     *  copied\n     */\n    public static int replicate(char[] source, char[] target, int count) {\n        int index = 0;\n        for (int i = 0; i < count; i++) {\n            System.arraycopy(source, 0, target, index, source.length);\n            index += source.length;\n        }\n        return index;\n    }\n\n\n    /**\n     * <p>Reverses the order of the given array.</p>\n     *\n     * <p>This method does nothing for a <code>null</code> input array.</p>\n     *\n     * @param array  the array to reverse, may be <code>null</code>\n     */\n    public static void reverse(double[] array) {",
+   "old": "        byte tmp;\n        while (j > i) {\n            tmp = array[j];\n            array[j] = array[i];\n            array[i] = tmp;\n            j--;\n            i++;\n        }\n    }\n\n    /**\n     * <p>Reverses the order of the given array.</p>\n     *\n     * <p>This method does nothing for a <code>null</code> input array.</p>\n     *\n     * @param array  the array to reverse, may be <code>null</code>\n     */\n    public static void reverse(double[] array) {",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "       The result is assembled by halving the count recursively, the copies for each half being built separately and joined with a single separator between the two halves.\n     */\n    public static String repeat(String str, String separator, int repeat) {\n        if (str == null || separator == null) {\n            return repeat(str, repeat);\n        }\n        return org.apache.commons.lang3.time.DateUtils.joinCopies(str, separator, repeat);",
+   "old": "     */\n    public static String repeat(String str, String separator, int repeat) {\n        if(str == null || separator == null) {\n            return repeat(str, repeat);\n        } else {\n            // given that repeat(String, int) is quite optimized, better to rely on it than try and splice this into it\n            String result = repeat(str + separator, repeat);\n            return removeEnd(result, separator);\n        }",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport org.apache.commons.lang3.time.FastDateFormat;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "        appendDetail(buffer, fieldName, value);\n        appendFieldEnd(buffer, fieldName);\n    }\n\n    /**\n     * <p>Returns a String made of copies of a String laid end to end.</p>\n     *\n     * @param str  the String to copy, not null\n     * @param count  the number of copies, zero or more\n     * @return the copies laid end to end, not null\n     */\n    public static String copiesOf(String str, int count) {\n        final char[] buffer = new char[str.length() * count];\n        final int end = FastDateFormat.writeCopies(buffer, str, count);\n        return new String(buffer, 0, end);\n    }\n\n\n    /**\n     * <p>Append to the <code>toString</code> a <code>float</code>",
+   "old": "        appendDetail(buffer, fieldName, value);\n        appendFieldEnd(buffer, fieldName);\n    }\n\n    /**\n     * <p>Append to the <code>toString</code> a <code>float</code>",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport org.apache.commons.lang3.StringUtils;\nimport org.apache.commons.lang3.builder.ToStringStyle;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "        return destination;\n    }\n\n    /**\n     * <p>Returns a String made of copies of a String, with a separator\n     * between each copy and the next.</p>\n     *\n     * <p>Each copy is taken together with the separator that follows it, and\n     * the separator that follows the last copy is removed from the end.</p>\n     *\n     * @param str  the String to copy, not null\n     * @param separator  the String to place between the copies, not null\n     * @param count  the number of copies, at least one\n     * @return the copies joined by the separator, not null\n     */\n    public static String separatedCopies(String str, String separator, int count) {\n        return StringUtils.removeEnd(ToStringStyle.copiesOf(str + separator, count), separator);\n    }\n\n\n    /**",
+   "old": "        return destination;\n    }\n\n    /**",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "import java.util.TimeZone;\nimport org.apache.commons.lang3.text.StrBuilder;\n",
+   "old": "import java.util.TimeZone;\n",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "        return getFragment(date, fragment, Calendar.MINUTE);\n    }\n\n    /**\n     * <p>Returns a String made of copies of a String, with a separator\n     * between each copy and the next.</p>\n     *\n     * @param str  the String to copy, not null\n     * @param separator  the String to place between the copies, not null\n     * @param count  the number of copies, zero or less gives an empty String\n     * @return the copies joined by the separator, not null\n     */\n    public static String joinCopies(String str, String separator, int count) {\n        if (count <= 0) {\n            return \"\";\n        }\n        return StrBuilder.separatedCopies(str, separator, count);\n    }\n\n    \n    /**",
+   "old": "        return getFragment(date, fragment, Calendar.MINUTE);\n    }\n    \n    /**",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "import org.apache.commons.lang3.Validate;\nimport org.apache.commons.lang3.ArrayUtils;\n",
+   "old": "import org.apache.commons.lang3.Validate;\n",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "        return getInstance(pattern, null, null);\n    }\n\n    /**\n     * <p>Writes copies of the characters of a String into a buffer, laid end\n     * to end from the start of the buffer.</p>\n     *\n     * @param buffer  the buffer to write to, large enough for all the copies\n     * @param str  the String to copy, not null\n     * @param count  the number of copies, zero or more\n     * @return the index in the buffer that follows the last character written\n     */\n    public static int writeCopies(char[] buffer, String str, int count) {\n        return ArrayUtils.replicate(str.toCharArray(), buffer, count);\n    }\n\n\n    /**",
+   "old": "        return getInstance(pattern, null, null);\n    }\n\n    /**",
+   "purpose": "MR-Lang-39 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.time.DateUtils",
+   "file": "src/java/org/apache/commons/lang3/time/DateUtils.java",
+   "method": "joinCopies"
+  },
+  {
+   "class": "org.apache.commons.lang3.text.StrBuilder",
+   "file": "src/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "method": "separatedCopies"
+  },
+  {
+   "class": "org.apache.commons.lang3.builder.ToStringStyle",
+   "file": "src/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "method": "copiesOf"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.FastDateFormat",
+   "file": "src/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "method": "writeCopies"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Lang-39.py",
+ "entry_points": [
+  "org.apache.commons.lang3.StringUtils::repeat"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.text.StrBuilder::append",
+  "org.apache.commons.lang3.ArrayUtils::addAll",
+  "org.apache.commons.lang3.StringUtils::repeat",
+  "org.apache.commons.lang3.StringUtils::rightPad"
+ ],
+ "expected_signature": "expected:<[xx]> but was:<[]>",
+ "extra_tests": [],
+ "fixture_key": "Lang-39",
+ "gold": {
+  "class": "org.apache.commons.lang3.ArrayUtils",
+  "edits": [
+   {
+    "new": "            System.arraycopy(source, 0, target, index, source.length);\n        }",
+    "old": "            System.arraycopy(source, 0, target, index, source.length);\n            index += source.length;\n        }"
+   }
+  ],
+  "file": "src/java/org/apache/commons/lang3/ArrayUtils.java",
+  "method": "replicate"
+ },
+ "group": "MR-Lang-39",
+ "hops": 5,
+ "iid": "MR-Lang-39",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold writes the copies into the buffer and reports where they end; the facade, the count guard, the separator placement, the buffer allocation and the pass-through only hand on the String, the separator, the count and the buffer. Once the copies have been written over each other at index 0 and the end index is 0, the String built from the buffer is empty and no caller can recover the copies from it with a one-line change; no re-parameterisation avoids the omission (every call with a count of one or more reports 0). The convention of copying at the current end and then advancing it is the one of StrBuilder.append(char[]) (arraycopy at the end, then size += length) and ArrayUtils.addAll (second array placed at array1.length); the plain repeat overload and rightPad lay copies end to end, and their passing tests pin the result lengths and contents.",
+ "ownership_tests": [
+  "org.apache.commons.lang3.StringUtilsTest::testRepeat_StringInt",
+  "org.apache.commons.lang3.StringUtilsTest::testRightPad_StringIntString",
+  "org.apache.commons.lang3.text.StrBuilderAppendInsertTest::testAppend_CharArray",
+  "org.apache.commons.lang3.text.StrBuilderAppendInsertTest::testAppendPadding",
+  "org.apache.commons.lang3.ArrayUtilsAddTest::testAddObjectArrayToObjectArray"
+ ],
+ "project": "Lang",
+ "src_root": "src/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getFragmentInMinutes",
+    "anchor_seed": 7796,
+    "class": "org.apache.commons.lang3.time.DateUtils",
+    "file": "src/java/org/apache/commons/lang3/time/DateUtils.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.lang3.text.StrBuilder;"
+    ],
+    "method": "joinCopies",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getChars",
+    "anchor_seed": 7797,
+    "class": "org.apache.commons.lang3.text.StrBuilder",
+    "file": "src/java/org/apache/commons/lang3/text/StrBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.lang3.StringUtils;",
+     "import org.apache.commons.lang3.builder.ToStringStyle;"
+    ],
+    "method": "separatedCopies",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "append",
+    "anchor_seed": 7798,
+    "class": "org.apache.commons.lang3.builder.ToStringStyle",
+    "file": "src/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.lang3.time.FastDateFormat;"
+    ],
+    "method": "copiesOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getInstance",
+    "anchor_seed": 7799,
+    "class": "org.apache.commons.lang3.time.FastDateFormat",
+    "file": "src/java/org/apache/commons/lang3/time/FastDateFormat.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.lang3.ArrayUtils;"
+    ],
+    "method": "writeCopies",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "reverse",
+    "anchor_seed": 7800,
+    "class": "org.apache.commons.lang3.ArrayUtils",
+    "file": "src/java/org/apache/commons/lang3/ArrayUtils.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "replicate",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 7696
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Lang-39"
+ ],
+ "test_root": "src/test",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.lang3.StringUtilsTest",
+  "test_file": "src/test/org/apache/commons/lang3/StringUtilsTest.java",
+  "test_method": "testRepeat_StringStringInt"
+ },
+ "variant_id": "CTV-B0C638",
+ "kind": "new",
+ "fault_lines": [
+  "System.arraycopy(source, 0, target, index, source.length);\n        }"
+ ],
+ "gold_key": "org.apache.commons.lang3.ArrayUtils::replicate"
+}

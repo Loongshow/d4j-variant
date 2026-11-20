@@ -1,0 +1,52 @@
+{
+ "instance": "Collections-1__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "MapUtils.valueOfKey (hop 4)",
+   "edit": "int index = CursorableSubList.indexOfKey(key, keys, count); -> int index = java.util.Arrays.asList(keys).subList(0, count).indexOf(key);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "TreeBidiMap.lookupValue / DoubleOrderedMap.valueForKey / ExtendedProperties.mappedValue (hops 1-3)",
+   "edit": "no one-line edit found: these hops only pack and pass arrays and size; none sees an index or compares keys",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  },
+  {
+   "method": "declared compensating edits (hop 1 keys.length, hop 4 Math.min clamp, hop 2 count==0 shortcut)",
+   "edit": "as in spec compensating[]; validation G9 shows trigger still fails for all three",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections.map.Flat3Map::get (instance, V1: delegateMap guard + passes size,key1-3,value1-3)",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::lookupValue (packs keys/values into arrays)",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::valueForKey (pass-through)",
+  "hop3 org.apache.commons.collections.ExtendedProperties::mappedValue (pass-through)",
+  "hop4 org.apache.commons.collections.MapUtils::valueOfKey (index -> value, null for -1)",
+  "gold org.apache.commons.collections.CursorableSubList::indexOfKey (in CursorableLinkedList.java; equality test reduced to identity)"
+ ],
+ "reasons": "(a) Only the gold decides key equality; on the trigger (deserialised Integer keys) it returns -1 for a key equal to a stored key, violating its 'index of the key' contract under the java index-of/Map.get equals convention; hops 1-4 behave exactly as documented. (b) Hop javadocs match their code; none claims a key comparison. (c) Only a bypass found: hop 4 replacing the gold call with Arrays.asList(keys).subList(0,count).indexOf(key) passes trigger and ownership tests but makes the gold dead; declared compensating edits fail (G9); hops 1-3 cannot repair in one line. (d) Neutral names, no comments; the lie (remembered previous-lookup entry) is a caching claim that names neither the fault nor any hop. (e) Gold five calls below the facade; hosts are exactly hosts_hop_order (TreeBidiMap 2084, DoubleOrderedMap 1994, ExtendedProperties 1685, MapUtils 1644, CursorableLinkedList.java 1467, largest5 regime) with anchors reproduced from host_search.pick_insertion_anchor seeds 6162-6166; facade body = guard + one call; one lie sentence appended by the recipe tool; gold javadoc silent on equality; trigger testSerialisation2 is existing and the only new failure (full suite re-run: 1 failure). (f) Convention pinned by intact Flat3Map.containsKey/put (key.equals(storedKey)), AbstractHashedMap.isEqualKey (key1==key2 || key1.equals(key2)), and passing TestFlat3Map::testSerialisation4 (deserialised keys found by get in delegate mode). (g) C10i rules: no visibility widened (CursorableSubList stays package-private, only new public static members), no new type, no reflection, Flat3Map.get signature/modifiers/throws unchanged, test.patch empty; facade is an allowed instance candidate (facade_planned_by null).",
+ "notes": "Hop 5 sits in the package-private top-level class CursorableSubList inside host file CursorableLinkedList.java because the seeded anchor (after getLast, seed 6166) falls in that class; the picker's draw reproduces, so this is the recipe's choice, not builder selection. MapUtils calls it from the same package. The lie line is placed after @return without a leading '*', which is the recipe's rewrite_facade formatting. The hash1-3 fields are no longer used by get (optimisation only). Gold's own javadoc does not state equals semantics; ownership rests on the java index-of idiom plus the external pins."
+}

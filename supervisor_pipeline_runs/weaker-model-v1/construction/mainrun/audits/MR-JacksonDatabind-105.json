@@ -1,0 +1,61 @@
+{
+ "instance": "JacksonDatabind-105",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.databind.DeserializationContext::findStandardDeserializer (hop 4)",
+   "edit": "return ObjectMapper.standardDeserializerFor(rawType);  ->  return rawType == java.nio.ByteBuffer.class ? new com.fasterxml.jackson.databind.deser.std.ByteBufferDeserializer() : ObjectMapper.standardDeserializerFor(rawType);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findJdkTypeDeserializer (hop 1)",
+   "edit": "return ObjectReader.jdkTypeDeserializer(rawType);  ->  return rawType == java.nio.ByteBuffer.class ? new com.fasterxml.jackson.databind.deser.std.ByteBufferDeserializer() : ObjectReader.jdkTypeDeserializer(rawType);",
+   "trigger_passes": true,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findJdkTypeDeserializer (hop 1, declared compensating)",
+   "edit": "FromStringDeserializer.findDeserializer(rawType) -> FromStringDeserializer.findDeserializer(Modifier.isAbstract(rawType.getModifiers()) && rawType.getSuperclass() != null ? rawType.getSuperclass() : rawType)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.ObjectReader::jdkTypeDeserializer + BeanDeserializerBase::standardTypeDeserializer (hops 2 and 3, declared compensating, applied together)",
+   "edit": "hop 2 passes rawType.isArray() ? rawType.getComponentType() : rawType; hop 3 passes rawType.isPrimitive() ? ClassUtil.wrapperType(rawType) : rawType",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "caller BasicDeserializerFactory.findDefaultDeserializer (via ObjectMapper.readValue -> ... -> BeanDeserializerFactory)",
+  "facade com.fasterxml.jackson.databind.deser.std.JdkDeserializers::find(Class,String): guard !_classNames.contains(clsName) -> null; else one call to hop 1",
+  "hop1 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findJdkTypeDeserializer: FromStringDeserializer.findDeserializer (null for ByteBuffer), else hop 2",
+  "hop2 com.fasterxml.jackson.databind.ObjectReader::jdkTypeDeserializer: pass-through",
+  "hop3 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::standardTypeDeserializer: pass-through",
+  "hop4 com.fasterxml.jackson.databind.DeserializationContext::findStandardDeserializer: pass-through",
+  "gold com.fasterxml.jackson.databind.ObjectMapper::standardDeserializerFor: per-type cases UUID/StackTraceElement/AtomicBoolean/Void; ByteBuffer case omitted -> null"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger JDKStringLikeTypesTest::testByteBuffer fails with 'Cannot construct instance of `java.nio.ByteBuffer`'; full variant suite fails only the trigger. (a) The only per-type decision on the path is in the gold, whose contract ('the standard deserializer for values of the given type, if there is one') is violated for ByteBuffer, which has deser.std.ByteBufferDeserializer; hops 1-4 and the facade only inherit the gold's null (hop 1 correctly defers since FromStringDeserializer.types() omits ByteBuffer; the facade guard correctly admits it because _classNames lists it). (b) Every hop's javadoc matches its body (hop 1 FromString-then-standard; hops 2-4 delegate); none is loose enough to own a per-type choice. (c) No type-argument change can make the gold match ByteBuffer (identity checks; ByteBuffer is abstract with superclass Buffer); the declared compensating edits fail the trigger. A ByteBuffer ternary at any hop passes the trigger, ownership tests and (hop 4, tested) the full suite, but re-implements the gold's per-type decision and leaves the gold still returning null against its own contract: bypass, not competing. (d) Neutral names; no fault vocabulary; the lie (sorted names + binary search, while _classNames is a HashSet) names neither the fault nor the omitted case. (e) Gold is 5 calls below the facade; hosts BasicDeserializerFactory, ObjectReader, BeanDeserializerBase, DeserializationContext, ObjectMapper are five distinct existing classes; facade = guard + one delegating call; one added false procedural sentence; gold javadoc silent on ByteBuffer; existing trigger is the only new failure. (f) Pinned outside the gold: JdkDeserializers._classNames lists ByteBuffer.class beside the gold's other four types; ByteBufferDeserializer exists in deser.std; BasicSerializerFactory.findSerializerByPrimaryType maps ByteBuffer to ByteBufferSerializer (JDKTypeSerializationTest testByteBuffer/testSlicedByteBuffer pass); the gold's sibling cases pass through the same chain (testUUID, testVoidDeser).",
+ "notes": "Minor, not decisive: (1) the lie line in the facade javadoc lacks the leading '*', so it reads visually as an inserted line, but it is on the facade and points away from the gold. (2) The facade had no javadoc in the pristine checkout; the variant adds a base sentence ('one of the JDK types listed above ... for any other type null is returned') plus the lie; the base sentence is true and acts as a facade-level pin to the list. (3) Context edit makes ByteBufferDeserializer's constructor public (needed by the correct gold in another package); in the variant that public constructor and the whole class have no caller in src/main, which a reader could notice, but it does not indicate where the case belongs. (4) The fault edit removes a 3-line if-block (one omitted case), i.e. a single omitted statement. (5) Hop 4's javadoc is word-for-word the gold's; hop 4's body is a pure delegation, so this does not make it a plausible owner. Host draw order was not independently re-derived (anchor seeds 7407-7411 are recorded in the spec)."
+}

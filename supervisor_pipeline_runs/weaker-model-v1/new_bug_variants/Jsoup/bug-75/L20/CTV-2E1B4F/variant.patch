@@ -1,0 +1,204 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 96a624b2..7794330a 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -51,6 +51,10 @@ import java.util.zip.InflaterInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import org.jsoup.nodes.Attribute;
++import org.jsoup.nodes.Attributes;
++import org.jsoup.nodes.BooleanAttribute;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -219,6 +223,31 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Lists the attributes held in the first {@code count} slots of a key and value array pair, in slot order.
++     * <p>
++     * No slots give an empty list, and a single slot gives a singleton list of its attribute: a boolean attribute of its key if
++     * the slot has no value, otherwise an attribute of its key and value bound to the owner. For more slots, a new list sized to
++     * the slots is filled.
++     * </p>
++     *
++     * @param keys the attribute keys, by slot
++     * @param values the attribute values, by slot
++     * @param count the number of slots in use
++     * @param owner the attributes that hold the slots
++     * @return the attributes, in slot order
++     */
++    public static List<Attribute> attributesInSlots(String[] keys, String[] values, int count, Attributes owner) {
++        if (count == 0)
++            return Collections.emptyList();
++        if (count == 1) {
++            String only = values[0];
++            return Collections.singletonList(only == null ? new BooleanAttribute(keys[0]) : new Attribute(keys[0], only, owner));
++        }
++        return Evaluator.IsOnlyOfType.attributeListOf(keys, values, count, owner);
++    }
++
++
+     public Connection data(String... keyvals) {
+         Validate.notNull(keyvals, "Data key value pairs must not be null");
+         Validate.isTrue(keyvals.length %2 == 0, "Must supply an even number of key value pairs");
+diff --git a/src/main/java/org/jsoup/nodes/Attributes.java b/src/main/java/org/jsoup/nodes/Attributes.java
+index 1f74bf32..417d28c3 100644
+--- a/src/main/java/org/jsoup/nodes/Attributes.java
++++ b/src/main/java/org/jsoup/nodes/Attributes.java
+@@ -271,16 +271,10 @@ public class Attributes implements Iterable<Attribute>, Cloneable {
+     /**
+      Get the attributes as a List, for iteration.
+      @return an view of the attributes as an unmodifialbe List.
++       The list is built on the first call and kept, and is built again only after an attribute is added or removed.
+      */
+     public List<Attribute> asList() {
+-        ArrayList<Attribute> list = new ArrayList<>(size);
+-        for (int i = 0; i < size; i++) {
+-            Attribute attr = vals[i] == null ?
+-                new BooleanAttribute(keys[i]) : // deprecated class, but maybe someone still wants it
+-                new Attribute(keys[i], vals[i], Attributes.this);
+-            list.add(attr);
+-        }
+-        return Collections.unmodifiableList(list);
++        return Element.attributesView(keys, vals, size, this);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index 208c366c..6bce4735 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
+ 
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -456,6 +457,20 @@ public class Element extends Node {
+         return this;
+     }
+ 
++    /**
++     * Get the attributes held in the first {@code count} slots of a key and value array pair, as an unmodifiable list.
++     *
++     * @param keys the attribute keys, by slot
++     * @param values the attribute values, by slot
++     * @param count the number of slots in use
++     * @param owner the attributes that hold the slots
++     * @return an unmodifiable list of the attributes, in slot order
++     */
++    public static List<Attribute> attributesView(String[] keys, String[] values, int count, Attributes owner) {
++        return Collections.unmodifiableList(HttpConnection.attributesInSlots(keys, values, count, owner));
++    }
++
++
+     /**
+      * Inserts the given child nodes into this element at the specified index. Current nodes will be shifted to the
+      * right. The inserted nodes will be moved from their current parent. To prevent moving, copy the nodes first.
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index 37467a7c..4928a716 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -569,6 +569,24 @@ public abstract class Node implements Cloneable {
+         return accum.toString();
+     }
+ 
++    /**
++     * Adds the attribute held in each of the first {@code count} slots of a key and value array pair to a list, in slot
++     * order.
++     *
++     * @param keys the attribute keys, by slot
++     * @param values the attribute values, by slot
++     * @param count the number of slots in use
++     * @param owner the attributes that hold the slots
++     * @param list the list to add the attributes to
++     */
++    public static void addSlotAttributes(String[] keys, String[] values, int count, Attributes owner, List<Attribute> list) {
++        for (int i = 0; i < count; i++) {
++            String value = values[i];
++            list.add(new Attribute(keys[i], value, owner));
++        }
++    }
++
++
+     protected void outerHtml(Appendable accum) {
+         NodeTraversor.traverse(new OuterHtmlVisitor(accum, getOutputSettings()), this);
+     }
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index 93fe6aed..a6f184df 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -18,6 +18,8 @@ import java.util.ArrayList;
+ import java.util.List;
+ 
+ import static org.jsoup.helper.StringUtil.inSorted;
++import org.jsoup.nodes.Attribute;
++import org.jsoup.nodes.Attributes;
+ 
+ /**
+  * HTML Tree Builder; creates a DOM from Tokens.
+@@ -550,6 +552,20 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         this.formElement = formElement;
+     }
+ 
++    /**
++     * Adds the attributes of the first {@code count} slots of a key and value array pair to a list, in slot order.
++     *
++     * @param keys the attribute keys, by slot
++     * @param values the attribute values, by slot
++     * @param count the number of slots in use
++     * @param owner the attributes that hold the slots
++     * @param list the list to add the attributes to
++     */
++    public static void fillAttributeList(String[] keys, String[] values, int count, Attributes owner, List<Attribute> list) {
++        Node.addSlotAttributes(keys, values, count, owner, list);
++    }
++
++
+     void newPendingTableCharacters() {
+         pendingTableCharacters = new ArrayList<>();
+     }
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 735606f2..36d7d810 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -16,6 +16,9 @@ import java.util.regex.Pattern;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
+ import static org.jsoup.internal.Normalizer.normalize;
++import java.util.ArrayList;
++import org.jsoup.nodes.Attributes;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -616,6 +619,23 @@ public abstract class Evaluator {
+     	public String toString() {
+     		return ":only-of-type";
+     	}
++
++    /**
++     * Creates a new list, sized to the slots, holding the attributes of the first {@code count} slots of a key and value
++     * array pair, in slot order.
++     *
++     * @param keys the attribute keys, by slot
++     * @param values the attribute values, by slot
++     * @param count the number of slots in use
++     * @param owner the attributes that hold the slots
++     * @return the new list
++     */
++    public static List<org.jsoup.nodes.Attribute> attributeListOf(String[] keys, String[] values, int count, Attributes owner) {
++        List<org.jsoup.nodes.Attribute> list = new ArrayList<>(count);
++        HtmlTreeBuilder.fillAttributeList(keys, values, count, owner, list);
++        return list;
++    }
++
+     }
+ 
+     public static final class IsEmpty extends Evaluator {

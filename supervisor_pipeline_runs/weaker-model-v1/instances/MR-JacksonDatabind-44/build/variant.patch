@@ -1,0 +1,226 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index f4181d529..49afeaf28 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -1897,6 +1897,19 @@ public class ObjectMapper
+         return _deserializationConfig.isEnabled(f, _jsonFactory);
+     }
+ 
++    /**
++     * Helper method for constructing the simple type of a raw class that is
++     * neither a Map nor a Collection type.
++     *
++     * @param cls Raw class to construct the type for
++     *
++     * @return Simple type of the class
++     */
++    public static SimpleType rawSimpleType(Class<?> cls) {
++        return ObjectReader.simpleValueType(cls);
++    }
++
++
+     /**
+      * Method for changing state of specified {@link com.fasterxml.jackson.core.JsonParser.Feature}s
+      * for parser instances this object mapper creates.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 312ef0851..9195edcab 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.node.NullNode;
+ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import com.fasterxml.jackson.databind.util.TokenBuffer;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -978,6 +979,24 @@ public class ObjectReader
+         return (T) forType(valueTypeRef).readValue(p);
+     }
+ 
++    /**
++     * Helper method for constructing the simple type of a raw class that is
++     * neither a Map nor a Collection type.
++     *
++     * @param cls Raw class to construct the type for
++     *
++     * @return Simple type of the class
++     *
++     * @throws IllegalArgumentException if the class is an array type
++     */
++    public static SimpleType simpleValueType(Class<?> cls) {
++        if (cls.isArray()) {
++            throw new IllegalArgumentException("Can not construct SimpleType for an array (class: "+cls.getName()+")");
++        }
++        return TokenBuffer.simpleTypeFor(cls);
++    }
++
++
+     /**
+      * Convenience method that binds content read using given parser, using
+      * configuration of this reader, except that expected value type
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 13968e9f9..a10f2832a 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -275,6 +275,22 @@ public abstract class BasicDeserializerFactory
+         return instantiator;
+     }
+ 
++    /**
++     * Helper method for constructing the simple type of a raw class.
++     *
++     * @param cls Raw class to construct the type for
++     *
++     * @return Simple type of the class
++     */
++    public static SimpleType simpleTypeOf(Class<?> cls) {
++        Class<?> base = cls.getSuperclass();
++        if (base == null) {
++            return SimpleType.constructUnsafe(cls);
++        }
++        return (SimpleType) SimpleType.constructUnsafe(base).forcedNarrowBy(cls);
++    }
++
++
+     private ValueInstantiator _findStdValueInstantiator(DeserializationConfig config,
+             BeanDescription beanDesc)
+         throws JsonMappingException
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 7d249e8bf..d18538b2d 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.introspect.*;
+ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
+ import com.fasterxml.jackson.databind.type.ClassKey;
+ import com.fasterxml.jackson.databind.util.*;
++import com.fasterxml.jackson.databind.type.SimpleType;
+ 
+ /**
+  * Base class for <code>BeanDeserializer</code>.
+@@ -884,6 +885,24 @@ public abstract class BeanDeserializerBase
+         return _propertyBasedCreator.properties().iterator();
+     }
+ 
++    /**
++     * Helper method for constructing the simple type of a raw class that is
++     * not a Map type.
++     *
++     * @param cls Raw class to construct the type for
++     *
++     * @return Simple type of the class
++     *
++     * @throws IllegalArgumentException if the class is a Collection type
++     */
++    public static SimpleType simpleBeanType(Class<?> cls) {
++        if (Collection.class.isAssignableFrom(cls)) {
++            throw new IllegalArgumentException("Can not construct SimpleType for a Collection (class: "+cls.getName()+")");
++        }
++        return ObjectMapper.rawSimpleType(cls);
++    }
++
++
+     public SettableBeanProperty findProperty(PropertyName propertyName)
+     {
+         // TODO: start matching full name?
+diff --git a/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java b/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java
+index 0273c70cf..08bbf271d 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java
++++ b/src/main/java/com/fasterxml/jackson/databind/type/SimpleType.java
+@@ -96,26 +96,14 @@ public class SimpleType // note: until 2.6 was final
+      * information, for which {@link TypeFactory} is needed.
+      * 
+      * @deprecated Since 2.7
++       The type is first looked up in a cache of the types already constructed, keyed by class name, and a new instance is constructed and added to that cache only when the lookup finds none.
+      */
+-    @Deprecated
+-    public static SimpleType construct(Class<?> cls)
++    public @Deprecated static SimpleType construct(Class<?> cls)
+     {
+-        /* Let's add sanity checks, just to ensure no
+-         * Map/Collection entries are constructed
+-         */
+         if (Map.class.isAssignableFrom(cls)) {
+             throw new IllegalArgumentException("Can not construct SimpleType for a Map (class: "+cls.getName()+")");
+         }
+-        if (Collection.class.isAssignableFrom(cls)) {
+-            throw new IllegalArgumentException("Can not construct SimpleType for a Collection (class: "+cls.getName()+")");
+-        }
+-        // ... and while we are at it, not array types either
+-        if (cls.isArray()) {
+-            throw new IllegalArgumentException("Can not construct SimpleType for an array (class: "+cls.getName()+")");
+-        }
+-        TypeBindings b = TypeBindings.emptyBindings();
+-        return new SimpleType(cls, b,
+-                _buildSuperClass(cls.getSuperclass(), b), null, null, null, false);
++        return com.fasterxml.jackson.databind.deser.BeanDeserializerBase.simpleBeanType(cls);
+     }
+ 
+     @Override
+@@ -263,32 +251,7 @@ public class SimpleType // note: until 2.6 was final
+         sb.append(';');
+         return sb;
+     }
+-
+-    /*
+-    /**********************************************************
+-    /* Internal methods
+-    /**********************************************************
+-     */
+-
+-    /**
+-     * Helper method we need to recursively build skeletal representations
+-     * of superclasses.
+-     * 
+-     * @since 2.7 -- remove when not needed (2.8?)
+-     */
+-    private static JavaType _buildSuperClass(Class<?> superClass, TypeBindings b)
+-    {
+-        if (superClass == null) {
+-            return null;
+-        }
+-        if (superClass == Object.class) {
+-            return TypeFactory.unknownType();
+-        }
+-        JavaType superSuper = _buildSuperClass(superClass.getSuperclass(), b);
+-        return new SimpleType(superClass, b,
+-                superSuper, null, null, null, false);
+-    }
+-
++    
+     /*
+     /**********************************************************
+     /* Standard methods
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 0c98e8777..f5abf290d 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,8 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
++import com.fasterxml.jackson.databind.type.SimpleType;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -454,6 +456,19 @@ public class TokenBuffer
+         return this;
+     }
+ 
++    /**
++     * Helper method for constructing the simple type of a raw class that is
++     * not a Map, Collection or array type.
++     *
++     * @param cls Raw class to construct the type for
++     *
++     * @return Simple type of the class
++     */
++    public static SimpleType simpleTypeFor(Class<?> cls) {
++        return BasicDeserializerFactory.simpleTypeOf(cls);
++    }
++
++
+     @Override
+     @SuppressWarnings("resource")
+     public String toString()

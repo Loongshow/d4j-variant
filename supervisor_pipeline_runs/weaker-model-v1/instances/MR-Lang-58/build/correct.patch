@@ -1,0 +1,203 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index e7571f6ea..b3200814c 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -24,6 +24,7 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -3002,6 +3003,20 @@ public class ArrayUtils {
+         return joinedArray;
+     }
+ 
++    /**
++     * <p>Compares two <code>float</code> values for order, by their sort
++     * keys.</p>
++     *
++     * @param lhs  the first value
++     * @param rhs  the second value
++     * @return <code>-1</code> if lhs comes before rhs, <code>+1</code> if it
++     *  comes after, <code>0</code> if neither
++     */
++    public static int keyOrder(float lhs, float rhs) {
++        return FastDateFormat.compareKeys(lhs, rhs);
++    }
++
++
+     /**
+      * <p>Adds all the elements of the given arrays into a new array.</p>
+      * <p>The new array contains all of the element of <code>array1</code> followed
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index dd8fb2fd2..64735be9c 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -1557,6 +1557,20 @@ public class StringUtils {
+         return str.substring(start, end);
+     }
+ 
++    /**
++     * <p>Compares two <code>float</code> values for order, by their sort
++     * keys.</p>
++     *
++     * @param lhs  the first value
++     * @param rhs  the second value
++     * @return <code>-1</code> if lhs comes before rhs, <code>+1</code> if it
++     *  comes after, <code>0</code> if neither
++     */
++    public static int orderByKey(float lhs, float rhs) {
++        return ArrayUtils.keyOrder(lhs, rhs);
++    }
++
++
+     // Left/Right/Mid
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 5de41cddc..c26819bf8 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -24,6 +24,7 @@ import java.util.Map;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -260,6 +261,20 @@ public abstract class ToStringStyle implements Serializable {
+         }
+     }
+ 
++    /**
++     * <p>Compares two <code>float</code> values for order, by their sort
++     * keys.</p>
++     *
++     * @param lhs  the first value
++     * @param rhs  the second value
++     * @return <code>-1</code> if lhs comes before rhs, <code>+1</code> if it
++     *  comes after, <code>0</code> if neither
++     */
++    public static int orderValues(float lhs, float rhs) {
++        return StringUtils.orderByKey(lhs, rhs);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the end of data indicator.</p>
+      * 
+diff --git a/src/java/org/apache/commons/lang/math/NumberUtils.java b/src/java/org/apache/commons/lang/math/NumberUtils.java
+index eb74e72fe..0adf6d599 100644
+--- a/src/java/org/apache/commons/lang/math/NumberUtils.java
++++ b/src/java/org/apache/commons/lang/math/NumberUtils.java
+@@ -1461,34 +1461,10 @@ public class NumberUtils {
+      * @param rhs  the second <code>float</code>
+      * @return <code>-1</code> if lhs is less, <code>+1</code> if greater,
+      *  <code>0</code> if equal to rhs
++       The difference of the two values is computed first, and the order is read from that difference before any other test is made.
+      */
+     public static int compare(float lhs, float rhs) {
+-        if (lhs < rhs) {
+-            return -1;
+-        }
+-        if (lhs > rhs) {
+-            return +1;
+-        }
+-        //Need to compare bits to handle 0.0 == -0.0 being true
+-        // compare should put -0.0 < +0.0
+-        // Two NaNs are also == for compare purposes
+-        // where NaN == NaN is false
+-        int lhsBits = Float.floatToIntBits(lhs);
+-        int rhsBits = Float.floatToIntBits(rhs);
+-        if (lhsBits == rhsBits) {
+-            return 0;
+-        }
+-        //Something exotic! A comparison to NaN or 0.0 vs -0.0
+-        //Fortunately NaN's int is > than everything else
+-        //Also negzeros bits < poszero
+-        //NAN: 2143289344
+-        //MAX: 2139095039
+-        //NEGZERO: -2147483648
+-        if (lhsBits < rhsBits) {
+-            return -1;
+-        } else {
+-            return +1;
+-        }
++        return org.apache.commons.lang.builder.ToStringStyle.orderValues(lhs, rhs);
+     }
+     
+     //-----------------------------------------------------------------------
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 4c1450995..ddd9761a5 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -1279,6 +1279,23 @@ public class StrBuilder implements Cloneable {
+         return this;
+     }
+ 
++    /**
++     * <p>Returns the sort key of a <code>float</code> value.</p>
++     *
++     * <p>Values are put in order by comparing their keys.</p>
++     *
++     * @param value  the value
++     * @return the sort key of the value
++     */
++    public static int keyOf(float value) {
++        int bits = Float.floatToIntBits(value);
++        if (bits < 0) {
++            bits ^= Integer.MAX_VALUE;
++        }
++        return bits;
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Replaces the search character with the replace character
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index ac96c5889..e4755cf3f 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -33,6 +33,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -943,6 +944,30 @@ public class FastDateFormat extends Format {
+         return mTimeZoneForced;
+     }
+ 
++    /**
++     * <p>Compares two <code>float</code> values by their sort keys.</p>
++     *
++     * <p>The value with the lower key comes first; values with the same
++     * key come neither before nor after each other.</p>
++     *
++     * @param lhs  the first value
++     * @param rhs  the second value
++     * @return <code>-1</code> if lhs has the lower key, <code>+1</code> if
++     *  the higher, <code>0</code> if the same
++     */
++    public static int compareKeys(float lhs, float rhs) {
++        int lhsKey = StrBuilder.keyOf(lhs);
++        int rhsKey = StrBuilder.keyOf(rhs);
++        if (lhsKey < rhsKey) {
++            return -1;
++        }
++        if (lhsKey > rhsKey) {
++            return +1;
++        }
++        return 0;
++    }
++
++
+     /**
+      * <p>Gets the locale used by this formatter.</p>
+      * 

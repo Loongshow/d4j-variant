@@ -1,0 +1,332 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 98ca1c87b..4abefb60f 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -27,6 +27,7 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
+ import org.apache.commons.lang3.mutable.MutableInt;
++import java.util.Random;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like {@code int[]}) and
+@@ -3648,6 +3649,26 @@ public class ArrayUtils {
+         return joinedArray;
+     }
+ 
++    /**
++     * <p>Creates an array of randomly drawn characters.</p>
++     *
++     * @param count  the number of characters to draw
++     * @param start  the first index or character value to draw from
++     * @param gap  the number of indexes or character values to draw from
++     * @param letters  only allow letters?
++     * @param numbers  only allow numbers?
++     * @param chars  the set of chars to draw from, may be null
++     * @param random  the source of randomness, not null
++     * @return a new array of {@code count} drawn characters
++     */
++    public static char[] drawnChars(final int count, final int start, final int gap, final boolean letters,
++            final boolean numbers, final char[] chars, final Random random) {
++        final char[] buffer = new char[count];
++        ToStringStyle.drawInto(buffer, start, gap, letters, numbers, chars, random);
++        return buffer;
++    }
++
++
+     /**
+      * <p>Adds all the elements of the given arrays into a new array.</p>
+      * <p>The new array contains all of the element of {@code array1} followed
+diff --git a/src/main/java/org/apache/commons/lang3/RandomStringUtils.java b/src/main/java/org/apache/commons/lang3/RandomStringUtils.java
+index 9dfee222b..85d1af885 100644
+--- a/src/main/java/org/apache/commons/lang3/RandomStringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/RandomStringUtils.java
+@@ -219,6 +219,7 @@ public class RandomStringUtils {
+      *  {@code (end - start) + 1} characters in the set array.
+      * @throws IllegalArgumentException if {@code count} &lt; 0 or the provided chars array is empty.
+      * @since 2.0
++       The characters are generated in order from the first position of the string to the last, and the string is assembled by concatenating them one at a time.
+      */
+     public static String random(int count, int start, int end, boolean letters, boolean numbers,
+                                 char[] chars, Random random) {
+@@ -230,66 +231,7 @@ public class RandomStringUtils {
+         if (chars != null && chars.length == 0) {
+             throw new IllegalArgumentException("The chars array must not be empty");
+         }
+-
+-        if (start == 0 && end == 0) {
+-            if (chars != null) {
+-                end = chars.length;
+-            } else {
+-                if (!letters && !numbers) {
+-                    end = Integer.MAX_VALUE;
+-                } else {
+-                    end = 'z' + 1;
+-                    start = ' ';                
+-                }
+-            }
+-        } else {
+-            if (end <= start) {
+-                throw new IllegalArgumentException("Parameter end (" + end + ") must be greater than start (" + start + ")");
+-            }
+-        }
+-
+-        char[] buffer = new char[count];
+-        int gap = end - start;
+-
+-        while (count-- != 0) {
+-            char ch;
+-            if (chars == null) {
+-                ch = (char) (random.nextInt(gap) + start);
+-            } else {
+-                ch = chars[random.nextInt(gap) + start];
+-            }
+-            if (letters && Character.isLetter(ch)
+-                    || numbers && Character.isDigit(ch)
+-                    || !letters && !numbers) {
+-                if(ch >= 56320 && ch <= 57343) {
+-                    if(count == 0) {
+-                        count++;
+-                    } else {
+-                        // low surrogate, insert high surrogate after putting it in
+-                        buffer[count] = ch;
+-                        count--;
+-                        buffer[count] = (char) (55296 + random.nextInt(128));
+-                    }
+-                } else if(ch >= 55296 && ch <= 56191) {
+-                    if(count == 0) {
+-                        count++;
+-                    } else {
+-                        // high surrogate, insert low surrogate before putting it in
+-                        buffer[count] = (char) (56320 + random.nextInt(128));
+-                        count--;
+-                        buffer[count] = ch;
+-                    }
+-                } else if(ch >= 56192 && ch <= 56319) {
+-                    // private high surrogate, no effing clue, so skip it
+-                    count++;
+-                } else {
+-                    buffer[count] = ch;
+-                }
+-            } else {
+-                count++;
+-            }
+-        }
+-        return new String(buffer);
++        return org.apache.commons.lang3.time.DateUtils.drawString(count, start, end, letters, numbers, chars, random);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 5a70e09bb..9829c2aa6 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -24,6 +24,7 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import java.util.Random;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -3594,6 +3595,66 @@ public class StringUtils {
+         return str;
+     }
+ 
++    /**
++     * <p>Fills a buffer with randomly drawn characters, from its last
++     * position to its first.</p>
++     *
++     * <p>Each character is drawn at a random offset below {@code gap} from
++     * {@code start}: it is the character at that index of {@code chars} or,
++     * if {@code chars} is {@code null}, the character with that value. A
++     * drawn character that is not allowed is discarded and another one is
++     * drawn. A surrogate is written together with a randomly chosen partner,
++     * so that the buffer only holds complete surrogate pairs; private high
++     * surrogates are never written.</p>
++     *
++     * @param buffer  the buffer to fill, not null
++     * @param start  the first index or character value to draw from
++     * @param gap  the number of indexes or character values to draw from
++     * @param letters  only allow letters?
++     * @param numbers  only allow numbers?
++     * @param chars  the set of chars to draw from, may be null
++     * @param random  the source of randomness, not null
++     */
++    public static void fillDrawn(final char[] buffer, final int start, final int gap, final boolean letters,
++            final boolean numbers, final char[] chars, final Random random) {
++        int count = buffer.length;
++        while (count > 0) {
++            final char ch;
++            if (chars == null) {
++                ch = (char) (random.nextInt(gap) + start);
++            } else {
++                ch = chars[random.nextInt(gap) + start];
++            }
++            final boolean usable;
++            if (letters && numbers) {
++                usable = Character.isLetterOrDigit(ch);
++            } else if (letters) {
++                usable = Character.isLetter(ch);
++            } else {
++                usable = true;
++            }
++            if (!usable || ch >= 56192 && ch <= 56319) {
++                continue;
++            }
++            if (ch >= 56320 && ch <= 57343) {
++                if (count == 1) {
++                    continue;
++                }
++                buffer[--count] = ch;
++                buffer[--count] = (char) (55296 + random.nextInt(128));
++            } else if (ch >= 55296 && ch <= 56191) {
++                if (count == 1) {
++                    continue;
++                }
++                buffer[--count] = (char) (56320 + random.nextInt(128));
++                buffer[--count] = ch;
++            } else {
++                buffer[--count] = ch;
++            }
++        }
++    }
++
++
+     /**
+      * <p>Removes all occurrences of a substring from within the source string.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 8164970a4..9a2710dfa 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,8 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Random;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -399,6 +401,23 @@ public abstract class ToStringStyle implements Serializable {
+         unregister(object);
+     }
+ 
++    /**
++     * <p>Fills an array with randomly drawn characters.</p>
++     *
++     * @param buffer  the array to fill, not null
++     * @param start  the first index or character value to draw from
++     * @param gap  the number of indexes or character values to draw from
++     * @param letters  only allow letters?
++     * @param numbers  only allow numbers?
++     * @param chars  the set of chars to draw from, may be null
++     * @param random  the source of randomness, not null
++     */
++    public static void drawInto(final char[] buffer, final int start, final int gap, final boolean letters,
++            final boolean numbers, final char[] chars, final Random random) {
++        StringUtils.fillDrawn(buffer, start, gap, letters, numbers, chars, random);
++    }
++
++
+     /**
+      * <p>Remove the last field separator from the buffer.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index b97cbd7ae..858359481 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -25,6 +25,7 @@ import java.util.List;
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.util.Random;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -2336,6 +2337,25 @@ public class StrBuilder implements CharSequence, Appendable, Serializable {
+         return lastIndexOf(str, size - 1);
+     }
+ 
++    /**
++     * <p>Creates a string of randomly drawn characters from a resolved
++     * range.</p>
++     *
++     * @param count  the length of the string to create
++     * @param start  the first index or character value of the range
++     * @param end  the index or character value that ends the range, exclusive
++     * @param letters  only allow letters?
++     * @param numbers  only allow numbers?
++     * @param chars  the set of chars to draw from, may be null
++     * @param random  the source of randomness, not null
++     * @return the string of drawn characters
++     */
++    public static String drawnText(final int count, final int start, final int end, final boolean letters,
++            final boolean numbers, final char[] chars, final Random random) {
++        return new String(ArrayUtils.drawnChars(count, start, end - start, letters, numbers, chars, random));
++    }
++
++
+     /**
+      * Searches the string builder to find the last reference to the specified
+      * string starting searching from the given index.
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index 492c4f363..7b342c6fa 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -23,6 +23,8 @@ import java.util.Calendar;
+ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
++import java.util.Random;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -406,6 +408,45 @@ public class DateUtils {
+         return add(date, Calendar.HOUR_OF_DAY, amount);
+     }
+ 
++    /**
++     * <p>Creates a string of randomly drawn characters, first resolving the
++     * range to draw from.</p>
++     *
++     * <p>If start and end are both {@code 0}, the range is the whole of
++     * {@code chars} when it is not {@code null}; otherwise it is every
++     * character value when letters and numbers are both {@code false}, and
++     * the characters from {@code ' '} to {@code 'z'} when they are not.
++     * Any other range must end after it starts.</p>
++     *
++     * @param count  the length of the string to create, greater than zero
++     * @param start  the position in the set of chars to start at
++     * @param end  the position in the set of chars to end before
++     * @param letters  only allow letters?
++     * @param numbers  only allow numbers?
++     * @param chars  the set of chars to draw from, may be null
++     * @param random  the source of randomness, not null
++     * @return the string of drawn characters
++     * @throws IllegalArgumentException if end is not greater than start
++     *  and they are not both {@code 0}
++     */
++    public static String drawString(final int count, int start, int end, final boolean letters, final boolean numbers,
++            final char[] chars, final Random random) {
++        if (start == 0 && end == 0) {
++            if (chars != null) {
++                end = chars.length;
++            } else if (!letters && !numbers) {
++                end = Integer.MAX_VALUE;
++            } else {
++                end = 'z' + 1;
++                start = ' ';
++            }
++        } else if (end <= start) {
++            throw new IllegalArgumentException("Parameter end (" + end + ") must be greater than start (" + start + ")");
++        }
++        return StrBuilder.drawnText(count, start, end, letters, numbers, chars, random);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Adds a number of minutes to a date returning a new object.

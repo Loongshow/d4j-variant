@@ -1,0 +1,181 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 393eeaff..6bd007d8 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -49,6 +49,9 @@ import java.util.zip.GZIPInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.nodes.Node;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -126,6 +129,16 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Get the data nodes of a list of nodes, as an unmodifiable list.
++     * @param nodes the nodes to read
++     * @return an unmodifiable list of the data nodes, in list order
++     */
++    public static List<DataNode> unmodifiableDataNodes(List<Node> nodes) {
++        return Collections.unmodifiableList(Evaluator.IsNthLastChild.dataNodesOf(nodes));
++    }
++
++
+     public Connection url(String url) {
+         Validate.notEmpty(url, "Must supply a valid URL");
+         try {
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index ba1470bf..c30eee0b 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -329,14 +329,10 @@ public class Element extends Node {
+      * @return child data nodes. If this element has no data nodes, returns an
+      * empty list.
+      * @see #data()
++       The child nodes are first sorted by node name, and the data nodes are then read from the sorted list.
+      */
+     public List<DataNode> dataNodes() {
+-        List<DataNode> dataNodes = new ArrayList<>();
+-        for (Node node : childNodes) {
+-            if (node instanceof DataNode)
+-                dataNodes.add((DataNode) node);
+-        }
+-        return Collections.unmodifiableList(dataNodes);
++        return org.jsoup.helper.HttpConnection.unmodifiableDataNodes(childNodes);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index 37467a7c..d4579dbd 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -10,6 +10,7 @@ import org.jsoup.select.NodeVisitor;
+ 
+ import java.io.IOException;
+ import java.util.*;
++import org.jsoup.safety.Whitelist;
+ 
+ /**
+  The base, abstract Node model. Elements, Documents, Comments etc are all Node instances.
+@@ -223,6 +224,19 @@ public abstract class Node implements Cloneable {
+         return children;
+     }
+ 
++    /**
++     * Gets the data nodes of a list of nodes, by joining the runs of adjacent data nodes that the list holds, in order.
++     * @param nodes the nodes to read
++     * @return the data nodes, in list order
++     */
++    public static List<DataNode> dataNodesAmong(List<Node> nodes) {
++        List<DataNode> dataNodes = new ArrayList<>();
++        for (List<DataNode> run : Whitelist.dataNodeRuns(nodes))
++            dataNodes.addAll(run);
++        return dataNodes;
++    }
++
++
+     /**
+      * Get the number of child nodes that this node holds.
+      * @return the number of child nodes that this node holds.
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index b8cc1f03..29c5579b 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -222,6 +222,16 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         stack.add(el);
+     }
+ 
++    /**
++     * Gets the data nodes of a list of nodes.
++     * @param nodes the nodes to read
++     * @return the data nodes, in list order
++     */
++    public static List<DataNode> dataNodesIn(List<Node> nodes) {
++        return Node.dataNodesAmong(nodes);
++    }
++
++
+     Element insertEmpty(Token.StartTag startTag) {
+         Tag tag = Tag.valueOf(startTag.name(), settings);
+         Element el = new Element(tag, baseUri, startTag.attributes);
+diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java
+index d363bc24..d825376a 100644
+--- a/src/main/java/org/jsoup/safety/Whitelist.java
++++ b/src/main/java/org/jsoup/safety/Whitelist.java
+@@ -16,6 +16,10 @@ import java.util.Map;
+ import java.util.Set;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.nodes.Node;
++import java.util.ArrayList;
++import java.util.List;
+ 
+ 
+ /**
+@@ -140,6 +144,30 @@ public class Whitelist {
+                 ;
+     }
+ 
++    /**
++     * Splits a list of nodes into the runs of adjacent data nodes that it holds, in list order. Nodes of any other kind are not
++     * part of a run.
++     *
++     * @param nodes the nodes to split
++     * @return the runs of data nodes
++     */
++    public static List<List<DataNode>> dataNodeRuns(List<Node> nodes) {
++        List<List<DataNode>> runs = new ArrayList<>();
++        List<DataNode> run = new ArrayList<>();
++        for (Node node : nodes) {
++            if (node instanceof DataNode) {
++                run.add((DataNode) node);
++            } else if (!run.isEmpty()) {
++                runs.add(run);
++                run = new ArrayList<>();
++            }
++        }
++        if (!run.isEmpty())
++            runs.add(run);
++        return runs;
++    }
++
++
+     /**
+      This whitelist allows a full range of text and structural body HTML: <code>a, b, blockquote, br, caption, cite,
+      code, col, colgroup, dd, div, dl, dt, em, h1, h2, h3, h4, h5, h6, i, img, li, ol, p, pre, q, small, span, strike, strong, sub,
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index b6670d42..5e620423 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -14,6 +14,8 @@ import java.util.regex.Pattern;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -494,6 +496,16 @@ public abstract class Evaluator {
+     		super(a,b);
+     	}
+ 
++    /**
++     * Get the data nodes of a list of nodes.
++     * @param nodes the nodes to read
++     * @return the data nodes, in list order
++     */
++    public static List<DataNode> dataNodesOf(List<Node> nodes) {
++        return HtmlTreeBuilder.dataNodesIn(nodes);
++    }
++
++
+         @Override
+         protected int calculatePosition(Element root, Element element) {
+         	return element.parent().children().size() - element.elementSiblingIndex();

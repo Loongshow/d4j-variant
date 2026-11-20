@@ -1,0 +1,53 @@
+{
+  "instance": "Closure-18__i",
+  "iid": "MI-Closure-18",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.javascript.rhino.JSDocInfo$Marker::typeInterpreter (hop 4; the same cast is possible at hops 1-3 and the facade)",
+      "edit": "return ((com.google.javascript.jscomp.type.ChainableReverseAbstractInterpreter) SymbolTable.SymbolScope.newReverseInterpreter(convention, registry, closurePrimitives)).getFirst();",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing::interpreterFor (hop 1)",
+      "edit": "pass false instead of closurePrimitives (builder G9 compensating edit; not re-run)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.google.javascript.rhino.jstype.JSTypeRegistry::refiningInterpreter (hop 3)",
+      "edit": "pass true instead of closurePrimitives (builder G9 compensating edit; not re-run)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade com.google.javascript.jscomp.Compiler::getReverseAbstractInterpreter (instance; cache guard + CompilerOptions.TweakProcessing.interpreterFor(this, options.closurePass) + write-back to abstractInterpreter; V1+V2)",
+    "hop1 com.google.javascript.jscomp.CompilerOptions$TweakProcessing::interpreterFor (reads convention and registry from the compiler)",
+    "hop2 com.google.javascript.jscomp.TypeCheck::conditionInterpreter (pass-through)",
+    "hop3 com.google.javascript.rhino.jstype.JSTypeRegistry::refiningInterpreter (pass-through)",
+    "hop4 com.google.javascript.rhino.JSDocInfo$Marker::typeInterpreter (pass-through)",
+    "gold com.google.javascript.jscomp.SymbolTable$SymbolScope::newReverseInterpreter (builds Semantic, prepends Closure; omits .getFirst())"
+  ],
+  "reasons": "Variant compiles; trigger TypeInferenceTest::testAssertWithIsDef fails (out2 stays (null|number)). (a) The gold promises an interpreter in which, when closurePrimitives is set, the Closure primitives are recognized; without getFirst() it returns the last link (append returns the appended link, per its javadoc), so a top-level goog.isDefAndNotNull(x) is not refined (a negated one still is, because the semantic link's NOT case re-enters at firstLink, which is why testAssertWithNotIsNull still passes). Hops 1-4 pass convention, registry and the flag through unchanged and their contracts are only the delegated result; the facade's inherited contract ('Get an interpreter for type analysis') is loose. Only the gold's contract is violated. (b) Every hop javadoc matches its code; none is loose enough to own chain construction. (c) The flag edits at hops 1/3 do not pass the trigger (G9). A downcast plus getFirst() at hop 4 (or any hop above) passes trigger, ownership tests and full suite, but it is a downstream workaround that needs a cast from the ReverseAbstractInterpreter interface and leaves the gold returning an interpreter that violates its own javadoc, so it is not documentation-consistent; recorded as a bypass, not a competing repair. (d) Neutral names (interpreterFor, conditionInterpreter, refiningInterpreter, typeInterpreter, newReverseInterpreter); no fault vocabulary; the lie ('assembled by scanning the assertion functions of the coding convention and registering one refinement rule for each of them') describes an algorithm the code does not perform and does not mention linking, the first link or getFirst. (e) Gold is the fifth call below the facade; five hosts in five different existing files/classes; facade = original null-cache guard + state gathering (this, options.closurePass) + one call to hop 1 + the original field write-back, as addendum section 1 V1/V2 allow; facade had no javadoc, so a one-sentence javadoc in AbstractCompiler's voice plus the lie was added; gold javadoc silent on returning the chain head; test.patch empty, trigger existing, G5 only the trigger newly fails. Hosts (host_mode 1500): the seeded draw `preview Closure-18 com/google/javascript/jscomp/Compiler.java` gives RegExpTree, Node, JSTypeRegistry, JSDocInfo, JsDocInfoParser, Reader, CompilerOptions, TypeCheck, SymbolTable; at their hop seeds RegExpTree (anchor in package-private nested Empty), Node (private StringNode), JsDocInfoParser (private ExtractionInfo) and Reader (private ErrorReporter / private enum Operator) cannot carry a callable public static method, and they were replaced in place by the next drawn hosts CompilerOptions, TypeCheck, SymbolTable; hops 3 and 4 keep their drawn hosts and anchors (2267 end-of-file, 2268 after getName). C10i not-allowed list: no visibility widened (Marker, SymbolScope, TweakProcessing were already public static), no new type, no reflection, facade signature/modifiers/@Override/throws unchanged, no test edited. (f) Convention pinned outside the gold by ChainableReverseAbstractInterpreter.append ('returning the updated last link'), getFirst ('Gets the first link of this chain') and firstPreciserScopeKnowingConditionOutcome, and by the passing TypeCheckTest helper testClosureTypes (testClosure1/testClosure3) which builds new ClosureReverseAbstractInterpreter(..).append(new SemanticReverseAbstractInterpreter(..)).getFirst().",
+  "notes": "Host replacement was read as in-place substitution of unusable drawn hosts by the next drawn usable hosts (hops 1, 2, 5 -> draw positions 7, 8, 9); under a shift-down reading the hop order would be JSTypeRegistry, JSDocInfo, CompilerOptions, TypeCheck, SymbolTable with the same host set. Cosmetic: the recipe put the facade's new javadoc between @Override and the method declaration, with the lie line lacking a leading '*', and hops 2/3 have mis-indented javadoc openers (end-of-file insertion); none points at the gold. No production sibling repeats the append(..).getFirst() step (the only production site was the original facade body); the pin rests on the evidence javadocs and the passing TypeCheckTest helper. The getFirst-with-cast bypass at hops 1-4 is the main thing a model might propose instead of the gold edit."
+}

@@ -1,0 +1,197 @@
+diff --git a/src/main/java/org/apache/commons/cli/CommandLine.java b/src/main/java/org/apache/commons/cli/CommandLine.java
+index 9cd1b9d..36ea850 100644
+--- a/src/main/java/org/apache/commons/cli/CommandLine.java
++++ b/src/main/java/org/apache/commons/cli/CommandLine.java
+@@ -125,6 +125,34 @@ public class CommandLine implements Serializable
+         return (res == null) ? null : TypeHandler.createValue(res, type);
+     }
+ 
++    /**
++     * Creates an Option with the specified short name.
++     *
++     * @param opt the short name of the Option, may be null
++     * @return the new Option
++     * @throws IllegalArgumentException if there are any non valid
++     * Option characters in <code>opt</code>.
++     */
++    public static Option optionNamed(String opt)
++    {
++        if (opt != null)
++        {
++            int length = opt.length();
++            for (int i = 0; i < length; i++)
++            {
++                char ch = opt.charAt(i);
++                if (!Character.isJavaIdentifierPart(ch))
++                {
++                    throw new IllegalArgumentException(length == 1
++                            ? "Illegal option name '" + ch + "'"
++                            : "The option '" + opt + "' contains an illegal character : '" + ch + "'");
++                }
++            }
++        }
++        return new Option(opt, null);
++    }
++
++
+     /**
+      * Return the <code>Object</code> type of this <code>Option</code>.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/DefaultParser.java b/src/main/java/org/apache/commons/cli/DefaultParser.java
+index 2f957b1..50f7423 100644
+--- a/src/main/java/org/apache/commons/cli/DefaultParser.java
++++ b/src/main/java/org/apache/commons/cli/DefaultParser.java
+@@ -80,6 +80,21 @@ public class DefaultParser implements CommandLineParser
+         return parse(options, arguments, null, stopAtNonOption);
+     }
+ 
++    /**
++     * Creates an Option with the specified short name and description.
++     *
++     * @param opt the short name of the Option, may be null
++     * @param description describes the function of the Option
++     * @return the new Option
++     */
++    public static Option describedOption(String opt, String description)
++    {
++        Option option = Parser.optionFor(opt);
++        option.setDescription(description);
++        return option;
++    }
++
++
+     /**
+      * Parse the arguments according to the specified options and properties.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/HelpFormatter.java b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+index 6d73237..040ae56 100644
+--- a/src/main/java/org/apache/commons/cli/HelpFormatter.java
++++ b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+@@ -250,6 +250,33 @@ public class HelpFormatter
+         this.defaultOptPrefix = prefix;
+     }
+ 
++    /**
++     * Creates an Option with the specified short name, description, long
++     * name, argument settings, type and argument name.
++     *
++     * @param opt the short name of the Option, may be null
++     * @param description describes the function of the Option
++     * @param longOpt the long name of the Option
++     * @param required whether the Option is mandatory
++     * @param optionalArg whether the argument values are optional
++     * @param numberOfArgs the number of argument values
++     * @param type the type of the Option
++     * @param valuesep the character that separates the argument values
++     * @param argName the display name for the argument value
++     * @return the new Option
++     */
++    public static Option configuredOption(String opt, String description, String longOpt, boolean required,
++            boolean optionalArg, int numberOfArgs, Object type, char valuesep, String argName)
++    {
++        Option option = Option.argumentOption(opt, description, numberOfArgs, optionalArg, valuesep);
++        option.setLongOpt(longOpt);
++        option.setRequired(required);
++        option.setType(type);
++        option.setArgName(argName);
++        return option;
++    }
++
++
+     /**
+      * Returns the 'optPrefix'.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/Option.java b/src/main/java/org/apache/commons/cli/Option.java
+index ce12780..4d49d7d 100644
+--- a/src/main/java/org/apache/commons/cli/Option.java
++++ b/src/main/java/org/apache/commons/cli/Option.java
+@@ -188,6 +188,27 @@ public class Option implements Cloneable, Serializable
+         return type;
+     }
+ 
++    /**
++     * Creates an Option with the specified short name and description that
++     * takes the specified number of argument values.
++     *
++     * @param opt the short name of the Option, may be null
++     * @param description describes the function of the Option
++     * @param numberOfArgs the number of argument values
++     * @param optionalArg whether the argument values are optional
++     * @param valuesep the character that separates the argument values
++     * @return the new Option
++     */
++    public static Option argumentOption(String opt, String description, int numberOfArgs, boolean optionalArg, char valuesep)
++    {
++        Option option = DefaultParser.describedOption(opt, description);
++        option.setArgs(numberOfArgs);
++        option.setOptionalArg(optionalArg);
++        option.setValueSeparator(valuesep);
++        return option;
++    }
++
++
+     /**
+      * Sets the type of this Option.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/OptionBuilder.java b/src/main/java/org/apache/commons/cli/OptionBuilder.java
+index a22d829..d279968 100644
+--- a/src/main/java/org/apache/commons/cli/OptionBuilder.java
++++ b/src/main/java/org/apache/commons/cli/OptionBuilder.java
+@@ -345,31 +345,19 @@ public final class OptionBuilder
+      * @return the Option instance
+      * @throws IllegalArgumentException if <code>opt</code> is not
+      * a valid character.  See Option.
++       The current settings are first stored in a shared template Option, and the Option returned is a clone of that template.
+      */
+     public static Option create(String opt) throws IllegalArgumentException
+     {
+-        Option option = null;
+         try
+         {
+-            // create the option
+-            option = new Option(opt, description);
+-
+-            // set the option properties
+-            option.setLongOpt(longopt);
+-            option.setRequired(required);
+-            option.setOptionalArg(optionalArg);
+-            option.setArgs(numberOfArgs);
+-            option.setType(type);
+-            option.setValueSeparator(valuesep);
+-            option.setArgName(argName);
++            return HelpFormatter.configuredOption(opt, description, longopt, required,
++                    optionalArg, numberOfArgs, type, valuesep, argName);
+         }
+         finally
+         {
+             // reset the OptionBuilder properties
+             OptionBuilder.reset();
+         }
+-
+-        // return the Option instance
+-        return option;
+     }
+ }
+diff --git a/src/main/java/org/apache/commons/cli/Parser.java b/src/main/java/org/apache/commons/cli/Parser.java
+index ba4b6bc..738646c 100644
+--- a/src/main/java/org/apache/commons/cli/Parser.java
++++ b/src/main/java/org/apache/commons/cli/Parser.java
+@@ -364,6 +364,18 @@ public abstract class Parser implements CommandLineParser
+         }
+     }
+ 
++    /**
++     * Creates an Option with the specified short name.
++     *
++     * @param opt the short name of the Option, may be null
++     * @return the new Option
++     */
++    public static Option optionFor(String opt)
++    {
++        return CommandLine.optionNamed(opt);
++    }
++
++
+     /**
+      * Process the Option specified by <code>arg</code> using the values
+      * retrieved from the specfied iterator <code>iter</code>.

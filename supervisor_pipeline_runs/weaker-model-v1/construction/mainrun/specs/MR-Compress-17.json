@@ -1,0 +1,230 @@
+{
+ "bug_id": 17,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "java.util.Arrays.fill(buf, offset, offset + length, (byte) '0'); return BZip2CompressorInputStream.toOctalBytes(value, buf, offset, length);",
+   "old": "return BZip2CompressorInputStream.toOctalBytes(value, buf, offset, length);",
+   "why": "hop 3 fills the field with '0' before delegating"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "buf[offset + length - 2] = (byte) ' ';",
+   "old": "buf[end] = (byte) ' ';",
+   "why": "hop 1 places the space at the fixed position two bytes before the end of the field instead of the returned offset"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "return ZipFile.encodeOctal(value, buf, offset, Math.min(length, 22));",
+   "old": "return ZipFile.encodeOctal(value, buf, offset, length);",
+   "why": "hop 4 limits the field to the 22 octal digits of a long"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "import org.apache.commons.compress.utils.ArchiveUtils;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;\n",
+   "old": "import org.apache.commons.compress.utils.ArchiveUtils;\n",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "\n    /**\n     * Writes a value into a field of a buffer as an octal number.\n     *\n     * @param value the value to write, treated as unsigned\n     * @param buf the destination buffer\n     * @param offset the starting offset of the field\n     * @param length the size of the field\n     * @return the updated offset, i.e. offset + length\n     * @throws IllegalArgumentException if the value will not fit in the field\n     */\n    public static int writeOctalNumber(final long value, final byte[] buf, final int offset, final int length) {\n        return BZip2CompressorInputStream.toOctalBytes(value, buf, offset, length);\n    }\n\n\n    private int writeEntryHeaderField(long value, byte[] outbuf, int offset,",
+   "old": "\n    private int writeEntryHeaderField(long value, byte[] outbuf, int offset,",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "new": "       The digits are produced two at a time from six-bit groups of the value, using a lookup table of the sixty-four digit pairs.\n     */\n    public static int formatOctalBytes(final long value, byte[] buf, final int offset, final int length) {\n        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.writeOctalField(value, buf, offset, length);",
+   "old": "     */\n    public static int formatOctalBytes(final long value, byte[] buf, final int offset, final int length) {\n\n        int idx=length-2; // For space and trailing null\n        formatUnsignedOctalString(value, buf, offset, idx);\n\n        buf[offset + idx++] = (byte) ' '; // Trailing space\n        buf[offset + idx]   = 0; // Trailing null\n\n        return offset + length;",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;\n",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "        finished = true;\n    }\n\n    /**\n     * Writes a value into a header field as an octal number followed by\n     * a space and a NUL.\n     *\n     * @param value the value to write, treated as unsigned\n     * @param buf the buffer to receive the field\n     * @param offset the starting offset of the field\n     * @param length the size of the field, including the space and the NUL\n     * @return the updated offset, i.e. offset + length\n     * @throws IllegalArgumentException if the value and the two trailing\n     * bytes will not fit in the field\n     */\n    public static int writeOctalField(final long value, final byte[] buf, final int offset, final int length) {\n        final int end = BZip2CompressorOutputStream.putOctal(value, buf, offset, length - 2);\n        buf[end] = (byte) ' ';\n        buf[end + 1] = 0;\n        return end + 2;\n    }\n\n\n    /**",
+   "old": "        finished = true;\n    }\n\n    /**",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        this(new File(name), ZipEncodingHelper.UTF8);\n    }\n\n    /**\n     * Writes a value into a field of a buffer as an octal number.\n     *\n     * @param value the value to write, treated as unsigned\n     * @param buf the destination buffer\n     * @param offset the starting offset of the field\n     * @param length the size of the field\n     * @return the updated offset, i.e. offset + length\n     * @throws IllegalArgumentException if the value will not fit in the field\n     */\n    public static int encodeOctal(final long value, final byte[] buf, final int offset, final int length) {\n        int digits = 1;\n        for (long rest = value >>> 3; rest != 0; rest >>>= 3) {\n            digits++;\n        }\n        if (digits > length) {\n            throw new IllegalArgumentException(value + \"=\" + Long.toOctalString(value)\n                    + \" will not fit in octal number buffer of length \" + length);\n        }\n        int pos = offset;\n        for (int k = length - digits; k > 0; k--) {\n            buf[pos++] = (byte) '0';\n        }\n        for (int bit = 3 * (digits - 1); bit >= 0; bit -= 3) {\n            buf[pos++] = (byte) ('0' + (int) ((value >>> bit) & 7));\n        }\n        return offset + length;\n    }\n\n\n    /**",
+   "old": "        this(new File(name), ZipEncodingHelper.UTF8);\n    }\n\n    /**",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorInputStream;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorInputStream;\n",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "        }\n    }\n\n    /**\n     * Writes a value into a field of a buffer as an octal number.\n     *\n     * @param value the value to write, treated as unsigned\n     * @param buf the destination buffer\n     * @param offset the starting offset of the field\n     * @param length the size of the field\n     * @return the updated offset, i.e. offset + length\n     * @throws IllegalArgumentException if the value will not fit in the field\n     */\n    public static int toOctalBytes(final long value, final byte[] buf, final int offset, final int length) {\n        return ZipFile.encodeOctal(value, buf, offset, length);\n    }\n\n\n    /*",
+   "old": "        }\n    }\n\n    /*",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "        init();\n    }\n\n    /**\n     * Writes a value into a field of a buffer as an octal number.\n     *\n     * @param value the value to write, treated as unsigned\n     * @param buf the destination buffer\n     * @param offset the starting offset of the field\n     * @param length the size of the field\n     * @return the updated offset, i.e. offset + length\n     * @throws IllegalArgumentException if the value will not fit in the field\n     */\n    public static int putOctal(final long value, final byte[] buf, final int offset, final int length) {\n        return TarArchiveEntry.writeOctalNumber(value, buf, offset, length);\n    }\n\n\n    /** {@inheritDoc} */",
+   "old": "        init();\n    }\n\n    /** {@inheritDoc} */",
+   "purpose": "MR-Compress-17 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "writeOctalField"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "putOctal"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "method": "writeOctalNumber"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "method": "toOctalBytes"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-17.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatOctalBytes"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatUnsignedOctalString",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveOutputStream::writeAsciiLong",
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatLongOctalBytes"
+ ],
+ "expected_signature": "expected:<51> but was:<55>",
+ "extra_tests": [],
+ "fixture_key": "Compress-17",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+  "edits": [
+   {
+    "new": "        int pos = offset;\n        for (int bit = 3 * (digits - 1); bit >= 0; bit -= 3) {",
+    "old": "        int pos = offset;\n        for (int k = length - digits; k > 0; k--) {\n            buf[pos++] = (byte) '0';\n        }\n        for (int bit = 3 * (digits - 1); bit >= 0; bit -= 3) {"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+  "method": "encodeOctal"
+ },
+ "group": "MR-Compress-17",
+ "hops": 5,
+ "iid": "MR-Compress-17",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold holds the digit count together with the field it writes: hop 1 reserves the last two bytes and writes the space and the NUL at the offset the chain returns, hops 2-4 hand the value and the field on unchanged. Once the gold has written the digits from the first byte of the field, no caller can move them without counting the digits again, and filling the field with '0' beforehand does not help, because the digits still start at its first byte. The convention is pinned outside the gold: the facade's javadoc ('format the value as an octal string with leading zeros'); TarUtils.formatUnsignedOctalString ('Fill buffer with unsigned octal number, padded with leading zeroes'), the facade's original delegate, still used by formatLongOctalBytes and formatCheckSumOctalBytes for every numeric tar header field; CpioArchiveOutputStream.writeAsciiLong inserts '0' characters in front of the digits up to the field length; TarArchiveOutputStreamTest testWriteSimplePaxHeaders and testPaxHeadersWithLength99 assert the size fields \"00000000006 \" and \"00000000143 \", and TarUtilsTest testOverflow asserts a full seven-digit field and the IllegalArgumentException for an eighth digit. A one-line edit at hop 4 that narrows the field to the significant digits (Long.toOctalString(value).length()) passes the existing tests only because the trigger's buffer already holds '0' bytes there; it is not consistent with the path: on a fresh buffer the front of the field keeps its NULs, and a value with more digits than the field is written in front of the field instead of raising the documented IllegalArgumentException.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.tar.TarArchiveOutputStreamTest::testWriteSimplePaxHeaders",
+  "org.apache.commons.compress.archivers.tar.TarArchiveOutputStreamTest::testPaxHeadersWithLength99",
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testOverflow",
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testRoundTripOctal"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "finish",
+    "anchor_seed": 2548,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "writeOctalField",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BZip2CompressorOutputStream",
+    "anchor_seed": 2549,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "putOctal",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeEntryHeader",
+    "anchor_seed": 2550,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;"
+    ],
+    "method": "writeOctalNumber",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "read",
+    "anchor_seed": 2551,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "toOctalBytes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ZipFile",
+    "anchor_seed": 2552,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "encodeOctal",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2448
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-17"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.tar.TarUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java",
+  "test_method": "testTrailers"
+ },
+ "variant_id": "CTV-5AA9E4",
+ "kind": "new",
+ "fault_lines": [
+  "int pos = offset;\n        for (int bit = 3 * (digits - 1); bit >= 0; bit -= 3) {"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.zip.ZipFile::encodeOctal"
+}

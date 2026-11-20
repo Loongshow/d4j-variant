@@ -1,0 +1,69 @@
+{
+ "instance": "Lang-39",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::writeCopies (hop 4)",
+   "edit": "return ArrayUtils.replicate(str.toCharArray(), buffer, count);  ->  return ArrayUtils.replicate(org.apache.commons.lang3.StringUtils.repeat(str, count).toCharArray(), buffer, 1) + str.length() * count;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::copiesOf (hop 3)",
+   "edit": "return new String(buffer, 0, end);  ->  return org.apache.commons.lang3.StringUtils.repeat(str, count);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::copiesOf (hop 3)",
+   "edit": "return new String(buffer, 0, end);  ->  return new String(buffer);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::separatedCopies (hop 2)",
+   "edit": "return StringUtils.removeEnd(ToStringStyle.copiesOf(str + separator, count), separator);  ->  return str + ToStringStyle.copiesOf(separator + str, count - 1);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::writeCopies (hop 4), reasoned not run",
+   "edit": "return Math.max(ArrayUtils.replicate(...), str.length() * count) or + str.length() * count while keeping the gold's iteration",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.StringUtils::repeat(String,String,int) -- null guard, then DateUtils.joinCopies(str, separator, repeat)",
+  "hop1 org.apache.commons.lang3.time.DateUtils::joinCopies -- count<=0 gives \"\", else StrBuilder.separatedCopies",
+  "hop2 org.apache.commons.lang3.text.StrBuilder::separatedCopies -- removeEnd(copiesOf(str + separator, count), separator)",
+  "hop3 org.apache.commons.lang3.builder.ToStringStyle::copiesOf -- allocates char[str.length()*count], end = writeCopies(...), new String(buffer, 0, end)",
+  "hop4 org.apache.commons.lang3.time.FastDateFormat::writeCopies -- pass-through to ArrayUtils.replicate(str.toCharArray(), buffer, count)",
+  "gold org.apache.commons.lang3.ArrayUtils::replicate -- loop arraycopy at index; omitted 'index += source.length' so every copy lands at 0 and 0 is returned"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger StringUtilsTest::testRepeat_StringStringInt fails with expected:<[xx]> but was:<[]> (repeat(\"\", \"x\", 3) -> copiesOf(\"x\", 3) -> replicate returns 0, String(buffer,0,0) = \"\"); full suite on the variant: only the trigger fails; adding the gold line back makes the trigger pass. (a) Only replicate breaks its own javadoc on correct inputs: it documents copies laid end to end and a return of the index after the last element copied, but overwrites every copy at index 0 and returns 0. Hops 1-4 each do exactly their documented step on what they receive; hop 4 passes arguments in the right order. (b) Every hop javadoc matches its code (count guard, copy-with-trailing-separator then removeEnd, buffer of str.length()*count read up to the reported end, pass-through). (c) Because the gold returns 0 for every count >= 1, no re-parameterisation at hops 1-3 can recover anything; hop 3 has no offset parameter to write further copies. The only passing one-line non-gold edits replace the gold's copy loop with StringUtils.repeat (hop 4, gold called with count 1 and its return value overridden) or make hop 4 dead (hop 3): both bypasses, full suite clean. The declared compensations (new String(buffer); Math.max length; separator-in-front rewrite) fail the trigger. (d) Neutral names (joinCopies, separatedCopies, copiesOf, writeCopies, replicate); no comments in added code; G2b clean; the lie (recursive halving joined by a single separator) describes a nonexistent algorithm and names neither the index advance nor any hop. (e) Gold is 5 calls below the facade; hosts DateUtils, StrBuilder, ToStringStyle, FastDateFormat, ArrayUtils are five distinct existing classes; facade = original null guard + one delegating call; one added procedural sentence; gold javadoc states the contract (end to end, return index after last copy) but not the advance step; trigger is existing (empty test.patch) and the only new failure. (f) Convention pinned outside the gold: StrBuilder.append(char[]) (arraycopy at len then size += strLen), ArrayUtils.addAll (second array at array1.length), repeat(String,int) javadoc and passing testRepeat_StringInt (\"ababab\", length 10000), plus passing testAppend_CharArray and testAddObjectArrayToObjectArray.",
+ "notes": "1) The facade's pre-existing (pristine Lang-39) javadoc example says StringUtils.repeat(\"\", \"x\", 3) = \"xxx\" while the trigger expects \"xx\"; this inconsistency is original upstream text, not added by the variant, and does not affect ownership. 2) The lie sentence was inserted after the @return text without a leading ' * ', so it renders as part of the @return description; cosmetic recipe artefact. 3) The gold's omission is visible on reading (index initialised, used, returned, never changed) -- inherent to a one-line omission in a short loop, not an added marker. 4) validation.json lives at instances/MR-Lang-39/validation.json (not build/); all gates pass, overall READY. 5) Scratch-copy caveat: Ant's timestamp granularity left stale classes when sources were edited within a second of copying; all reported results were rerun after touching the edited sources and confirming the recompiled bytecode with javap."
+}

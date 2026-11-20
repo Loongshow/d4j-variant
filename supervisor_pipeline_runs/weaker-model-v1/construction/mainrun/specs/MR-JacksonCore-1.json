@@ -1,0 +1,198 @@
+{
+ "bug_id": 1,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "new": "String limitStr = negative ? String.valueOf(Long.MAX_VALUE) : String.valueOf(Long.MIN_VALUE).substring(1);",
+   "old": "String limitStr = negative ? String.valueOf(Long.MIN_VALUE).substring(1) : String.valueOf(Long.MAX_VALUE);",
+   "why": "hop 1 takes the other limit for each sign"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "if (numberStr.length() <= limitStr.length()) {",
+   "old": "if (numberStr.length() < limitStr.length()) {",
+   "why": "hop 2 also takes a String with as many digits as the limit to be below it"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "new": "return JsonParser.notAboveLimit(numberStr.trim(), limitStr.trim());",
+   "old": "return JsonParser.notAboveLimit(numberStr, limitStr);",
+   "why": "hop 4 passes both digit Strings without surrounding whitespace"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonParser.java",
+   "new": "        return (T) codec.readTree(this);\n    }\n\n    /**\n     * Helper method for determining whether given String of digits stands\n     * for a number that is not greater than the one given by a String of\n     * limit digits of the same length.\n     *\n     * @param numberStr Digits of the number to check\n     * @param limitStr Digits of the limit, as many as in numberStr\n     *\n     * @return True if the number is not greater than the limit\n     */\n    public static boolean notAboveLimit(String numberStr, String limitStr)\n    {\n        final int len = limitStr.length();\n        for (int i = 0; i < len; ++i) {\n            int diff = numberStr.charAt(i) - limitStr.charAt(i);\n            if (diff < 0) return true;\n            if (diff > 0) return false;\n        }\n        return true;\n    }\n\n\n    /*\n    /**********************************************************\n    /* Internal methods",
+   "old": "        return (T) codec.readTree(this);\n    }\n\n    /*\n    /**********************************************************\n    /* Internal methods",
+   "purpose": "MR-JacksonCore-1 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/io/NumberInput.java",
+   "new": "       The digits are first parsed into a BigInteger, which is negated for a number that had a minus sign and then compared with Long.MIN_VALUE and Long.MAX_VALUE.\n     */\n    public static boolean inLongRange(String numberStr, boolean negative)\n    {\n        return com.fasterxml.jackson.core.json.UTF8StreamJsonParser.fitsInLong(numberStr, negative);",
+   "old": "     */\n    public static boolean inLongRange(String numberStr, boolean negative)\n    {\n        String cmpStr = negative ? MIN_LONG_STR_NO_SIGN : MAX_LONG_STR;\n        int cmpLen = cmpStr.length();\n        int actualLen = numberStr.length();\n        if (actualLen < cmpLen) return true;\n        if (actualLen > cmpLen) return false;\n\n        // could perhaps just use String.compareTo()?\n        for (int i = 0; i < cmpLen; ++i) {\n            int diff = numberStr.charAt(i) - cmpStr.charAt(i);\n            if (diff != 0) {\n                return (diff < 0);\n            }\n        }\n        return true;",
+   "purpose": "MR-JacksonCore-1 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "        }\n    }\n\n    /**\n     * Helper method for determining whether given String of digits stands\n     * for a number that is not greater than the one given by a String of\n     * limit digits. A String with fewer digits than the limit is taken to\n     * be below it.\n     *\n     * @param numberStr Digits of the number to check\n     * @param limitStr Digits of the limit\n     *\n     * @return True if the number is not greater than the limit\n     */\n    public static boolean withinLimit(String numberStr, String limitStr)\n    {\n        if (numberStr.length() < limitStr.length()) {\n            return true;\n        }\n        return WriterBasedJsonGenerator.atMostLimit(numberStr, limitStr);\n    }\n\n\n    protected int _readBinary(Base64Variant b64variant, OutputStream out, byte[] buffer)",
+   "old": "        }\n    }\n\n    protected int _readBinary(Base64Variant b64variant, OutputStream out, byte[] buffer)",
+   "purpose": "MR-JacksonCore-1 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "new": "        writeRaw(String.valueOf(d));\n    }\n\n    /**\n     * Helper method for determining whether given String of digits stands\n     * for a number that is not greater than the one given by a String of\n     * limit digits of the same length.\n     *\n     * @param numberStr Digits of the number to check\n     * @param limitStr Digits of the limit, as many as in numberStr\n     *\n     * @return True if the number is not greater than the limit\n     */\n    public static boolean limitNotExceeded(String numberStr, String limitStr)\n    {\n        return JsonParser.notAboveLimit(numberStr, limitStr);\n    }\n\n\n    @Override",
+   "old": "        writeRaw(String.valueOf(d));\n    }\n\n    @Override",
+   "purpose": "MR-JacksonCore-1 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "new": "        return super.getValueAsString(null);\n    }\n\n    /**\n     * Helper method for determining if given String representation of\n     * an integral number, without its minus sign, would fit in 64-bit\n     * Java long or not. The limit digits are those of the magnitude of\n     * {@link Long#MIN_VALUE} for a negative number, and those of\n     * {@link Long#MAX_VALUE} otherwise.\n     *\n     * @param numberStr Digits of the number, without minus sign\n     * @param negative Whether original number had a minus sign or not\n     *\n     * @return True if the number fits in a long\n     */\n    public static boolean fitsInLong(String numberStr, boolean negative)\n    {\n        String limitStr = negative ? String.valueOf(Long.MIN_VALUE).substring(1) : String.valueOf(Long.MAX_VALUE);\n        return ReaderBasedJsonParser.withinLimit(numberStr, limitStr);\n    }\n\n    \n    // @since 2.1",
+   "old": "        return super.getValueAsString(null);\n    }\n    \n    // @since 2.1",
+   "purpose": "MR-JacksonCore-1 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "new": "        _writeContext = _writeContext.getParent();\n    }\n\n    /**\n     * Helper method for determining whether given String of digits, with\n     * at least as many digits as the limit, stands for a number that is not\n     * greater than the one given by a String of limit digits. A String with\n     * more digits than the limit is taken to be above it.\n     *\n     * @param numberStr Digits of the number to check\n     * @param limitStr Digits of the limit\n     *\n     * @return True if the number is not greater than the limit\n     */\n    public static boolean atMostLimit(String numberStr, String limitStr)\n    {\n        if (numberStr.length() > limitStr.length()) {\n            return false;\n        }\n        return UTF8JsonGenerator.limitNotExceeded(numberStr, limitStr);\n    }\n\n\n    @Override",
+   "old": "        _writeContext = _writeContext.getParent();\n    }\n\n    @Override",
+   "purpose": "MR-JacksonCore-1 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "method": "fitsInLong"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "method": "withinLimit"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "method": "atMostLimit"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.UTF8JsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "method": "limitNotExceeded"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonCore-1.py",
+ "entry_points": [
+  "com.fasterxml.jackson.core.io.NumberInput::inLongRange"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.core.io.NumberInput::inLongRange",
+  "com.fasterxml.jackson.core.base.ParserBase::_parseSlowIntValue",
+  "com.fasterxml.jackson.core.base.ParserBase::convertNumberToLong"
+ ],
+ "expected_signature": "testLongBoundsChecks(TestNumberParsing.java:66)",
+ "extra_tests": [],
+ "fixture_key": "JacksonCore-1",
+ "gold": {
+  "class": "com.fasterxml.jackson.core.JsonParser",
+  "edits": [
+   {
+    "new": "            int diff = numberStr.charAt(i) - limitStr.charAt(i);\n            if (diff > 0) return false;",
+    "old": "            int diff = numberStr.charAt(i) - limitStr.charAt(i);\n            if (diff < 0) return true;\n            if (diff > 0) return false;"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/core/JsonParser.java",
+  "method": "notAboveLimit"
+ },
+ "group": "MR-JacksonCore-1",
+ "hops": 5,
+ "iid": "MR-JacksonCore-1",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold sees the digits of the number next to the digits of the limit; hops 1-4 hold the whole Strings (hop 1 picks the limit for the sign, hops 2 and 3 settle different digit counts, hop 4 passes the pair on) and get back one boolean, which cannot be traced back to the digit that decided it. The convention is pinned outside the gold: the sibling overload NumberInput.inLongRange(char[], int, int, boolean), the one the parser uses in ParserBase._parseSlowIntValue, compares the same two digit sequences and lets the first digit that differs decide (`if (diff != 0) return (diff < 0);`); its parser tests pass on the variant (testLongRange: Long.MAX_VALUE and Long.MIN_VALUE parse as long; testBigDecimalRange and testLongOverflow: one past either limit does not); ParserBase.convertNumberToLong decides the same range by value, with both limits inclusive. The gold's javadoc promises whether the number is not greater than the limit, which 1323372036854775807 is not, for the limit 9223372036854775808. A one-line edit above the gold that answers a lower first digit itself passes the existing tests but is not consistent with the path: the chain still gives false for 9123372036854775807, where the char[] overload gives true.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.core.json.TestNumericValues::testLongRange",
+  "com.fasterxml.jackson.core.json.TestNumericValues::testBigDecimalRange",
+  "com.fasterxml.jackson.core.json.TestNumericValues::testLongOverflow",
+  "com.fasterxml.jackson.core.json.TestJsonGenerator::testLongWrite"
+ ],
+ "project": "JacksonCore",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getValueAsString",
+    "anchor_seed": 2191,
+    "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "fitsInLong",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "readBinaryValue",
+    "anchor_seed": 2192,
+    "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "withinLimit",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeEndArray",
+    "anchor_seed": 2193,
+    "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "atMostLimit",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeNumber",
+    "anchor_seed": 2194,
+    "class": "com.fasterxml.jackson.core.json.UTF8JsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "limitNotExceeded",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "readValueAsTree",
+    "anchor_seed": 2195,
+    "class": "com.fasterxml.jackson.core.JsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/JsonParser.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "notAboveLimit",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2091
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonCore-1"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.core.main.TestNumberParsing",
+  "test_file": "src/test/java/com/fasterxml/jackson/core/main/TestNumberParsing.java",
+  "test_method": "testLongBoundsChecks"
+ },
+ "variant_id": "CTV-6AA6B3",
+ "kind": "new",
+ "fault_lines": [
+  "int diff = numberStr.charAt(i) - limitStr.charAt(i);\n            if (diff > 0) return false;"
+ ],
+ "gold_key": "com.fasterxml.jackson.core.JsonParser::notAboveLimit"
+}

@@ -1,0 +1,234 @@
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index 3a9198271..771fed314 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -20,6 +20,9 @@ package org.apache.commons.math3.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math3.FieldElement;
++import org.apache.commons.math3.linear.RealMatrix;
++import org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer;
++import org.apache.commons.math3.util.FastMath;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -578,6 +581,37 @@ public class Dfp implements FieldElement<Dfp> {
+         return new Dfp(getField(), x);
+     }
+ 
++    /**
++     * Computes the asymptotic standard errors of the parameters of a
++     * least-squares fit from its weighted Jacobian and its chi-square.
++     *
++     * <p>The standard deviation of each parameter is multiplied by the
++     * residual factor sqrt(chiSquare / (observations - parameters)), the
++     * square root of the chi-square per degree of freedom.</p>
++     *
++     * @param jacobian the weighted Jacobian of the fit, one row per
++     * observation and one column per parameter
++     * @param chiSquare the chi-square of the fit
++     * @param observations the number of observations
++     * @param parameters the number of parameters, less than the number of
++     * observations
++     * @param threshold the singularity threshold of the decomposition
++     * @return the asymptotic standard error of each parameter
++     * @throws org.apache.commons.math3.linear.SingularMatrixException if the
++     * covariance matrix cannot be computed
++     */
++    public static double[] parameterErrors(final RealMatrix jacobian, final double chiSquare,
++                                           final int observations, final int parameters,
++                                           final double threshold) {
++        final double[] errors = BOBYQAOptimizer.fitDeviations(jacobian, threshold);
++        final double factor = FastMath.sqrt(chiSquare / (observations - parameters));
++        for (int i = 0; i < errors.length; i++) {
++            errors[i] *= factor;
++        }
++        return errors;
++    }
++
++
+     /** Create an instance from a double value.
+      * @param x value to convert to an instance
+      * @return a new instance with value x
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+index 763a8d16c..d30100912 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java
+@@ -490,6 +490,46 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Computes the standard deviations of the parameters of a least-squares
++     * fit from its normal matrix.
++     *
++     * <p>The normal matrix is equilibrated before it is decomposed: each entry
++     * is divided by the square roots of the diagonal entries of its row and of
++     * its column, which keeps the decomposition well conditioned when the
++     * parameters have very different magnitudes. The inverse of the
++     * equilibrated matrix is computed with a QR decomposition with the given
++     * singularity threshold, and the deviations are derived from the diagonal
++     * of the inverse.</p>
++     *
++     * @param normal the normal matrix J<sup>T</sup>J of the fit, one row and
++     * one column per parameter
++     * @param threshold the singularity threshold of the QR decomposition
++     * @return the standard deviation of each parameter
++     * @throws SingularMatrixException if the equilibrated matrix is singular
++     */
++    public static double[] deviationsFromNormal(final double[][] normal, final double threshold) {
++        final int n = normal.length;
++        final double[] scale = new double[n];
++        for (int i = 0; i < n; i++) {
++            scale[i] = FastMath.sqrt(normal[i][i]);
++        }
++        final double[][] equilibrated = new double[n][n];
++        for (int i = 0; i < n; i++) {
++            for (int j = 0; j < n; j++) {
++                equilibrated[i][j] = normal[i][j] / (scale[i] * scale[j]);
++            }
++        }
++        final double[][] inverse =
++            new QRDecomposition(MatrixUtils.createRealMatrix(equilibrated), threshold).getSolver().getInverse().getData();
++        final double[] deviations = new double[n];
++        for (int i = 0; i < n; i++) {
++            deviations[i] = FastMath.sqrt(inverse[i][i]);
++        }
++        return deviations;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public FieldMatrix<T> multiply(final FieldMatrix<T> m)
+diff --git a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+index a03c4f456..932df4dac 100644
+--- a/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java
+@@ -29,6 +29,7 @@ import org.apache.commons.math3.exception.OutOfRangeException;
+ import org.apache.commons.math3.exception.util.LocalizedFormats;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathUtils;
++import org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -1091,6 +1092,22 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return out;
+     }
+ 
++    /**
++     * Computes the standard deviations of the parameters of a least-squares
++     * fit from its weighted Jacobian J, through the normal matrix
++     * J<sup>T</sup>J.
++     *
++     * @param jacobian weighted Jacobian (one row per observation, one column
++     * per parameter)
++     * @param threshold singularity threshold of the decomposition
++     * @return the standard deviation of each parameter
++     */
++    public static double[] jacobianDeviations(final RealMatrix jacobian, final double threshold) {
++        final RealMatrix normal = jacobian.transpose().multiply(jacobian);
++        return BOBYQAOptimizer.normalDeviations(normal, threshold);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setRow(final int row, final double[] array)
+diff --git a/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
+index 94f7a929c..02f4eca0a 100644
+--- a/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
+@@ -28,6 +28,8 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optim.nonlinear.scalar.GoalType;
+ import org.apache.commons.math3.optim.PointValuePair;
+ import org.apache.commons.math3.optim.nonlinear.scalar.MultivariateOptimizer;
++import org.apache.commons.math3.linear.BlockRealMatrix;
++import org.apache.commons.math3.linear.RealMatrix;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -227,6 +229,20 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Computes the standard deviations of the parameters of a least-squares
++     * fit from its weighted Jacobian.
++     *
++     * @param jacobian Weighted Jacobian of the fit (one row per observation,
++     * one column per parameter).
++     * @param threshold Singularity threshold of the decomposition.
++     * @return the standard deviation of each parameter.
++     */
++    public static double[] fitDeviations(RealMatrix jacobian, double threshold) {
++        return BlockRealMatrix.jacobianDeviations(jacobian, threshold);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+index 15b14c768..c4c3af9c2 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+@@ -31,6 +31,8 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optimization.GoalType;
+ import org.apache.commons.math3.optimization.PointValuePair;
+ import org.apache.commons.math3.optimization.MultivariateOptimizer;
++import org.apache.commons.math3.linear.BlockFieldMatrix;
++import org.apache.commons.math3.linear.RealMatrix;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -233,6 +235,19 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Computes the standard deviations of the parameters of a least-squares
++     * fit from its normal matrix.
++     *
++     * @param normal Normal matrix J<sup>T</sup>J of the fit.
++     * @param threshold Singularity threshold of the decomposition.
++     * @return the standard deviation of each parameter.
++     */
++    public static double[] normalDeviations(RealMatrix normal, double threshold) {
++        return BlockFieldMatrix.deviationsFromNormal(normal.getData(), threshold);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/optimization/general/AbstractLeastSquaresOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/general/AbstractLeastSquaresOptimizer.java
+index 982e559eb..bc34dffdd 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/general/AbstractLeastSquaresOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/general/AbstractLeastSquaresOptimizer.java
+@@ -347,7 +347,8 @@ public abstract class AbstractLeastSquaresOptimizer
+      * {@code S} is the minimized value of the sum of squares objective function
+      * (as returned by {@link #getChiSquare()}), {@code n} is the number of
+      * observations, {@code m} is the number of parameters and {@code C} is the
+-     * covariance matrix.
++     * covariance matrix. The diagonal entries {@code C[i][i]} are obtained
++     * from a Cholesky decomposition of <code>J<sup>T</sup>J</code>.
+      * </p>
+      * <p>
+      * See also
+@@ -373,13 +374,7 @@ public abstract class AbstractLeastSquaresOptimizer
+             throw new NumberIsTooSmallException(LocalizedFormats.NO_DEGREES_OF_FREEDOM,
+                                                 rows, cols, false);
+         }
+-        double[] errors = new double[cols];
+-        final double c = FastMath.sqrt(getChiSquare() / (rows - cols));
+-        double[][] covar = computeCovariances(point, 1e-14);
+-        for (int i = 0; i < errors.length; ++i) {
+-            errors[i] = FastMath.sqrt(covar[i][i]) * c;
+-        }
+-        return errors;
++        return org.apache.commons.math3.dfp.Dfp.parameterErrors(computeWeightedJacobian(point), getChiSquare(), rows, cols, 1e-14);
+     }
+ 
+     /**

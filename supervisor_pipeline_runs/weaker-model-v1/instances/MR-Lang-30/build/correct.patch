@@ -1,0 +1,225 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index bf1318d39..339e25fbb 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -2129,6 +2129,33 @@ public class ArrayUtils {
+         return indexOf(array, valueToFind) != INDEX_NOT_FOUND;
+     }
+ 
++    /**
++     * <p>Joins the elements in a range of an array into a single String,
++     * with the separator character between adjacent elements, using a buffer
++     * of the given initial capacity.</p>
++     *
++     * @param array  the array of values to join together, not null
++     * @param separator  the separator character to use
++     * @param startIndex  the first index to start joining from
++     * @param endIndex  the index to stop joining from (exclusive)
++     * @param capacity  the initial capacity of the buffer
++     * @return the joined String
++     */
++    public static String concatWith(Object[] array, char separator, int startIndex, int endIndex, int capacity) {
++        final StringBuilder buf = new StringBuilder(capacity);
++        for (int i = startIndex; i < endIndex; i++) {
++            if (i > startIndex) {
++                buf.append(separator);
++            }
++            final Object item = array[i];
++            if (item != null) {
++                buf.append(item);
++            }
++        }
++        return buf.toString();
++    }
++
++
+     // byte IndexOf
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index da86fdb1a..a9d5fb260 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -3154,28 +3154,13 @@ public class StringUtils {
+      * an error to pass in an end index past the end of the array
+      * @return the joined String, <code>null</code> if null array input
+      * @since 2.0
++       The elements are joined from the end of the range back to its start, each element being inserted at the front of the buffer together with the separator that follows it.
+      */
+     public static String join(Object[] array, char separator, int startIndex, int endIndex) {
+         if (array == null) {
+             return null;
+         }
+-        int bufSize = (endIndex - startIndex);
+-        if (bufSize <= 0) {
+-            return EMPTY;
+-        }
+-
+-        bufSize *= ((array[startIndex] == null ? 16 : array[startIndex].toString().length()) + 1);
+-        StringBuilder buf = new StringBuilder(bufSize);
+-
+-        for (int i = startIndex; i < endIndex; i++) {
+-            if (i > startIndex) {
+-                buf.append(separator);
+-            }
+-            if (array[i] != null) {
+-                buf.append(array[i]);
+-            }
+-        }
+-        return buf.toString();
++        return org.apache.commons.lang3.time.DateUtils.textOfRange(array, separator, startIndex, endIndex);
+     }
+ 
+ 
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 6df1e6d68..8ad952873 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,7 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -835,6 +836,23 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Joins the elements in a range of an array into a single String,
++     * with the separator character between adjacent elements, using a buffer
++     * of the given initial capacity.</p>
++     *
++     * @param array  the array of values to join together, not null
++     * @param separator  the separator character to use
++     * @param startIndex  the first index to start joining from
++     * @param endIndex  the index to stop joining from (exclusive)
++     * @param capacity  the initial capacity of the buffer
++     * @return the joined String
++     */
++    public static String separatedText(Object[] array, char separator, int startIndex, int endIndex, int capacity) {
++        return ArrayUtils.concatWith(array, separator, startIndex, endIndex, capacity);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>boolean</code>
+      * value.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 6f2be0069..2e7cd20cc 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -2602,6 +2603,27 @@ public class StrBuilder implements CharSequence, Appendable {
+         return hash;
+     }
+ 
++    /**
++     * <p>Joins the elements in a non-empty range of an array into a single
++     * String, with the separator character between adjacent elements.</p>
++     *
++     * <p>The initial capacity of the buffer is estimated from the length of
++     * the first element of the range.</p>
++     *
++     * @param array  the array of values to join together, not null
++     * @param separator  the separator character to use
++     * @param startIndex  the first index to start joining from
++     * @param endIndex  the index to stop joining from (exclusive), greater
++     *  than startIndex
++     * @return the joined String
++     */
++    public static String textOfElements(Object[] array, char separator, int startIndex, int endIndex) {
++        final Object first = array[startIndex];
++        final int capacity = (endIndex - startIndex) * ((first == null ? 16 : first.toString().length()) + 1);
++        return FastDateFormat.elementsText(array, separator, startIndex, endIndex, capacity);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Gets a String version of the string builder, creating a new instance
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index f6c2adae0..ae843bfcf 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -741,6 +742,27 @@ public class DateUtils {
+         }
+     }
+ 
++    /**
++     * <p>Joins the elements in the range <code>[startIndex, endIndex)</code> of
++     * an array into a single String, with the separator character between
++     * adjacent elements.</p>
++     *
++     * <p>An empty range gives the empty String.</p>
++     *
++     * @param array  the array of values to join together, not null
++     * @param separator  the separator character to use
++     * @param startIndex  the first index to start joining from
++     * @param endIndex  the index to stop joining from (exclusive)
++     * @return the joined String
++     */
++    public static String textOfRange(Object[] array, char separator, int startIndex, int endIndex) {
++        if (endIndex - startIndex <= 0) {
++            return "";
++        }
++        return StrBuilder.textOfElements(array, separator, startIndex, endIndex);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Truncate this date, leaving the field specified as the most
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index e30da2a56..566dfce1c 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -954,6 +955,23 @@ public class FastDateFormat extends Format {
+         return mLocale;
+     }
+ 
++    /**
++     * <p>Joins the elements in a range of an array into a single String,
++     * with the separator character between adjacent elements, using a buffer
++     * of the given initial capacity.</p>
++     *
++     * @param array  the array of values to join together, not null
++     * @param separator  the separator character to use
++     * @param startIndex  the first index to start joining from
++     * @param endIndex  the index to stop joining from (exclusive)
++     * @param capacity  the initial capacity of the buffer
++     * @return the joined String
++     */
++    public static String elementsText(Object[] array, char separator, int startIndex, int endIndex, int capacity) {
++        return ToStringStyle.separatedText(array, separator, startIndex, endIndex, capacity);
++    }
++
++
+     /**
+      * <p>Gets an estimate for the maximum string length that the
+      * formatter will produce.</p>

@@ -1,0 +1,69 @@
+{
+  "instance": "Gson-1",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.gson.stream.JsonWriter::typeOfVariable (hop 4)",
+      "edit": "before `return JsonPrimitive.typeAssignedTo(variable, parentType, rawParentClass);` insert `while (rawParentClass != null && rawParentClass != variable.getGenericDeclaration()) { parentType = rawParentClass.getGenericSuperclass(); rawParentClass = rawParentClass.getSuperclass(); }` (the gold's omitted loop hoisted into the pass-through)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.gson.Gson::actualTypeOf (hop 3)",
+      "edit": "in the TypeVariable branch, before `return JsonWriter.typeOfVariable(...)` insert `while (rawParentClass != null && rawParentClass != ((TypeVariable<?>) fieldType).getGenericDeclaration()) { parentType = rawParentClass.getGenericSuperclass(); rawParentClass = rawParentClass.getSuperclass(); }`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.gson.stream.JsonWriter::typeOfVariable (hop 4)",
+      "edit": "one line: `return rawParentClass != variable.getGenericDeclaration() ? JsonPrimitive.typeAssignedTo(variable, rawParentClass.getGenericSuperclass(), rawParentClass.getSuperclass()) : JsonPrimitive.typeAssignedTo(variable, parentType, rawParentClass);` (one-level substitution)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "com.google.gson.stream.JsonReader::typeOfField (hop 1)",
+      "edit": "one line: pass `parentType instanceof Class<?> && ((Class<?>) parentType).getSuperclass() == field.getDeclaringClass() ? ((Class<?>) parentType).getGenericSuperclass() : parentType` as the parent type (one-level substitution)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "declared compensations (hop 1 declaring class, hop 3 first bound, hop 4 generic superclass with unchanged raw class)",
+      "edit": "as listed in spec.compensating; not re-run by hand, G9 records trigger_fail=1 for all three; by inspection each leaves S unresolved or replaces it by Object",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade com.google.gson.TypeInfoFactory::getTypeInfoForField(Field, Type) -> return new TypeInfo(JsonReader.typeOfField(f, typeDefiningF))",
+    "hop1 com.google.gson.stream.JsonReader::typeOfField(Field, Type) -> GsonBuilder.fieldTypeIn(field.getGenericType(), parentType)",
+    "hop2 com.google.gson.GsonBuilder::fieldTypeIn(Type, Type) -> Gson.actualTypeOf(fieldType, parentType, TypeUtils.toRawClass(parentType))",
+    "hop3 com.google.gson.Gson::actualTypeOf(Type, Type, Class) -> structural recursion; TypeVariable branch -> JsonWriter.typeOfVariable",
+    "hop4 com.google.gson.stream.JsonWriter::typeOfVariable(TypeVariable, Type, Class) -> JsonPrimitive.typeAssignedTo (pure pass-through)",
+    "gold com.google.gson.JsonPrimitive::typeAssignedTo(TypeVariable, Type, Class) -> omits the climb from the parent class to the class that declares the variable; returns S for (S, Bar.class, Bar.class)"
+  ],
+  "reasons": "Variant compiles; TypeVariableTest::testSingle fails with IllegalArgumentException \"Type 'S' is not a Class, ParameterizedType, or GenericArrayType\" from TypeUtils.toRawClass in new TypeInfo(...) at the facade; full suite 720 tests, only the trigger fails (pristine baseline 0 failures; correct config 0 failures). (a) On the trigger the gold receives (S of Foo, Bar.class, Bar.class). Its javadoc promises the type the parent type assigns to a variable used in one of its fields, falling back to the variable only when the parent type assigns none; Bar assigns String to S through extends Foo<String, Integer>, yet the gold returns S. Hops 1-4 and the facade return the wrong type only through delegation: each passes its arguments unchanged (hop 2 adds the documented raw class) to a callee whose documented contract is exactly what it needs, so the gold is the only local contract violation. TypeUtils.toRawClass/TypeInfo throw as documented for a TypeVariable. (b) No hop javadoc contradicts its code: hop 1/2 'as seen from the object that contains it', hop 3 structural evaluation with variables replaced 'by the type that the parent type assigns', hop 4 the same contract as the gold. Every hop documents parentType as 'the type of the object that contains the field', which is what ObjectNavigator.navigateClassFields passes (the navigated subclass type for superclass fields), so no hop is documented as the place that resolves the declaring supertype. (c) Four alternatives pass the trigger, the ownership tests and the full suite. The two full-climb hoists (hop 4, hop 3) are behaviourally identical to the gold repair because hop 4 is the gold's only caller and a pure pass-through, but they rebind parentType to the declaring generic supertype (Foo<String,Integer>), which is not the type of the object that contains the field as hops 3-5 document it and as ObjectNavigator and InheritanceTest pin it, and they leave the gold violating its own contract on its documented input; they re-implement the gold's resolution upstream: bypass. The one-line one-level substitutions (hop 4, hop 1) additionally leave a variable assigned two levels up unresolved (probe: Baz extends Bar navigated as Baz.class gives IllegalArgumentException, whereas the correct gold and the hoists give String), so they do not meet the hops' contracts or the full-chain walk of TypeToken.isAssignableFrom: not doc-consistent. No competing repair. (d) Neutral names (typeOfField, fieldTypeIn, actualTypeOf, typeOfVariable, typeAssignedTo); no comments in added lines; the lie (string-based signature rewriting) names neither inheritance nor the superclass climb. (e) facade -> 5 hops, gold at call depth 5; hosts JsonReader 1118, GsonBuilder 570, Gson 566, JsonWriter 553, JsonPrimitive 387 lines are, in that order, the five largest public non-interface non-enum classes other than TypeInfoFactory (no class reaches 1500; package-private DefaultTypeAdapters 892 correctly excluded), matching addendum section 1 and the task record (host_mode largest5); facade body is one delegating call wrapped in the original's new TypeInfo(...) (the original had no guard); one added procedural sentence the code does not perform; gold javadoc silent on the climb; trigger existing, test.patch empty, only it newly fails. (f) Pinned outside the gold: ObjectNavigator.navigateClassFields evaluates every superclass's fields with the navigated subclass type; TypeToken.getSuperclassTypeParameter reads the type argument a subclass assigns through its generic superclass; TypeToken.isAssignableFrom walks the generic superclass chain mapping type parameters; passing tests InheritanceTest::testSubClassSerialization (inherited fields with the subclass parent type) and TypeInfoFactoryTest/ParameterizedTypesTest (direct mapping).",
+  "notes": "Recorded bypass (exact edit): JsonWriter.typeOfVariable with the gold's while-loop inserted before its return (and the same loop in Gson.actualTypeOf's TypeVariable branch). Because the omitted step is a parameter-normalising prefix of the gold and hop 4 forwards the gold's parameters unchanged, no test can separate the hoist from the gold repair; ownership rests on the documented meaning of parentType ('the type of the object that contains the field', pinned to the navigated subclass by ObjectNavigator and the facade's @param typeDefiningF). A reviewer who reads 'the type of the object' as 'any supertype of the object' would see the hop-4 hoist as doc-consistent; I do not, but this is the point to check. Limitation of the correct gold, not of ownership: it climbs any number of levels but does not compose substitutions (class Leaf extends Mid<Double>, Mid<X> extends Foo<X, Long>: correct gold returns X and TypeInfo throws); the hoists behave the same. The facade's class TypeInfoFactory is package-private; the facade method itself is public static and is the pre-registered allowed target. Ownership tests passed explicitly on the variant and on all four alternatives. The decisive multi-level probe was a scratch Java main compiled against each copy's target/classes. Scratch under /private/tmp/mxb-mXlyyV deleted."
+}

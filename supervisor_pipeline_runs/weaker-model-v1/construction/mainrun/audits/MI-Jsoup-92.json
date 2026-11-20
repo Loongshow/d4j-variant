@@ -1,0 +1,47 @@
+{
+ "instance": "Jsoup-92__i",
+ "iid": "MI-Jsoup-92",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.jsoup.parser.HtmlTreeBuilder::tokenAttributes (hop 4)",
+   "edit": "replace 'return Node.listAttributes(keys, vals, size, parent);' with 'List<Attribute> list = new ArrayList<>(size); for (int i = 0; i < size; i++) list.addAll(Node.listAttributes(new String[]{keys[i]}, new String[]{vals[i]}, 1, parent)); return list;'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "multi-line workaround that slices the slots so the gold's own loop never sees more than one slot; the gold still violates its documented contract on any multi-slot input; not equally small to the one-line gold fix"
+  },
+  {
+   "method": "org.jsoup.nodes.Element::attributesView (hop 1)",
+   "edit": "call HttpConnection.attributePairs(...) and discard its result; build the list itself: for each slot add vals[i] == null ? new BooleanAttribute(keys[i]) : new Attribute(keys[i], vals[i], parent); return Collections.unmodifiableList(list)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "re-implements the gold's computation and makes hop 2's output dead"
+  }
+ ],
+ "path": [
+  "facade org.jsoup.nodes.Attributes::asList (instance; V1+V2: passes keys, vals, size and this)",
+  "hop1 org.jsoup.nodes.Element::attributesView",
+  "hop2 org.jsoup.helper.HttpConnection::attributePairs",
+  "hop3 org.jsoup.select.Evaluator.IsNthOfType::matchableAttributes",
+  "hop4 org.jsoup.parser.HtmlTreeBuilder::tokenAttributes",
+  "gold org.jsoup.nodes.Node::listAttributes"
+ ],
+ "reasons": "Variant compiles; trigger AttributeParseTest::parsesBooleanAttributes fails ('empty' attribute should not be boolean) and is the only full-suite failure. (a) On <a normal=\"123\" boolean empty=\"\"> the slots reach the gold as keys [normal, boolean, empty], vals [\"123\", null, \"\"]; the gold's javadoc says a bare attribute (no value) is listed as a BooleanAttribute, yet the sticky 'bare' flag lists 'empty' (value \"\") as one. Hops 1-4 only forward the arrays/count/parent (hop 1 wraps unmodifiable) and their contracts (attributes of the slots in slot order; read-only list) hold. Token.Tag.newAttribute stores \"\" vs null correctly. (b) Hop javadocs match their forwarding code and say nothing about Boolean vs valued attributes. (c) No one-line edit above the gold fixes it (values already right; count/arrays/parent edits don't help); two passing alternatives found, both bypasses (hop-4 slot slicing workaround; hop-1 reimplementation). (d) Names neutral; G2b clean; facade lie 'Each attribute is created lazily, the first time its position in the returned list is read' is false (list built eagerly) but does not name the flag reset; gold javadoc states the contract, not the reset step. (e) Gold is 5 calls below the facade; hosts are exactly hosts_hop_order (Element 1524, HttpConnection 1205, Evaluator 778 [nested public static IsNthOfType], HtmlTreeBuilder 741, Node 725), five distinct existing classes; facade body is one delegating call with state (no guard in original); one added javadoc sentence; correct.patch differs from variant only by the 'bare = false;' line; test.patch empty. (f) Per-slot convention pinned by Attributes.iterator (slot i from keys[i], vals[i]), Attributes.html (shouldCollapseAttribute on that slot's own value), Token.Tag.newAttribute (resets value flags after every attribute), and passing tests ElementTest::testAddBooleanAttribute and AttributeTest::booleanAttributesAreEmptyStringValues. (g) C10i rules: no visibility widening (only additions plus the asList body), no new type, no reflection, asList signature/modifiers unchanged, no test edits.",
+ "notes": "Lie sentence is appended inside the @return block of asList's javadoc (formatting only). The pristine-copy rebuild needed target/classes removed because cp -R timestamps defeated ant's incremental compile; all reported results are from clean rebuilds. Facade reuse of Jsoup-75__i's planned facade is recorded in the task record and allowed."
+}

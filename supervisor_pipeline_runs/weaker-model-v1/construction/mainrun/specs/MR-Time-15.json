@@ -1,0 +1,229 @@
+{
+ "bug_id": 15,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "return LocalDate.productOf(val2, val1);",
+   "old": "return LocalDate.productOf(val1, val2);",
+   "why": "hop 4 passes the two values in the other order"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalDateTime.java",
+   "new": "return DateTimeZoneBuilder.productValue(-val1, -val2);",
+   "old": "return DateTimeZoneBuilder.productValue(val1, val2);",
+   "why": "hop 3 passes both values negated (the same product)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "return val2 == -1 ? -val1 : DateTimeFormatterBuilder.productOfValues(val1, val2);",
+   "old": "return DateTimeFormatterBuilder.productOfValues(val1, val2);",
+   "why": "hop 1 returns the negation of the first value for a second value of minus one"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/LocalDate.java",
+   "new": "    /**\n     * Multiply two values throwing an exception if overflow occurs.\n     *\n     * @param val1  the first value, not zero\n     * @param val2  the second value, not zero\n     * @return the product of the two values\n     * @throws ArithmeticException if the product is too big or too small\n     */\n    public static long productOf(long val1, long val2) {\n        final long smaller = Math.min(val1, val2);\n        final long larger = Math.max(val1, val2);\n        final long total = smaller * larger;\n        if (total / larger != smaller\n                || smaller == Long.MIN_VALUE && larger == -1) {\n            throw new ArithmeticException(\"Multiplication overflows a long: \" + val1 + \" * \" + val2);\n        }\n        return total;\n    }\n\n\n    /**\n     * Returns a copy of this date with the value of the specified field increased.",
+   "old": "    /**\n     * Returns a copy of this date with the value of the specified field increased.",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalDateTime.java",
+   "new": "import org.joda.time.format.ISODateTimeFormat;\nimport org.joda.time.tz.DateTimeZoneBuilder;\n",
+   "old": "import org.joda.time.format.ISODateTimeFormat;\n",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalDateTime.java",
+   "new": "        return new Property(this, getChronology().millisOfDay());\n    }\n\n    /**\n     * Multiply two values, neither of them zero or one, throwing an exception\n     * if overflow occurs.\n     *\n     * @param val1  the first value, not zero or one\n     * @param val2  the second value, not zero or one\n     * @return the new total\n     * @throws ArithmeticException if the value is too big or too small\n     */\n    public static long valueProduct(long val1, long val2) {\n        return DateTimeZoneBuilder.productValue(val1, val2);\n    }\n\n\n    //-----------------------------------------------------------------------\n    /**\n     * Output the date time in ISO8601 format (yyyy-MM-ddTHH:mm:ss.SSS).",
+   "old": "        return new Property(this, getChronology().millisOfDay());\n    }\n\n    //-----------------------------------------------------------------------\n    /**\n     * Output the date time in ISO8601 format (yyyy-MM-ddTHH:mm:ss.SSS).",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "import org.joda.time.format.PeriodFormatter;\nimport org.joda.time.format.DateTimeFormatterBuilder;\n",
+   "old": "import org.joda.time.format.PeriodFormatter;\n",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "        return new Period(new int[] {years, 0, 0, 0, 0, 0, 0, 0, 0}, PeriodType.standard());\n    }\n\n    /**\n     * Multiply two values throwing an exception if overflow occurs.\n     * <p>\n     * When either value is one, the other value is returned unchanged.\n     *\n     * @param val1  the first value\n     * @param val2  the second value\n     * @return the new total\n     * @throws ArithmeticException if the value is too big or too small\n     */\n    public static long multipliedValue(long val1, long val2) {\n        if (val2 == 1) {\n            return val1;\n        }\n        if (val1 == 1) {\n            return val2;\n        }\n        return DateTimeFormatterBuilder.productOfValues(val1, val2);\n    }\n\n\n    /**",
+   "old": "        return new Period(new int[] {years, 0, 0, 0, 0, 0, 0, 0, 0}, PeriodType.standard());\n    }\n\n    /**",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/field/FieldUtils.java",
+   "new": "       Both values are first widened to BigInteger and multiplied exactly, and the exact product is narrowed back to a long only when it lies within the range of a long.\n     */\n    public static long safeMultiply(long val1, long val2) {\n        return org.joda.time.Period.multipliedValue(val1, val2);",
+   "old": "     */\n    public static long safeMultiply(long val1, long val2) {\n        if (val2 == 1) {\n            return val1;\n        }\n        if (val1 == 1) {\n            return val2;\n        }\n        if (val1 == 0 || val2 == 0) {\n            return 0;\n        }\n        long total = val1 * val2;\n        if (total / val2 != val1 || val1 == Long.MIN_VALUE && val2 == -1 || val2 == Long.MIN_VALUE && val1 == -1) {\n            throw new ArithmeticException(\"Multiplication overflows a long: \" + val1 + \" * \" + val2);\n        }\n        return total;",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "import org.joda.time.field.PreciseDateTimeField;\nimport org.joda.time.LocalDateTime;\n",
+   "old": "import org.joda.time.field.PreciseDateTimeField;\n",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "        return appendText(DateTimeFieldType.dayOfWeek());\n    }\n\n    /**\n     * Multiply two values, neither of them one, throwing an exception if\n     * overflow occurs.\n     * <p>\n     * When either value is zero, the product is zero.\n     *\n     * @param val1  the first value, not one\n     * @param val2  the second value, not one\n     * @return the new total\n     * @throws ArithmeticException if the value is too big or too small\n     */\n    public static long productOfValues(long val1, long val2) {\n        if (val1 == 0 || val2 == 0) {\n            return 0;\n        }\n        return LocalDateTime.valueProduct(val1, val2);\n    }\n\n\n    /**",
+   "old": "        return appendText(DateTimeFieldType.dayOfWeek());\n    }\n\n    /**",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport org.joda.time.LocalDate;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "        return this;\n    }\n\n    /**\n     * Multiply two values, neither of them zero or one, throwing an exception\n     * if overflow occurs.\n     *\n     * @param val1  the first value, not zero or one\n     * @param val2  the second value, not zero or one\n     * @return the new total\n     * @throws ArithmeticException if the value is too big or too small\n     */\n    public static long productValue(long val1, long val2) {\n        return LocalDate.productOf(val1, val2);\n    }\n\n\n    private RuleSet getLastRuleSet() {",
+   "old": "        return this;\n    }\n\n    private RuleSet getLastRuleSet() {",
+   "purpose": "MR-Time-15 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.Period",
+   "file": "src/main/java/org/joda/time/Period.java",
+   "method": "multipliedValue"
+  },
+  {
+   "class": "org.joda.time.format.DateTimeFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "method": "productOfValues"
+  },
+  {
+   "class": "org.joda.time.LocalDateTime",
+   "file": "src/main/java/org/joda/time/LocalDateTime.java",
+   "method": "valueProduct"
+  },
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "productValue"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-15.py",
+ "entry_points": [
+  "org.joda.time.field.FieldUtils::safeMultiply"
+ ],
+ "evidence": [
+  "org.joda.time.field.FieldUtils::safeMultiply",
+  "org.joda.time.field.FieldUtils::safeNegate",
+  "org.joda.time.field.FieldUtils::safeSubtract"
+ ],
+ "expected_signature": "junit.framework.AssertionFailedError",
+ "extra_tests": [],
+ "fixture_key": "Time-15",
+ "gold": {
+  "class": "org.joda.time.LocalDate",
+  "edits": [
+   {
+    "new": "        if (total / larger != smaller) {",
+    "old": "        if (total / larger != smaller\n                || smaller == Long.MIN_VALUE && larger == -1) {"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/LocalDate.java",
+  "method": "productOf"
+ },
+ "group": "MR-Time-15",
+ "hops": 5,
+ "iid": "MR-Time-15",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold forms the product and makes the overflow decision; hops 1 and 2 return early for a factor of one or zero and never multiply, hops 3 and 4 pass the pair along. The gold orders the pair itself (smaller and larger value), so no reordering of the operands above it changes what it sees, and the only product-preserving change a hop could make otherwise (negating both) maps the minimum value to itself and minus one to one, a legal product. Once the gold has returned Long.MIN_VALUE, a caller cannot tell an overflowed MIN * -1 from a legal MIN * 1 without re-deciding the pair itself. The convention is pinned outside the gold: the sibling overload FieldUtils.safeMultiply(long, int) takes exactly this step (case -1: the minimum value throws 'Multiplication overflows a long'), and TestFieldUtils.testSafeMultiplyLongInt asserts that safeMultiply(Long.MIN_VALUE, -1) throws and passes; FieldUtils.safeNegate throws for the negation of the minimum value ('@throws ArithmeticException if the value is Integer.MIN_VALUE'); FieldUtils.safeSubtract and safeAdd throw at the long range ends (testSafeSubtractLong, testSafeAddLong). The gold's javadoc promises an exception when the product is too big, and the true product of Long.MIN_VALUE and -1 is 2^63.",
+ "ownership_tests": [
+  "org.joda.time.field.TestFieldUtils::testSafeMultiplyLongInt",
+  "org.joda.time.field.TestFieldUtils::testSafeSubtractLong",
+  "org.joda.time.field.TestFieldUtils::testSafeAddLong"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "years",
+    "anchor_seed": 2543,
+    "class": "org.joda.time.Period",
+    "file": "src/main/java/org/joda/time/Period.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.joda.time.format.DateTimeFormatterBuilder;"
+    ],
+    "method": "multipliedValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendDayOfWeekText",
+    "anchor_seed": 2544,
+    "class": "org.joda.time.format.DateTimeFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.joda.time.LocalDateTime;"
+    ],
+    "method": "productOfValues",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "millisOfDay",
+    "anchor_seed": 2545,
+    "class": "org.joda.time.LocalDateTime",
+    "file": "src/main/java/org/joda/time/LocalDateTime.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.joda.time.tz.DateTimeZoneBuilder;"
+    ],
+    "method": "valueProduct",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "addRecurringSavings",
+    "anchor_seed": 2546,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.joda.time.LocalDate;"
+    ],
+    "method": "productValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "withField",
+    "anchor_seed": 2547,
+    "class": "org.joda.time.LocalDate",
+    "file": "src/main/java/org/joda/time/LocalDate.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "productOf",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2443
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-15"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.field.TestFieldUtils",
+  "test_file": "src/test/java/org/joda/time/field/TestFieldUtils.java",
+  "test_method": "testSafeMultiplyLongLong"
+ },
+ "variant_id": "CTV-A45D68",
+ "kind": "new",
+ "fault_lines": [
+  "if (total / larger != smaller) {"
+ ],
+ "gold_key": "org.joda.time.LocalDate::productOf"
+}

@@ -1,0 +1,182 @@
+diff --git a/src/main/java/org/joda/time/DateTime.java b/src/main/java/org/joda/time/DateTime.java
+index 6cb6dc31..55516749 100644
+--- a/src/main/java/org/joda/time/DateTime.java
++++ b/src/main/java/org/joda/time/DateTime.java
+@@ -909,6 +909,19 @@ public final class DateTime
+         return withDurationAdded(duration, 1);
+     }
+ 
++    /**
++     * Gets the millisecond instant in another zone keeping the field values.
++     *
++     * @param zone  the zone of the instant, not null
++     * @param newZone  the new zone, not null
++     * @param instant  the UTC millisecond instant to convert
++     * @return the UTC millisecond instant with the same local time in the new zone
++     */
++    public static long zoneMillisKeepingFields(DateTimeZone zone, DateTimeZone newZone, long instant) {
++        return LocalDate.millisAtSameLocal(zone, newZone, instant);
++    }
++
++
+     /**
+      * Returns a copy of this datetime with the specified duration added.
+      * <p>
+diff --git a/src/main/java/org/joda/time/DateTimeZone.java b/src/main/java/org/joda/time/DateTimeZone.java
+index ec05941f..2a1994b0 100644
+--- a/src/main/java/org/joda/time/DateTimeZone.java
++++ b/src/main/java/org/joda/time/DateTimeZone.java
+@@ -1023,16 +1023,10 @@ public abstract class DateTimeZone implements Serializable {
+      * @param newZone  the new zone, null means default
+      * @param oldInstant  the UTC millisecond instant to convert
+      * @return the UTC millisecond instant with the same local time in the new zone
++       The instant is first split into the whole days since the epoch and the millis of the day, and only the millis of the day are carried across to the new zone.
+      */
+     public long getMillisKeepLocal(DateTimeZone newZone, long oldInstant) {
+-        if (newZone == null) {
+-            newZone = DateTimeZone.getDefault();
+-        }
+-        if (newZone == this) {
+-            return oldInstant;
+-        }
+-        long instantLocal = convertUTCToLocal(oldInstant);
+-        return newZone.convertLocalToUTC(instantLocal, false, oldInstant);
++        return org.joda.time.format.DateTimeFormatterBuilder.instantInZone(this, newZone, oldInstant);
+     }
+ 
+ //    //-----------------------------------------------------------------------
+diff --git a/src/main/java/org/joda/time/LocalDate.java b/src/main/java/org/joda/time/LocalDate.java
+index 8656c373..55e94ebc 100644
+--- a/src/main/java/org/joda/time/LocalDate.java
++++ b/src/main/java/org/joda/time/LocalDate.java
+@@ -332,6 +332,23 @@ public final class LocalDate
+         iChronology = chronology;
+     }
+ 
++    /**
++     * Gets the millisecond instant in another zone keeping the same local time.
++     * <p>
++     * The instant is converted to local millis in its own zone, and the local
++     * millis are then converted back to UTC millis in the new zone.
++     *
++     * @param zone  the zone of the instant, not null
++     * @param newZone  the new zone, not null
++     * @param instant  the UTC millisecond instant to convert
++     * @return the UTC millisecond instant with the same local time in the new zone
++     */
++    public static long millisAtSameLocal(DateTimeZone zone, DateTimeZone newZone, long instant) {
++        long instantLocal = zone.convertUTCToLocal(instant);
++        return newZone.convertLocalToUTC(instantLocal, false);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Constructs an instance from an Object that represents a datetime.
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index ebb4b087..bbcfa7ef 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -35,6 +35,7 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import org.joda.time.tz.DateTimeZoneBuilder;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -707,6 +708,24 @@ public class DateTimeFormatterBuilder {
+         return appendDecimal(DateTimeFieldType.hourOfHalfday(), minDigits, 2);
+     }
+ 
++    /**
++     * Gets the millisecond instant in another zone keeping the same local time.
++     * <p>
++     * A null new zone means the default zone.
++     *
++     * @param zone  the zone of the instant, not null
++     * @param newZone  the new zone, null means default
++     * @param instant  the UTC millisecond instant to convert
++     * @return the UTC millisecond instant with the same local time in the new zone
++     */
++    public static long instantInZone(DateTimeZone zone, DateTimeZone newZone, long instant) {
++        if (newZone == null) {
++            newZone = DateTimeZone.getDefault();
++        }
++        return DateTimeZoneBuilder.keepLocalInZone(zone, newZone, instant);
++    }
++
++
+     /**
+      * Instructs the printer to emit a numeric clockhourOfHalfday field.
+      *
+diff --git a/src/main/java/org/joda/time/format/ISODateTimeFormat.java b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+index ecd1219e..734e17bf 100644
+--- a/src/main/java/org/joda/time/format/ISODateTimeFormat.java
++++ b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+@@ -20,6 +20,8 @@ import java.util.HashSet;
+ import java.util.Set;
+ 
+ import org.joda.time.DateTimeFieldType;
++import org.joda.time.DateTime;
++import org.joda.time.DateTimeZone;
+ 
+ /**
+  * Factory that creates instances of DateTimeFormatter for the ISO8601 standard.
+@@ -636,6 +638,19 @@ public class ISODateTimeFormat {
+         return dpe;
+     }
+ 
++    /**
++     * Gets the millisecond instant in another zone with the same local fields.
++     *
++     * @param zone  the zone of the instant, not null
++     * @param newZone  the new zone, not null
++     * @param instant  the UTC millisecond instant to convert
++     * @return the UTC millisecond instant with the same local time in the new zone
++     */
++    public static long instantWithLocalFields(DateTimeZone zone, DateTimeZone newZone, long instant) {
++        return DateTime.zoneMillisKeepingFields(zone, newZone, instant);
++    }
++
++
+     /**
+      * Returns a generic ISO time parser for parsing times with a possible zone.
+      * The parser is strict by default, thus time string {@code 24:00} cannot be parsed.
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ab4731bb..adfd7927 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,7 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import org.joda.time.format.ISODateTimeFormat;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -400,6 +401,24 @@ public class DateTimeZoneBuilder {
+         return zone;
+     }
+ 
++    /**
++     * Gets the millisecond instant in another zone keeping the same local time.
++     * <p>
++     * An instant kept in its own zone is returned unchanged.
++     *
++     * @param zone  the zone of the instant, not null
++     * @param newZone  the new zone, not null
++     * @param instant  the UTC millisecond instant to convert
++     * @return the UTC millisecond instant with the same local time in the new zone
++     */
++    public static long keepLocalInZone(DateTimeZone zone, DateTimeZone newZone, long instant) {
++        if (newZone == zone) {
++            return instant;
++        }
++        return ISODateTimeFormat.instantWithLocalFields(zone, newZone, instant);
++    }
++
++
+     private boolean addTransition(ArrayList<Transition> transitions, Transition tr) {
+         int size = transitions.size();
+         if (size == 0) {

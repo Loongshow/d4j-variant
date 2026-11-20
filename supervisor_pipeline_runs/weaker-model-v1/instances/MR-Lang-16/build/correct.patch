@@ -1,0 +1,200 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 98ca1c87b..3c183cee2 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -27,6 +27,7 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
+ import org.apache.commons.lang3.mutable.MutableInt;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like {@code int[]}) and
+@@ -4801,6 +4802,17 @@ public class ArrayUtils {
+         return (long[]) remove((Object) array, index);
+     }
+ 
++    /**
++     * <p>Gets the largest value in an array of <code>long</code>.</p>
++     *
++     * @param array  the array to search, not null or empty
++     * @return the largest value in the array
++     */
++    public static long largestElement(long[] array) {
++        return array[FastDateFormat.largestPosition(array)];
++    }
++
++
+     /**
+      * <p>Removes the first occurrence of the specified element from the
+      * specified array. All subsequent elements are shifted to the left
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index c5c18cfab..7c0ec41f0 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -24,6 +24,7 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -4579,6 +4580,22 @@ public class StringUtils {
+         return rightPad(str, size, ' ');
+     }
+ 
++    /**
++     * <p>Finds the index of the largest value in a range of an array of
++     * <code>long</code>. If the largest value occurs more than once in the
++     * range, the index of its first occurrence is returned.</p>
++     *
++     * @param array  the array to search, not null
++     * @param startIndex  the index of the first element of the range
++     * @param endIndex  the index after the last element of the range,
++     *  greater than <code>startIndex</code>
++     * @return the index of the largest value in the range
++     */
++    public static int indexOfLargest(long[] array, int startIndex, int endIndex) {
++        return ToStringStyle.largestIndex(array, startIndex, endIndex);
++    }
++
++
+     /**
+      * <p>Right pad a String with a specified character.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 7200356f2..2a502145a 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,7 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -837,6 +838,22 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets the index of the largest value in a range of an array of
++     * <code>long</code>. If the largest value occurs more than once in the
++     * range, the index of its first occurrence is returned.</p>
++     *
++     * @param array  the array to search, not null
++     * @param startIndex  the index of the first element of the range
++     * @param endIndex  the index after the last element of the range,
++     *  greater than <code>startIndex</code>
++     * @return the index of the largest value in the range
++     */
++    public static int largestIndex(long[] array, int startIndex, int endIndex) {
++        return DateUtils.locateLargest(array, startIndex, endIndex);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>boolean</code>
+      * value.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+index 5b7891a0a..f6ea74ab7 100644
+--- a/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
++++ b/src/main/java/org/apache/commons/lang3/math/NumberUtils.java
+@@ -897,24 +897,15 @@ public class NumberUtils {
+      * @return the minimum value in the array
+      * @throws IllegalArgumentException if <code>array</code> is <code>null</code>
+      * @throws IllegalArgumentException if <code>array</code> is empty
++       The elements are compared in pairs, the larger of each pair going on to the next round, until a single element remains.
+      */
+     public static long max(long[] array) {
+-        // Validates input
+         if (array == null) {
+             throw new IllegalArgumentException("The Array must not be null");
+         } else if (array.length == 0) {
+             throw new IllegalArgumentException("Array cannot be empty.");
+         }
+-
+-        // Finds and returns max
+-        long max = array[0];
+-        for (int j = 1; j < array.length; j++) {
+-            if (array[j] > max) {
+-                max = array[j];
+-            }
+-        }
+-
+-        return max;
++        return org.apache.commons.lang3.ArrayUtils.largestElement(array);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index 4e7fb1007..331b67044 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -350,6 +350,32 @@ public class DateUtils {
+         return add(date, Calendar.YEAR, amount);
+     }
+ 
++    /**
++     * <p>Finds the index of the largest value in a range of an array of
++     * <code>long</code>, examining the elements of the range in order.</p>
++     *
++     * <p>If the largest value occurs more than once in the range, the index
++     * of its first occurrence is returned.</p>
++     *
++     * @param array  the array to search, not null
++     * @param startIndex  the index of the first element of the range
++     * @param endIndex  the index after the last element of the range,
++     *  greater than <code>startIndex</code>
++     * @return the index of the largest value in the range
++     */
++    public static int locateLargest(long[] array, int startIndex, int endIndex) {
++        int index = startIndex;
++        long largest = array[startIndex];
++        for (int i = startIndex + 1; i < endIndex; i++) {
++            if (array[i] > largest) {
++                largest = array[i];
++                index = i;
++            }
++        }
++        return index;
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Adds a number of months to a date returning a new object.
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index 51da48e13..54aaf7d23 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -34,6 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.ConcurrentMap;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -861,6 +862,19 @@ public class FastDateFormat extends Format {
+         return mPattern.hashCode() + 13 * (mTimeZone.hashCode() + 13 * mLocale.hashCode());
+     }
+ 
++    /**
++     * <p>Gets the index of the largest value in an array of <code>long</code>.
++     * If the largest value occurs more than once, the index of its first
++     * occurrence is returned.</p>
++     *
++     * @param array  the array to search, not null or empty
++     * @return the index of the largest value in the array
++     */
++    public static int largestPosition(long[] array) {
++        return StringUtils.indexOfLargest(array, 0, array.length);
++    }
++
++
+     /**
+      * <p>Gets a debugging string version of this formatter.</p>
+      *

@@ -1,0 +1,193 @@
+diff --git a/src/java/org/apache/commons/codec/binary/Base64.java b/src/java/org/apache/commons/codec/binary/Base64.java
+index 31671e69..023c6a22 100644
+--- a/src/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/java/org/apache/commons/codec/binary/Base64.java
+@@ -1001,12 +1001,13 @@ public class Base64 implements BinaryEncoder, BinaryDecoder {
+      * @throws NullPointerException
+      *             if null is passed in
+      * @since 1.4
++       The characters are produced by repeated division of the value by 64, least significant first, each remainder selecting one character of the base64 alphabet.
+      */
+     public static byte[] encodeInteger(BigInteger bigInt) {
+         if (bigInt == null) {
+             throw new NullPointerException("encodeInteger called with null parameter");
+         }
+-        return encodeBase64(toIntegerBytes(bigInt), false);
++        return org.apache.commons.codec.language.DoubleMetaphone.encodeMagnitude(bigInt);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/codec/digest/DigestUtils.java b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+index f35488cf..df706b3b 100644
+--- a/src/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,7 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import org.apache.commons.codec.language.Metaphone;
+ 
+ /**
+  * Operations to simplifiy common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -251,6 +252,22 @@ public class DigestUtils {
+         return digest(getShaDigest(), data);
+     }
+ 
++    /**
++     * Encodes data using the base64 algorithm and returns the value as a <code>byte[]</code>. An empty array is returned
++     * as it is.
++     *
++     * @param data
++     *            Data to encode
++     * @return base64 characters
++     */
++    public static byte[] base64(byte[] data) {
++        if (data.length == 0) {
++            return data;
++        }
++        return Metaphone.encodeStandard(data);
++    }
++
++
+     /**
+      * Calculates the SHA-1 digest and returns the value as a <code>byte[]</code>.
+      * 
+diff --git a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index f7122d41..058ff4ca 100644
+--- a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,8 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import java.math.BigInteger;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -205,6 +207,23 @@ public class DoubleMetaphone implements StringEncoder {
+         return doubleMetaphone((String) obj);
+     }
+ 
++    /**
++     * Encode the magnitude of a BigInteger using the base64 algorithm.
++     * The magnitude is the two's-complement representation of the value
++     * without its sign byte, in as many bytes as the bit length needs.
++     *
++     * @param value BigInteger to encode, not null
++     * @return a byte array containing base64 characters
++     */
++    public static byte[] encodeMagnitude(BigInteger value) {
++        byte[] bytes = value.toByteArray();
++        int length = (value.bitLength() + 7) / 8;
++        byte[] magnitude = new byte[length];
++        System.arraycopy(bytes, bytes.length - length, magnitude, 0, length);
++        return DigestUtils.base64(magnitude);
++    }
++
++
+     /**
+      * Encode the value using DoubleMetaphone.
+      *
+diff --git a/src/java/org/apache/commons/codec/language/Metaphone.java b/src/java/org/apache/commons/codec/language/Metaphone.java
+index 2d0ffd3f..59af7473 100644
+--- a/src/java/org/apache/commons/codec/language/Metaphone.java
++++ b/src/java/org/apache/commons/codec/language/Metaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.net.QuotedPrintableCodec;
+ 
+ /**
+  * Encodes a string into a metaphone value. 
+@@ -370,6 +371,19 @@ public class Metaphone implements StringEncoder {
+         return metaphone((String) pObject);
+     }
+ 
++    /**
++     * Encodes a non-empty byte array using the base64 algorithm with the
++     * standard alphabet: the upper case letters, the lower case letters,
++     * the digits, then '+' and '/'.
++     *
++     * @param bytes byte array to encode, not empty
++     * @return a byte array containing base64 characters
++     */
++    public static byte[] encodeStandard(byte[] bytes) {
++        return QuotedPrintableCodec.encodePrintable("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", bytes);
++    }
++
++
+     /**
+      * Encodes a String using the Metaphone algorithm. 
+      *
+diff --git a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+index 9c546f5f..a1695250 100644
+--- a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
++++ b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+@@ -212,6 +212,21 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin
+         return encodeQuotedPrintable(PRINTABLE_CHARS, bytes);
+     }
+ 
++    /**
++     * Encodes an array of bytes into an array of base64 characters of the given alphabet. The alphabet is taken as US-ASCII
++     * bytes.
++     *
++     * @param alphabet
++     *                  the 64 characters of the alphabet, in order
++     * @param bytes
++     *                  array of bytes to be encoded, not empty
++     * @return array of bytes containing base64 characters
++     */
++    public static final byte[] encodePrintable(String alphabet, byte[] bytes) {
++        return URLCodec.encodeGroups(StringUtils.getBytesUsAscii(alphabet), bytes);
++    }
++
++
+     /**
+      * Decodes an array of quoted-printable characters into an array of original bytes. Escaped characters are converted
+      * back to their original representation.
+diff --git a/src/java/org/apache/commons/codec/net/URLCodec.java b/src/java/org/apache/commons/codec/net/URLCodec.java
+index 01d7e0d2..8074b523 100644
+--- a/src/java/org/apache/commons/codec/net/URLCodec.java
++++ b/src/java/org/apache/commons/codec/net/URLCodec.java
+@@ -248,6 +248,39 @@ public class URLCodec implements BinaryEncoder, BinaryDecoder, StringEncoder, St
+         }
+     }
+ 
++    /**
++     * Encodes an array of bytes into an array of characters using the base64 algorithm and the given alphabet.
++     *
++     * @param alphabet
++     *            the 64 characters of the alphabet, in order
++     * @param bytes
++     *            array of bytes to encode
++     * @return array of bytes containing the base64 characters
++     */
++    public static final byte[] encodeGroups(byte[] alphabet, byte[] bytes) {
++        byte[] buffer = new byte[(bytes.length + 2) / 3 * 4];
++        int pos = 0;
++        for (int i = 0; i < bytes.length; i += 3) {
++            int group = 0;
++            for (int k = i; k < i + 3; k++) {
++                group = group << 8;
++                if (k < bytes.length) {
++                    group = group | (bytes[k] & 0xff);
++                }
++            }
++            buffer[pos++] = alphabet[(group >> 18) & 0x3f];
++            buffer[pos++] = alphabet[(group >> 12) & 0x3f];
++            buffer[pos++] = alphabet[(group >> 6) & 0x3f];
++            buffer[pos++] = alphabet[group & 0x3f];
++        }
++        int end = (bytes.length * 4 + 1) / 3;
++        for (int j = end; j < buffer.length; j++) {
++            buffer[j] = (byte) '=';
++        }
++        return buffer;
++    }
++
++
+ 
+     /**
+      * Decodes a URL safe string into its original form using the 

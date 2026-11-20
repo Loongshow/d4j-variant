@@ -1,0 +1,238 @@
+{
+ "bug_id": 137,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "new": "    if (root.getType() != Token.FUNCTION) Compiler.CodeBuilder.addVarNames(root, names);",
+   "old": "    Compiler.CodeBuilder.addVarNames(root, names);",
+   "why": "hop 4 skips a tree that is itself a function"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "if (!NodeUtil.containsType(root, Token.FUNCTION)) Node.putDeclaredVars(root, names);",
+   "old": "Node.putDeclaredVars(root, names);",
+   "why": "hop 3 skips a tree that contains a function"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "    if (root.getType() != Token.FUNCTION) TypeCheck.recordDeclaredVars(root, names);",
+   "old": "    TypeCheck.recordDeclaredVars(root, names);",
+   "why": "hop 2 leaves the map empty for a tree that is itself a function"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /**\n     * Adds the variables that a node tree declares with its var statements\n     * to a map, mapping each name to the first node that declares it.\n     *\n     * @param n the root of the tree\n     * @param names the map to add the variables to\n     */\n    public static void addVarNames(Node n, Map<String, Node> names) {\n      if (n.getType() == Token.VAR) {\n        for (Node name = n.getFirstChild(); name != null; name = name.getNext()) {\n          if (!names.containsKey(name.getString())) {\n            names.put(name.getString(), name);\n          }\n        }\n      } else if (n.getType() != Token.FUNCTION) {\n        for (Node child = n.getFirstChild(); child != null; child = child.getNext()) {\n          addVarNames(child, names);\n        }\n      }\n    }\n\n\n    /** Returns the length of the text buffer. */",
+   "old": "\n    /** Returns the length of the text buffer. */",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "new": "import com.google.javascript.rhino.FunctionNode;\nimport com.google.javascript.rhino.JSDocInfo;\nimport com.google.javascript.rhino.Node;\nimport com.google.javascript.rhino.Token;\nimport com.google.javascript.rhino.TokenStream;\n\nimport java.util.Arrays;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.HashSet;\nimport java.util.List;",
+   "old": "import com.google.common.collect.Maps;\nimport com.google.javascript.rhino.FunctionNode;\nimport com.google.javascript.rhino.JSDocInfo;\nimport com.google.javascript.rhino.Node;\nimport com.google.javascript.rhino.Token;\nimport com.google.javascript.rhino.TokenStream;\n\nimport java.util.Arrays;\nimport java.util.Collection;\nimport java.util.Collections;\nimport java.util.HashSet;\nimport java.util.List;\nimport java.util.Map;",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "new": "  /**\n   * Retrieves vars declared in the current node tree, excluding descent scopes.\n     The tree is walked breadth first, one level at a time, and each name is kept with the declaration that lies nearest to the root.\n     */\n  public static Collection<Node> getVarsDeclaredInBranch(Node root) {\n        return com.google.javascript.rhino.Parser.declaredNameNodes(root);\n    }",
+   "old": "  private static class VarCollector implements Visitor {\n    final Map<String, Node> vars = Maps.newLinkedHashMap();\n\n    public void visit(Node n) {\n      if (n.getType() == Token.NAME) {\n        Node parent = n.getParent();\n        if (parent != null && parent.getType() == Token.VAR) {\n          String name = n.getString();\n          if (!vars.containsKey(name)) {\n            vars.put(name, n);\n          }\n        }\n      }\n    }\n  }\n\n  /**\n   * Retrieves vars declared in the current node tree, excluding descent scopes.\n   */\n  public static Collection<Node> getVarsDeclaredInBranch(Node root) {\n    VarCollector collector = new VarCollector();\n    visitPreOrder(\n        root,\n        collector,\n        Predicates.<Node>not(new NodeUtil.MatchNodeType(Token.FUNCTION)));\n    return collector.vars.values();\n  }",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "import java.util.Iterator;\nimport java.util.Map;\n",
+   "old": "import java.util.Iterator;\n",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "new": "  }\n\n        /**\n     * Adds the variables that a node tree declares with its var statements to\n     * a map from each name to the NAME node that first declares it.\n     *\n     * @param root the root of the tree\n     * @param names the map to add the variables to\n     */\n    public static void recordDeclaredVars(Node root, Map<String, Node> names) {\n      Node.putDeclaredVars(root, names);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "new": "import java.util.Set;\nimport java.util.Map;\nimport com.google.javascript.jscomp.Compiler;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "new": "        return type;\n    }\n\n    /**\n     * Adds the variables that a node tree declares with its var statements to\n     * a map from each name to the NAME node that first declares it.\n     *\n     * @param root the root of the tree\n     * @param names the map to add the variables to\n     */\n    public static void putDeclaredVars(Node root, Map<String, Node> names)\n    {\n        Compiler.CodeBuilder.addVarNames(root, names);\n    }\n\n\n    public void setType(int type) {",
+   "old": "        return type;\n    }\n\n    public void setType(int type) {",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "import java.util.List;\nimport java.util.Collection;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "new": "        this.typeRegistry = typeRegistry;\n    }\n\n    /**\n     * Returns the NAME nodes of the variables that a node tree declares with\n     * its var statements, one node for each name, in the order in which the\n     * names are first declared.\n     *\n     * @param root the root of the tree\n     * @return the NAME node that first declares each variable\n     */\n    public static Collection<Node> declaredNameNodes(Node root)\n    {\n        return TokenStream.declaredNameMap(root).values();\n    }\n\n\n    public Parser(CompilerEnvirons compilerEnv, ErrorReporter errorReporter)",
+   "old": "        this.typeRegistry = typeRegistry;\n    }\n\n    public Parser(CompilerEnvirons compilerEnv, ErrorReporter errorReporter)",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "import java.io.Reader;\nimport java.util.LinkedHashMap;\nimport java.util.Map;\nimport com.google.javascript.jscomp.TypeCheck;\n",
+   "old": "import java.io.Reader;\n",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "new": "        }\n    }\n\n    /**\n     * Returns a map from the name of each variable that a node tree declares\n     * with its var statements to the NAME node that first declares it, in the\n     * order in which the names are first declared.\n     *\n     * @param root the root of the tree\n     * @return the map of the declared variables\n     */\n    public static Map<String, Node> declaredNameMap(Node root)\n    {\n        Map<String, Node> names = new LinkedHashMap<String, Node>();\n        TypeCheck.recordDeclaredVars(root, names);\n        return names;\n    }\n\n\n    /**",
+   "old": "        }\n    }\n\n    /**",
+   "purpose": "MR-Closure-137 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.rhino.Parser",
+   "file": "src/com/google/javascript/rhino/Parser.java",
+   "method": "declaredNameNodes"
+  },
+  {
+   "class": "com.google.javascript.rhino.TokenStream",
+   "file": "src/com/google/javascript/rhino/TokenStream.java",
+   "method": "declaredNameMap"
+  },
+  {
+   "class": "com.google.javascript.jscomp.TypeCheck",
+   "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+   "method": "recordDeclaredVars"
+  },
+  {
+   "class": "com.google.javascript.rhino.Node",
+   "file": "src/com/google/javascript/rhino/Node.java",
+   "method": "putDeclaredVars"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-137.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.NodeUtil::getVarsDeclaredInBranch"
+ ],
+ "evidence": [
+  "com.google.javascript.jscomp.SyntacticScopeCreator::scanVars",
+  "com.google.javascript.jscomp.NodeUtil::redeclareVarsInsideBranch",
+  "com.google.javascript.jscomp.NodeUtil::containsTypeInOuterScope"
+ ],
+ "expected_signature": "expected:<[]> but was:<[foo]>",
+ "extra_tests": [],
+ "fixture_key": "Closure-137",
+ "gold": {
+  "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+  "edits": [
+   {
+    "new": "      } else {\n        for (Node child = n.getFirstChild(); child != null; child = child.getNext()) {\n          addVarNames(child, names);",
+    "old": "      } else if (n.getType() != Token.FUNCTION) {\n        for (Node child = n.getFirstChild(); child != null; child = child.getNext()) {\n          addVarNames(child, names);"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/Compiler.java",
+  "method": "addVarNames"
+ },
+ "group": "MR-Closure-137",
+ "hops": 5,
+ "iid": "MR-Closure-137",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold walks the tree and decides, node by node, where to descend; hop 2 creates the insertion-ordered map, hop 1 returns its values, hops 3 and 4 pass the root and the map along. Once the walk has entered a function, the names recorded there cannot be told apart from the tree's own by any caller, and keeping the walk out of every function at any depth takes a traversal with a function test, that is, a second implementation. The convention is pinned outside the gold: the facade's own javadoc ('excluding descent scopes'); NodeUtil.redeclareVarsInsideBranch, its production caller ('all the VAR declarations in that tree that are not in an inner scope'); SyntacticScopeCreator.scanVars, whose FUNCTION case returns ('should not examine function's children') and whose VAR case declares the names and returns, with SyntacticScopeCreatorTest.testFunctionScope ('[function bar2() { var y; }]': y is not declared in the outer scope); NodeUtil.containsTypeInOuterScope ('Does not traverse into functions'). FoldConstantsTest.testVarLifting lifts only a from 'if(false)var a=function(){var b};' and UnreachableCodeEliminationTest.testRemovalRequiresRedeclaration exercises the production caller; both pass on the variant. A var statement declares a variable of the function in whose body it stands, so 'function(){var foo;}' declares no variable of the tree, which the gold's contract ('the variables that a node tree declares with its var statements') then violates. A one-line edit at hop 4 that applies the gold to the root's children and skips the children that are functions (keeping a VAR root whole) passes the existing tests, but only because the trigger's function is a direct child of the root: a function one level deeper is still entered (parse(\"if(x){(function(){var y})()}\") gives {y}) and a FUNCTION root then yields its own body's variables, contradicting the facade's 'excluding descent scopes' and every hop's documented result.",
+ "ownership_tests": [
+  "com.google.javascript.jscomp.FoldConstantsTest::testVarLifting",
+  "com.google.javascript.jscomp.SyntacticScopeCreatorTest::testFunctionScope",
+  "com.google.javascript.jscomp.UnreachableCodeEliminationTest::testRemovalRequiresRedeclaration"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "Parser",
+    "anchor_seed": 2747,
+    "class": "com.google.javascript.rhino.Parser",
+    "file": "src/com/google/javascript/rhino/Parser.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.util.Collection;"
+    ],
+    "method": "declaredNameNodes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getToken",
+    "anchor_seed": 2748,
+    "class": "com.google.javascript.rhino.TokenStream",
+    "file": "src/com/google/javascript/rhino/TokenStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.util.LinkedHashMap;",
+     "import java.util.Map;",
+     "import com.google.javascript.jscomp.TypeCheck;"
+    ],
+    "method": "declaredNameMap",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 2749,
+    "class": "com.google.javascript.jscomp.TypeCheck",
+    "file": "src/com/google/javascript/jscomp/TypeCheck.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.util.Map;"
+    ],
+    "method": "recordDeclaredVars",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getType",
+    "anchor_seed": 2750,
+    "class": "com.google.javascript.rhino.Node",
+    "file": "src/com/google/javascript/rhino/Node.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.util.Map;",
+     "import com.google.javascript.jscomp.Compiler;"
+    ],
+    "method": "putDeclaredVars",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 2751,
+    "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "addVarNames",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2647
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-137"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.NodeUtilTest",
+  "test_file": "test/com/google/javascript/jscomp/NodeUtilTest.java",
+  "test_method": "testGetVarsDeclaredInBranch"
+ },
+ "variant_id": "CTV-EC9460",
+ "kind": "new",
+ "fault_lines": [
+  "} else {\n        for (Node child = n.getFirstChild(); child != null; child = child.getNext()) {\n          addVarNames(child, names);"
+ ],
+ "gold_key": "com.google.javascript.jscomp.Compiler$CodeBuilder::addVarNames"
+}

@@ -1,0 +1,196 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index 645e348d2..204619d82 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -36,6 +36,7 @@ import com.fasterxml.jackson.databind.util.ClassUtil;
+ import com.fasterxml.jackson.databind.util.RootNameLookup;
+ import com.fasterxml.jackson.databind.util.StdDateFormat;
+ import com.fasterxml.jackson.databind.util.TokenBuffer;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
+ 
+ /**
+  * ObjectMapper provides functionality for reading and writing JSON,
+@@ -2944,6 +2945,20 @@ public class ObjectMapper
+     {
+         return (T) _readMapAndClose(_jsonFactory.createParser(src), _typeFactory.constructType(valueType));
+     } 
++
++    /**
++     * Method for finding the more specific of two types.
++     *
++     * @param primary Primary type to consider, not null
++     * @param secondary Secondary type to consider, not null
++     *
++     * @return The more specific of the two types
++     */
++    public static JavaType specificTypeOf(JavaType primary, JavaType secondary)
++    {
++        return BasicDeserializerFactory.refinedTypeOf(primary, secondary);
++    }
++
+     
+     @SuppressWarnings("unchecked")
+     public <T> T readValue(byte[] src, int offset, int len, 
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index d1ec95fb7..ea81c68ae 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.node.NullNode;
+ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import com.fasterxml.jackson.databind.util.TokenBuffer;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -905,6 +906,20 @@ public class ObjectReader
+         return _config.isEnabled(f);
+     }
+ 
++    /**
++     * Method for finding the more specific of two types.
++     *
++     * @param primary Primary type to consider, not null
++     * @param secondary Secondary type to consider, not null
++     *
++     * @return The more specific of the two types
++     */
++    public static JavaType specializedTypeOf(JavaType primary, JavaType secondary)
++    {
++        return TokenBuffer.preferredTypeOf(primary, secondary);
++    }
++
++
+     public boolean isEnabled(JsonParser.Feature f) {
+         return _parserFactory.isEnabled(f);
+     }
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 3dd3c4b1f..700652a18 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
+ import com.fasterxml.jackson.databind.jsontype.TypeResolverBuilder;
+ import com.fasterxml.jackson.databind.type.*;
+ import com.fasterxml.jackson.databind.util.*;
++import com.fasterxml.jackson.databind.ObjectReader;
+ 
+ /**
+  * Abstract factory base class that can provide deserializers for standard
+@@ -1334,6 +1335,20 @@ public abstract class BasicDeserializerFactory
+         return deser;
+     }
+ 
++    /**
++     * Helper method for finding the more specific of two types.
++     *
++     * @param primary Primary type to consider, not null
++     * @param secondary Secondary type to consider, not null
++     *
++     * @return The more specific of the two types
++     */
++    public static JavaType refinedTypeOf(JavaType primary, JavaType secondary)
++    {
++        return ObjectReader.specializedTypeOf(primary, secondary);
++    }
++
++
+     /*
+     /**********************************************************
+     /* JsonDeserializerFactory impl (partial): type deserializers
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 63eafbbcf..c7ede08be 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -871,6 +871,29 @@ public abstract class BeanDeserializerBase
+     @Override
+     public boolean isCachable() { return true; }
+ 
++    /**
++     * Method for finding the more specific of two types: the second type
++     * if its raw class is more specific than the raw class of the first
++     * type, and the first type otherwise.
++     *
++     * @param first Primary type to consider, not null
++     * @param second Secondary type to consider, not null
++     *
++     * @return The more specific of the two types
++     */
++    public static JavaType narrowerTypeOf(JavaType first, JavaType second)
++    {
++        final Class<?> target = first.getRawClass();
++        final Class<?> start = second.getRawClass();
++        if (start == target) { return first; }
++        if (target.isInterface() && target.isAssignableFrom(start)) { return second; }
++        for (Class<?> curr = start; curr != null; curr = curr.getSuperclass()) {
++            if (curr == target) { return second; }
++        }
++        return first;
++    }
++
++
+     @Override
+     public Class<?> handledType() {
+         return _beanType.getRawClass();
+diff --git a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java
+index 46910eb45..59059f16c 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java
+@@ -579,6 +579,7 @@ public final class TypeFactory
+      * @param type2 Secondary type to consider
+      * 
+      * @since 2.2
++       The secondary type is first re-resolved through the type bindings of the primary type, so that the result keeps the generic parameters of the primary type.
+      */
+     public JavaType moreSpecificType(JavaType type1, JavaType type2)
+     {
+@@ -588,16 +589,7 @@ public final class TypeFactory
+         if (type2 == null) {
+             return type1;
+         }
+-        Class<?> raw1 = type1.getRawClass();
+-        Class<?> raw2 = type2.getRawClass();
+-        if (raw1 == raw2) {
+-            return type1;
+-        }
+-        // TODO: maybe try sub-classing, to retain generic types?
+-        if (raw1.isAssignableFrom(raw2)) {
+-            return type2;
+-        }
+-        return type1;
++        return com.fasterxml.jackson.databind.ObjectMapper.specificTypeOf(type1, type2);
+     }
+     
+     /*
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 1f05c3216..2ff3e3cea 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -775,6 +776,20 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+         _appendValue(JsonToken.VALUE_EMBEDDED_OBJECT, new String(text, offset, len));
+     }
+ 
++    /**
++     * Helper method for finding the more specific of two types.
++     *
++     * @param primary Primary type to consider, not null
++     * @param secondary Secondary type to consider, not null
++     *
++     * @return The more specific of the two types
++     */
++    public static JavaType preferredTypeOf(JavaType primary, JavaType secondary)
++    {
++        return BeanDeserializerBase.narrowerTypeOf(primary, secondary);
++    }
++
++
+     /*
+     /**********************************************************
+     /* JsonGenerator implementation: write methods, primitive types

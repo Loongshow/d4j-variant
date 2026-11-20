@@ -1,0 +1,42 @@
+{
+  "instance": "Lang-26",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.builder.ToStringStyle::standardFormat (hop 4)",
+      "edit": "return DateUtils.formatterFor(dateStyle, timeStyle, timeZone, locale);  ->  final FastDateFormat f = DateUtils.formatterFor(dateStyle, timeStyle, timeZone, locale); return locale.equals(f.getLocale()) ? f : FastDateFormat.getInstance(((java.text.SimpleDateFormat) java.text.DateFormat.getDateTimeInstance(dateStyle, timeStyle, locale)).toPattern(), timeZone, locale);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang3.builder.ToStringStyle::standardFormat (hop 4)",
+      "edit": "return DateUtils.formatterFor(dateStyle, timeStyle, timeZone, locale);  ->  return FastDateFormat.getInstance(DateUtils.formatterFor(dateStyle, timeStyle, timeZone, locale).getPattern(), timeZone, locale);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.time.FastDateFormat::getDateTimeInstance(int,int,TimeZone,Locale) -- body: one delegating call",
+    "hop1 org.apache.commons.lang3.StringUtils::styleFormat -- resolves null locale to Locale.getDefault(), delegates",
+    "hop2 org.apache.commons.lang3.text.StrBuilder::formatOfStyles -- pass-through",
+    "hop3 org.apache.commons.lang3.SystemUtils::localizedFormat -- pass-through, translates ClassCastException to IllegalArgumentException",
+    "hop4 org.apache.commons.lang3.builder.ToStringStyle::standardFormat -- pass-through",
+    "gold org.apache.commons.lang3.time.DateUtils::formatterFor -- builds the cache key and reads/fills the private dateTimeFormats cache; variant omits key.add(locale)"
+  ],
+  "reasons": "Variant compiles; trigger FastDateFormatTest::test_changeDefault_Locale_DateTimeInstance fails with 'expected same:<en_US> was not:<de_DE>'; full suite on the variant fails only the trigger; re-inserting key.add(locale) in the gold clears trigger, ownership tests and full suite. (a) The gold's javadoc promises a formatter 'using the specified styles, time zone and locale' (@param locale 'the locale to use'); on the trigger the second call passes en_US all the way down (hop 1 resolves the null locale to the default, as its own javadoc says) and the gold returns the de_DE formatter cached for the first call, because its key ignores the locale. Every hop passes the locale through unchanged, so no other method's own code breaks its contract; the facade's lie concerns pattern derivation and is causally unrelated to the symptom. (b) Hop javadocs match their code: hop 1 documents and performs null-to-default resolution; hop 3 documents and performs the IllegalArgumentException translation; hops 2 and 4 are faithful pass-throughs with 'not null' locale params. None is loose enough to own a wrong-locale cache hit. (c) Upstream hops cannot pre-filter: the gold's key is built only from dateStyle, timeStyle and timeZone, none of which can carry the locale validly (the declared compensating edits at hops 1, 3 and 4 were checked by G9 and do not absorb). Downstream, hop 4 can only recover by building a second formatter: alt 1 re-implements the gold's creation on a locale mismatch (bypass, passes everything); alt 2 re-wraps the cached formatter's pattern with the requested locale and passes the trigger, ownership tests and full suite, but a probe shows it returns the German pattern \"EEEE, d. MMMM y 'um' HH:mm:ss zzzz\" for an en_US FULL request (the US pattern is \"EEEE, MMMM d, y 'at' h:mm:ss a zzzz\"), which contradicts every 'localized standard date/time formatter' contract on the path, so it is not a competing repair. (d) Names (styleFormat, formatOfStyles, localizedFormat, standardFormat, formatterFor, dateTimeFormats) and comments are neutral; the lie ('The pattern is obtained by formatting a fixed reference date ... mapping each field ... back to the pattern letters') names no fault, no omitted step and no hop. (e) The gold is exactly five calls below the facade; the five hops sit in five different existing classes (StringUtils, StrBuilder, SystemUtils, ToStringStyle, DateUtils); the facade body is one delegating call (the original had no throwing guard; its locale defaulting moved to hop 1); exactly one added procedural sentence in the facade javadoc; the gold's javadoc ('Formatter instances are cached and shared') is silent on keying by locale; the trigger is existing (test.patch empty, present in the pristine checkout) and is the only new failure. (f) Pinned outside the gold: FastDateFormat::getDateInstance adds the resolved locale to its key, getTimeInstance adds the given locale, getInstance caches by a shell whose equals compares mLocale; passing tests test_changeDefault_Locale_DateInstance (identical assertions through getDateInstance), test_getInstance_String_Locale, test_getInstance_String_TimeZone_Locale and testShortDateStyleWithLocales.",
+  "notes": "Recorded bypasses: hop-4 alt 1 (re-create the formatter on locale mismatch) passes trigger, ownership tests and the full suite. Hop-4 alt 2 (FastDateFormat.getInstance(gold.getPattern(), timeZone, locale)) also passes the whole suite because no test checks formatted output of getDateTimeInstance; it is doc-inconsistent (wrong-locale pattern), but graders of model patches should not treat a passing suite as proof of a correct repair at hop 4. Minor cues, not counted as leakage: (1) the gold's key list keeps initial capacity 4 while only three components can be added in the variant; (2) removing cDateTimeInstanceCache leaves a blank line among FastDateFormat's cache fields; (3) the lie is inserted after the @throws tag without a leading '*', so javadoc tools render it as part of the @throws text. Fault type is a cache-key component omission rather than a special-case step; it does not leave a broken idiom from the W26 avoid list. Only the trigger calls getDateTimeInstance in the test suite, so the static gold cache cannot make other tests order-dependent; the trigger fails in any order because format1 and format2 share one key. Scratch at /private/tmp/mxb-3f0MiB deleted after the audit."
+}

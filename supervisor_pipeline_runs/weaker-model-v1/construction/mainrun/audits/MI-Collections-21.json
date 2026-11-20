@@ -1,0 +1,56 @@
+{
+ "instance": "Collections-21__i",
+ "iid": "MI-Collections-21",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.collections4.trie.PatriciaTrie::keepSubset (hop 4)",
+   "edit": "AbstractHashedMap.removeAllBut(list, kept);  ->  while (!kept.containsAll(list)) { AbstractHashedMap.removeAllBut(list, kept); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "masks rather than repairs: the loop is redundant under the gold's documented contract and only terminates correctly because every call of removeAllBut still leaves non-kept elements behind; the gold keeps violating its own javadoc on each call"
+  },
+  {
+   "method": "org.apache.commons.collections4.trie.PatriciaTrie::keepSubset (hop 4)",
+   "edit": "AbstractHashedMap.removeAllBut(list, kept);  ->  for (final java.util.Iterator<E> it = list.iterator(); it.hasNext();) { if (!kept.contains(it.next())) { it.remove(); } }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "re-implements the gold's per-element removal in hop 4; the gold becomes dead"
+  },
+  {
+   "method": "CollectionUtils::keepMatching / MapUtils::keepSelected / PatriciaTrie::keepSubset (declared compensating edits)",
+   "edit": "set.contains->list.contains (hop 2); set.size()->list.size() (hop 3); kept -> new HashSet<Object>(kept) (hop 4)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails",
+   "why": "validation G9: trigger still fails for each; none of hops 1-4 sees a list position, so no edit there can undo the skipped-index effect while still calling the gold once"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections4.list.SetUniqueList::retainAll (instance, @Override public boolean retainAll(final Collection<?> coll); body = return TreeBidiMap.keepOnly(this, set, coll); V2 receiver + V1 field set)",
+  "hop1 org.apache.commons.collections4.bidimap.TreeBidiMap::keepOnly (pass-through)",
+  "hop2 org.apache.commons.collections4.CollectionUtils::keepMatching (gathers kept = coll elements contained in set)",
+  "hop3 org.apache.commons.collections4.MapUtils::keepSelected (kept.size()==set.size() -> false, else delegate)",
+  "hop4 org.apache.commons.collections4.trie.PatriciaTrie::keepSubset (kept empty -> clear, else delegate; return true)",
+  "gold org.apache.commons.collections4.map.AbstractHashedMap::removeAllBut (index loop; variant omits i-- after list.remove(i))"
+ ],
+ "reasons": "(a) On the trigger's partial retainAll (keep elements.subList(2,5) of the 18-element SetUniqueList fixture) only removeAllBut violates its own javadoc ('Removes from a list the elements that are not contained in a set'): without i-- each removal skips the next element, leaving 10 instead of 3. Hops 1-4 each do exactly what their javadoc says given a correct callee; hop 3's size test is correct under its documented precondition kept subset of set (built that way by hop 2). (b) Hop javadocs match their code; none is loose enough to own per-element removal (no hop above the gold sees a list position). (c) No competing repair: the only passing non-gold edits I found are at hop 4 and are bypasses (repeat-call masking, or an iterator loop that makes the gold dead); declared compensating edits fail (G9). (d) Names (keepOnly, keepMatching, keepSelected, keepSubset, removeAllBut) are neutral; no fault vocabulary; the lie (sorted array + binary search) is procedural and false (HashSet lookups) and does not name the index step. (e) Gold is 5 calls below the facade; five different existing classes, which are the five largest public classes of the checkout (2172/1805/1779/1447/1389 lines, largest5 mode allowed by C10F addendum section 1 because two are under 1500); facade = state gathering (this, protected field set) + one call, original had no guard; facade had no javadoc, so a one-sentence List-voice javadoc plus the one lie sentence was added; gold javadoc silent on the index adjustment; trigger SetUniqueListTest::testCollectionRetainAll is existing, test.patch empty, and is the only new failure in my full-suite run; correct.patch is fully clean. (f) Pinned outside the gold: ListOrderedSet.retainAll (same algorithm, removes every non-retained element; ListOrderedSetTest::testCollectionRetainAll passes the same AbstractCollectionTest partial case), AbstractLinkedList.retainAll (CursorableLinkedListTest::testCollectionRetainAll), ListUtils.retainAll (ListUtilsTest::testRetainAll); all ownership tests pass on the variant. (g) C10i rules: no visibility widened (only new public static hops and imports added), no new type, no reflection (fully qualified static call only), facade signature/modifiers/@Override/throws unchanged, no test edits; SetUniqueList.retainAll is an allowed instance facade for Collections-21__i in BATCH7_PREREGISTRATION row 198 (variant V2, largest5).",
+ "notes": "Cosmetic: the added facade javadoc sits between @Override and the method (javadoc tooling treats it as dangling) and the lie line lacks the leading ' * ' and has odd indentation; it marks the facade as edited but points at no hop or the gold, so not counted as leakage. SetUniqueListTest::testRetainAll (0..9 keep evens) passes on the variant only because the alternating pattern masks the skip; the trigger has consecutive non-kept runs. Hop-order identity with the paired static instance was not checked (its files are off-limits); the order here matches the largest5 size order. Scratch copies initially reused compiled classes (cp -R timestamps); the a2 run was redone after forcing recompilation. Scratch deleted."
+}

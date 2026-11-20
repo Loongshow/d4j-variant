@@ -1,0 +1,69 @@
+{
+ "instance": "Codec-13",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.codec.digest.Sha2Crypt::encodeKey (gold, sanity check)",
+   "edit": "restore 'while (encoder.encode(in, out, true).isOverflow() || encoder.flush(out).isOverflow()) { out.flip(); out = ByteBuffer.allocate(2 * out.capacity() + 1).put(out); }' in place of the two bare calls (identical to correct.patch)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "gold repair (reference); also repairs getBytesUnchecked(\"\\u00e9\",\"UTF-8\") and CJK UTF-8 input"
+  },
+  {
+   "method": "org.apache.commons.codec.digest.DigestUtils::dataBytes (hop 2)",
+   "edit": "return Base64.toOctets(data, charset);  ->  return data.getBytes(charset);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::valueBytes (hop 1)",
+   "edit": "return DigestUtils.dataBytes(value, Charset.forName(charsetName));  ->  return \"UTF-16\".equalsIgnoreCase(charsetName) ? DigestUtils.dataBytes(\"\\uFEFF\" + value, Charset.forName(\"UTF-16BE\")) : DigestUtils.dataBytes(value, Charset.forName(charsetName));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::valueBytes (hop 1, declared compensating edit)",
+   "edit": "Charset.forName(charsetName)  ->  Charset.forName(\"UTF-16\".equalsIgnoreCase(charsetName) ? \"UTF-16BE\" : charsetName)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.codec.language.bm.Rule::inputBytes (hop 4, declared compensating edit)",
+   "edit": "return Sha2Crypt.encodeKey(input, charset);  ->  return Sha2Crypt.encodeKey(input.toString(), Charset.forName(charset.name()));",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.codec.binary.StringUtils::getBytesUnchecked(String,String) - null guard + return DoubleMetaphone.valueBytes(string, charsetName)",
+  "hop1 org.apache.commons.codec.language.DoubleMetaphone::valueBytes(String,String) - resolves Charset.forName(charsetName), maps UnsupportedCharsetException to IllegalStateException, delegates",
+  "hop2 org.apache.commons.codec.digest.DigestUtils::dataBytes(String,Charset) - empty data gives new byte[0], else delegates",
+  "hop3 org.apache.commons.codec.binary.Base64::toOctets(String,Charset) - pass-through",
+  "hop4 org.apache.commons.codec.language.bm.Rule::inputBytes(CharSequence,Charset) - pass-through",
+  "gold org.apache.commons.codec.digest.Sha2Crypt::encodeKey(CharSequence,Charset) - REPLACE encoder, buffer sized by averageBytesPerChar, single encode + flush with the CoderResult ignored (overflow regrow loop omitted)"
+ ],
+ "reasons": "Compile OK; trigger StringUtilsTest::testGetBytesUtf16 fails at the testGetBytesUnchecked helper (line 64, called from line 79); the full variant suite (609 tests, target wiped and rebuilt) fails only that test; the pristine suite fails nothing. (a) Only the gold violates its own contract ('Encodes the characters of a key into a new byte array using the given charset'): for \"ABC\"/UTF-16 the buffer holds 2*3 bytes, the BOM takes 2, and it returns FE FF 00 41 00 42 without 'C'. Hops 1-4 only resolve the charset, guard empty input and hand on; each meets its doc if its callee does. (b) Hop docs match their code (hop 1 throws IllegalStateException for an unsupported name, hop 2 returns an empty array for empty data, hops 3/4 state non-empty preconditions the chain honours). None is loose enough to explain a dropped last character. (c) No competing repair. Hop-level edits that pass are bypasses: data.getBytes(charset) at hop 2 (the gold's output is dead), or a UTF-16-only BOM+UTF-16BE special case at hop 1. That special case passes the full suite only because the estimate is exact for BMP UTF-16BE. It hand-builds the BOM instead of encoding with the named charset (hop 1 doc), and the gold still truncates any text whose encoding exceeds the estimate: my probe shows getBytesUnchecked(\"\\u00e9\",\"UTF-8\") and a two-char CJK string in UTF-8 give 0 bytes on both the variant and the hacked variant, and correct bytes with the gold repair. The declared compensating edits at hops 1 and 4 still fail the trigger. (d) Names are neutral and match host vocabulary (valueBytes, dataBytes, toOctets, inputBytes, encodeKey). G2b is clean. The facade lie (NFC normalization before encoding) names neither buffer growth nor overflow, and the gold javadoc does not mention sizing or retry. (e) The gold is five calls below the facade. The five hops are in five distinct existing public classes. Under C10f section 1, no other public class reaches 1500 lines, so host_mode largest5 applies. The five largest public non-interface non-enum classes other than StringUtils (386), by wc -l in the pristine checkout, are DoubleMetaphone 1009, DigestUtils 819, Base64 775, Rule 697 and Sha2Crypt 545. They host hops 1-5 in exactly that order, and the next is Base32 539. The facade body is the original null guard plus one delegating call. One added procedural sentence (NFC normalization) is not performed anywhere on the path. The gold's javadoc is quiet. The trigger is an existing test (test.patch empty) and the only new failure. (f) The pins are external to the gold: StringUtils.getBytesUtf16, the facade's sibling, returns String.getBytes(UTF_16) with the BOM and every char, and the trigger compares against it. Hex.encode(byte[]) uses String.getBytes(charset), and HexTest testRequiredCharset (UTF-16 included) and testCustomCharset pass. BaseNCodec.ensureBufferSize grows the output buffer rather than dropping output. StringUtilsTest testGetBytesUtf16Be/Le pass on the variant and assert that the chain's result equals String.getBytes(name). The facade's own '@see String#getBytes(String)' also pins it.",
+ "notes": "1) The gold edit is not literally one line: it replaces the 4-line overflow/regrow while-loop with the two bare calls 'encoder.encode(in, out, true); encoder.flush(out);'. It is a single omitted step (the regrow on overflow), and the audit brief's item (e) does not list line count, so I did not fail (e) on it; the supervisor may want to check it against the 'one-line omission' wording. 2) Ignoring the CoderResult is the visible footprint of the omission, not a name or comment marker; whether it counts as a local trace is for the trace checker, which I did not consult. 3) Bypasses: hop 2 'return data.getBytes(charset);' (also possible at hop 3, hop 4 or the facade) and the hop 1 UTF-16-only BOM special case above. Both pass trigger + ownership + full suite. Neither is doc-consistent repair of the chain, and the second leaves the gold's contract violation in place for other inputs. 4) Side effect of the host draw: getBytesUnchecked now runs Rule's static initializer, which loads the Beider-Morse resources (bm/*.txt), so calls outside a classpath that carries src/main/resources throw ExceptionInInitializerError. This is harmless in the defects4j suite and inherent to placing hop 4 in Rule. 5) The lie line sits after the '@see String#getBytes(String)' tag without a leading '*' (the recipe's rewrite_facade placement). The facade's '@throws IllegalStateException ... when a UnsupportedEncodingException is caught' is now realised by hop 1 catching UnsupportedCharsetException, which is the same behaviour for the test inputs. 6) I did not re-run stageB_lib.pick_insertion_anchor. The recorded anchors (getMaxCodeLen, sha256, isBase64, getInstance, sha512Crypt) match the insertion points in the variant. 7) Validation gates G0-G14 and G7 are all READY. I did not read designs/, history/, builder notes, the no-local-trace checklist or any trace verdict."
+}

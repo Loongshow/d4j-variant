@@ -1,0 +1,74 @@
+{
+  "instance": "JacksonDatabind-44",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.fasterxml.jackson.databind.util.TokenBuffer::simpleTypeFor (hop 4)",
+      "edit": "return (cls.getSuperclass() == null) ? BasicDeserializerFactory.simpleTypeOf(cls) : (SimpleType) BasicDeserializerFactory.simpleTypeOf(cls.getSuperclass()).forcedNarrowBy(cls);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Only a partial repair. It fixes the two-level trigger, but on C extends B extends A, SimpleType.construct(C) gives C -> B -> A -> null and reading {a,b,c} still throws Unrecognized field \"a\" (probe run). The gold's own output simpleTypeOf(B) = B -> A -> null still breaks JavaType.getSuperClass ('fully resolved parent class'), so the fault stays in the gold. This is the spec's declared above-gold edit."
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.util.TokenBuffer::simpleTypeFor (hop 4)",
+      "edit": "return (cls.getSuperclass() == null) ? BasicDeserializerFactory.simpleTypeOf(cls) : (SimpleType) simpleTypeFor(cls.getSuperclass()).forcedNarrowBy(cls);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "why": "A complete repair (the probe matches correct.patch at every depth). Hop 4 now builds the hierarchy itself by recursion and calls the gold only for classes with no super class, so the gold's narrowing branch is dead. For any class with a parent, the gold's result is replaced by hop 4's own implementation, and simpleTypeOf stays wrong for direct callers."
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.util.TokenBuffer::simpleTypeFor (hop 4)",
+      "edit": "return (SimpleType) BasicDeserializerFactory.simpleTypeOf(Object.class).forcedNarrowBy(cls);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "Calls the gold on a constant (Object) and narrows in the hop, which replaces the gold's per-class result. On interfaces it throws IllegalArgumentException 'Internal error: Can not resolve sub-type', and it gives int a super class of Object (probe run)."
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.util.TokenBuffer::simpleTypeFor (hop 4)",
+      "edit": "return (SimpleType) com.fasterxml.jackson.databind.type.TypeFactory.defaultInstance().constructType(cls);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "why": "Replaces the gold's result with the TypeFactory implementation, so the gold's output is no longer used."
+    },
+    {
+      "method": "com.fasterxml.jackson.databind.type.SimpleType::constructUnsafe (callee of the gold, pre-existing)",
+      "edit": "superClass argument null -> (raw.getSuperclass() == null) ? null : constructUnsafe(raw.getSuperclass())",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Passes the full suite and repairs every depth. But it contradicts constructUnsafe's own javadoc ('it does NOT properly handle inspection of super-types, so neither parent Classes nor implemented Interfaces are accessible with resulting type instance') and its inline comment ('Should be ok to omit possible super-types'). It also changes a pre-existing core helper used by ObjectMapper, ObjectReader and BasicClassIntrospector. Under its documented contract, the gold misuses constructUnsafe on a non-root class, so this is not a competing repair."
+    }
+  ],
+  "path": [
+    "facade com.fasterxml.jackson.databind.type.SimpleType::construct (Map guard + delegate)",
+    "hop1 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::simpleBeanType (Collection guard + delegate)",
+    "hop2 com.fasterxml.jackson.databind.ObjectMapper::rawSimpleType (pass-through)",
+    "hop3 com.fasterxml.jackson.databind.ObjectReader::simpleValueType (array guard + delegate)",
+    "hop4 com.fasterxml.jackson.databind.util.TokenBuffer::simpleTypeFor (pass-through)",
+    "gold com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::simpleTypeOf"
+  ],
+  "reasons": "Reproduced the variant: it compiles, the trigger DeprecatedTypeHandling1102Test::testPOJOSubType fails with Unrecognized field \"x\" (2 known properties: y, z), and in the full suite (1531 tests) only the trigger fails. Mechanism: the gold narrows the bare constructUnsafe type of the IMMEDIATE super class (Point) to Point3D, so the Point type has getSuperClass() == null. AnnotatedClass._findFields then skips Point's declared fields (parent == null), while methods (y) are still found through findSuperTypes. With the root walk, the chain is Point3D -> Point -> Object.\n(a) Only the gold breaks a contract on the trigger input. Its returned type breaks JavaType.getSuperClass ('fully resolved parent class of this type, if it has one'). constructUnsafe, _narrow and _findFields all act as documented. The hops only guard and delegate.\n(b) Every hop javadoc matches its code: the Collection and array @throws are present, the preconditions narrow step by step, and none claims to build the hierarchy.\n(c) No competing repair. One-line hop edits are either partial (they fail at three levels) or bypasses: recursion in hop 4, gold(Object) plus narrowing, or TypeFactory. The constructUnsafe edit contradicts that method's explicit javadoc. The spec's three declared compensating edits are no-ops (G9).\n(d) Hop names are neutral, no comments were added, and the gold variable name 'base' is ordinary. The lie (a type cache keyed by class name) is procedural and false, and it does not mention the super-class walk.\n(e) The gold is exactly five calls below the facade, in five distinct existing classes. The facade is the Map guard plus one call, with one added lie sentence. The gold javadoc is quiet. The trigger is an existing test and is the only new failure.\n(f) The convention is pinned by JavaType.getSuperClass javadoc, by SimpleType._narrow's hierarchy stitching, by TypeFactory._fromClass's recursive super-class resolution and by ClassUtil.findSuperTypes. Passing TestSubtypes testIssue1125WithDefault/NonDefault (the original D4J-44 trigger) read fields from two levels up, and the other DeprecatedTypeHandling1102Test methods pass.",
+  "notes": "1) The facade's pre-existing javadoc says construct 'does NOT properly handle inspection of super-types, so neither parent Classes nor implemented Interfaces are accessible'. This text is stale: the original body did build the super-class chain through _buildSuperClass, which the variant removes from SimpleType. It weakens the facade-level statement of the expected behaviour, but it applies to the facade, not to any hop, so it does not create a competing owner. The trigger test is the specification.\n2) The lie sits inside the @deprecated block tag, with odd indentation, so it renders as part of the deprecation note. It is still one sentence in the facade javadoc.\n3) Under the variant, the gold calls constructUnsafe, documented as dropping super types, on a non-root class. A reader who checks constructUnsafe's javadoc can diagnose the gold locally. This is noted for the trace checker; it is not leakage under this brief.\n4) The correct gold's walk always ends at Object for a class, so the walk is equivalent to using Object.class as the base. The hop-4 bypass that calls simpleTypeOf(Object.class) therefore differs only for interfaces and primitives, where it misbehaves.\n5) validation.json is at instances/MR-JacksonDatabind-44/validation.json, not in build/. It reports overall READY with every gate passing.\n6) The fresh checkout contains pre-existing D4J *.bak files (for example ObjectMapper.java.bak). They do not contain hop or gold code.\n7) Scratch directory /private/tmp/mxb-4oETEf has been removed."
+}

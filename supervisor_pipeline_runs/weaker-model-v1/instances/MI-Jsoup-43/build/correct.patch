@@ -1,0 +1,177 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index b6e79648..a19fe050 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -22,6 +22,9 @@ import java.security.cert.X509Certificate;
+ import java.util.*;
+ import java.util.regex.Pattern;
+ import java.util.zip.GZIPInputStream;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.nodes.Node;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -171,6 +174,16 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Gets the data nodes of a list of child nodes.
++     * @param childNodes the child nodes of an element, in document order
++     * @return the data nodes, in document order, as an unmodifiable list
++     */
++    public static List<DataNode> childDataNodes(List<Node> childNodes) {
++        return Evaluator.IsOnlyChild.dataChildren(childNodes);
++    }
++
++
+     public Connection cookie(String name, String value) {
+         req.cookie(name, value);
+         return this;
+diff --git a/src/main/java/org/jsoup/nodes/Document.java b/src/main/java/org/jsoup/nodes/Document.java
+index 6e7d7210..61d26d1c 100644
+--- a/src/main/java/org/jsoup/nodes/Document.java
++++ b/src/main/java/org/jsoup/nodes/Document.java
+@@ -239,6 +239,28 @@ public class Document extends Element {
+         outputSettings.charset(charset);
+         ensureMetaCharsetElement();
+     }
++
++    /**
++     * Gets the data nodes of a list of child nodes, in document order.
++     *
++     * @param childNodes the child nodes of an element, in document order
++     * @return the data nodes, in document order
++     */
++    public static List<DataNode> dataNodesOf(List<Node> childNodes) {
++        List<DataNode> dataNodes = new ArrayList<DataNode>(childNodes.size());
++        int from = 0;
++        for (int i = 0; i < childNodes.size(); i++) {
++            if (!(childNodes.get(i) instanceof DataNode)) {
++                for (Node node : childNodes.subList(from, i))
++                    dataNodes.add((DataNode) node);
++                from = i + 1;
++            }
++        }
++        for (Node node : childNodes.subList(from, childNodes.size()))
++            dataNodes.add((DataNode) node);
++        return dataNodes;
++    }
++
+     
+     /**
+      * Returns the charset used in this document. This method is equivalent
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index 1575fd03..62477e46 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -224,14 +224,10 @@ public class Element extends Node {
+      * @return child data nodes. If this element has no data nodes, returns an
+      * empty list.
+      * @see #data()
++       The child node list is scanned from its last node back to its first, and the collected list is turned around before it is returned.
+      */
+     public List<DataNode> dataNodes() {
+-        List<DataNode> dataNodes = new ArrayList<DataNode>();
+-        for (Node node : childNodes) {
+-            if (node instanceof DataNode)
+-                dataNodes.add((DataNode) node);
+-        }
+-        return Collections.unmodifiableList(dataNodes);
++        return org.jsoup.helper.HttpConnection.childDataNodes(childNodes);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index fbff7656..5f2e982a 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -12,6 +12,7 @@ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.LinkedList;
+ import java.util.List;
++import org.jsoup.safety.Whitelist;
+ 
+ /**
+  The base, abstract Node model. Elements, Documents, Comments etc are all Node instances.
+@@ -577,6 +578,16 @@ public abstract class Node implements Cloneable {
+         return outerHtml();
+     }
+ 
++    /**
++     * Get the data nodes of a list of child nodes.
++     * @param childNodes the child nodes of an element, in document order
++     * @return the data nodes, in document order
++     */
++    public static List<DataNode> dataChildNodes(List<Node> childNodes) {
++        return Whitelist.dataNodeList(childNodes);
++    }
++
++
+     protected void indent(StringBuilder accum, int depth, Document.OutputSettings out) {
+         accum.append("\n").append(StringUtil.padding(depth * out.indentAmount()));
+     }
+diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java
+index f641308c..0169822d 100644
+--- a/src/main/java/org/jsoup/safety/Whitelist.java
++++ b/src/main/java/org/jsoup/safety/Whitelist.java
+@@ -14,6 +14,10 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Set;
++import org.jsoup.nodes.DataNode;
++import org.jsoup.nodes.Document;
++import org.jsoup.nodes.Node;
++import java.util.List;
+ 
+ 
+ /**
+@@ -233,6 +237,16 @@ public class Whitelist {
+         return this;
+     }
+ 
++    /**
++     Gets the data nodes of a list of child nodes.
++     @param childNodes the child nodes of an element, in document order
++     @return the data nodes, in document order
++     */
++    public static List<DataNode> dataNodeList(List<Node> childNodes) {
++        return Document.dataNodesOf(childNodes);
++    }
++
++
+     /**
+      Add a list of allowed attributes to a tag. (If an attribute is not allowed on an element, it will be removed.)
+      <p>
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index c33ef5ab..60d2d0cd 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -11,6 +11,8 @@ import org.jsoup.nodes.XmlDeclaration;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import org.jsoup.nodes.DataNode;
++import java.util.Collections;
+ 
+ 
+ /**
+@@ -568,6 +570,17 @@ public abstract class Evaluator {
+     	public String toString() {
+     		return ":only-child";
+     	}
++
++    /**
++     * Gets the data nodes of a list of child nodes, as an unmodifiable list.
++     *
++     * @param childNodes the child nodes of an element, in document order
++     * @return an unmodifiable list of the data nodes, in document order
++     */
++    public static List<DataNode> dataChildren(List<Node> childNodes) {
++        return Collections.unmodifiableList(Node.dataChildNodes(childNodes));
++    }
++
+     }
+ 
+     public static final class IsOnlyOfType extends Evaluator {

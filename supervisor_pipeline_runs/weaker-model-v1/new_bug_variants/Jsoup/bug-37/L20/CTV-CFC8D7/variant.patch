@@ -1,0 +1,198 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 49404708..f76e3519 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -16,6 +16,8 @@ import java.nio.ByteBuffer;
+ import java.nio.charset.Charset;
+ import java.util.*;
+ import java.util.zip.GZIPInputStream;
++import org.jsoup.nodes.Node;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -100,6 +102,18 @@ public class HttpConnection implements Connection {
+ 		return this;
+ 	}
+ 
++    /**
++     * Get the nodes of a node list that are of the given type, as an unmodifiable list.
++     * @param nodes nodes to select from
++     * @param type type of node to select
++     * @param <T> the node type
++     * @return an unmodifiable list of the selected nodes, in their order in the node list
++     */
++    public static <T extends Node> List<T> nodesOfType(List<Node> nodes, Class<T> type) {
++        return Collections.unmodifiableList(Evaluator.CssNthEvaluator.collectNodes(nodes, type));
++    }
++
++
+     public Connection ignoreContentType(boolean ignoreContentType) {
+         req.ignoreContentType(ignoreContentType);
+         return this;
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index dcfa72ce..289c309f 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -221,14 +221,10 @@ public class Element extends Node {
+      * @return child data nodes. If this element has no data nodes, returns an
+      * empty list.
+      * @see #data()
++       The data nodes are counted first, so that the list is created with exactly the capacity it needs.
+      */
+     public List<DataNode> dataNodes() {
+-        List<DataNode> dataNodes = new ArrayList<DataNode>();
+-        for (Node node : childNodes) {
+-            if (node instanceof DataNode)
+-                dataNodes.add((DataNode) node);
+-        }
+-        return Collections.unmodifiableList(dataNodes);
++        return org.jsoup.helper.HttpConnection.nodesOfType(childNodes, DataNode.class);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index 1b97afeb..d22671c2 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -12,6 +12,7 @@ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.LinkedList;
+ import java.util.List;
++import org.jsoup.select.Elements;
+ 
+ /**
+  The base, abstract Node model. Elements, Documents, Comments etc are all Node instances.
+@@ -312,6 +313,18 @@ public abstract class Node implements Cloneable {
+         return this;
+     }
+ 
++    /**
++     * Add the nodes of a node list that are of the given type to a list, in their order in the node list.
++     * @param nodes nodes to select from
++     * @param type type of node to select
++     * @param found list to add the selected nodes to
++     * @param <T> the node type
++     */
++    public static <T extends Node> void appendNodesOfType(List<Node> nodes, Class<T> type, List<T> found) {
++        Elements.addNodesOfType(nodes, type, found);
++    }
++
++
+     /**
+      * Insert the specified node into the DOM after this node (i.e. as a following sibling).
+      * @param node to add after this node
+diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java
+index 6340c10e..d20e582a 100644
+--- a/src/main/java/org/jsoup/safety/Whitelist.java
++++ b/src/main/java/org/jsoup/safety/Whitelist.java
+@@ -14,6 +14,9 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Set;
++import java.util.ArrayList;
++import java.util.List;
++import org.jsoup.nodes.Node;
+ 
+ 
+ /**
+@@ -320,6 +323,30 @@ public class Whitelist {
+         return this;
+     }
+ 
++    /**
++     * Find the runs of consecutive nodes of a type in a list of nodes.
++     * <p/>
++     * Each run is given as a pair of indexes into the list: the index of its first node, and the index after its last node. The
++     * runs are given in list order.
++     * @param nodes nodes to search
++     * @param type type of node to find
++     * @return the runs, in list order
++     */
++    public static List<int[]> runsOfType(List<Node> nodes, Class<?> type) {
++        List<int[]> runs = new ArrayList<int[]>();
++        int start = -1;
++        for (int i = 0; i < nodes.size(); i++) {
++            if (type.isInstance(nodes.get(i))) {
++                if (start < 0) start = i;
++            } else if (start >= 0) {
++                runs.add(new int[] {start, i});
++                start = -1;
++            }
++        }
++        return runs;
++    }
++
++
+     /**
+      * Test if the supplied tag is allowed by this whitelist
+      * @param tag test tag
+diff --git a/src/main/java/org/jsoup/select/Elements.java b/src/main/java/org/jsoup/select/Elements.java
+index 8ab12c17..2d3a4ebc 100644
+--- a/src/main/java/org/jsoup/select/Elements.java
++++ b/src/main/java/org/jsoup/select/Elements.java
+@@ -6,6 +6,7 @@ import org.jsoup.nodes.FormElement;
+ import org.jsoup.nodes.Node;
+ 
+ import java.util.*;
++import org.jsoup.safety.Whitelist;
+ 
+ /**
+  A list of {@link Element Elements}, with methods that act on every element in the list.
+@@ -225,6 +226,23 @@ public class Elements implements List<Element>, Cloneable {
+         }
+         return sb.toString();
+     }
++
++    /**
++     * Add the nodes of a node list that are of the given type to a list, in their order in the node list.
++     * <p/>
++     * The runs of consecutive nodes of the type are found first, and the nodes of each run are then added in turn.
++     * @param nodes nodes to select from
++     * @param type type of node to select
++     * @param found list to add the selected nodes to
++     * @param <T> the node type
++     */
++    public static <T extends Node> void addNodesOfType(List<Node> nodes, Class<T> type, List<T> found) {
++        for (int[] run : Whitelist.runsOfType(nodes, type)) {
++            for (Node node : nodes.subList(run[0], run[1]))
++                found.add(type.cast(node));
++        }
++    }
++
+     
+     /**
+      * Get the combined outer HTML of all matched elements.
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 9d94158e..84e8df48 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -11,6 +11,7 @@ import org.jsoup.nodes.XmlDeclaration;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import java.util.ArrayList;
+ 
+ 
+ /**
+@@ -405,6 +406,20 @@ public abstract class Evaluator {
+     	public CssNthEvaluator(int b) {
+     		this(0,b);
+     	}
++
++    /**
++     * Collect the nodes of a node list that are of the given type into a new list.
++     * @param nodes nodes to select from
++     * @param type type of node to select
++     * @param <T> the node type
++     * @return a new list of the selected nodes, in their order in the node list
++     */
++    public static <T extends Node> List<T> collectNodes(List<Node> nodes, java.lang.Class<T> type) {
++        List<T> found = new ArrayList<T>();
++        Node.appendNodesOfType(nodes, type, found);
++        return found;
++    }
++
+     	
+     	@Override
+     	public boolean matches(Element root, Element element) {

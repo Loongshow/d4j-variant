@@ -1,0 +1,202 @@
+diff --git a/src/main/java/org/apache/commons/collections4/CollectionUtils.java b/src/main/java/org/apache/commons/collections4/CollectionUtils.java
+index 122c898c..a0746898 100644
+--- a/src/main/java/org/apache/commons/collections4/CollectionUtils.java
++++ b/src/main/java/org/apache/commons/collections4/CollectionUtils.java
+@@ -527,6 +527,22 @@ public class CollectionUtils {
+         return true;
+     }
+ 
++    /**
++     * Rebuilds a non-empty list from its own elements and returns a new
++     * <code>HashSet</code> holding the elements of the rebuilt list.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to rebuild, must not be null or empty
++     * @return a new set of the elements of the rebuilt list
++     */
++    public static <E> Set<E> rebuildToSet(final List<E> list) {
++        MapUtils.repopulateList(list);
++        final Set<E> set = new HashSet<E>();
++        set.addAll(list);
++        return set;
++    }
++
++
+     /**
+      * Returns <tt>true</tt> iff the given {@link Collection}s contain
+      * exactly the same elements with exactly the same cardinalities.
+diff --git a/src/main/java/org/apache/commons/collections4/MapUtils.java b/src/main/java/org/apache/commons/collections4/MapUtils.java
+index 68dea203..9037b11a 100644
+--- a/src/main/java/org/apache/commons/collections4/MapUtils.java
++++ b/src/main/java/org/apache/commons/collections4/MapUtils.java
+@@ -45,6 +45,8 @@ import org.apache.commons.collections4.map.TransformedMap;
+ import org.apache.commons.collections4.map.TransformedSortedMap;
+ import org.apache.commons.collections4.map.UnmodifiableMap;
+ import org.apache.commons.collections4.map.UnmodifiableSortedMap;
++import java.util.List;
++import org.apache.commons.collections4.trie.PatriciaTrie;
+ 
+ /**
+  * Provides utility methods and decorators for
+@@ -1204,6 +1206,17 @@ public class MapUtils {
+         return map == null || map.isEmpty();
+     }
+ 
++    /**
++     * Rebuilds a list from its own elements.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to rebuild, must not be null
++     */
++    public static <E> void repopulateList(final List<E> list) {
++        PatriciaTrie.refillList(list);
++    }
++
++
+     /**
+      * Null-safe check if the specified map is not empty.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java b/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
+index 7ef4782b..6d11e131 100644
+--- a/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
++++ b/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
+@@ -38,6 +38,9 @@ import org.apache.commons.collections4.keyvalue.UnmodifiableMapEntry;
+ 
+ import static org.apache.commons.collections4.bidimap.TreeBidiMap.DataElement.KEY;
+ import static org.apache.commons.collections4.bidimap.TreeBidiMap.DataElement.VALUE;
++import java.util.HashSet;
++import java.util.List;
++import org.apache.commons.collections4.CollectionUtils;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -302,6 +305,24 @@ public class TreeBidiMap<K extends Comparable<K>, V extends Comparable<V>>
+         return doRemoveValue(value);
+     }
+ 
++    /**
++     * Gets a new <code>HashSet</code> of the elements of a list, after the
++     * list has been rebuilt from its own elements.
++     * <p>
++     * An empty list is left as it is, and a new empty set is returned.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list, must not be null
++     * @return a new set of the elements of the list
++     */
++    public static <E> Set<E> valueSetOf(final List<E> list) {
++        if (list.isEmpty()) {
++            return new HashSet<E>();
++        }
++        return CollectionUtils.rebuildToSet(list);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Gets the first (lowest) key currently in this map.
+diff --git a/src/main/java/org/apache/commons/collections4/list/SetUniqueList.java b/src/main/java/org/apache/commons/collections4/list/SetUniqueList.java
+index f7f04b2d..95c34a3b 100644
+--- a/src/main/java/org/apache/commons/collections4/list/SetUniqueList.java
++++ b/src/main/java/org/apache/commons/collections4/list/SetUniqueList.java
+@@ -70,19 +70,13 @@ public class SetUniqueList<E> extends AbstractSerializableListDecorator<E> {
+      * @return a new {@link SetUniqueList}
+      * @throws IllegalArgumentException
+      *             if list is null
++       The duplicates are removed in place, the list being walked from its last index to its first and each element that also occurs at a lower index being removed.
+      */
+     public static <E> SetUniqueList<E> setUniqueList(final List<E> list) {
+         if (list == null) {
+             throw new IllegalArgumentException("List must not be null");
+         }
+-        if (list.isEmpty()) {
+-            return new SetUniqueList<E>(list, new HashSet<E>());
+-        }
+-        final List<E> temp = new ArrayList<E>(list);
+-        list.clear();
+-        final SetUniqueList<E> sl = new SetUniqueList<E>(list, new HashSet<E>());
+-        sl.addAll(temp);
+-        return sl;
++        return new SetUniqueList<E>(list, org.apache.commons.collections4.bidimap.TreeBidiMap.valueSetOf(list));
+     }
+ 
+     // -----------------------------------------------------------------------
+diff --git a/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java b/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
+index 3824c223..3f60615d 100644
+--- a/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
++++ b/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
+@@ -34,6 +34,7 @@ import org.apache.commons.collections4.KeyValue;
+ import org.apache.commons.collections4.MapIterator;
+ import org.apache.commons.collections4.iterators.EmptyIterator;
+ import org.apache.commons.collections4.iterators.EmptyMapIterator;
++import java.util.List;
+ 
+ /**
+  * An abstract implementation of a hash-based map which provides numerous points for
+@@ -366,6 +367,31 @@ public class AbstractHashedMap<K, V> extends AbstractMap<K, V> implements Iterab
+         size = 0;
+     }
+ 
++    /**
++     * Appends to a list each element of a collection that the list does not
++     * already contain, in the iteration order of the collection.
++     *
++     * @param <E>  the type of the elements
++     * @param elements  the elements to append, not null
++     * @param list  the list to append to, not null
++     */
++    public static <E> void appendElements(final Collection<? extends E> elements, final List<E> list) {
++        for (final E element : elements) {
++            boolean present = false;
++            for (final E existing : list) {
++                if (existing == element
++                        || existing != null && existing.equals(element)) {
++                    present = true;
++                    break;
++                }
++            }
++            if (!present) {
++                list.add(element);
++            }
++        }
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Converts input keys to another object for storage in the map.
+diff --git a/src/main/java/org/apache/commons/collections4/trie/PatriciaTrie.java b/src/main/java/org/apache/commons/collections4/trie/PatriciaTrie.java
+index 9bcf72fd..fa67de08 100644
+--- a/src/main/java/org/apache/commons/collections4/trie/PatriciaTrie.java
++++ b/src/main/java/org/apache/commons/collections4/trie/PatriciaTrie.java
+@@ -27,6 +27,9 @@ import java.util.Set;
+ import java.util.SortedMap;
+ 
+ import org.apache.commons.collections4.Trie;
++import java.util.ArrayList;
++import java.util.List;
++import org.apache.commons.collections4.map.AbstractHashedMap;
+ 
+ /**
+  * <h3>PATRICIA {@link Trie}</h3>
+@@ -179,6 +182,20 @@ public class PatriciaTrie<K, V> extends PatriciaTrieBase<K, V> implements Trie<K
+         return new RangeEntryMap(fromKey, toKey);
+     }
+ 
++    /**
++     * Rebuilds a list from its own elements: the list is copied into a new
++     * <code>ArrayList</code>, then cleared, and then refilled from the copy.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to rebuild, must not be null
++     */
++    public static <E> void refillList(final List<E> list) {
++        final List<E> former = new ArrayList<E>(list);
++        list.clear();
++        AbstractHashedMap.appendElements(former, list);
++    }
++
++
+     /**
+      * {@inheritDoc}
+      */

@@ -1,0 +1,78 @@
+{
+  "instance": "Time-19",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.joda.time.DateTime::zoneAtOffset (hop 4)",
+      "edit": "return LocalDate.zoneFromOffsetFields(hours, minutes);  ->  return LocalDate.zoneFromOffsetFields(hours, hours < 0 ? -minutes : minutes);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.format.ISODateTimeFormat::offsetZone (hop 3)",
+      "edit": "return DateTime.zoneAtOffset(hours, minutes);  ->  return DateTime.zoneAtOffset(hours < 0 && minutes > 0 ? hours - 1 : hours, hours < 0 && minutes > 0 ? 60 - minutes : minutes);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.tz.DateTimeZoneBuilder::toOffsetZone (hop 2)",
+      "edit": "return ISODateTimeFormat.offsetZone(hours, minutes);  ->  return DateTimeZone.forOffsetMillis(org.joda.time.field.FieldUtils.safeMultiply(org.joda.time.field.FieldUtils.safeAdd(org.joda.time.field.FieldUtils.safeMultiply(hours, 60), hours < 0 ? -minutes : minutes), org.joda.time.DateTimeConstants.MILLIS_PER_MINUTE));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "org.joda.time.DateTime::zoneAtOffset (hop 4, declared compensating edit)",
+      "edit": "return LocalDate.zoneFromOffsetFields(hours < 0 ? hours - 1 : hours, minutes);",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.format.ISODateTimeFormat::offsetZone (hop 3, declared compensating edit)",
+      "edit": "return DateTime.zoneAtOffset(hours, hours < 0 && minutes > 0 ? 60 - minutes : minutes);",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.joda.time.tz.DateTimeZoneBuilder::toOffsetZone (hop 2, declared compensating edit)",
+      "edit": "return ISODateTimeFormat.offsetZone(hours < 0 ? hours + 1 : hours, minutes);",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.joda.time.DateTimeZone::forOffsetHoursMinutes (minutes-range guard + one call)",
+    "hop1 org.joda.time.format.DateTimeFormatterBuilder::timeZoneForOffset (ArithmeticException -> IllegalArgumentException, pass-through)",
+    "hop2 org.joda.time.tz.DateTimeZoneBuilder::toOffsetZone (zero offset -> UTC, else pass-through)",
+    "hop3 org.joda.time.format.ISODateTimeFormat::offsetZone (pass-through)",
+    "hop4 org.joda.time.DateTime::zoneAtOffset (pass-through)",
+    "gold org.joda.time.LocalDate::zoneFromOffsetFields (hours*60 + minutes -> forOffsetMillis; sign of a negative hour count no longer applied to the minutes)"
+  ],
+  "reasons": "(a) On the trigger input (-2, 30) the gold returns -01:30. Its contract is 'the zone for the offset whose hours are -2 and whose minutes (0 to 59) are 30'. Under the sign-magnitude convention pinned outside it, that offset is -02:30. Every hop passes (hours, minutes) through unchanged with word-for-word the same parameter documentation, and is wrong only through delegation. Hop 1's exception translation and hop 2's zero check behave as documented, so the gold's own code is the only violation. (b) The hop javadocs match their code: hop 1 '@throws IllegalArgumentException if the offset is too large or too small' (it catches ArithmeticException), hop 2 'A zero offset gives the UTC zone', hops 3 and 4 plain delegation. No hop documents a conversion of the pair, so none can own the arithmetic. (c) The edits that pass the full suite are: signed minutes at hop 4, which hands the gold -30 against its documented 'from 0 to 59'; an hour borrow at hop 3, (-3, 30) for -02:30, which hop 4 and the gold must read as -03:30 under the same documented and pinned convention (and which no evidence method uses); and a full recomputation at hop 2, which makes hops 3, 4 and the gold dead (bypass). None of them is a doc-consistent competing repair. All three declared compensating edits still fail the trigger, as G9 says. (d) The names (timeZoneForOffset, toOffsetZone, offsetZone, zoneAtOffset, zoneFromOffsetFields) are neutral, and the gold reads as a complete routine with no marker. The lie (JDK TimeZone with a custom GMT ID, then as forTimeZone) is false procedure: it does not mention the sign, the minutes or the omitted step. The '(-2, 30) -> -02:30' sentence is pristine Joda documentation, not an added line. (e) The gold is five calls below the facade, and the five hops are in five distinct pre-existing classes, none of them the facade's class. The facade is the original minutes guard plus one call. There is one added false procedural sentence. The gold's javadoc does not state the negation. The trigger is an existing test, test.patch is empty, and my own full-suite run on the variant fails only testForOffsetHoursMinutes_int_int. (f) The facade's pristine javadoc pins the convention: 'The minutes value is always positive and in the range 0 to 59. If constructed with the values (-2, 30), the resulting zone is -02:30'. Three evidence methods agree: TimeZoneOffset.parseInto adds the magnitude hours and minutes and then applies the sign; ZoneInfoCompiler.parseTime negates the whole h:mm:ss; printOffset prints the sign and then the magnitude fields. Passing tests pin it too: testForID_String ('-07:05:34.0' = -7h -5m -34s), TestCompiler.testCompile (LMT -07:52:58) and testForOffsetMillis_int.",
+  "notes": "The trigger fails on the variant with 'expected:<-02:30> but was:<-01:30>'. The variant compiles. The full suite on the variant has exactly one failure, the trigger. 'class: fails' on the first two rows means the edit passes every test but is not consistent with the path documentation, so it is neither a competing repair nor a bypass. In isolation the gold's javadoc ('hours of the offset', 'minutes of the offset, from 0 to 59') would also admit a floor-decomposition reading under which the variant is correct. That reading is excluded only by the external pins: the facade's own example and the sign-magnitude evidence code. Without a documented conversion step, it would also leave the location of the conversion undetermined among four identical pass-through hops, so it does not create a credible alternative owner. Cosmetic: the recipe appended the lie after the @throws tag without a leading '*', so rendered javadoc would show it inside the @throws description. This does not affect validity. Ownership claim checked: 'no caller receives a number it could correct' is loosely true; a caller could re-derive the offset from the returned zone, but that would be a doc-inconsistent post-correction, not a competing repair. Scratch was /private/tmp/mxb-sKc14s (deleted)."
+}

@@ -1,0 +1,154 @@
+diff --git a/gson/src/main/java/com/google/gson/Gson.java b/gson/src/main/java/com/google/gson/Gson.java
+index 28285738..395be73b 100644
+--- a/gson/src/main/java/com/google/gson/Gson.java
++++ b/gson/src/main/java/com/google/gson/Gson.java
+@@ -986,4 +986,13 @@ public final class Gson {
+         .append("}")
+         .toString();
+   }
++
++        /**
++     * Returns the upper bounds of a wildcard type that extends {@code bound}.
++     * The bound is passed on as the only element of an array of bounds.
++     */
++    public static Type[] upperBoundsFor(Type bound) {
++      return GsonBuilder.upperBoundsIn(new Type[] { bound });
++    }
++
+ }
+diff --git a/gson/src/main/java/com/google/gson/GsonBuilder.java b/gson/src/main/java/com/google/gson/GsonBuilder.java
+index cebed7e7..3ed489d7 100644
+--- a/gson/src/main/java/com/google/gson/GsonBuilder.java
++++ b/gson/src/main/java/com/google/gson/GsonBuilder.java
+@@ -587,4 +587,13 @@ public final class GsonBuilder {
+     factories.add(TreeTypeAdapter.newFactory(TypeToken.get(Timestamp.class), dateTypeAdapter));
+     factories.add(TreeTypeAdapter.newFactory(TypeToken.get(java.sql.Date.class), dateTypeAdapter));
+   }
++
++        /**
++     * Returns the upper bounds of a wildcard type that extends each of
++     * {@code bounds}.
++     */
++    public static Type[] upperBoundsIn(Type[] bounds) {
++      return JsonArray.upperBoundsArray(bounds);
++    }
++
+ }
+diff --git a/gson/src/main/java/com/google/gson/JsonArray.java b/gson/src/main/java/com/google/gson/JsonArray.java
+index 96fe23ed..0bf158d9 100644
+--- a/gson/src/main/java/com/google/gson/JsonArray.java
++++ b/gson/src/main/java/com/google/gson/JsonArray.java
+@@ -21,6 +21,8 @@ import java.math.BigInteger;
+ import java.util.ArrayList;
+ import java.util.Iterator;
+ import java.util.List;
++import java.lang.reflect.Type;
++import com.google.gson.stream.JsonWriter;
+ 
+ /**
+  * A class representing an array type in Json. An array is a list of {@link JsonElement}s each of
+@@ -377,4 +379,15 @@ public final class JsonArray extends JsonElement implements Iterable<JsonElement
+   public int hashCode() {
+     return elements.hashCode();
+   }
++
++        /**
++     * Returns the upper bounds of a wildcard type that extends each of
++     * {@code bounds}, as an array that holds the elements of the list of
++     * upper bounds in order.
++     */
++    public static Type[] upperBoundsArray(Type[] bounds) {
++      List<Type> upperBounds = JsonWriter.listUpperBounds(bounds);
++      return upperBounds.toArray(new Type[upperBounds.size()]);
++    }
++
+ }
+diff --git a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java
+index 67394531..06104689 100644
+--- a/gson/src/main/java/com/google/gson/internal/$Gson$Types.java
++++ b/gson/src/main/java/com/google/gson/internal/$Gson$Types.java
+@@ -73,16 +73,11 @@ public final class $Gson$Types {
+    * For example, if {@code bound} is {@code CharSequence.class}, this returns
+    * {@code ? extends CharSequence}. If {@code bound} is {@code Object.class},
+    * this returns {@code ?}, which is shorthand for {@code ? extends Object}.
+-   */
++     The new wildcard type is interned: when a wildcard type equal to it was created before, that earlier instance is returned in its place.
++     */
+   public static WildcardType subtypeOf(Type bound) {
+-    Type[] upperBounds;
+-    if (bound instanceof WildcardType) {
+-      upperBounds = ((WildcardType) bound).getUpperBounds();
+-    } else {
+-      upperBounds = new Type[] { bound };
++        return new WildcardTypeImpl(com.google.gson.stream.JsonReader.upperBoundsOf(bound), EMPTY_TYPE_ARRAY);
+     }
+-    return new WildcardTypeImpl(upperBounds, EMPTY_TYPE_ARRAY);
+-  }
+ 
+   /**
+    * Returns a type that represents an unknown supertype of {@code bound}. For
+diff --git a/gson/src/main/java/com/google/gson/stream/JsonReader.java b/gson/src/main/java/com/google/gson/stream/JsonReader.java
+index e0799d73..fae30fba 100644
+--- a/gson/src/main/java/com/google/gson/stream/JsonReader.java
++++ b/gson/src/main/java/com/google/gson/stream/JsonReader.java
+@@ -22,6 +22,9 @@ import java.io.Closeable;
+ import java.io.EOFException;
+ import java.io.IOException;
+ import java.io.Reader;
++import java.lang.reflect.Type;
++import java.lang.reflect.WildcardType;
++import com.google.gson.Gson;
+ 
+ /**
+  * Reads a JSON (<a href="http://www.ietf.org/rfc/rfc7159.txt">RFC 7159</a>)
+@@ -1614,4 +1617,18 @@ public class JsonReader implements Closeable {
+       }
+     };
+   }
++
++        /**
++     * Returns the upper bounds of a wildcard type that extends {@code bound}.
++     * A wildcard bound with a lower bound, such as {@code ? super String}, is
++     * bounded above only by {@code Object}, which is then the only upper bound.
++     * Any other bound is passed on unchanged.
++     */
++    public static Type[] upperBoundsOf(Type bound) {
++      if (bound instanceof WildcardType && ((WildcardType) bound).getLowerBounds().length > 0) {
++        return new Type[] { Object.class };
++      }
++      return Gson.upperBoundsFor(bound);
++    }
++
+ }
+diff --git a/gson/src/main/java/com/google/gson/stream/JsonWriter.java b/gson/src/main/java/com/google/gson/stream/JsonWriter.java
+index e2fc1961..31b9215c 100644
+--- a/gson/src/main/java/com/google/gson/stream/JsonWriter.java
++++ b/gson/src/main/java/com/google/gson/stream/JsonWriter.java
+@@ -28,6 +28,9 @@ import static com.google.gson.stream.JsonScope.EMPTY_OBJECT;
+ import static com.google.gson.stream.JsonScope.NONEMPTY_ARRAY;
+ import static com.google.gson.stream.JsonScope.NONEMPTY_DOCUMENT;
+ import static com.google.gson.stream.JsonScope.NONEMPTY_OBJECT;
++import java.lang.reflect.Type;
++import java.util.ArrayList;
++import java.util.List;
+ 
+ /**
+  * Writes a JSON (<a href="http://www.ietf.org/rfc/rfc7159.txt">RFC 7159</a>)
+@@ -656,4 +659,17 @@ public class JsonWriter implements Closeable, Flushable {
+       throw new IllegalStateException("Nesting problem.");
+     }
+   }
++
++        /**
++     * Returns the upper bounds of a wildcard type that extends each of
++     * {@code bounds}.
++     */
++    public static List<Type> listUpperBounds(Type[] bounds) {
++      List<Type> result = new ArrayList<Type>(bounds.length);
++      for (Type bound : bounds) {
++        result.add(bound);
++      }
++      return result;
++    }
++
+ }

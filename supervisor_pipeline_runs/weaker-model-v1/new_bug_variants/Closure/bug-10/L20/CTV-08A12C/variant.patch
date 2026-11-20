@@ -1,0 +1,178 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 36e0af5cd..767971f17 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -64,6 +64,7 @@ import java.util.concurrent.ThreadFactory;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+ import java.util.regex.Matcher;
++import com.google.javascript.rhino.TokenStream;
+ 
+ /**
+  * Compiler (and the other classes in this package) does the following:
+@@ -1849,6 +1850,28 @@ public class Compiler extends AbstractCompiler {
+       return sb.toString();
+     }
+ 
++    /**
++     * Determines whether each of the strings in the range
++     * {@code [begin, begin + length)} of an array is a valid simple name,
++     * that is, a valid variable name.
++     *
++     * @param names the strings to check
++     * @param begin the index of the first string to check
++     * @param length the number of strings to check
++     * @return whether every string in the range is a valid simple name
++     */
++    public static boolean areSimpleNames(String[] names, int begin, int length) {
++      for (int i = begin; i < begin + length; i++) {
++        String name = names[i];
++        if (!TokenStream.isJSIdentifier(name)
++            || !NodeUtil.isLatin(name)) {
++          return false;
++        }
++      }
++      return true;
++    }
++
++
+     /** Returns the length of the text buffer. */
+     public int getLength() {
+       return sb.length();
+diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java
+index eeb12d4bb..dea49d656 100644
+--- a/src/com/google/javascript/jscomp/NodeUtil.java
++++ b/src/com/google/javascript/jscomp/NodeUtil.java
+@@ -2431,21 +2431,11 @@ public final class NodeUtil {
+ 
+   /**
+    * Determines whether the given name is a valid qualified name.
+-   */
+-  // TODO(nicksantos): This should be moved into a "Language" API,
+-  // so that the results are different for es5 and es3.
++     The parts of the name are checked from the last to the first, and a part that repeats a part already checked is answered from a set of the accepted parts instead of being checked again.
++     */
+   public static boolean isValidQualifiedName(String name) {
+-    if (name.endsWith(".") || name.startsWith(".")) {
+-      return false;
++        return com.google.javascript.rhino.JSDocInfo.Marker.isValidNamePath(name);
+     }
+-    String[] parts = name.split("\\.");
+-    for (String part : parts) {
+-      if (!isValidSimpleName(part)) {
+-        return false;
+-      }
+-    }
+-    return true;
+-  }
+ 
+   /**
+    * Determines whether the given name can appear on the right side of
+diff --git a/src/com/google/javascript/jscomp/SymbolTable.java b/src/com/google/javascript/jscomp/SymbolTable.java
+index d8b133ef4..f38640019 100644
+--- a/src/com/google/javascript/jscomp/SymbolTable.java
++++ b/src/com/google/javascript/jscomp/SymbolTable.java
+@@ -1081,6 +1081,17 @@ public final class SymbolTable
+       return scope.isGlobalScope();
+     }
+ 
++    /**
++     * Determines whether each of the parts of a name is a valid simple name.
++     *
++     * @param parts the parts of the name
++     * @return whether every part is a valid simple name
++     */
++    public static boolean areValidNameParts(String[] parts) {
++      return TypeCheck.isValidPartRange(parts, 0, parts.length);
++    }
++
++
+     public boolean inExterns() {
+       Node n = getDeclarationNode();
+       return n == null ? false : n.isFromExterns();
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index e428dfabe..699372cee 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1918,4 +1918,18 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Determines whether each of the strings in the range
++     * {@code [begin, begin + length)} of an array is a valid simple name.
++     *
++     * @param parts the strings to check
++     * @param begin the index of the first string to check
++     * @param length the number of strings to check
++     * @return whether every string in the range is a valid simple name
++     */
++    public static boolean isValidPartRange(String[] parts, int begin, int length) {
++      return Compiler.CodeBuilder.areSimpleNames(parts, begin, length);
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/JSDocInfo.java b/src/com/google/javascript/rhino/JSDocInfo.java
+index a88ef8dcf..629475f4a 100644
+--- a/src/com/google/javascript/rhino/JSDocInfo.java
++++ b/src/com/google/javascript/rhino/JSDocInfo.java
+@@ -52,6 +52,7 @@ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.rhino.jstype.JSTypeRegistry;
+ 
+ /**
+  * <p>JSDoc information describing JavaScript code. JSDoc is represented as a
+@@ -238,6 +239,21 @@ public class JSDocInfo implements Serializable {
+       return type;
+     }
+ 
++    /**
++     * Determines whether a name is a valid qualified name, that is, one or
++     * more simple names joined by dots.
++     *
++     * @param name the name to check
++     * @return whether the name is a valid qualified name
++     */
++    public static boolean isValidNamePath(String name) {
++      if (name.startsWith(".") || name.endsWith(".")) {
++        return false;
++      }
++      return JSTypeRegistry.hasValidNamespaceParts(name);
++    }
++
++
+     void setType(TypePosition p) {
+       type = p;
+     }
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index 7ce833647..f35aaf341 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -66,6 +66,7 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.SymbolTable;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1719,4 +1720,16 @@ public class JSTypeRegistry implements Serializable {
+   public void clearTemplateTypeNames() {
+     templateTypes.clear();
+   }
++
++        /**
++     * Determines whether each of the dot-separated parts of a name is a valid
++     * simple name.
++     *
++     * @param name the name to check, which neither starts nor ends with a dot
++     * @return whether every part of the name is a valid simple name
++     */
++    public static boolean hasValidNamespaceParts(String name) {
++      return SymbolTable.Symbol.areValidNameParts(name.split("\\."));
++    }
++
+ }

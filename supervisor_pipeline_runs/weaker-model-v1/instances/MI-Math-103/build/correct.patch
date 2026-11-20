@@ -1,0 +1,205 @@
+diff --git a/src/java/org/apache/commons/math/distribution/NormalDistributionImpl.java b/src/java/org/apache/commons/math/distribution/NormalDistributionImpl.java
+index a08eac52f..fbb1d2ff6 100644
+--- a/src/java/org/apache/commons/math/distribution/NormalDistributionImpl.java
++++ b/src/java/org/apache/commons/math/distribution/NormalDistributionImpl.java
+@@ -104,20 +104,11 @@ public class NormalDistributionImpl extends AbstractContinuousDistribution
+      * @throws MathException if the algorithm fails to converge; unless
+      * x is more than 20 standard deviations from the mean, in which case the
+      * convergence exception is caught and 0 or 1 is returned.
++       The probability is computed by integrating the density from the mean to <code>x</code> with Simpson's rule and adding one half.
+      */
+     public double cumulativeProbability(double x) throws MathException {
+-        try {
+-            return 0.5 * (1.0 + Erf.erf((x - mean) /
+-                    (standardDeviation * Math.sqrt(2.0))));
+-        } catch (MaxIterationsExceededException ex) {
+-            if (x < (mean - 20 * standardDeviation)) { // JDK 1.5 blows at 38
+-                return 0.0d;
+-            } else if (x > (mean + 20 * standardDeviation)) {
+-                return 1.0d;
+-            } else {
+-                throw ex;
+-            }
+-        }
++        return org.apache.commons.math.linear.BigMatrixImpl.normalCumulative(new double[] {x}, mean,
++                standardDeviation)[0];
+     }
+     
+     /**
+diff --git a/src/java/org/apache/commons/math/geometry/Rotation.java b/src/java/org/apache/commons/math/geometry/Rotation.java
+index 3ac975d8b..e83a1e011 100644
+--- a/src/java/org/apache/commons/math/geometry/Rotation.java
++++ b/src/java/org/apache/commons/math/geometry/Rotation.java
+@@ -18,6 +18,8 @@
+ package org.apache.commons.math.geometry;
+ 
+ import java.io.Serializable;
++import org.apache.commons.math.MathException;
++import org.apache.commons.math.special.Erf;
+ 
+ /**
+  * This class implements rotations in a three-dimensional space.
+@@ -1013,4 +1015,23 @@ public class Rotation implements Serializable {
+ 
+   private static final long serialVersionUID = 5127795878493115119L;
+ 
++
++        /** Compute, for each standard score, the probability that a standard
++     * normal random variable takes a value less than the score.
++     * @param scores the standard scores
++     * @param probabilities the array receiving the probabilities, at the
++     * same indices as the scores
++     */
++    public static void writeCumulative(double[] scores, double[] probabilities)
++        throws MathException {
++      for (int i = 0; i < scores.length; i++) {
++        final double z = scores[i];
++        if (Math.abs(z) > 20.0) {
++          probabilities[i] = (z < 0.0) ? 0.0 : 1.0;
++        } else {
++          probabilities[i] = 0.5 * (1.0 + Erf.erf(z / Math.sqrt(2.0)));
++        }
++      }
++    }
++
+ }
+diff --git a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index 4bf8e741c..25b4fa994 100644
+--- a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -18,6 +18,8 @@
+ package org.apache.commons.math.linear;
+ import java.io.Serializable;
+ import java.math.BigDecimal;
++import org.apache.commons.math.MathException;
++import org.apache.commons.math.stat.inference.TTestImpl;
+ 
+ /**
+  * Implementation of {@link BigMatrix} using a BigDecimal[][] array to store entries
+@@ -325,6 +327,32 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+     public BigMatrix preMultiply(BigMatrix m) throws IllegalArgumentException {
+         return m.multiply(this);
+     }
++
++    /**
++     * Returns, for each point, the probability that a normal random variable
++     * with the given mean and standard deviation takes a value less than the
++     * point.
++     * <p>
++     * Each point is expressed as its standard score, the difference between
++     * the point and the mean divided by the standard deviation, and the
++     * probabilities are those of the standard scores under the standard
++     * normal distribution.</p>
++     *
++     * @param points the points at which the probabilities are computed
++     * @param mean the mean of the distribution
++     * @param sd the standard deviation of the distribution, positive
++     * @return the probabilities, at the same indices as the points
++     * @throws MathException if a probability can not be computed
++     */
++    public static double[] normalCumulative(double[] points, double mean, double sd)
++        throws MathException {
++        final double[] scores = new double[points.length];
++        for (int i = 0; i < points.length; i++) {
++            scores[i] = (points[i] - mean) / sd;
++        }
++        return TTestImpl.standardCumulative(scores);
++    }
++
+     
+     /**
+      * Returns matrix entries as a two-dimensional array.
+diff --git a/src/java/org/apache/commons/math/linear/RealMatrixImpl.java b/src/java/org/apache/commons/math/linear/RealMatrixImpl.java
+index 9475eb159..fc864de94 100644
+--- a/src/java/org/apache/commons/math/linear/RealMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/RealMatrixImpl.java
+@@ -19,6 +19,8 @@ package org.apache.commons.math.linear;
+ 
+ import java.io.Serializable;
+ import org.apache.commons.math.util.MathUtils;
++import org.apache.commons.math.MathException;
++import org.apache.commons.math.ode.GraggBulirschStoerIntegrator;
+ 
+ 
+ /**
+@@ -647,6 +649,21 @@ public class RealMatrixImpl implements RealMatrix, Serializable {
+         return out;
+     }
+ 
++    /**
++     * Stores, for each standard score, the probability that a standard normal
++     * random variable takes a value less than the score.
++     *
++     * @param scores the standard scores
++     * @param probabilities the array receiving the probabilities, at the same
++     * indices as the scores
++     * @throws MathException if a probability can not be computed
++     */
++    public static void fillCumulative(double[] scores, double[] probabilities)
++        throws MathException {
++        GraggBulirschStoerIntegrator.cumulativeInto(scores, probabilities);
++    }
++
++
+     /**
+      * @param v vector to premultiply by
+      * @throws IllegalArgumentException if rowDimension != v.length
+diff --git a/src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java b/src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java
+index 8f7433673..700cc5085 100644
+--- a/src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java
++++ b/src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java
+@@ -1016,4 +1016,18 @@ public class GraggBulirschStoerIntegrator
+   /** interpolation order control parameter. */
+   private int mudif;
+ 
++
++        /** Store, for each standard score, the probability that a standard
++     * normal random variable takes a value less than the score.
++     * @param scores the standard scores
++     * @param probabilities the array receiving the probabilities, at the
++     * same indices as the scores
++     * @exception org.apache.commons.math.MathException if a probability can
++     * not be computed
++     */
++    public static void cumulativeInto(double[] scores, double[] probabilities)
++        throws org.apache.commons.math.MathException {
++      org.apache.commons.math.geometry.Rotation.writeCumulative(scores, probabilities);
++    }
++
+ }
+diff --git a/src/java/org/apache/commons/math/stat/inference/TTestImpl.java b/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
+index 04b9b97cb..6bb4f778a 100644
+--- a/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
++++ b/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
+@@ -22,6 +22,7 @@ import org.apache.commons.math.distribution.TDistribution;
+ import org.apache.commons.math.distribution.TDistributionImpl;
+ import org.apache.commons.math.stat.StatUtils;
+ import org.apache.commons.math.stat.descriptive.StatisticalSummary;
++import org.apache.commons.math.linear.RealMatrixImpl;
+ 
+ /**
+  * Implements t-test statistics defined in the {@link TTest} interface.
+@@ -299,6 +300,23 @@ public class TTestImpl implements TTest  {
+                 (double) sample1.length, (double) sample2.length);
+     }
+ 
++    /**
++     * Returns, for each standard score, the probability that a standard
++     * normal random variable takes a value less than the score.
++     *
++     * @param scores the standard scores
++     * @return a new array holding the probabilities, at the same indices as
++     * the scores
++     * @throws MathException if a probability can not be computed
++     */
++    public static double[] standardCumulative(double[] scores)
++        throws MathException {
++        final double[] probabilities = new double[scores.length];
++        RealMatrixImpl.fillCumulative(scores, probabilities);
++        return probabilities;
++    }
++
++
+     /**
+      * Computes a 2-sample t statistic </a>, comparing the means of the datasets
+      * described by two {@link StatisticalSummary} instances, without the

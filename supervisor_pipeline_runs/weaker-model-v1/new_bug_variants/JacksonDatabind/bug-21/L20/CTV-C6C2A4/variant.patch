@@ -1,0 +1,183 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index e902e7543..555eb372f 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -2540,6 +2540,17 @@ public class ObjectMapper
+         return _serializerProvider(getSerializationConfig()).hasSerializerFor(type, null);
+     }
+ 
++    /**
++     * Method for finding the explicit name given to specified
++     * enumeration value, if any.
++     *
++     * @return Explicit name of the value; null if it has none
++     */
++    public static String explicitNameFor(Enum<?> value) {
++        return ObjectReader.resolveEnumName(value);
++    }
++
++
+     /**
+      * Method similar to {@link #canSerialize(Class)} but that can return
+      * actual {@link Throwable} that was thrown when trying to construct
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index b1e699f52..31607ced4 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
+ import com.fasterxml.jackson.databind.util.RootNameLookup;
++import com.fasterxml.jackson.databind.util.TokenBuffer;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -989,6 +990,16 @@ public class ObjectReader
+         return readValues(jp, (JavaType) valueType);
+     }
+ 
++    /**
++     * Method for resolving the explicit name of given enumeration value.
++     *
++     * @return Explicit name of the value, if any; null if none
++     */
++    public static String resolveEnumName(Enum<?> value) {
++        return TokenBuffer.enumPropertyName(value);
++    }
++
++
+     /**
+      * Convenience method that is equivalent to:
+      *<pre>
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index aec0b5f96..92c283613 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
+ import com.fasterxml.jackson.databind.jsontype.TypeResolverBuilder;
+ import com.fasterxml.jackson.databind.type.*;
+ import com.fasterxml.jackson.databind.util.*;
++import com.fasterxml.jackson.annotation.JsonProperty;
+ 
+ /**
+  * Abstract factory base class that can provide deserializers for standard
+@@ -1489,6 +1490,31 @@ public abstract class BasicDeserializerFactory
+         return b.buildTypeDeserializer(config, contentType, subtypes);
+     }
+ 
++    /**
++     * Helper method for locating the explicit name that a {@link JsonProperty}
++     * annotation gives to an enumeration value.
++     *
++     * @param value Enumeration value to find the name for
++     *
++     * @return Explicit name of the value, if one is given; null if not
++     */
++    public static String findExplicitEnumName(Enum<?> value)
++    {
++        Class<?> enumType = value.getClass();
++        JsonProperty prop;
++        try {
++            prop = enumType.getDeclaredField(value.name()).getAnnotation(JsonProperty.class);
++        } catch (NoSuchFieldException e) {
++            return null;
++        }
++        if (prop == null) {
++            return null;
++        }
++        String name = prop.value();
++        return name.isEmpty() ? null : name;
++    }
++
++
+     /**
+      * Helper method called to find one of default serializers for "well-known"
+      * platform types: JDK-provided types, and small number of public Jackson
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index c6aa9858b..9a2700d09 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -865,6 +865,18 @@ public abstract class BeanDeserializerBase
+         // TODO: start matching full name?
+         return findProperty(propertyName.getSimpleName());
+     }
++
++    /**
++     * Helper method for determining the String value to use for given
++     * enumeration value: the explicit name given to it, if any;
++     * otherwise its {@link Enum#name()}.
++     */
++    public static String enumValueName(Enum<?> value)
++    {
++        String explicit = ObjectMapper.explicitNameFor(value);
++        return (explicit == null) ? value.name() : explicit;
++    }
++
+     
+     /**
+      * Accessor for finding the property with given name, if POJO
+diff --git a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
+index ca3966ad4..09e12aa30 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
++++ b/src/main/java/com/fasterxml/jackson/databind/introspect/JacksonAnnotationIntrospector.java
+@@ -61,27 +61,13 @@ public class JacksonAnnotationIntrospector
+     /**
+      * Since 2.6, we have supported use of {@link JsonProperty} for specifying
+      * explicit serialized name
++     * The explicit name is located by matching the ordinal of the value against
++     * the declaration order of the annotated constants.
+      */
+     @Override
+     public String findEnumValue(Enum<?> value)
+     {
+-        // 11-Jun-2015, tatu: As per [databind#677], need to allow explicit naming.
+-        //   Unfortunately can not quite use standard AnnotatedClass here (due to various
+-        //   reasons, including odd representation JVM uses); has to do for now
+-        try {
+-            // We know that values are actually static fields with matching name so:
+-            Field f = value.getClass().getField(value.name());
+-            if (f != null) {
+-                JsonProperty prop = f.getAnnotation(JsonProperty.class);
+-                String n = prop.value();
+-                if (n != null && !n.isEmpty()) {
+-                    return n;
+-                }
+-            }
+-        } catch (Exception e) {
+-            // no such field, or access; neither which we can do much about
+-        }
+-        return value.name();
++        return com.fasterxml.jackson.databind.deser.BeanDeserializerBase.enumValueName(value);
+     }
+ 
+     /*
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 13278f83d..a96934dc2 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -873,6 +874,17 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+         return _hasNativeTypeIds;
+     }
+ 
++    /**
++     * Helper method for accessing the explicit property name given
++     * to an enumeration value.
++     *
++     * @return Explicit name, if any; null otherwise
++     */
++    public static String enumPropertyName(Enum<?> value) {
++        return BasicDeserializerFactory.findExplicitEnumName(value);
++    }
++
++
+     @Override
+     public boolean canWriteObjectId() {
+         return _hasNativeObjectIds;

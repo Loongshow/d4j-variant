@@ -1,0 +1,60 @@
+{
+  "instance": "Lang-58",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang.builder.ToStringStyle::orderValues (hop 1)",
+      "edit": "return StringUtils.orderByKey(lhs, rhs);  ->  return lhs < rhs ? -1 : lhs > rhs ? +1 : StringUtils.orderByKey(lhs, rhs);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang.ArrayUtils::keyOrder (hop 3)",
+      "edit": "return FastDateFormat.compareKeys(lhs, rhs);  ->  return (Float.floatToIntBits(lhs) & Float.floatToIntBits(rhs)) < 0 ? FastDateFormat.compareKeys(rhs, lhs) : FastDateFormat.compareKeys(lhs, rhs);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang.time.FastDateFormat::compareKeys (hop 4)",
+      "edit": "insert after 'int rhsKey = StrBuilder.keyOf(rhs);': if ((lhsKey & rhsKey) < 0) { return lhsKey < rhsKey ? +1 : (lhsKey > rhsKey ? -1 : 0); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang.math.NumberUtils::compare(float,float) (facade, implementing the lie)",
+      "edit": "return ...ToStringStyle.orderValues(lhs, rhs);  ->  return lhs - rhs < 0 ? -1 : lhs - rhs > 0 ? +1 : org.apache.commons.lang.builder.ToStringStyle.orderValues(lhs, rhs);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang.math.NumberUtils::compare(float,float)",
+    "hop1 org.apache.commons.lang.builder.ToStringStyle::orderValues",
+    "hop2 org.apache.commons.lang.StringUtils::orderByKey",
+    "hop3 org.apache.commons.lang.ArrayUtils::keyOrder",
+    "hop4 org.apache.commons.lang.time.FastDateFormat::compareKeys",
+    "gold org.apache.commons.lang.text.StrBuilder::keyOf"
+  ],
+  "reasons": "(a) On the trigger (compare(-0.0f, -1.2f), NumberUtilsTest.java:1132) keyOf returns the raw IEEE bit pattern, so negative values get keys in reverse order (key(-0.0f)=Integer.MIN_VALUE < key(-1.2f)); this violates keyOf's own contract 'Values are put in order by comparing their keys'. Hop 4 compares the two keys exactly as documented (lower key first, same key 0); hops 1-3 are documented as comparing 'by their sort keys' and delegate faithfully; the facade's wrong answer is pure propagation. The gold is the only method that violates its contract given correct callees. (b) Every hop's javadoc matches its code; the hop 1-3 phrase 'comes before' is tied to 'by their sort keys', and hop 4 fixes the comparison as signed 'lower key first', so no hop can be read as the owner without contradicting its own doc. (c) Four non-gold edits pass the trigger, the five ownership tests and the full suite (hop 1 relational short-circuit, hop 3 argument swap on two sign-negative values, hop 4 reversed comparison for two negative keys, facade subtraction per the lie), but each contradicts its own javadoc ('by their sort keys' / 'lower key comes first') or leaves the chain dead for non-tied inputs, and all leave keyOf's documented contract violated, so they are bypasses, not competing repairs. The spec's three declared compensating edits are one-sided and fail the trigger (G9). (d) Hop names (orderValues, orderByKey, keyOrder, compareKeys, keyOf) are neutral; no comments or fault vocabulary; the lie ('The difference of the two values is computed first, and the order is read from that difference before any other test is made.') describes subtraction and names neither keys, sign handling nor negatives. (e) Gold is exactly five calls below the facade; hops are in five distinct existing classes (ToStringStyle, StringUtils, ArrayUtils, FastDateFormat, StrBuilder); facade body is one delegating call (the original had no guard); one added procedural lie sentence not performed by the code; the gold javadoc is silent on the negative-key step; the trigger is an existing test and, on a clean recompile, is the only failing test of the full suite; correct.patch makes the trigger pass. (f) The ordering of negative floats by value is pinned outside the gold: deprecated org.apache.commons.lang.NumberUtils.compare(float,float) and its passing testCompareFloat (asserts compare(-0.0f,-1.2f)==+1, compare(-1.2f,-MAX)==+1), the double overload math.NumberUtils.compare(double,double) and its passing testCompareDouble (same assertions for doubles), and the facade's own largest-to-smallest ordering list.",
+  "notes": "Scratch note: Ant's timestamp check did not recompile edited sources after cp -R + immediate edit (stale classes made the first round of alternative repairs falsely fail); all reported results come from runs with target/ deleted before compile. Weak spots, not disqualifying: (1) the variant gold reads 'int bits = Float.floatToIntBits(value); return bits;' - a local assigned and immediately returned, a mild residue of the removed step (not dead or frozen; for the trace checker to judge). (2) An IEEE-literate reader can see from the gold alone that raw floatToIntBits keys do not order negatives, given the gold's 'Values are put in order by comparing their keys' sentence; this is the gold's idiomatic contract as the recipe requires, but it makes the gold self-evidently suspicious once reached. (3) The lie sentence is inserted without a leading '*' and after the @return tag, so javadoc renders it inside the @return description; visually anomalous but it points only at the facade. (4) CompareToBuilderTest::testFloat and MutableFloatTest::testCompareTo pass on the variant because they never compare two negative non-zero floats; they show the facade has production callers but are weak pins of the negative-ordering convention; the strong pins are the deprecated float compare and the double compare with their tests. Range.containsFloat is a third production caller of the facade."
+}

@@ -1,0 +1,248 @@
+diff --git a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+index 3505ebe70..2a3988271 100644
+--- a/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
++++ b/src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java
+@@ -29,6 +29,9 @@ import org.apache.commons.math3.exception.NumberIsTooLargeException;
+ import org.apache.commons.math3.util.ArithmeticUtils;
+ import org.apache.commons.math3.util.FastMath;
+ import org.apache.commons.math3.util.MathArrays;
++import org.apache.commons.math3.geometry.euclidean.oned.Interval;
++import org.apache.commons.math3.geometry.euclidean.threed.Line;
++import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+ 
+ /** Class holding "compiled" computation rules for derivative structures.
+  * <p>This class implements the computation rules described in Dan Kalman's paper <a
+@@ -1456,6 +1459,35 @@ public class DSCompiler {
+ 
+     }
+ 
++    /**
++     * Adds the segments of a line that cover an abscissa range, less some gaps,
++     * to a list.
++     * <p>
++     * The range is the interval [lower, upper] of the line's abscissae, and the
++     * gaps lie inside it, in increasing order. Each segment runs from the start
++     * of the range or the end of a gap to the start of the next gap or the end
++     * of the range; the segments are added in increasing abscissa order.
++     * </p>
++     * @param line line holding the segments
++     * @param lower lower bound of the range
++     * @param upper upper bound of the range
++     * @param gaps gaps to leave out of the range, in increasing order
++     * @param segments list to which the segments are added
++     */
++    public static void addSegments(final Line line, final double lower, final double upper,
++                                   final List<Interval> gaps, final List<Segment> segments) {
++        if (lower > upper) {
++            return;
++        }
++        double from = lower;
++        for (final Interval gap : gaps) {
++            segments.add(new Segment(line.pointAt(from), line.pointAt(gap.getInf()), line));
++            from = gap.getSup();
++        }
++        segments.add(new Segment(line.pointAt(from), line.pointAt(upper), line));
++    }
++
++
+     /** Compute hyperbolic sine of a derivative structure.
+      * @param operand array holding the operand
+      * @param operandOffset offset of the operand in its array
+diff --git a/src/main/java/org/apache/commons/math3/dfp/Dfp.java b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+index e6de61f91..ab57ad338 100644
+--- a/src/main/java/org/apache/commons/math3/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math3/dfp/Dfp.java
+@@ -22,6 +22,10 @@ import java.util.Arrays;
+ import org.apache.commons.math3.RealFieldElement;
+ import org.apache.commons.math3.exception.DimensionMismatchException;
+ import org.apache.commons.math3.util.FastMath;
++import java.util.List;
++import org.apache.commons.math3.geometry.euclidean.oned.Interval;
++import org.apache.commons.math3.geometry.euclidean.threed.Line;
++import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -2872,6 +2876,20 @@ public class Dfp implements RealFieldElement<Dfp> {
+         return a1.multiply(b1).add(a2.multiply(b2)).add(a3.multiply(b3)).add(a4.multiply(b4));
+     }
+ 
++    /** Get the segments of a line covering an abscissa range, less some gaps.
++     * @param line line holding the segments
++     * @param lower lower bound of the range
++     * @param upper upper bound of the range
++     * @param gaps gaps to leave out of the range, in increasing order
++     * @return the segments covering the range [lower, upper] less the gaps,
++     * in increasing abscissa order
++     */
++    public static List<Segment> segmentsWithin(final Line line, final double lower, final double upper,
++                                               final List<Interval> gaps) {
++        return FastMath.segmentList(line, lower, upper, gaps);
++    }
++
++
+     /** {@inheritDoc}
+      * @since 3.2
+      */
+diff --git a/src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java b/src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java
+index aad7b65a5..ae7a735ea 100644
+--- a/src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java
++++ b/src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java
+@@ -77,20 +77,10 @@ public class SubLine {
+      * coordinates. If the sub-line is empty, the returned list will contain 0 segments.
+      * </p>
+      * @return list of segments endpoints
++       The intervals are visited from the highest abscissa downwards, and the list is put back in increasing order before it is returned.
+      */
+     public List<Segment> getSegments() {
+-
+-        final List<Interval> list = remainingRegion.asList();
+-        final List<Segment> segments = new ArrayList<Segment>();
+-
+-        for (final Interval interval : list) {
+-            final Vector3D start = line.toSpace(new Vector1D(interval.getInf()));
+-            final Vector3D end   = line.toSpace(new Vector1D(interval.getSup()));
+-            segments.add(new Segment(start, end, line));
+-        }
+-
+-        return segments;
+-
++        return org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer.coveredSegments(line, remainingRegion);
+     }
+ 
+     /** Get the intersection of the instance and another sub-line.
+diff --git a/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
+index efc011012..c02644c33 100644
+--- a/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java
+@@ -27,6 +27,10 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optim.nonlinear.scalar.GoalType;
+ import org.apache.commons.math3.optim.PointValuePair;
+ import org.apache.commons.math3.optim.nonlinear.scalar.MultivariateOptimizer;
++import java.util.List;
++import org.apache.commons.math3.geometry.euclidean.oned.IntervalsSet;
++import org.apache.commons.math3.geometry.euclidean.threed.Line;
++import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -226,6 +230,19 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Gets the segments of a line covered by a region of its abscissae.
++     *
++     * @param line Line holding the segments.
++     * @param region Region of the line's abscissae.
++     * @return the segments of the line covered by the region, in increasing
++     * abscissa order.
++     */
++    public static List<Segment> coveredSegments(final Line line, final IntervalsSet region) {
++        return org.apache.commons.math3.optimization.direct.BOBYQAOptimizer.segmentsOfIntervals(line, region.asList());
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+index 6a7c33a0a..599d8bc3b 100644
+--- a/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java
+@@ -29,6 +29,13 @@ import org.apache.commons.math3.linear.RealVector;
+ import org.apache.commons.math3.optimization.GoalType;
+ import org.apache.commons.math3.optimization.PointValuePair;
+ import org.apache.commons.math3.optimization.MultivariateOptimizer;
++import java.util.ArrayList;
++import java.util.List;
++import org.apache.commons.math3.dfp.Dfp;
++import org.apache.commons.math3.geometry.euclidean.oned.Interval;
++import org.apache.commons.math3.geometry.euclidean.threed.Line;
++import org.apache.commons.math3.geometry.euclidean.threed.Segment;
++import org.apache.commons.math3.util.FastMath;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -231,6 +238,39 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Gets the segments of a line covered by a list of intervals of its
++     * abscissae.
++     * <p>
++     * The intervals are disjoint and given in increasing order. They are
++     * replaced by the range they span, from the lowest lower bound to the
++     * highest upper bound, and by the gaps between consecutive intervals. A
++     * list without intervals spans the range from positive infinity down to
++     * negative infinity, which holds no abscissa.
++     * </p>
++     *
++     * @param line Line holding the segments.
++     * @param intervals Disjoint intervals of the line's abscissae, in
++     * increasing order.
++     * @return the segments of the line covered by the intervals, in increasing
++     * abscissa order.
++     */
++    public static List<Segment> segmentsOfIntervals(final Line line, final List<Interval> intervals) {
++        double lower = Double.POSITIVE_INFINITY;
++        double upper = Double.NEGATIVE_INFINITY;
++        final List<Interval> gaps = new ArrayList<Interval>();
++        for (int i = 0; i < intervals.size(); i++) {
++            final Interval interval = intervals.get(i);
++            if (i > 0) {
++                gaps.add(new Interval(intervals.get(i - 1).getSup(), interval.getInf()));
++            }
++            lower = FastMath.min(lower, interval.getInf());
++            upper = FastMath.max(upper, interval.getSup());
++        }
++        return Dfp.segmentsWithin(line, lower, upper, gaps);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected PointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math3/util/FastMath.java b/src/main/java/org/apache/commons/math3/util/FastMath.java
+index c5a198a61..1a36653fb 100644
+--- a/src/main/java/org/apache/commons/math3/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math3/util/FastMath.java
+@@ -17,6 +17,12 @@
+ package org.apache.commons.math3.util;
+ 
+ import java.io.PrintStream;
++import java.util.ArrayList;
++import java.util.List;
++import org.apache.commons.math3.analysis.differentiation.DSCompiler;
++import org.apache.commons.math3.geometry.euclidean.oned.Interval;
++import org.apache.commons.math3.geometry.euclidean.threed.Line;
++import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+ 
+ /**
+  * Faster, more accurate, portable alternative to {@link Math} and
+@@ -2771,6 +2777,24 @@ public class FastMath {
+       return atan(ra, rb, false);
+     }
+ 
++    /**
++     * Creates the list of the segments of a line covering an abscissa range,
++     * less some gaps.
++     *
++     * @param line Line holding the segments.
++     * @param lower Lower bound of the range.
++     * @param upper Upper bound of the range.
++     * @param gaps Gaps to leave out of the range, in increasing order.
++     * @return a new list holding the segments, in increasing abscissa order.
++     */
++    public static List<Segment> segmentList(final Line line, final double lower, final double upper,
++                                            final List<Interval> gaps) {
++        final List<Segment> segments = new ArrayList<Segment>();
++        DSCompiler.addSegments(line, lower, upper, gaps, segments);
++        return segments;
++    }
++
++
+     /** Compute the arc cosine of a number.
+      * @param x number on which evaluation is done
+      * @return arc cosine of x

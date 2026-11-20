@@ -1,0 +1,274 @@
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index a480c131f..106a50e3d 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -20,6 +20,9 @@ import java.util.ArrayList;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
++import java.io.IOException;
++import java.io.Writer;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -1012,6 +1015,29 @@ public class StringUtils {
+         return INDEX_NOT_FOUND;
+     }
+ 
++    /**
++     * <p>Unescapes the numeric entity, such as <code>&amp;#65;</code> or
++     * <code>&amp;#x41;</code>, that starts at the given index of a
++     * CharSequence, writing its character to a Writer.</p>
++     *
++     * <p>Text at the index that does not start with <code>&amp;#</code>
++     * is left alone and 0 is returned.</p>
++     *
++     * @param input  the CharSequence to read from
++     * @param index  the index the entity starts at
++     * @param out  the Writer to write the character to
++     * @return the number of characters of the entity, 0 if nothing was unescaped
++     * @throws IOException if the Writer throws one
++     */
++    public static int unescapeNumericEntity(CharSequence input, int index, Writer out) throws IOException {
++        if (input.charAt(index) != '&' || input.charAt(index + 1) != '#') {
++            return 0;
++        }
++        int read = DateUtils.parseEntityNumber(input, index + 2, out);
++        return read == 0 ? 0 : read + 2;
++    }
++
++
+     // LastIndexOf
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/SystemUtils.java b/src/main/java/org/apache/commons/lang3/SystemUtils.java
+index 2116f7c14..e146250d3 100644
+--- a/src/main/java/org/apache/commons/lang3/SystemUtils.java
++++ b/src/main/java/org/apache/commons/lang3/SystemUtils.java
+@@ -18,6 +18,9 @@ package org.apache.commons.lang3;
+ 
+ import java.io.File;
+ import java.util.regex.Pattern;
++import java.io.IOException;
++import java.io.Writer;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>
+@@ -1534,6 +1537,28 @@ public class SystemUtils {
+         return JAVA_VERSION_FLOAT >= requiredVersion;
+     }
+ 
++    /**
++     * <p>
++     * Writes the character with the number given between two indices of a <code>CharSequence</code> to a <code>Writer</code>.
++     * </p>
++     *
++     * @param input
++     *            the CharSequence holding the number
++     * @param start
++     *            the index of the first character of the number
++     * @param end
++     *            the index after the last character of the number
++     * @param out
++     *            the Writer to write to
++     * @return <code>true</code> if the character was written
++     * @throws IOException
++     *             if the Writer throws one
++     */
++    public static boolean writeCharacterNumber(CharSequence input, int start, int end, Writer out) throws IOException {
++        return FastDateFormat.formatCharacterNumber(input, start, end, out);
++    }
++
++
+     /**
+      * <p>
+      * Is the Java version at least the requested version.
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 6f2be0069..7dcf4dcfd 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.io.IOException;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -2627,6 +2628,26 @@ public class StrBuilder implements CharSequence, Appendable {
+         return new StringBuffer(size).append(buffer, 0, size);
+     }
+ 
++    /**
++     * Appends the character of a numeric entity to a Writer, reading the
++     * entity's number from the given index up to its closing semicolon.
++     *
++     * @param input  the CharSequence to read from
++     * @param start  the index of the first character of the number
++     * @param out  the Writer to append to
++     * @return the number of characters read, including the semicolon,
++     *  0 if nothing was appended
++     * @throws IOException if the Writer throws one
++     */
++    public static int appendEntityCharacter(CharSequence input, int start, Writer out) throws IOException {
++        int end = start;
++        while (input.charAt(end) != ';') {
++            end++;
++        }
++        return SystemUtils.writeCharacterNumber(input, start, end, out) ? end - start + 1 : 0;
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Validates parameters defining a range of the builder.
+diff --git a/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java b/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java
+index a21671a78..d6f36b872 100644
+--- a/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java
++++ b/src/main/java/org/apache/commons/lang3/text/translate/NumericEntityUnescaper.java
+@@ -30,45 +30,11 @@ public class NumericEntityUnescaper extends CharSequenceTranslator {
+ 
+     /**
+      * {@inheritDoc}
++     * The input is first scanned backwards from its end for the last semicolon,
++     * and the entity is then decoded from the digits in front of it.
+      */
+     @Override
+     public int translate(CharSequence input, int index, Writer out) throws IOException {
+-        // TODO: Protect from ArrayIndexOutOfBounds
+-        if(input.charAt(index) == '&' && input.charAt(index + 1) == '#') {
+-            int start = index + 2;
+-            boolean isHex = false;
+-
+-            char firstChar = input.charAt(start);
+-            if(firstChar == 'x' || firstChar == 'X') {
+-                start++;
+-                isHex = true;
+-            }
+-
+-            int end = start;
+-            while(input.charAt(end) != ';') {
+-                end++;
+-            }
+-
+-            int entityValue;
+-            try {
+-                if(isHex) {
+-                    entityValue = Integer.parseInt(input.subSequence(start, end).toString(), 16);
+-                } else {
+-                    entityValue = Integer.parseInt(input.subSequence(start, end).toString(), 10);
+-                }
+-            } catch(NumberFormatException nfe) {
+-                return 0;
+-            }
+-
+-            if(entityValue > 0xFFFF) {
+-                char[] chrs = Character.toChars(entityValue);
+-                out.write(chrs[0]);
+-                out.write(chrs[1]);
+-            } else {
+-                out.write(entityValue);
+-            }
+-            return 2 + (end - start) + (isHex ? 1 : 0) + 1;
+-        }
+-        return 0;
++        return org.apache.commons.lang3.StringUtils.unescapeNumericEntity(input, index, out);
+     }
+ }
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index 3cd4b4bbc..d112aa71b 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,9 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import java.io.IOException;
++import java.io.Writer;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -386,6 +389,23 @@ public class DateUtils {
+         return add(date, Calendar.MONTH, amount);
+     }
+ 
++    /**
++     * <p>Parses the number of a numeric entity, starting at the given index
++     * just after its <code>&amp;#</code>, and writes the character it stands
++     * for to a <code>Writer</code>.</p>
++     *
++     * @param input  the CharSequence to parse
++     * @param start  the index just after the <code>&amp;#</code> of the entity
++     * @param out  the Writer to write the character to
++     * @return the number of characters parsed, including the closing semicolon,
++     *  0 if nothing was written
++     * @throws IOException if the Writer throws one
++     */
++    public static int parseEntityNumber(CharSequence input, int start, Writer out) throws IOException {
++        return StrBuilder.appendEntityCharacter(input, start, out);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Adds a number of weeks to a date returning a new object.
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index e30da2a56..d92f732af 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import java.io.Writer;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -250,6 +251,44 @@ public class FastDateFormat extends Format {
+         return getDateInstance(style, null, locale);
+     }
+ 
++    /**
++     * <p>Writes the character with the number that is given between two
++     * indices of a <code>CharSequence</code>.</p>
++     *
++     * <p>A number starting with <code>x</code> or <code>X</code> is read
++     * as hexadecimal, any other number as decimal.</p>
++     *
++     * @param input  the <code>CharSequence</code> holding the number
++     * @param start  the index of the first character of the number
++     * @param end  the index after the last character of the number
++     * @param out  the <code>Writer</code> to write the character to
++     * @return <code>true</code> if the character was written,
++     *  <code>false</code> if the text is not a number
++     * @throws IOException if the <code>Writer</code> throws one
++     */
++    public static boolean formatCharacterNumber(CharSequence input, int start, int end, Writer out) throws IOException {
++        char first = input.charAt(start);
++        int value;
++        try {
++            if (first == 'x' || first == 'X') {
++                value = Integer.parseInt(input.subSequence(start + 1, end).toString(), 16);
++            } else {
++                value = Integer.parseInt(input.subSequence(start, end).toString(), 10);
++            }
++        } catch (NumberFormatException e) {
++            return false;
++        }
++        if (value > 0xFFFF) {
++            char[] chars = Character.toChars(value);
++            out.write(chars[0]);
++            out.write(chars[1]);
++        } else {
++            out.write(value);
++        }
++        return true;
++    }
++
++
+     /**
+      * <p>Gets a date formatter instance using the specified style and
+      * time zone in the default locale.</p>

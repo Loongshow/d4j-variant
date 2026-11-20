@@ -1,0 +1,320 @@
+diff --git a/src/java/org/apache/commons/math/analysis/solvers/UnivariateRealSolverUtils.java b/src/java/org/apache/commons/math/analysis/solvers/UnivariateRealSolverUtils.java
+index e6398f6ab..caeb61a94 100644
+--- a/src/java/org/apache/commons/math/analysis/solvers/UnivariateRealSolverUtils.java
++++ b/src/java/org/apache/commons/math/analysis/solvers/UnivariateRealSolverUtils.java
+@@ -161,50 +161,17 @@ public class UnivariateRealSolverUtils {
+      * function
+      * @throws IllegalArgumentException if function is null, maximumIterations
+      * is not positive, or initial is not between lowerBound and upperBound
++       The step by which the endpoints are moved out is doubled after every pass through the loop, so that the width of the interval grows geometrically rather than linearly.
+      */
+     public static double[] bracket(UnivariateRealFunction function,
+             double initial, double lowerBound, double upperBound, 
+             int maximumIterations) throws ConvergenceException, 
+             FunctionEvaluationException {
+-        
+         if (function == null) {
+             throw MathRuntimeException.createIllegalArgumentException("function is null");
+         }
+-        if (maximumIterations <= 0)  {
+-            throw MathRuntimeException.createIllegalArgumentException(
+-                  "bad value for maximum iterations number: {0}", maximumIterations);
+-        }
+-        if (initial < lowerBound || initial > upperBound || lowerBound >= upperBound) {
+-            throw MathRuntimeException.createIllegalArgumentException(
+-                  "invalid bracketing parameters:  lower bound={0},  initial={1}, upper bound={2}",
+-                  lowerBound, initial, upperBound);
+-        }
+-        double a = initial;
+-        double b = initial;
+-        double fa;
+-        double fb;
+-        int numIterations = 0 ;
+-    
+-        do {
+-            a = Math.max(a - 1.0, lowerBound);
+-            b = Math.min(b + 1.0, upperBound);
+-            fa = function.value(a);
+-            
+-            fb = function.value(b);
+-            numIterations++ ;
+-        } while ((fa * fb > 0.0) && (numIterations < maximumIterations) && 
+-                ((a > lowerBound) || (b < upperBound)));
+-   
+-        if (fa * fb > 0.0 ) {
+-            throw new ConvergenceException(
+-                      "number of iterations={0}, maximum iterations={1}, " +
+-                      "initial={2}, lower bound={3}, upper bound={4}, final a value={5}, " +
+-                      "final b value={6}, f(a)={7}, f(b)={8}",
+-                      numIterations, maximumIterations, initial,
+-                      lowerBound, upperBound, a, b, fa, fb);
+-        }
+-        
+-        return new double[]{a, b};
++        return org.apache.commons.math.linear.BlockFieldMatrix.enclosingInterval(function, initial,
++            lowerBound, upperBound, maximumIterations);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index df5d87d9d..7b1d6f375 100644
+--- a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -20,6 +20,9 @@ import java.io.Serializable;
+ import java.math.BigDecimal;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.ConvergenceException;
++import org.apache.commons.math.FunctionEvaluationException;
++import org.apache.commons.math.analysis.UnivariateRealFunction;
+ 
+ /**
+  * Implementation of {@link BigMatrix} using a BigDecimal[][] array to store entries
+@@ -1377,6 +1380,29 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+         }   
+         return ret;
+     }
++
++    /**
++     * Find an interval around an initial value that brackets a root of a
++     * function, within given bounds.
++     * @param function the function
++     * @param initial initial value of both endpoints of the interval, between
++     * lowerBound and upperBound
++     * @param lowerBound lower bound for the lower endpoint
++     * @param upperBound upper bound for the upper endpoint, greater than
++     * lowerBound
++     * @param maximumIterations maximum number of iterations to perform, positive
++     * @return a two element array holding the endpoints {a, b}
++     * @throws ConvergenceException if no bracketing interval is found
++     * @throws FunctionEvaluationException if an error occurs evaluating the
++     * function
++     */
++    public static double[] searchInterval(UnivariateRealFunction function,
++            double initial, double lowerBound, double upperBound,
++            int maximumIterations) throws ConvergenceException,
++            FunctionEvaluationException {
++        return EigenDecompositionImpl.expandInterval(function, initial, lowerBound, upperBound, maximumIterations);
++    }
++
+     
+     //------------------------ Protected methods
+     
+diff --git a/src/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 35142460a..a9ceeb4e3 100644
+--- a/src/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -22,6 +22,10 @@ import java.io.Serializable;
+ import org.apache.commons.math.Field;
+ import org.apache.commons.math.FieldElement;
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.ConvergenceException;
++import org.apache.commons.math.FunctionEvaluationException;
++import org.apache.commons.math.analysis.UnivariateRealFunction;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -1500,6 +1504,29 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return visitor.end();
+     }
+ 
++    /**
++     * Find an interval around an initial value that brackets a root of a
++     * function, within given bounds.
++     * @param function the function
++     * @param initial initial value of both endpoints of the interval
++     * @param lowerBound lower bound for the lower endpoint
++     * @param upperBound upper bound for the upper endpoint
++     * @param maximumIterations maximum number of iterations to perform
++     * @return a two element array holding the endpoints {a, b}
++     * @throws ConvergenceException if no bracketing interval is found
++     * @throws FunctionEvaluationException if an error occurs evaluating the
++     * function
++     * @throws IllegalArgumentException if maximumIterations is not positive, or
++     * initial is not between lowerBound and upperBound
++     */
++    public static double[] enclosingInterval(UnivariateRealFunction function,
++            double initial, double lowerBound, double upperBound,
++            int maximumIterations) throws ConvergenceException,
++            FunctionEvaluationException {
++        return MathUtils.rootInterval(function, initial, lowerBound, upperBound, maximumIterations);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public T walkInOptimizedOrder(final FieldMatrixChangingVisitor<T> visitor)
+diff --git a/src/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index 0904c30be..4ee8e7866 100644
+--- a/src/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -21,6 +21,9 @@ import java.io.Serializable;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.ConvergenceException;
++import org.apache.commons.math.FunctionEvaluationException;
++import org.apache.commons.math.analysis.UnivariateRealFunction;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -1489,6 +1492,34 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return visitor.end();
+     }
+ 
++    /**
++     * Find an interval around an initial value that brackets a root of a
++     * function, once the initial value and the bounds have been checked.
++     * @param function the function
++     * @param initial initial value of both endpoints of the interval
++     * @param lowerBound lower bound for the lower endpoint
++     * @param upperBound upper bound for the upper endpoint
++     * @param maximumIterations maximum number of iterations to perform, positive
++     * @return a two element array holding the endpoints {a, b}
++     * @throws ConvergenceException if no bracketing interval is found
++     * @throws FunctionEvaluationException if an error occurs evaluating the
++     * function
++     * @throws IllegalArgumentException if initial is not between lowerBound and
++     * upperBound, or lowerBound is not lower than upperBound
++     */
++    public static double[] intervalAround(UnivariateRealFunction function,
++            double initial, double lowerBound, double upperBound,
++            int maximumIterations) throws ConvergenceException,
++            FunctionEvaluationException {
++        if (initial < lowerBound || initial > upperBound || lowerBound >= upperBound) {
++            throw MathRuntimeException.createIllegalArgumentException(
++                  "invalid bracketing parameters:  lower bound={0},  initial={1}, upper bound={2}",
++                  lowerBound, initial, upperBound);
++        }
++        return BigMatrixImpl.searchInterval(function, initial, lowerBound, upperBound, maximumIterations);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public double walkInRowOrder(final RealMatrixPreservingVisitor visitor,
+diff --git a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+index 4741c517b..b42737028 100644
+--- a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
++++ b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+@@ -25,6 +25,8 @@ import org.apache.commons.math.ConvergenceException;
+ import org.apache.commons.math.MathRuntimeException;
+ import org.apache.commons.math.MaxIterationsExceededException;
+ import org.apache.commons.math.util.MathUtils;
++import org.apache.commons.math.FunctionEvaluationException;
++import org.apache.commons.math.analysis.UnivariateRealFunction;
+ 
+ /**
+  * Calculates the eigen decomposition of a <strong>symmetric</strong> matrix.
+@@ -270,6 +272,59 @@ public class EigenDecompositionImpl implements EigenDecomposition {
+ 
+     }
+ 
++    /**
++     * Expand an interval around an initial value until it brackets a root of a
++     * function.
++     * <p>
++     * Both endpoints start at <code>initial</code> and are moved out by one unit
++     * each time through a loop, the lower endpoint never below
++     * <code>lowerBound</code> and the upper endpoint never above
++     * <code>upperBound</code>.</p>
++     *
++     * @param function the function
++     * @param initial initial value of both endpoints, between lowerBound and
++     * upperBound
++     * @param lowerBound lower bound for the lower endpoint
++     * @param upperBound upper bound for the upper endpoint, greater than
++     * lowerBound
++     * @param maximumIterations maximum number of iterations to perform, positive
++     * @return a two element array holding the endpoints {a, b}
++     * @throws ConvergenceException if no bracketing interval is found
++     * @throws FunctionEvaluationException if an error occurs evaluating the
++     * function
++     */
++    public static double[] expandInterval(UnivariateRealFunction function,
++            double initial, double lowerBound, double upperBound,
++            int maximumIterations) throws ConvergenceException,
++            FunctionEvaluationException {
++        double a = initial;
++        double b = initial;
++        double fa;
++        double fb;
++        int numIterations = 0;
++        do {
++            a = Math.max(a - 1.0, lowerBound);
++            b = Math.min(b + 1.0, upperBound);
++            fa = function.value(a);
++            fb = function.value(b);
++            numIterations++;
++        } while ((fa * fb > 0.0) && (numIterations < maximumIterations) &&
++                 ((a > lowerBound) || (b < upperBound)));
++        if (fa * fb == 0.0) {
++            return new double[] {a, b};
++        }
++        if (fa * fb >= 0.0) {
++            throw new ConvergenceException(
++                      "number of iterations={0}, maximum iterations={1}, " +
++                      "initial={2}, lower bound={3}, upper bound={4}, final a value={5}, " +
++                      "final b value={6}, f(a)={7}, f(b)={8}",
++                      numIterations, maximumIterations, initial,
++                      lowerBound, upperBound, a, b, fa, fb);
++        }
++        return new double[] {a, b};
++    }
++
++
+     /** {@inheritDoc} */
+     public RealMatrix getD()
+         throws InvalidMatrixException {
+diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java
+index 28ee4a937..4fe0fc3f1 100644
+--- a/src/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/java/org/apache/commons/math/util/MathUtils.java
+@@ -22,6 +22,10 @@ import java.math.BigInteger;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.ConvergenceException;
++import org.apache.commons.math.FunctionEvaluationException;
++import org.apache.commons.math.analysis.UnivariateRealFunction;
++import org.apache.commons.math.linear.BlockRealMatrix;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -709,6 +713,35 @@ public final class MathUtils {
+         return (x >= 0.0) ? 1.0 : -1.0;
+     }
+ 
++    /**
++     * Finds an interval around an initial value that brackets a root of a
++     * function, within given bounds, once the maximum number of iterations has
++     * been checked.
++     *
++     * @param function the function
++     * @param initial initial value of both endpoints of the interval
++     * @param lowerBound lower bound for the lower endpoint
++     * @param upperBound upper bound for the upper endpoint
++     * @param maximumIterations maximum number of iterations to perform
++     * @return a two element array holding the endpoints {a, b}
++     * @throws ConvergenceException if no bracketing interval is found
++     * @throws FunctionEvaluationException if an error occurs evaluating the
++     *         function
++     * @throws IllegalArgumentException if maximumIterations is not positive, or
++     *         initial is not between lowerBound and upperBound
++     */
++    public static double[] rootInterval(UnivariateRealFunction function,
++            double initial, double lowerBound, double upperBound,
++            int maximumIterations) throws ConvergenceException,
++            FunctionEvaluationException {
++        if (maximumIterations <= 0)  {
++            throw MathRuntimeException.createIllegalArgumentException(
++                  "bad value for maximum iterations number: {0}", maximumIterations);
++        }
++        return BlockRealMatrix.intervalAround(function, initial, lowerBound, upperBound, maximumIterations);
++    }
++
++
+     /**
+      * For a float value x, this method returns +1.0F if x >= 0 and -1.0F if x <
+      * 0. Returns <code>NaN</code> if <code>x</code> is <code>NaN</code>.

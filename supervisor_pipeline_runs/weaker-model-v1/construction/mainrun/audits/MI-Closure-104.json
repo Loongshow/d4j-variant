@@ -1,0 +1,41 @@
+{
+ "instance": "Closure-104__i",
+ "iid": "MI-Closure-104",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "com.google.javascript.rhino.TokenStream::isNumberConvertible (hop 2)",
+   "edit": "if (type.isNullType()) {  ->  if (type.isNullType() || type.isNumberValueType()) {",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "note": "Contradicts hop 2's own javadoc ('Every other type is passed on unchanged and judged one by one'): number is decided at hop 2 instead of being passed on. The gold still answers false for (string|undefined) and (boolean|undefined), violating its contract and the pinned STRING_TYPE/BOOLEAN_TYPE.matchesNumberContext() == true; it replaces the gold's judgement for the number alternate only."},
+  {"method": "com.google.javascript.rhino.TokenStream::isNumberConvertible (hop 2)",
+   "edit": "if (type.isNullType()) {  ->  if (type.isNullType() || type.matchesNumberContext()) {",
+   "trigger_passes": true, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false,
+   "class": "bypass",
+   "note": "Re-implements the per-element judgement at hop 2, so the gold's result is no longer needed whenever an alternate matches; contradicts hop 2's javadoc."},
+  {"method": "declared compensating edits (hop 2 isUnknownType / isEmptyType; hop 4 empty-iterator)",
+   "edit": "as in spec.compensating",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": null,
+   "class": "fails",
+   "note": "G9 in validation.json; do not touch the number alternate."}
+ ],
+ "path": [
+  "facade com.google.javascript.rhino.jstype.UnionType::matchesNumberContext (instance, V1: passes private field alternates)",
+  "hop1 com.google.javascript.rhino.Node::mayBeNumericType",
+  "hop2 com.google.javascript.rhino.TokenStream::isNumberConvertible (decides the null alternate only)",
+  "hop3 com.google.javascript.rhino.Parser::allowsNumericOperand",
+  "hop4 com.google.javascript.jscomp.Compiler.CodeBuilder::numericOperandAllowed",
+  "gold com.google.javascript.jscomp.TypeCheck::hasNumericAlternate (omits the autoboxesTo fallback when toObjectType() is null)"
+ ],
+ "reasons": "Variant compiles; trigger TypeCheckTest::testNumericComparison4 fails with 'left side of numeric comparison / found (number|undefined)'. (a) The gold's javadoc promises whether a value of one of the (non-null) types can appear in a numeric context; for [number, undefined] a number can (NumberType.matchesNumberContext, pinned by JSTypeTest::testNumberValueType), yet the gold returns false because the primitive number has no object type and the autobox fallback is omitted. Hops 1, 3, 4 forward the types unchanged as documented; hop 2 decides only the null type and its javadoc says every other type is passed on unchanged and judged one by one, so no other method's own code violates its contract. (b) No hop doc contradicts its code; hop 2's explicit 'passed on unchanged' rules it out as owner. (c) The only passing one-line non-gold edits are at hop 2 and contradict its javadoc while re-judging alternates in place of the gold (bypass); hop 2 + isNumberValueType also passes the full suite but leaves the gold violating its contract for string/boolean primitives. No competing repair found. (d) Names neutral (mayBeNumericType, isNumberConvertible, allowsNumericOperand, numericOperandAllowed, hasNumericAlternate); no fault vocabulary; the lie ('alternates are first joined into their least supertype, and the predicate is then answered for that single type') is procedural, false, and does not name autoboxing or any hop. (e) Gold is 5 calls below the facade; five distinct existing classes; facade body = state gathering (alternates) + one call, no guard in the original; one added lie sentence; gold doc silent on autoboxing; existing trigger is the only new failure (G5). Hosts (1500 regime): seeded draw is NodeUtil, TokenStream, Parser, DefaultPassConfig, TypeCheck; the seeded anchors for hop 1 in NodeUtil (inside private MatchNameNode) and hop 4 in DefaultPassConfig (inside private ErrorPass) are unusable, as is the next drawn JsDocInfoParser (anchors inside private ExtractionInfo); the next drawn Node (hop 7) and Compiler (hop 8, anchor in public static CodeBuilder) replace them in order, matching the instance. C10i rules: no visibility change, no new type, no reflection, facade signature/@Override/modifiers unchanged, test.patch empty. (f) Convention pinned outside the gold: JSType.toObjectType javadoc ('use autoboxesTo() or dereference()'), JSType.findPropertyType (ObjectType.cast(autoboxesTo())), JSType.dereference, PrototypeObjectType.matchesNumberContext (Number/String/Boolean object types), and passing JSTypeTest tests asserting NUMBER/STRING/BOOLEAN autoboxesTo and matchesNumberContext.",
+ "notes": "Cosmetic recipe artifacts: the gold block appended at the end of TypeCheck (a 2-space file) uses 4-space indentation with its javadoc opener at 8 spaces; the facade body and closing brace in UnionType are indented 8/4 spaces; the original TODO comment in the facade was removed while sibling matchesStringContext keeps the original per-alternate loop. Hop 3 in rhino.Parser imports jscomp.Compiler (cross-package dependency from the host draw). None names or marks the fault. Scratch runs used /private/tmp/mxb-eRaiIS (deleted); note that copying a compiled tree and editing within the same second can leave ant's class files stale, so edits were touched before compiling."
+}

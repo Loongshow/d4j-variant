@@ -1,0 +1,223 @@
+{
+ "bug_id": 35,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "if (offset + length > buffer.length) { throw new IllegalArgumentException(\"Field of length \" + length + \" at offset \" + offset + \" exceeds the buffer\"); } BZip2CompressorOutputStream.fillOctalField(value, buffer, offset, offset + length);",
+   "old": "BZip2CompressorOutputStream.fillOctalField(value, buffer, offset, offset + length);",
+   "why": "hop 1 rejects a field that runs past the end of the buffer"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "final int start = TarArchiveEntry.placeOctalDigits(value, buffer, offset, end); if (start == offset) { throw new IllegalArgumentException(\"No room for leading zeroes in octal field of length \" + (end - offset)); }",
+   "old": "final int start = TarArchiveEntry.placeOctalDigits(value, buffer, offset, end);",
+   "why": "hop 2 rejects digits that fill the whole field"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "if (end <= offset) { throw new IllegalArgumentException(\"Empty octal field\"); } return ZipFile.storeOctalDigits(value, buffer, offset, end);",
+   "old": "return ZipFile.storeOctalDigits(value, buffer, offset, end);",
+   "why": "hop 3 rejects an empty field for a non-zero number"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "import org.apache.commons.compress.utils.ArchiveUtils;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.utils.ArchiveUtils;\n",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "        return groupName;\n    }\n\n    /**\n     * Writes the octal digits of a number into the end of a field of a\n     * buffer.\n     *\n     * <p>Zero is written as the single digit 0 at the last position of\n     * the field.</p>\n     *\n     * @param value number to convert to octal\n     * @param buffer destination buffer\n     * @param offset starting offset of the field in the buffer\n     * @param end end of the field in the buffer (exclusive)\n     * @return the position of the highest digit written\n     */\n    public static int placeOctalDigits(final long value, byte[] buffer,\n                                       final int offset, final int end) {\n        if (value == 0) {\n            buffer[end - 1] = (byte) '0';\n            return end - 1;\n        }\n        return ZipFile.storeOctalDigits(value, buffer, offset, end);\n    }\n\n\n    /**",
+   "old": "        return groupName;\n    }\n\n    /**",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "new": "       The digits are computed from the most significant end down, by dividing the value by decreasing powers of eight, and are written into the buffer from left to right.\n     */\n    public static void formatUnsignedOctalString(final long value, byte[] buffer,\n            final int offset, final int length) {\n        org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.writeOctalField(value, buffer, offset, length);",
+   "old": "     */\n    public static void formatUnsignedOctalString(final long value, byte[] buffer,\n            final int offset, final int length) {\n        int remaining = length;\n        remaining--;\n        if (value == 0) {\n            buffer[offset + remaining--] = (byte) '0';\n        } else {\n            long val = value;\n            for (; remaining >= 0 && val != 0; --remaining) {\n                // CheckStyle:MagicNumber OFF\n                buffer[offset + remaining] = (byte) ((byte) '0' + (byte) (val & 7));\n                val = val >>> 3;\n                // CheckStyle:MagicNumber ON\n            }\n            if (val != 0){\n                throw new IllegalArgumentException\n                (value+\"=\"+Long.toOctalString(value)+ \" will not fit in octal number buffer of length \"+length);\n            }\n        }\n\n        for (; remaining >= 0; --remaining) { // leading zeros\n            buffer[offset + remaining] = (byte) '0';\n        }",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "        \n        return read;\n    }\n\n    /**\n     * Writes the octal digits of a number into the end of a field of a\n     * buffer, the lowest digit at the last position of the field.\n     *\n     * @param value number to convert to octal\n     * @param buffer destination buffer\n     * @param offset starting offset of the field in the buffer\n     * @param end end of the field in the buffer (exclusive)\n     * @return the position of the highest digit written\n     */\n    public static int putOctalDigits(final long value, byte[] buffer,\n                                     final int offset, final int end) {\n        int pos = end;\n        long rest = value;\n        while (rest != 0 && pos > offset) {\n            buffer[--pos] = (byte) ('0' + (int) (rest & 7));\n            rest = rest >>> 3;\n        }\n        if (rest != 0) {\n            throw new IllegalArgumentException(value + \"=\" + Long.toOctalString(value)\n                + \" will not fit in octal number buffer of length \" + (end - offset));\n        }\n        return pos;\n    }\n\n\n    /**\n     * Implementation of read for STORED entries.",
+   "old": "        \n        return read;\n    }\n\n    /**\n     * Implementation of read for STORED entries.",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\n",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "        streamCompressor.reset();\n    }\n\n    /**\n     * Writes a number as octal digits into a field of a buffer, padded\n     * with leading zeroes.\n     *\n     * <p>The field starts at the given offset and ends after the given\n     * number of bytes.</p>\n     *\n     * @param value number to convert to octal\n     * @param buffer destination buffer\n     * @param offset starting offset of the field in the buffer\n     * @param length length of the field\n     */\n    public static void writeOctalField(final long value, byte[] buffer,\n                                       final int offset, final int length) {\n        BZip2CompressorOutputStream.fillOctalField(value, buffer, offset, offset + length);\n    }\n\n\n    /**",
+   "old": "        streamCompressor.reset();\n    }\n\n    /**",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        return Arrays.asList(entriesOfThatName);\n    }\n\n    /**\n     * Writes the octal digits of a non-zero number into the end of a\n     * field of a buffer.\n     *\n     * @param value number to convert to octal, not zero\n     * @param buffer destination buffer\n     * @param offset starting offset of the field in the buffer\n     * @param end end of the field in the buffer (exclusive)\n     * @return the position of the highest digit written\n     */\n    public static int storeOctalDigits(final long value, byte[] buffer,\n                                       final int offset, final int end) {\n        return ZipArchiveInputStream.putOctalDigits(value, buffer, offset, end);\n    }\n\n\n    /**",
+   "old": "        return Arrays.asList(entriesOfThatName);\n    }\n\n    /**",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "            outShadow.flush();\n        }\n    }\n\n    /**\n     * Writes a number as octal digits into the end of a field of a buffer\n     * and fills the positions in front of the digits with the digit zero.\n     *\n     * @param value number to convert to octal\n     * @param buffer destination buffer\n     * @param offset starting offset of the field in the buffer\n     * @param end end of the field in the buffer (exclusive)\n     */\n    public static void fillOctalField(final long value, byte[] buffer,\n                                      final int offset, final int end) {\n        final int start = TarArchiveEntry.placeOctalDigits(value, buffer, offset, end);\n        for (int i = offset; i < start; i++) {\n            buffer[i] = (byte) '0';\n        }\n    }\n\n\n    /**\n     * Writes magic bytes like BZ on the first position of the stream",
+   "old": "            outShadow.flush();\n        }\n    }\n\n    /**\n     * Writes magic bytes like BZ on the first position of the stream",
+   "purpose": "MR-Compress-35 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "writeOctalField"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "fillOctalField"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "method": "placeOctalDigits"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "method": "storeOctalDigits"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-35.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatUnsignedOctalString"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatUnsignedOctalString",
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatOctalBytes",
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatLongBinary",
+  "org.apache.commons.compress.archivers.tar.TarArchiveOutputStream::failForBigNumber"
+ ],
+ "expected_signature": "Should have cause IllegalArgumentException",
+ "extra_tests": [],
+ "fixture_key": "Compress-35",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+  "edits": [
+   {
+    "new": "            rest = rest >>> 3;\n        }\n        return pos;",
+    "old": "            rest = rest >>> 3;\n        }\n        if (rest != 0) {\n            throw new IllegalArgumentException(value + \"=\" + Long.toOctalString(value)\n                + \" will not fit in octal number buffer of length \" + (end - offset));\n        }\n        return pos;"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+  "method": "putOctalDigits"
+ },
+ "group": "MR-Compress-35",
+ "hops": 5,
+ "iid": "MR-Compress-35",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold holds the digits that remain once the field is full (rest after its loop); hops 1-4 hold the number and the field but never the digits, and when the gold returns the field holds the lowest digits and the returned position is the field's start, exactly as for a number that fills the field (testOverflow's first call, testRoundTripOctal's MAXSIZE and MAXID), so no caller can tell from the result that digits were dropped. The gold's javadoc promises the octal digits of the number in the end of the field; on the trigger input it writes 7777777, which are not the digits of 017777777. The convention that a number with more digits than the field is rejected is pinned outside the gold: the facade's javadoc ('@throws IllegalArgumentException if the value will not fit in the buffer') and the same clause on its production callers formatOctalBytes, formatLongOctalBytes and formatCheckSumOctalBytes; TarUtils.formatLongBinary, the binary encoder of the same header fields, throws IllegalArgumentException for a value too large for its field; TarArchiveOutputStream.failForBigNumber rejects header values above the field maximum (testMaxFileSizeError, testOldEntryError), while a number with exactly as many digits as the field is accepted (testRoundTripOctal). A caller can reject the number only by re-deriving its digit count from the value (value >>> 3 * length, Long.toOctalString(value).length()) and throwing before the chain runs, which is a second implementation of the gold's check whose result replaces the gold's output on the failing call.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.tar.TarArchiveOutputStreamTest::testMaxFileSizeError",
+  "org.apache.commons.compress.archivers.tar.TarArchiveOutputStreamTest::testOldEntryError",
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testRoundTripOctal",
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testNegative"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "closeArchiveEntry",
+    "anchor_seed": 3016,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "writeOctalField",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "flush",
+    "anchor_seed": 3017,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "fillOctalField",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getGroupName",
+    "anchor_seed": 3018,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "placeOctalDigits",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getEntriesInPhysicalOrder",
+    "anchor_seed": 3019,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "storeOctalDigits",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "read",
+    "anchor_seed": 3020,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "putOctalDigits",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2916
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-35"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.tar.TarUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java",
+  "test_method": "testOverflow"
+ },
+ "variant_id": "CTV-7CA098",
+ "kind": "new",
+ "fault_lines": [
+  "rest = rest >>> 3;\n        }\n        return pos;"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::putOctalDigits"
+}

@@ -1,0 +1,63 @@
+{
+  "instance": "MI-Closure-165",
+  "task_key": "Closure-165__i",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.javascript.jscomp.TypeCheck::isUnknownObject (hop 1)",
+      "edit": "before 'return JSDocInfo.Marker.isUnresolvedObjectType(type);' insert: ObjectType p = type.getImplicitPrototype(); if (p != null && p.isNativeObjectType()) { for (ObjectType e : type.getCtorExtendedInterfaces()) { if (e.isUnknownType()) { return true; } } }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.jscomp.TypeCheck::isUnknownObject (hop 1), spec compensating edit 1",
+      "edit": "return type.isNativeObjectType() ? false : JSDocInfo.Marker.isUnresolvedObjectType(type);",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails"
+    },
+    {
+      "method": "com.google.javascript.jscomp.Compiler$CodeBuilder::objectTypeIsUnknown (hop 4), spec compensating edit 2",
+      "edit": "hand the gold the native implicit prototype instead of the type",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails"
+    },
+    {
+      "method": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing::isObjectTypeUnknown (hop 3), spec compensating edit 3",
+      "edit": "|| (type.getImplicitPrototype() != null && type.getImplicitPrototype().isUnknownType())",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade com.google.javascript.rhino.jstype.ObjectType::isUnknownType (instance; guard 'if (unknown)' + 'unknown = TypeCheck.isUnknownObject(this)', V2 receiver + field write-back)",
+    "hop1 com.google.javascript.jscomp.TypeCheck::isUnknownObject",
+    "hop2 com.google.javascript.rhino.JSDocInfo$Marker::isUnresolvedObjectType",
+    "hop3 com.google.javascript.jscomp.CompilerOptions$TweakProcessing::isObjectTypeUnknown",
+    "hop4 com.google.javascript.jscomp.Compiler$CodeBuilder::objectTypeIsUnknown",
+    "gold com.google.javascript.jscomp.SymbolTable$SymbolScope::isUnknownObjectType"
+  ],
+  "reasons": "Variant compiles; the trigger TypeCheckTest::testInterfaceExtendsResolution fails with 'Could not resolve type in @implements tag of C'; the three ownership tests pass; my own full-suite run shows only the trigger failing. (a) Instrumenting the gold on the trigger showed B.prototype (implicit prototype = native Object, extended interfaces = [A], A still unresolved) reported known (false), because the gold's 'implicitProto == null' test drops the native-prototype case and returns Object.isUnknownType(). That breaks the gold's contract 'whether the given object type is still unknown to the type system'. Hops 1-4 pass the type through unchanged and only inherit the gold's answer. (b) Each hop's javadoc ('Returns whether the given object type is unknown' and close variants) matches its pass-through body. (c) The builder's three one-line hop edits do not repair the trigger (G9), and I agree with why: the gold reads the prototype from the type itself, so no caller can change which branch it takes. The only passing repair I found re-implements the gold's native-prototype/interface step inside hop 1 (7 lines; full suite clean). That is a bypass, not a competing repair. I found no small repair outside the chain that the documentation supports. (d) All names are neutral and G2b found no fault vocabulary. The facade lie (each implicit-prototype property resolved in turn, first unknown declared type marks the type unknown) is procedural and false, and it does not mention native prototypes, interfaces or any hop. The gold's javadoc says nothing about the omitted step. (e) The gold is exactly five calls below the facade. The five hops are in five different existing classes, all already public nested types or public top-level types; none was widened. The trigger is an existing test, test.patch is empty, and only the trigger newly fails. Hosts follow the 1500 regime: the seeded draw (seed 8824) gives TypeCheck, JSDocInfo, Node, Compiler, SymbolTable. For hop 3 the Node anchor (seed 8926) sits in the private class SiblingNodeIterable, so Node is unusable. The next drawn hosts are also unusable at seed 8926: JsDocInfoParser (anchor in private ExtractionInfo), RegExpTree (anchor in package-private Text, while the caller JSDocInfo is in another package) and DefaultPassConfig (anchor in package-private GlobalTypeResolver). The next drawn host after them, CompilerOptions (9th in the draw), anchors in the public enum TweakProcessing at seed 8926, and that matches the build. (f) The convention is pinned outside the gold: PrototypeObjectType.toStringHelper stops the implicit-prototype walk at native object types; getSlot falls back to the constructor's extended interfaces; isSubtype uses extended interfaces for interface types. TypeCheckTest testInterfaceExtends and testBadInterfaceExtends1 and JSTypeTest testInterfaceInheritanceSubtypeChain pass. (g) C10i rules: the facade is the allowed instance method ObjectType.isUnknownType. Its signature, @Override and modifiers are unchanged, no type was added, no reflection is used, no test was edited, and getImplicitPrototype, getCtorExtendedInterfaces, isNativeObjectType and isUnknownType were already public.",
+  "notes": "Weak counter-pin: FunctionTypeBuilder.hasMoreTagsToResolve splits on 'getImplicitPrototype() != null' versus extended interfaces with no native check, which resembles the variant gold's structure. It works on instance types, whose prototype is X.prototype and not native, so it is a different level and does not create a second owner, but it may make the omission look idiomatic. getSlot pins the interface fallback only in part: it consults interfaces whatever the prototype is. Cosmetic recipe artifacts: the facade's first comment line is indented 8 spaces and its closing brace 4; hop 1's javadoc opener in TypeCheck is indented 8 spaces. Neither points at the gold. The spec has no host_notes, so I re-derived the host substitution myself from mr_lib.py preview with n=12 and stageB_lib.pick_anchor at seed 8926. Scratch /private/tmp/mxb-9iQkXO has been deleted."
+}

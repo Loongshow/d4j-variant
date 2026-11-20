@@ -1,0 +1,193 @@
+diff --git a/src/java/org/apache/commons/lang3/ArrayUtils.java b/src/java/org/apache/commons/lang3/ArrayUtils.java
+index 409cf76a2..dfcb35d27 100644
+--- a/src/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -1110,6 +1110,26 @@ public class ArrayUtils {
+         }
+     }
+ 
++    /**
++     * <p>Copies the elements of an array into another array a number of
++     * times, the copies laid end to end from the start of the target
++     * array.</p>
++     *
++     * @param source  the array to copy, not null
++     * @param target  the array to copy into, large enough for all the copies
++     * @param count  the number of copies, zero or more
++     * @return the index in the target array that follows the last element
++     *  copied
++     */
++    public static int replicate(char[] source, char[] target, int count) {
++        int index = 0;
++        for (int i = 0; i < count; i++) {
++            System.arraycopy(source, 0, target, index, source.length);
++        }
++        return index;
++    }
++
++
+     /**
+      * <p>Reverses the order of the given array.</p>
+      *
+diff --git a/src/java/org/apache/commons/lang3/StringUtils.java b/src/java/org/apache/commons/lang3/StringUtils.java
+index f6cabeed8..9169ec1ea 100644
+--- a/src/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/java/org/apache/commons/lang3/StringUtils.java
+@@ -4108,15 +4108,13 @@ public class StringUtils {
+      * @param repeat     number of times to repeat str, negative treated as zero
+      * @return a new String consisting of the original String repeated,
+      *  <code>null</code> if null String input
++       The result is assembled by halving the count recursively, the copies for each half being built separately and joined with a single separator between the two halves.
+      */
+     public static String repeat(String str, String separator, int repeat) {
+-        if(str == null || separator == null) {
++        if (str == null || separator == null) {
+             return repeat(str, repeat);
+-        } else {
+-            // given that repeat(String, int) is quite optimized, better to rely on it than try and splice this into it
+-            String result = repeat(str + separator, repeat);
+-            return removeEnd(result, separator);
+         }
++        return org.apache.commons.lang3.time.DateUtils.joinCopies(str, separator, repeat);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 9f2096bb7..c086727c5 100644
+--- a/src/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -802,6 +803,20 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Returns a String made of copies of a String laid end to end.</p>
++     *
++     * @param str  the String to copy, not null
++     * @param count  the number of copies, zero or more
++     * @return the copies laid end to end, not null
++     */
++    public static String copiesOf(String str, int count) {
++        final char[] buffer = new char[str.length() * count];
++        final int end = FastDateFormat.writeCopies(buffer, str, count);
++        return new String(buffer, 0, end);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>float</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang3/text/StrBuilder.java b/src/java/org/apache/commons/lang3/text/StrBuilder.java
+index 318b5aaaa..dc90e5573 100644
+--- a/src/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -24,6 +24,8 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.StringUtils;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -396,6 +398,23 @@ public class StrBuilder implements CharSequence, Appendable {
+         return destination;
+     }
+ 
++    /**
++     * <p>Returns a String made of copies of a String, with a separator
++     * between each copy and the next.</p>
++     *
++     * <p>Each copy is taken together with the separator that follows it, and
++     * the separator that follows the last copy is removed from the end.</p>
++     *
++     * @param str  the String to copy, not null
++     * @param separator  the String to place between the copies, not null
++     * @param count  the number of copies, at least one
++     * @return the copies joined by the separator, not null
++     */
++    public static String separatedCopies(String str, String separator, int count) {
++        return StringUtils.removeEnd(ToStringStyle.copiesOf(str + separator, count), separator);
++    }
++
++
+     /**
+      * Copies the character array into the specified array.
+      *
+diff --git a/src/java/org/apache/commons/lang3/time/DateUtils.java b/src/java/org/apache/commons/lang3/time/DateUtils.java
+index 6581638af..ca2eb6d55 100644
+--- a/src/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -1282,6 +1283,23 @@ public class DateUtils {
+     public static long getFragmentInMinutes(Date date, int fragment) {
+         return getFragment(date, fragment, Calendar.MINUTE);
+     }
++
++    /**
++     * <p>Returns a String made of copies of a String, with a separator
++     * between each copy and the next.</p>
++     *
++     * @param str  the String to copy, not null
++     * @param separator  the String to place between the copies, not null
++     * @param count  the number of copies, zero or less gives an empty String
++     * @return the copies joined by the separator, not null
++     */
++    public static String joinCopies(String str, String separator, int count) {
++        if (count <= 0) {
++            return "";
++        }
++        return StrBuilder.separatedCopies(str, separator, count);
++    }
++
+     
+     /**
+      * <p>Returns the number of hours within the 
+diff --git a/src/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/java/org/apache/commons/lang3/time/FastDateFormat.java
+index 6b10a94f0..f5b84adec 100644
+--- a/src/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -167,6 +168,20 @@ public class FastDateFormat extends Format {
+         return getInstance(pattern, null, null);
+     }
+ 
++    /**
++     * <p>Writes copies of the characters of a String into a buffer, laid end
++     * to end from the start of the buffer.</p>
++     *
++     * @param buffer  the buffer to write to, large enough for all the copies
++     * @param str  the String to copy, not null
++     * @param count  the number of copies, zero or more
++     * @return the index in the buffer that follows the last character written
++     */
++    public static int writeCopies(char[] buffer, String str, int count) {
++        return ArrayUtils.replicate(str.toCharArray(), buffer, count);
++    }
++
++
+     /**
+      * <p>Gets a formatter instance using the specified pattern and
+      * time zone.</p>

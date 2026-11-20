@@ -1,0 +1,190 @@
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index bc420ca3..44e18f55 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -608,6 +608,25 @@ public class CursorableLinkedList implements List, Serializable {
+         return changed;
+     }
+ 
++    /**
++     * Inserts the elements returned by the specified iterator into the
++     * specified list, starting at the specified position.  The inserted
++     * elements appear in the list in the order that they are returned by
++     * the iterator.
++     *
++     * @param list list to insert the elements into.
++     * @param index index at which to insert the first element.
++     * @param it iterator over the elements to be inserted.
++     */
++    public static void insertEachAt(List list, int index, Iterator it) {
++        int at = index;
++        while(it.hasNext()) {
++            Object elt = it.next();
++            list.add(at++, elt);
++        }
++    }
++
++
+     /**
+      * Replaces the element at the specified position in this list with the
+      * specified element.
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e7f44648..ab12ff8d 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -25,6 +25,7 @@ import java.util.Iterator;
+ import java.util.Map;
+ import java.util.NoSuchElementException;
+ import java.util.Set;
++import java.util.List;
+ 
+ /**
+  * Red-Black tree-based implementation of Map. This class guarantees
+@@ -1433,6 +1434,22 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return doRemove((Comparable) key, KEY);
+     }
+ 
++    /**
++     * Inserts the elements of a collection into a list at the specified
++     * index.
++     * <p>
++     * Every element of the collection is passed on, in the order of the
++     * collection's own iterator.
++     *
++     * @param list the list to insert into.
++     * @param index the index to insert at.
++     * @param coll the collection whose elements are inserted.
++     */
++    public static void insertElementsOf(List list, int index, Collection coll) {
++        ExtendedProperties.addElementsAt(list, index, coll.iterator());
++    }
++
++
+     /**
+      * Removes all mappings from this map
+      */
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index 6b113707..a2e933d8 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -950,6 +950,19 @@ public class ExtendedProperties extends Hashtable {
+         return getString(key, null);
+     }
+ 
++    /**
++     * Insert the elements of an iterator into a list at the given index.
++     * The iterator is passed on as given.
++     *
++     * @param list The list to insert into.
++     * @param index The index to insert at.
++     * @param elements The iterator over the elements to insert.
++     */
++    public static void addElementsAt(List list, int index, Iterator elements) {
++        MapUtils.insertElements(list, index, elements);
++    }
++
++
+     /**
+      * Get a string associated with the given configuration key.
+      *
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 42afd7df..14da7b28 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -44,6 +44,7 @@ import org.apache.commons.collections.map.TypedMap;
+ import org.apache.commons.collections.map.TypedSortedMap;
+ import org.apache.commons.collections.map.UnmodifiableMap;
+ import org.apache.commons.collections.map.UnmodifiableSortedMap;
++import java.util.List;
+ 
+ /** 
+  * Provides utility methods and decorators for
+@@ -1274,6 +1275,20 @@ public class MapUtils {
+         return PredicatedMap.decorate(map, keyPred, valuePred);
+     }
+ 
++    /**
++     * Inserts the elements returned by an iterator into a list at the given index.
++     * <p>
++     * The iterator is passed on as given.
++     *
++     * @param list  the list to insert into, must not be null
++     * @param index  the index to insert at
++     * @param elements  the iterator over the elements to insert, must not be null
++     */
++    public static void insertElements(List list, int index, Iterator elements) {
++        CursorableLinkedList.insertEachAt(list, index, elements);
++    }
++
++
+     /**
+      * Returns a typed map backed by the given map.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index 4c60e28f..71319b94 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -32,6 +32,8 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import java.util.List;
++import org.apache.commons.collections.DoubleOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -320,6 +322,24 @@ public class TreeBidiMap implements OrderedBidiMap {
+         return (node == null ? null : node.getKey());
+     }
+ 
++    /**
++     * Inserts the elements of a collection into a list at the specified index.
++     * <p>
++     * The collection is passed on as given. The list has changed if its size
++     * afterwards differs from its size before.
++     *
++     * @param list  the list to insert into, must not be null
++     * @param index  the index to insert at
++     * @param coll  the collection to insert, must not be null
++     * @return true if the list changed
++     */
++    public static boolean insertAllAt(List list, int index, Collection coll) {
++        int sizeBefore = list.size();
++        DoubleOrderedMap.insertElementsOf(list, index, coll);
++        return list.size() != sizeBefore;
++    }
++
++
+     /**
+      * Gets the previous key before the one specified.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/list/SetUniqueList.java b/src/java/org/apache/commons/collections/list/SetUniqueList.java
+index 8ad35538..4867597c 100644
+--- a/src/java/org/apache/commons/collections/list/SetUniqueList.java
++++ b/src/java/org/apache/commons/collections/list/SetUniqueList.java
+@@ -185,23 +185,10 @@ public class SetUniqueList extends AbstractSerializableListDecorator {
+      * @param index  the index to insert at
+      * @param coll  the collection to add in iterator order
+      * @return true if this collection changed
++       The collection is first copied into an array, and the elements are then read from that array in index order.
+      */
+     public boolean addAll(int index, Collection coll) {
+-        // gets initial size
+-        final int sizeBefore = size();
+-
+-        // adds all elements
+-        for (final Iterator it = coll.iterator(); it.hasNext();) {
+-            int sizeBeforeAddNext = size();
+-            add(index, it.next());
+-            // if it was inserted, then increase the target index
+-            if (sizeBeforeAddNext != size()) {
+-              index++;
+-            }
+-        }
+-
+-        // compares sizes to detect if collection changed
+-        return sizeBefore != size();
++        return org.apache.commons.collections.bidimap.TreeBidiMap.insertAllAt(this, index, coll);
+     }
+ 
+     //-----------------------------------------------------------------------

@@ -1,0 +1,251 @@
+diff --git a/source/org/jfree/chart/axis/DateAxis.java b/source/org/jfree/chart/axis/DateAxis.java
+index 059bc3a..256d893 100644
+--- a/source/org/jfree/chart/axis/DateAxis.java
++++ b/source/org/jfree/chart/axis/DateAxis.java
+@@ -161,6 +161,7 @@ import org.jfree.data.time.DateRange;
+ import org.jfree.data.time.Month;
+ import org.jfree.data.time.RegularTimePeriod;
+ import org.jfree.data.time.Year;
++import org.jfree.data.category.CategoryDataset;
+ 
+ /**
+  * The base class for axes that display dates.  You will find it easier to
+@@ -426,6 +427,43 @@ public class DateAxis extends ValueAxis implements Cloneable, Serializable {
+         }
+     }
+ 
++    /**
++     * Returns the lowest and the highest values reached by the running total
++     * of the items in one row of a category dataset, the items being added in
++     * column order to a total that starts at zero.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param row  the row index (zero-based).
++     *
++     * @return A two element array containing the lowest and the highest
++     *         values of the running total, or <code>null</code> if the row
++     *         contains no data items.
++     */
++    public static double[] runningExtremes(CategoryDataset dataset, int row) {
++        boolean found = false;
++        double minimum = 0.0;
++        double maximum = 0.0;
++        double runningTotal = 0.0;
++        int columnCount = dataset.getColumnCount();
++        for (int column = 0; column < columnCount; column++) {
++            Number n = dataset.getValue(row, column);
++            if (n != null) {
++                found = true;
++                double value = n.doubleValue();
++                if (!Double.isNaN(value)) {
++                    runningTotal = runningTotal + value;
++                    minimum = Math.min(minimum, runningTotal);
++                    maximum = Math.max(maximum, runningTotal);
++                }
++            }
++        }
++        if (!found) {
++            return null;
++        }
++        return new double[] {minimum, maximum};
++    }
++
++
+     /**
+      * Returns the underlying timeline used by this axis.
+      *
+diff --git a/source/org/jfree/chart/axis/ValueAxis.java b/source/org/jfree/chart/axis/ValueAxis.java
+index 5972cdd..4a27252 100644
+--- a/source/org/jfree/chart/axis/ValueAxis.java
++++ b/source/org/jfree/chart/axis/ValueAxis.java
+@@ -139,6 +139,8 @@ import org.jfree.chart.util.RectangleEdge;
+ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.data.Range;
++import org.jfree.data.category.CategoryDataset;
++import org.jfree.chart.plot.CategoryPlot;
+ 
+ /**
+  * The base class for axes that display value data, where values are measured
+@@ -1036,6 +1038,21 @@ public abstract class ValueAxis extends Axis
+ 
+     }
+ 
++    /**
++     * Returns the lowest and the highest values reached by the running total
++     * of one row of a category dataset.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param row  the row index (zero-based).
++     *
++     * @return A two element array containing the lowest and the highest
++     *         values, or <code>null</code> if the row contains no data items.
++     */
++    public static double[] boundsForSeries(CategoryDataset dataset, int row) {
++        return CategoryPlot.dataExtentForSeries(dataset, row);
++    }
++
++
+     /**
+      * Returns the default auto range.
+      *
+diff --git a/source/org/jfree/chart/plot/CategoryPlot.java b/source/org/jfree/chart/plot/CategoryPlot.java
+index 41829db..e95878b 100644
+--- a/source/org/jfree/chart/plot/CategoryPlot.java
++++ b/source/org/jfree/chart/plot/CategoryPlot.java
+@@ -258,6 +258,7 @@ import org.jfree.data.category.SelectableCategoryDataset;
+ import org.jfree.data.general.Dataset;
+ import org.jfree.data.event.DatasetChangeEvent;
+ import org.jfree.data.general.DatasetUtilities;
++import org.jfree.chart.axis.DateAxis;
+ 
+ /**
+  * A general plotting class that uses data from a {@link CategoryDataset} and
+@@ -1971,6 +1972,22 @@ public class CategoryPlot extends Plot implements ValueAxisPlot, Pannable,
+         return this.rangeZeroBaselineStroke;
+     }
+ 
++    /**
++     * Returns the lowest and the highest values reached by the running total
++     * of one row of a category dataset.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     * @param row  the row index (zero-based).
++     *
++     * @return A two element array containing the lowest and the highest
++     *         values, or <code>null</code> if the row contains no data items.
++     */
++    public static double[] dataExtentForSeries(CategoryDataset dataset,
++            int row) {
++        return DateAxis.runningExtremes(dataset, row);
++    }
++
++
+     /**
+      * Sets the stroke for the zero baseline for the range axis,
+      * and sends a {@link PlotChangeEvent} to all registered listeners.
+diff --git a/source/org/jfree/chart/plot/PiePlot.java b/source/org/jfree/chart/plot/PiePlot.java
+index 48de01d..72923db 100644
+--- a/source/org/jfree/chart/plot/PiePlot.java
++++ b/source/org/jfree/chart/plot/PiePlot.java
+@@ -240,6 +240,8 @@ import org.jfree.data.pie.PieDatasetChangeInfo;
+ import org.jfree.data.pie.PieDatasetChangeType;
+ import org.jfree.data.pie.PieDatasetSelectionState;
+ import org.jfree.data.pie.SelectablePieDataset;
++import org.jfree.data.Range;
++import org.jfree.chart.renderer.category.AbstractCategoryItemRenderer;
+ 
+ /**
+  * A plot that displays data in the form of a pie chart, using data from any
+@@ -1075,6 +1077,25 @@ public class PiePlot extends Plot implements Selectable, Cloneable,
+         fireChangeEvent();
+     }
+ 
++    /**
++     * Returns the range of the running totals in a category dataset, where
++     * each row of the dataset keeps its own running total.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     *
++     * @return The range (<code>null</code> if the dataset contains no data
++     *         items).
++     */
++    public static Range accumulatedExtent(CategoryDataset dataset) {
++        double[] bounds = AbstractCategoryItemRenderer.combinedSeriesBounds(
++                dataset);
++        if (bounds == null) {
++            return null;
++        }
++        return new Range(bounds[0], bounds[1]);
++    }
++
++
+     /**
+      * Returns the flag that controls whether or not the section paint is
+      * auto-populated by the {@link #lookupSectionPaint(Comparable)} method.
+diff --git a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+index edbc409..5a0cf86 100644
+--- a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
++++ b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+@@ -621,6 +621,37 @@ public abstract class AbstractCategoryItemRenderer extends AbstractRenderer
+         setBaseURLGenerator(generator, true);
+     }
+ 
++    /**
++     * Returns the lowest and the highest values reached by the running totals
++     * of the rows of a category dataset, each row keeping its own running
++     * total from zero.
++     *
++     * @param dataset  the dataset (<code>null</code> not permitted).
++     *
++     * @return A two element array containing the lowest and the highest
++     *         values, or <code>null</code> if the dataset contains no data
++     *         items.
++     */
++    public static double[] combinedSeriesBounds(CategoryDataset dataset) {
++        boolean found = false;
++        double minimum = 0.0;
++        double maximum = 0.0;
++        int rowCount = dataset.getRowCount();
++        for (int row = 0; row < rowCount; row++) {
++            double[] limits = ValueAxis.boundsForSeries(dataset, row);
++            if (limits != null) {
++                found = true;
++                minimum = Math.min(minimum, limits[0]);
++                maximum = Math.max(maximum, limits[1]);
++            }
++        }
++        if (!found) {
++            return null;
++        }
++        return new double[] {minimum, maximum};
++    }
++
++
+     /**
+      * Sets the base item URL generator.
+      *
+diff --git a/source/org/jfree/data/general/DatasetUtilities.java b/source/org/jfree/data/general/DatasetUtilities.java
+index 548d684..b297fe1 100644
+--- a/source/org/jfree/data/general/DatasetUtilities.java
++++ b/source/org/jfree/data/general/DatasetUtilities.java
+@@ -2144,37 +2144,13 @@ public final class DatasetUtilities {
+      * @return The range.
+      *
+      * @see #findRangeBounds(CategoryDataset)
++       The totals are accumulated in a single pass over the categories, the values of every series in a category being added in turn to one running total that is carried from each category to the next.
+      */
+     public static Range findCumulativeRangeBounds(CategoryDataset dataset) {
+         if (dataset == null) {
+             throw new IllegalArgumentException("Null 'dataset' argument.");
+         }
+-        boolean allItemsNull = true; // we'll set this to false if there is at
+-                                     // least one non-null data item...
+-        double minimum = 0.0;
+-        double maximum = 0.0;
+-        for (int row = 0; row < dataset.getRowCount(); row++) {
+-            double runningTotal = 0.0;
+-            for (int column = 0; column <= dataset.getColumnCount() - 1;
+-                 column++) {
+-                Number n = dataset.getValue(row, column);
+-                if (n != null) {
+-                    allItemsNull = false;
+-                    double value = n.doubleValue();
+-                    if (!Double.isNaN(value)) {
+-                        runningTotal = runningTotal + value;
+-                        minimum = Math.min(minimum, runningTotal);
+-                        maximum = Math.max(maximum, runningTotal);
+-                    }
+-                }
+-            }
+-        }
+-        if (!allItemsNull) {
+-            return new Range(minimum, maximum);
+-        }
+-        else {
+-            return null;
+-        }
++        return org.jfree.chart.plot.PiePlot.accumulatedExtent(dataset);
+     }
+ 
+ }

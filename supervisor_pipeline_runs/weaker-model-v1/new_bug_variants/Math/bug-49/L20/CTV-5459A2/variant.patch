@@ -1,0 +1,183 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 35650096a..37a6a126d 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,8 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import org.apache.commons.math.linear.RealVector;
++import org.apache.commons.math.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -586,6 +588,16 @@ public class Dfp implements FieldElement<Dfp> {
+         return new Dfp(getField(), x);
+     }
+ 
++    /**
++     * Adds a value to each entry of a vector, in place.
++     * @param v vector to update
++     * @param d value to add
++     */
++    public static void addScalarTo(final RealVector v, final double d) {
++        BOBYQAOptimizer.addOffset(v, d);
++    }
++
++
+     /** Create an instance by copying an existing one.
+      * Use this internally in preference to constructors to facilitate subclasses.
+      * @param d instance to copy
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 8e9378317..9c6c22a29 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -284,6 +284,31 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return new BlockFieldMatrix<T>(getField(), rowDimension, columnDimension);
+     }
+ 
++    /**
++     * Adds a value to the entries of a vector, in place.
++     *
++     * <p>The entries that the vector holds are increased first.</p>
++     *
++     * @param v the vector to update
++     * @param held for each index of the vector, whether the vector holds
++     * that entry
++     * @param d the value to add
++     */
++    public static void addToEntries(final RealVector v, final boolean[] held, final double d) {
++        final int n = v.getDimension();
++        for (int i = 0; i < n; i++) {
++            if (held[i]) {
++                v.setEntry(i, v.getEntry(i) + d);
++            }
++        }
++        for (int i = 0; i < n; i++) {
++            if (v.getEntry(i) == 0) {
++                v.setEntry(i, d);
++            }
++        }
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public FieldMatrix<T> copy() {
+diff --git a/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java b/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java
+index 13ebfd24d..3f58f5225 100644
+--- a/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java
++++ b/src/main/java/org/apache/commons/math/linear/OpenMapRealVector.java
+@@ -619,12 +619,15 @@ public class OpenMapRealVector extends AbstractRealVector
+         return copy().mapAddToSelf(d);
+     }
+ 
+-    /** {@inheritDoc} */
++    /**
++     * {@inheritDoc}
++     * The entries are first copied into a dense array, the value is added to
++     * each element of that array, and the array is then written back into
++     * the vector.
++     */
+     @Override
+     public OpenMapRealVector mapAddToSelf(double d) {
+-        for (int i = 0; i < virtualSize; i++) {
+-            setEntry(i, getEntry(i) + d);
+-        }
++        FastMath.addToAll(this, d);
+         return this;
+     }
+ 
+diff --git a/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
+index 9d3309463..fc0ddc34f 100644
+--- a/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
+@@ -33,6 +33,7 @@ import org.apache.commons.math.optimization.RealPointValuePair;
+ import org.apache.commons.math.util.MathUtils;
+ import org.apache.commons.math.linear.ArrayRealVector;
+ import org.apache.commons.math.linear.Array2DRowRealMatrix;
++import org.apache.commons.math.linear.RealVector;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -166,6 +167,17 @@ public class BOBYQAOptimizer
+         this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+     }
+ 
++    /**
++     * Adds a value to each entry of a vector, in place.
++     *
++     * @param v Vector to update.
++     * @param d Value to add.
++     */
++    public static void addOffset(final RealVector v, final double d) {
++        MathUtils.addToSparse(v, d);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     protected RealPointValuePair doOptimize() {
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index e4c4f6ec8..15e503a29 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -3766,6 +3766,17 @@ public class FastMath {
+         return y;
+     }
+ 
++    /**
++     * Adds a value to each entry of a vector, in place.
++     *
++     * @param v vector to update
++     * @param d value to add
++     */
++    public static void addToAll(final org.apache.commons.math.linear.RealVector v, final double d) {
++        org.apache.commons.math.dfp.Dfp.addScalarTo(v, d);
++    }
++
++
+     /** Get the whole number that is the nearest to x, or the even one if x is exactly half way between two integers.
+      * @param x number from which nearest whole number is requested
+      * @return a double number r such that r is an integer r - 0.5 <= x <= r + 0.5
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index c7867c11e..d2946dc65 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -35,6 +35,9 @@ import org.apache.commons.math.exception.NullArgumentException;
+ import org.apache.commons.math.exception.NumberIsTooLargeException;
+ import org.apache.commons.math.exception.util.Localizable;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
++import java.util.Iterator;
++import org.apache.commons.math.linear.RealVector;
++import org.apache.commons.math.linear.BlockFieldMatrix;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -119,6 +122,26 @@ public final class MathUtils {
+         return (int)s;
+     }
+ 
++    /**
++     * Adds a value to each entry of a vector, in place.
++     * <p>
++     * The entries that the vector holds, those its sparse iterator returns,
++     * are marked first.
++     * </p>
++     *
++     * @param v vector to update
++     * @param d value to add
++     */
++    public static void addToSparse(final RealVector v, final double d) {
++        final boolean[] held = new boolean[v.getDimension()];
++        final Iterator<RealVector.Entry> it = v.sparseIterator();
++        while (it.hasNext()) {
++            held[it.next().getIndex()] = true;
++        }
++        BlockFieldMatrix.addToEntries(v, held, d);
++    }
++
++
+     /**
+      * Add two long integers, checking for overflow.
+      *

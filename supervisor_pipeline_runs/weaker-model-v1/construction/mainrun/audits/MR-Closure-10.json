@@ -1,0 +1,51 @@
+{
+  "instance": "Closure-10",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.javascript.jscomp.TypeCheck::isValidPartRange (hop 4)",
+      "edit": "insert before the return: for (int i = begin; i < begin + length; i++) { if (com.google.javascript.rhino.TokenStream.isKeyword(parts[i])) { return false; } }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.jstype.JSTypeRegistry::hasValidNamespaceParts (hop 2)",
+      "edit": "insert before the return: for (String part : name.split(\"\\\\.\")) { if (com.google.javascript.rhino.TokenStream.isKeyword(part)) { return false; } }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "com.google.javascript.rhino.JSDocInfo$Marker::isValidNamePath (hop 1)",
+      "edit": "if (name.startsWith(\".\") || name.endsWith(\".\") || TokenStream.isKeyword(name.substring(name.lastIndexOf('.') + 1))) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade com.google.javascript.jscomp.NodeUtil::isValidQualifiedName (body: one delegating call; javadoc lie: parts checked last-to-first with a memo set of accepted parts)",
+    "hop1 com.google.javascript.rhino.JSDocInfo$Marker::isValidNamePath (rejects leading/trailing dot, delegates)",
+    "hop2 com.google.javascript.rhino.jstype.JSTypeRegistry::hasValidNamespaceParts (splits on dots, delegates)",
+    "hop3 com.google.javascript.jscomp.SymbolTable$Symbol::areValidNameParts (passes full range, delegates)",
+    "hop4 com.google.javascript.jscomp.TypeCheck::isValidPartRange (pass-through, delegates)",
+    "gold com.google.javascript.jscomp.Compiler$CodeBuilder::areSimpleNames (per-part isJSIdentifier + isLatin; the TokenStream.isKeyword rejection is omitted)"
+  ],
+  "reasons": "(a) The gold's javadoc promises that every string in the range is 'a valid simple name, that is, a valid variable name'. It returns true for [\"true\"] and [\"a\",\"true\"], and 'true' is a reserved word, so its own contract is broken. Hops 1-4 only guard, split, place the range and pass it on. They are wrong on the trigger only because they faithfully return the gold's answer; with the gold fixed (correct.patch) every hop meets its doc. The facade's lie is procedural and does not change the output. (b) Each hop's javadoc matches its code: dot guard, split, full range, pass-through. None is loose enough to own per-part reserved-word rejection. (c) The declared compensating edits (whole-name, parts[0] and parts[begin] keyword checks) cannot catch 'a.true' (G9; consistent with my reading). I built three non-declared edits that pass the trigger, all 3 ownership tests and the full suite (0 failures each): a keyword loop at hop 4, a keyword loop at hop 2, and a last-part keyword check at hop 1. None is documentation-consistent. In all three, the public gold still reports 'true' as a valid variable name, contradicting its javadoc; the edit only pre-empts the gold upstream by re-implementing its per-part keyword step. The hop-1 edit is also overfit: it still accepts 'true.a', which breaks hop 1's own doc. All three are bypasses, not competing repairs. (d) The names are neutral, and G2b found no fault vocabulary. The lie describes a memoised last-to-first scan and says nothing about keywords or reserved words. The gold's 'valid variable name' wording copies NodeUtil.isValidSimpleName's existing javadoc and does not name the omitted step. (e) The gold is five calls below the facade. The hosts are Marker, JSTypeRegistry, Symbol, TypeCheck and CodeBuilder: five distinct existing classes. The facade body is one delegating call; the original dot check moved into hop 1, so there is no facade guard. There is one added lie sentence that the code does not perform. The gold is quiet: its doc says nothing explicit about reserved words. The trigger NodeUtilTest::testValidNames is an existing test (test.patch is empty). It fails at line 1566 (assertFalse isValidQualifiedName(\"true\")) and is the only failure in my full-suite run of the variant. (f) Outside the gold, the convention is pinned by: NodeUtil.isValidSimpleName (same 'valid variable name' javadoc; isJSIdentifier && !isKeyword && isLatin); ProcessClosurePrimitives.verifyProvide (per-part isValidPropertyName on dotted names); and the object-literal key check in CodeGenerator.add (!isKeyword && isJSIdentifier && isLatin). These passing tests also pin it: ProcessClosurePrimitivesTest::testInvalidProvide ('a.class' rejected), ConvertToDottedPropertiesTest::testDoNotConvert (a['default'] kept), CodePrinterTest::testPrint (\"default\" stays quoted), and the earlier, passing assertions in testValidNames itself (isValidSimpleName(\"true\") and isValidPropertyName(\"a.true\") are false).",
+  "notes": "Verified in /private/tmp/mxb-1OFpw4: the variant compiles; the trigger fails with AssertionFailedError at NodeUtilTest.java:1566; the 3 ownership tests pass; the full suite shows only testValidNames failing. correct.patch differs from variant.patch only by re-adding '|| TokenStream.isKeyword(name)' in the gold. Caveats for the reviewer: (1) CodeGenerator.add, a listed evidence method, also has a getter/setter-name branch (around line 335) that checks only isJSIdentifier && isLatin with no keyword check, the same shape as the faulty gold. That branch is legitimate there (ES5 accessor property names may be keywords), but it is a mild counter-signal inside a cited evidence method. The decisive pin is NodeUtil.isValidSimpleName, which lives in the facade's own class. (2) Under ES5, 'a.true' is a valid property access. The deleted facade TODO about ES3/ES5 alluded to this. The gold's contract is about variable names, though, and 'true' is not a valid variable name in any edition, so ownership is unaffected. (3) Formatting artifacts in the facade (indentation of the lie line and body) and odd javadoc indentation at hops 2 and 4 are recipe-insertion noise and do not single out the gold. Bypasses recorded above: the gold is pre-empted at hop 4 or hop 2 by a duplicate per-part keyword loop, or at hop 1 by an overfit last-part check."
+}

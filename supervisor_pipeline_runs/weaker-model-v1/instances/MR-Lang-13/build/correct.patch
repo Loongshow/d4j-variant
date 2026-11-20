@@ -1,0 +1,252 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 98ca1c87b..9d4297d98 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -5731,6 +5731,37 @@ public class ArrayUtils {
+         return removeAll(array, extractIndices(toRemove));
+     }
+ 
++    /**
++     * <p>Finds the class that a class descriptor read from an object stream
++     * names.</p>
++     *
++     * <p>The class loaders are tried in the order given, and the class is
++     * not initialized.</p>
++     *
++     * @param name  the class name carried by the class descriptor, not null
++     * @param classLoaders  the class loaders to try, not null or empty
++     * @return the class of that name
++     * @throws ClassNotFoundException if the class cannot be found
++     */
++    public static Class<?> classNamed(final String name, final ClassLoader... classLoaders) throws ClassNotFoundException {
++        for (final Class<?> type : new Class<?>[] {Boolean.TYPE, Byte.TYPE, Character.TYPE, Short.TYPE, Integer.TYPE,
++                Long.TYPE, Float.TYPE, Double.TYPE, Void.TYPE}) {
++            if (type.getName().equals(name)) {
++                return type;
++            }
++        }
++        ClassNotFoundException notFound = null;
++        for (final ClassLoader classLoader : classLoaders) {
++            try {
++                return Class.forName(name, false, classLoader);
++            } catch (final ClassNotFoundException ex) {
++                notFound = ex;
++            }
++        }
++        throw notFound;
++    }
++
++
+     /**
+      * Removes multiple array elements specified by index.
+      * @param array source
+diff --git a/src/main/java/org/apache/commons/lang3/SerializationUtils.java b/src/main/java/org/apache/commons/lang3/SerializationUtils.java
+index 7c89b61d7..18066aa45 100644
+--- a/src/main/java/org/apache/commons/lang3/SerializationUtils.java
++++ b/src/main/java/org/apache/commons/lang3/SerializationUtils.java
+@@ -74,40 +74,13 @@ public class SerializationUtils {
+      * @param object  the {@code Serializable} object to clone
+      * @return the cloned object
+      * @throws SerializationException (runtime) if the serialization fails
++       The object is first written to a temporary file in the directory named by the {@code java.io.tmpdir} system property, and the copy is then read back from that file.
+      */
+     public static <T extends Serializable> T clone(T object) {
+         if (object == null) {
+             return null;
+         }
+-        byte[] objectData = serialize(object);
+-        ByteArrayInputStream bais = new ByteArrayInputStream(objectData);
+-
+-        ClassLoaderAwareObjectInputStream in = null;
+-        try {
+-            // stream closed in the finally
+-            in = new ClassLoaderAwareObjectInputStream(bais, object.getClass().getClassLoader());
+-            /*
+-             * when we serialize and deserialize an object,
+-             * it is reasonable to assume the deserialized object
+-             * is of the same type as the original serialized object
+-             */
+-            @SuppressWarnings("unchecked") // see above
+-            T readObject = (T) in.readObject();
+-            return readObject;
+-
+-        } catch (ClassNotFoundException ex) {
+-            throw new SerializationException("ClassNotFoundException while reading cloned object data", ex);
+-        } catch (IOException ex) {
+-            throw new SerializationException("IOException while reading cloned object data", ex);
+-        } finally {
+-            try {
+-                if (in != null) {
+-                    in.close();
+-                }
+-            } catch (IOException ex) {
+-                throw new SerializationException("IOException on closing cloned object data InputStream.", ex);
+-            }
+-        }
++        return org.apache.commons.lang3.builder.ToStringStyle.serialCopy(object);
+     }
+ 
+     // Serialize
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 9f9b3c9c9..b9856a578 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -25,6 +25,10 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.ObjectInputStream;
++import java.io.ObjectStreamClass;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -3326,6 +3330,35 @@ public class StringUtils {
+         return buf.toString();
+     }
+ 
++    /**
++     * <p>Reads a single object from an object stream, finding the class of
++     * each class descriptor in the stream from the name it carries.</p>
++     *
++     * <p>The stream is closed once the object is read.</p>
++     *
++     * @param inputStream  the serialized object input stream, not null
++     * @param classLoader  the class loader to try first for a class
++     * @param contextLoader  the class loader to try next for a class
++     * @return the object read
++     * @throws IOException if the stream cannot be read
++     * @throws ClassNotFoundException if the class of a class descriptor cannot be found
++     */
++    public static Object readSingleObject(final InputStream inputStream, final ClassLoader classLoader,
++            final ClassLoader contextLoader) throws IOException, ClassNotFoundException {
++        final ObjectInputStream in = new ObjectInputStream(inputStream) {
++            @Override
++            protected Class<?> resolveClass(final ObjectStreamClass desc) throws IOException, ClassNotFoundException {
++                return ArrayUtils.classNamed(desc.getName(), classLoader, contextLoader);
++            }
++        };
++        try {
++            return in.readObject();
++        } finally {
++            in.close();
++        }
++    }
++
++
+     /**
+      * <p>Joins the elements of the provided array into a single String
+      * containing the provided list of elements.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 7200356f2..d24cd1e9d 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,8 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.SerializationUtils;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -375,6 +377,21 @@ public abstract class ToStringStyle implements Serializable {
+         }
+     }
+ 
++    /**
++     * <p>Copies a {@code Serializable} object by serializing it to bytes and
++     * reading the bytes back with the class loader of its class.</p>
++     *
++     * @param <T> the type of the object
++     * @param object  the object to copy, not null
++     * @return the copy
++     */
++    public static <T extends Serializable> T serialCopy(final T object) {
++        @SuppressWarnings("unchecked") // the copy is read back from the bytes of the object itself
++        final T copy = (T) StrBuilder.readObjectData(SerializationUtils.serialize(object), object.getClass().getClassLoader());
++        return copy;
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the end of data indicator.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 6aec7a1eb..9f101a5c8 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -25,6 +25,8 @@ import java.util.List;
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.io.ByteArrayInputStream;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1102,6 +1104,18 @@ public class StrBuilder implements CharSequence, Appendable, Serializable {
+         return appendSeparator(separator, null);
+     }
+ 
++    /**
++     * <p>Reads an object back from the bytes it was serialized to.</p>
++     *
++     * @param objectData  the serialized object, not null
++     * @param classLoader  the class loader of the class of the serialized object
++     * @return the object read
++     */
++    public static Object readObjectData(final byte[] objectData, final ClassLoader classLoader) {
++        return DateUtils.readSerialData(new ByteArrayInputStream(objectData), classLoader);
++    }
++
++
+     /**
+      * Appends one of both separators to the StrBuilder.
+      * If the builder is currently empty it will append the defaultIfEmpty-separator
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index 8f48909fa..4ada48e5d 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -23,6 +23,10 @@ import java.util.Calendar;
+ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
++import java.io.IOException;
++import java.io.InputStream;
++import org.apache.commons.lang3.SerializationException;
++import org.apache.commons.lang3.StringUtils;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -890,6 +894,29 @@ public class DateUtils {
+         }
+     }
+ 
++    /**
++     * <p>Reads a serialized object from a stream.</p>
++     *
++     * <p>The context class loader of the current thread is passed on as a
++     * second class loader, and a failure to read the object is reported as
++     * a {@code SerializationException}.</p>
++     *
++     * @param inputStream  the serialized object input stream, not null
++     * @param classLoader  the class loader of the class of the serialized object
++     * @return the object read
++     * @throws SerializationException (runtime) if the object cannot be read
++     */
++    public static Object readSerialData(final InputStream inputStream, final ClassLoader classLoader) {
++        try {
++            return StringUtils.readSingleObject(inputStream, classLoader, Thread.currentThread().getContextClassLoader());
++        } catch (final ClassNotFoundException ex) {
++            throw new SerializationException("ClassNotFoundException while reading cloned object data", ex);
++        } catch (final IOException ex) {
++            throw new SerializationException("IOException while reading cloned object data", ex);
++        }
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Internal calculation method.</p>

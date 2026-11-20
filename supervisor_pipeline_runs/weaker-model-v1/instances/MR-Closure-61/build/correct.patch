@@ -1,0 +1,198 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 45d88ba13..1ca7c12a7 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -1523,6 +1523,32 @@ public class Compiler extends AbstractCompiler {
+       return sb.toString();
+     }
+ 
++    /**
++     * Gets the name of a function, given the node that contains it: the name
++     * the function is declared with or, when it has none, the name of the
++     * object literal key whose value it is.
++     *
++     * @param fnNode a node whose type is {@link Token#FUNCTION}
++     * @param parent the parent of the function node
++     * @return the function's name, or {@code null} if it has no name
++     */
++    public static String functionOrKeyName(Node fnNode, Node parent) {
++      String name = JSTypeRegistry.declaredFunctionName(fnNode, parent);
++      if (name != null) {
++        return name;
++      }
++      switch (parent.getType()) {
++        case Token.SET:
++        case Token.GET:
++        case Token.STRING:
++          return parent.getString();
++        case Token.NUMBER:
++          return NodeUtil.getStringValue(parent);
++      }
++      return null;
++    }
++
++
+     /** Returns the length of the text buffer. */
+     public int getLength() {
+       return sb.length();
+diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java
+index f9ce42ee1..6d72657d4 100644
+--- a/src/com/google/javascript/jscomp/NodeUtil.java
++++ b/src/com/google/javascript/jscomp/NodeUtil.java
+@@ -445,28 +445,12 @@ public final class NodeUtil {
+    *
+    * @param n a node whose type is {@link Token#FUNCTION}
+    * @return the function's name, or {@code null} if it has no name
+-   */
++     The name is recovered from the function's source text, by scanning back from the {@code function} keyword to the nearest {@code =} or {@code :} and reading the name written before it.
++     */
+   public static String getNearestFunctionName(Node n) {
+-    String name = getFunctionName(n);
+-    if (name != null) {
+-      return name;
++        return com.google.javascript.rhino.TokenStream.nameOfFunction(n);
+     }
+ 
+-    // Check for the form { 'x' : function() { } }
+-    Node parent = n.getParent();
+-    switch (parent.getType()) {
+-      case Token.SET:
+-      case Token.GET:
+-      case Token.STRING:
+-        // Return the name of the literal's key.
+-        return parent.getString();
+-      case Token.NUMBER:
+-        return getStringValue(parent);
+-    }
+-
+-    return null;
+-  }
+-
+ 
+   /**
+    * Returns true if this is an immutable value.
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index ac82c4399..18ba77c48 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -1899,4 +1899,28 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Returns the qualified name of an expression, such as {@code a.b.c}.
++     *
++     * @param expr the expression
++     * @return the qualified name, or {@code null} if the expression is not a
++     *     qualified name
++     */
++    public static String qualifiedNameOf(Node expr) {
++      String suffix = "";
++      Node current = expr;
++      while (NodeUtil.isGetProp(current)) {
++        suffix = "." + current.getLastChild().getString() + suffix;
++        current = current.getFirstChild();
++      }
++      if (NodeUtil.isThis(current)) {
++        return "this" + suffix;
++      }
++      if (NodeUtil.isName(current)) {
++        return current.getString() + suffix;
++      }
++      return null;
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/Parser.java b/src/com/google/javascript/rhino/Parser.java
+index 95b720ff9..bad02b742 100644
+--- a/src/com/google/javascript/rhino/Parser.java
++++ b/src/com/google/javascript/rhino/Parser.java
+@@ -50,6 +50,7 @@ import java.io.IOException;
+ import java.io.Reader;
+ import java.util.Hashtable;
+ import java.util.List;
++import com.google.javascript.jscomp.Compiler;
+ 
+ /**
+  * This class implements the JavaScript parser.
+@@ -408,6 +409,22 @@ public class Parser
+         return parse();
+     }
+ 
++    /**
++     * Gets the name of a function, given the node that contains it. A
++     * function that initializes a variable takes the name of the variable.
++     *
++     * @param fnNode a node whose type is {@link Token#FUNCTION}
++     * @param parent the parent of the function node
++     * @return the function's name, or {@code null} if it has no name
++     */
++    public static String nameFromParent(Node fnNode, Node parent) {
++        if (parent.getType() == Token.NAME) {
++            return parent.getString();
++        }
++        return Compiler.CodeBuilder.functionOrKeyName(fnNode, parent);
++    }
++
++
+     private ScriptOrFnNode parse()
+         throws IOException
+     {
+diff --git a/src/com/google/javascript/rhino/TokenStream.java b/src/com/google/javascript/rhino/TokenStream.java
+index 23e314977..d1da9fe81 100644
+--- a/src/com/google/javascript/rhino/TokenStream.java
++++ b/src/com/google/javascript/rhino/TokenStream.java
+@@ -1482,6 +1482,18 @@ public class TokenStream
+ 
+     public int getTokenno() { return tokenno; }
+ 
++    /**
++     * Gets the name of a function, given by the function node together with
++     * the node that contains it.
++     *
++     * @param fnNode a node whose type is {@link Token#FUNCTION}
++     * @return the function's name, or {@code null} if it has no name
++     */
++    public static String nameOfFunction(Node fnNode) {
++        return Parser.nameFromParent(fnNode, fnNode.getParent());
++    }
++
++
+     protected void ungetChar(int c)
+     {
+         // cannot unread past across line boundary
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index bc7f764d6..70a2f171b 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -65,6 +65,7 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.TypeCheck;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1592,4 +1593,21 @@ public class JSTypeRegistry implements Serializable {
+     templateTypeName = null;
+     templateType = null;
+   }
++
++        /**
++     * Gets the name a function is declared with: the qualified name of the
++     * target when the function is assigned, otherwise the function's own name.
++     *
++     * @param fnNode a node whose type is {@link Token#FUNCTION}
++     * @param parent the parent of the function node
++     * @return the declared name, or {@code null} if there is none
++     */
++    public static String declaredFunctionName(Node fnNode, Node parent) {
++      if (parent.getType() == Token.ASSIGN) {
++        return TypeCheck.qualifiedNameOf(parent.getFirstChild());
++      }
++      String name = fnNode.getFirstChild().getString();
++      return name.length() != 0 ? name : null;
++    }
++
+ }

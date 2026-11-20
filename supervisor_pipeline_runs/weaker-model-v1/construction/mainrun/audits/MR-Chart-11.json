@@ -1,0 +1,91 @@
+{
+ "instance": "Chart-11",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.jfree.chart.util.ShapeUtilities::equal(GeneralPath,GeneralPath) (facade)",
+   "edit": "p1.getPathIterator(null), p2.getPathIterator(null)  ->  p1.getPathIterator(null, 1.0), p2.getPathIterator(null, 1.0)  (flattening iterators, as in ChartEntity.getPolyCoords)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "The gold never receives a curve segment, so its QUADTO/CUBICTO handling is dead on this path and its own defect stays. Equality becomes approximate. Probe: a quadTo(5,5.1,10,10) path equals a lineTo(10,10) path, and quads with control y 5.1 and 5.2 compare equal. This contradicts the exact-value convention of the sibling equal overloads and of SerialUtilities.readShape/writeShape."
+  },
+  {
+   "method": "org.jfree.chart.util.ShapeUtilities::equal(GeneralPath,GeneralPath) (facade)",
+   "edit": "p1.getPathIterator(null), p2.getPathIterator(null)  ->  p1.getPathIterator(null, 0.0), p2.getPathIterator(null, 0.0)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Same reroute, with curves split into 1024 line segments. The gold's per-type logic is dead and its quad defect stays. Segment types are no longer compared. Probe: quadTo(3,6,6,0) equals the degree-elevated curveTo(2,4,4,4,6,0), but the pristine and correct code return false."
+  },
+  {
+   "method": "org.jfree.chart.plot.XYPlot::pathStepsMatch (hop 4)",
+   "edit": "return ChartFactory.segmentsMatch(iterator1, iterator2);  ->  double[] a = new double[6], b = new double[6]; return iterator1.currentSegment(a) == iterator2.currentSegment(b) && java.util.Arrays.equals(a, b);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Replaces the gold's result with a reimplementation; the gold becomes dead code."
+  },
+  {
+   "method": "org.jfree.chart.plot.XYPlot::pathStepsMatch (hop 4)",
+   "edit": "return ChartFactory.segmentsMatch(iterator1, iterator2);  ->  double[] a = new double[6], b = new double[6]; return ChartFactory.segmentsMatch(iterator1, iterator2) && iterator1.currentSegment(a) == iterator2.currentSegment(b) && java.util.Arrays.equals(a, b);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Repeats the gold's type-and-coordinate comparison in a pass-through. The gold still breaks its own javadoc for SEG_QUADTO, and the extra check overrides its verdict."
+  },
+  {
+   "method": "org.jfree.chart.plot.XYPlot::pathStepsMatch (hop 4, declared compensating)",
+   "edit": "return iterator1.currentSegment(new double[6]) == iterator2.currentSegment(new double[6]) && ChartFactory.segmentsMatch(iterator1, iterator2);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.jfree.chart.plot.SpiderWebPlot::outlinesMatch (hop 2, declared compensating)",
+   "edit": "done = iterator1.isDone() && iterator2.isDone();  ->  done = iterator1.isDone() || iterator2.isDone();",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::itemStepsMatch (hop 3, declared compensating)",
+   "edit": "return iterator1.currentSegment(new double[6]) != PathIterator.SEG_QUADTO && XYPlot.pathStepsMatch(iterator1, iterator2);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.jfree.chart.util.ShapeUtilities::equal(GeneralPath,GeneralPath): the original null guards, then one call to SegmentedTimeline.matchesSegmentRun(p1.getPathIterator(null), p2.getPathIterator(null))",
+  "hop1 org.jfree.chart.axis.SegmentedTimeline::matchesSegmentRun: winding-rule check, then delegates",
+  "hop2 org.jfree.chart.plot.SpiderWebPlot::outlinesMatch: lock-step walk with an end-together check, comparing each step",
+  "hop3 org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::itemStepsMatch: pass-through",
+  "hop4 org.jfree.chart.plot.XYPlot::pathStepsMatch: pass-through",
+  "gold org.jfree.chart.ChartFactory::segmentsMatch: per-segment type and coordinate comparison; the SEG_QUADTO count=4 branch is omitted, so a quad's coordinates are never compared"
+ ],
+ "reasons": "Compiled the variant and ran the trigger: only testEqualGeneralPaths fails, at ShapeUtilitiesTests.java:236 (quadTo(11,22,33,44) vs quadTo(1,2,3,4)). A full defects4j test run on the variant also fails only the trigger, and the three ownership tests pass. (a) segmentsMatch's javadoc says equal segments have 'the same segment type and the same coordinates'. On the trigger it returns true for two SEG_QUADTO segments with different coordinates, because count stays 0. Each hop above it returns the wrong verdict only by propagation: hops 3 and 4 are one-line pass-throughs, and hops 1 and 2 meet their own javadoc given a correct callee. (b) Every hop's javadoc matches its code. The 'current segments ... are equal' wording of hops 3 and 4 is short, but their bodies only delegate, and the gold spells out what equal means. (c) Every passing one-line non-gold edit is a bypass. A hop-4 reimplementation or AND-augmentation makes the gold dead or overrides it. Making the facade use flattening iterators (flatness 1.0 or 0.0) passes the trigger, the ownership tests and the full suite. But it keeps curve segments from the gold, leaves the gold's defect in place, and changes path equality into approximate or polyline equality: probes show a quad equal to a line at 1.0, distinct quads equal at 1.0, and a quad equal to its degree-elevated cubic at 0.0. That contradicts the exact-value convention of the sibling overloads and SerialUtilities, so it is not a competing repair. The three declared compensating edits all still fail the trigger (re-run). (d) The hop names (matchesSegmentRun, outlinesMatch, itemStepsMatch, pathStepsMatch, segmentsMatch) are neutral, and no added line uses fault vocabulary. The lie ('copied into a list of its points, read from the last segment back to the first ... compared with a single call to equals()') describes an algorithm the code does not perform, and it names neither quadratic segments nor coordinate counts. (e) The gold is five calls below the facade, and the five hops sit in five different existing classes. The facade is the original null guards plus one delegating call; the winding check moved into hop 1. The facade javadoc gains exactly one procedural sentence. The gold javadoc does not say how many coordinates a quad carries. test.patch is empty and the trigger is an existing test. (f) SerialUtilities.readShape rebuilds SEG_QUADTO from four coordinates (gp.quadTo(args[0..3])), beside two for move/line and six for cubic. writeShape writes every segment's coordinates, and the passing XYAreaRendererTests::testSerialization round-trips a GeneralPath through equal. The sibling equal overloads compare every defining value.",
+ "notes": "Bypass recorded: the one-line facade edit to getPathIterator(null, 1.0) or getPathIterator(null, 0.0) passes everything. Production code already uses this idiom in ChartEntity.getPolyCoords, so a model might propose it. It is semantically lossy and keeps curve segments from the gold, so I classify it as a bypass, not a competing repair. No passing test pins quadratic coordinates specifically; the trigger is the only test that does. The quad convention is pinned by production code (readShape) and by the JDK PathIterator contract. Recipe artifact: the lie sentence sits after '@return A boolean.' with non-javadoc indentation, so it renders as part of the @return text. The facade's first javadoc line still says 'Tests two polygons', as in the pristine source."
+}

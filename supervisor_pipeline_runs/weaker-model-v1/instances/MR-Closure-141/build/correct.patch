@@ -1,0 +1,217 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 448e2b56e..3d77a17d4 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -1311,6 +1311,28 @@ public class Compiler extends AbstractCompiler {
+       return sb.length();
+     }
+ 
++    /**
++     * Adds the vars declared in a branch to a map, each name mapped to the
++     * NAME node of its first declaration.
++     *
++     * @param n the root of the branch
++     * @param vars the map to add to
++     */
++    public static void addBranchVars(Node n, Map<String, Node> vars) {
++      if (n.getType() == Token.NAME) {
++        Node parent = n.getParent();
++        if (parent != null && parent.getType() == Token.VAR
++            && !vars.containsKey(n.getString())) {
++          vars.put(n.getString(), n);
++        }
++      } else if (n.getType() != Token.FUNCTION) {
++        for (Node c = n.getFirstChild(); c != null; c = c.getNext()) {
++          addBranchVars(c, vars);
++        }
++      }
++    }
++
++
+     /** Returns the (zero-based) index of the last line in the text buffer. */
+     int getLineIndex() {
+       return lineCount;
+diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java
+index aaf84703d..4634ec34f 100644
+--- a/src/com/google/javascript/jscomp/NodeUtil.java
++++ b/src/com/google/javascript/jscomp/NodeUtil.java
+@@ -19,7 +19,6 @@ package com.google.javascript.jscomp;
+ import com.google.common.base.Preconditions;
+ import com.google.common.base.Predicate;
+ import com.google.common.base.Predicates;
+-import com.google.common.collect.Maps;
+ import com.google.javascript.rhino.FunctionNode;
+ import com.google.javascript.rhino.JSDocInfo;
+ import com.google.javascript.rhino.Node;
+@@ -31,7 +30,6 @@ import java.util.Collection;
+ import java.util.Collections;
+ import java.util.HashSet;
+ import java.util.List;
+-import java.util.Map;
+ import java.util.Set;
+ 
+ /**
+@@ -1645,33 +1643,13 @@ public final class NodeUtil {
+         NodeUtil.isLatin(name);
+   }
+ 
+-  private static class VarCollector implements Visitor {
+-    final Map<String, Node> vars = Maps.newLinkedHashMap();
+-
+-    public void visit(Node n) {
+-      if (n.getType() == Token.NAME) {
+-        Node parent = n.getParent();
+-        if (parent != null && parent.getType() == Token.VAR) {
+-          String name = n.getString();
+-          if (!vars.containsKey(name)) {
+-            vars.put(name, n);
+-          }
+-        }
+-      }
+-    }
+-  }
+-
+   /**
+    * Retrieves vars declared in the current node tree, excluding descent scopes.
+-   */
++     The tree is first flattened level by level into a list of its nodes, and the names declared in that list are sorted alphabetically before their nodes are returned.
++     */
+   public static Collection<Node> getVarsDeclaredInBranch(Node root) {
+-    VarCollector collector = new VarCollector();
+-    visitPreOrder(
+-        root,
+-        collector,
+-        Predicates.<Node>not(new NodeUtil.MatchNodeType(Token.FUNCTION)));
+-    return collector.vars.values();
+-  }
++        return com.google.javascript.rhino.Node.getDeclaredVars(root);
++    }
+ 
+   /**
+    * @return {@code true} if the node an assignment to a prototype property of
+diff --git a/src/com/google/javascript/jscomp/TypeCheck.java b/src/com/google/javascript/jscomp/TypeCheck.java
+index f93b8fa0e..316c662ba 100644
+--- a/src/com/google/javascript/jscomp/TypeCheck.java
++++ b/src/com/google/javascript/jscomp/TypeCheck.java
+@@ -45,6 +45,7 @@ import com.google.javascript.rhino.jstype.TernaryValue;
+ import com.google.javascript.rhino.jstype.UnionType;
+ 
+ import java.util.Iterator;
++import java.util.Map;
+ 
+ /**
+  * <p>Checks the types of JS expressions against any declared type
+@@ -1712,4 +1713,15 @@ public class TypeCheck implements NodeTraversal.Callback, CompilerPass {
+   private JSType getNativeType(JSTypeNative typeId) {
+     return typeRegistry.getNativeType(typeId);
+   }
++
++        /**
++     * Adds the vars declared in a branch to a map, keyed by name.
++     *
++     * @param root the root of the branch
++     * @param vars the map to add the vars to
++     */
++    public static void gatherVarDecls(Node root, Map<String, Node> vars) {
++      Compiler.CodeBuilder.addBranchVars(root, vars);
++    }
++
+ }
+diff --git a/src/com/google/javascript/rhino/Node.java b/src/com/google/javascript/rhino/Node.java
+index 7db286d48..c79ed7ee3 100644
+--- a/src/com/google/javascript/rhino/Node.java
++++ b/src/com/google/javascript/rhino/Node.java
+@@ -51,6 +51,7 @@ import java.util.Collections;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.Set;
++import java.util.Collection;
+ 
+ /**
+  * This class implements the root of the intermediate representation.
+@@ -1293,6 +1294,18 @@ public class Node implements Cloneable, Serializable
+       return first != null && first == last;
+     }
+ 
++    /**
++     * Returns the vars declared in a branch of a tree, in the order of their
++     * first declarations.
++     *
++     * @param root the root of the branch
++     * @return the NAME node of the first declaration of each var
++     */
++    public static Collection<Node> getDeclaredVars(Node root) {
++      return Parser.declaredVarMap(root).values();
++    }
++
++
+     /**
+      * Check for more than one child more efficiently than by iterating over all
+      * the children as is done with Node.getChildCount().
+diff --git a/src/com/google/javascript/rhino/Parser.java b/src/com/google/javascript/rhino/Parser.java
+index 784073b7b..09a40621c 100644
+--- a/src/com/google/javascript/rhino/Parser.java
++++ b/src/com/google/javascript/rhino/Parser.java
+@@ -52,6 +52,8 @@ import java.io.IOException;
+ import java.io.Reader;
+ import java.util.Hashtable;
+ import java.util.List;
++import java.util.LinkedHashMap;
++import java.util.Map;
+ 
+ /**
+  * This class implements the JavaScript parser.
+@@ -432,6 +434,21 @@ public class Parser
+         return parse();
+     }
+ 
++    /**
++     * Maps the name of each var declared in a branch of a tree to the NAME
++     * node of its first declaration.
++     *
++     * @param root the root of the branch
++     * @return the map, in the order of the first declarations
++     */
++    public static Map<String, Node> declaredVarMap(Node root)
++    {
++        Map<String, Node> vars = new LinkedHashMap<String, Node>();
++        TokenStream.addVarDeclarations(root, vars);
++        return vars;
++    }
++
++
+     private ScriptOrFnNode parse()
+         throws IOException
+     {
+diff --git a/src/com/google/javascript/rhino/TokenStream.java b/src/com/google/javascript/rhino/TokenStream.java
+index 10d64a8f2..a880addeb 100644
+--- a/src/com/google/javascript/rhino/TokenStream.java
++++ b/src/com/google/javascript/rhino/TokenStream.java
+@@ -47,6 +47,8 @@ package com.google.javascript.rhino;
+ 
+ import java.io.IOException;
+ import java.io.Reader;
++import java.util.Map;
++import com.google.javascript.jscomp.TypeCheck;
+ 
+ /**
+  * This class implements the JavaScript scanner.
+@@ -853,6 +855,18 @@ public class TokenStream
+         }
+     }
+ 
++    /**
++     * Adds the vars declared in a branch of a tree to a map, each name mapped
++     * to the NAME node of its first declaration.
++     *
++     * @param root the root of the branch
++     * @param vars the map to add the vars to
++     */
++    public static void addVarDeclarations(Node root, Map<String, Node> vars) {
++        TypeCheck.gatherVarDecls(root, vars);
++    }
++
++
+     /**
+      * Tokenizes JSDoc comments.
+      */

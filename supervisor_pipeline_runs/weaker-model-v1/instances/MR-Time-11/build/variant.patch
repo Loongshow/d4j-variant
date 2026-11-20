@@ -1,0 +1,305 @@
+diff --git a/src/main/java/org/joda/time/LocalDate.java b/src/main/java/org/joda/time/LocalDate.java
+index af7e500c..4e64ee6c 100644
+--- a/src/main/java/org/joda/time/LocalDate.java
++++ b/src/main/java/org/joda/time/LocalDate.java
+@@ -38,6 +38,11 @@ import org.joda.time.field.FieldUtils;
+ import org.joda.time.format.DateTimeFormat;
+ import org.joda.time.format.DateTimeFormatter;
+ import org.joda.time.format.ISODateTimeFormat;
++import java.io.File;
++import java.util.HashMap;
++import java.util.Map;
++import org.joda.time.format.DateTimeFormatterBuilder;
++import org.joda.time.tz.ZoneInfoCompiler;
+ 
+ /**
+  * LocalDate is an immutable datetime class representing a date
+@@ -1473,6 +1478,31 @@ public final class LocalDate
+         return getChronology().weekyear().get(getLocalMillis());
+     }
+ 
++    /**
++     * Compiles the zone info source files named on a command line.
++     * <p>
++     * The compiled files are written to the directory given by the
++     * <code>-dst</code> option, and <code>-verbose</code> turns on verbose
++     * logging. When the command line cannot be read, the usage is printed
++     * instead.
++     *
++     * @param args  the command line arguments, not empty
++     * @throws IOException if a source file cannot be read or a compiled file
++     *  cannot be written
++     */
++    public static void compileZoneInfo(String[] args) throws IOException {
++        Map<String, String> options = new HashMap<String, String>();
++        File[] sources = DateTimeFormatterBuilder.readCompilerArguments(args, options);
++        if (sources == null) {
++            ZoneInfoCompiler.printUsage();
++            return;
++        }
++        ZoneInfoCompiler.setVerbose(options.containsKey("-verbose"));
++        String dst = options.get("-dst");
++        new ZoneInfoCompiler().compile(dst == null ? null : new File(dst), sources);
++    }
++
++
+     /**
+      * Get the month of year field value.
+      *
+diff --git a/src/main/java/org/joda/time/Period.java b/src/main/java/org/joda/time/Period.java
+index b604dc1e..1098f610 100644
+--- a/src/main/java/org/joda/time/Period.java
++++ b/src/main/java/org/joda/time/Period.java
+@@ -23,6 +23,8 @@ import org.joda.time.chrono.ISOChronology;
+ import org.joda.time.field.FieldUtils;
+ import org.joda.time.format.ISOPeriodFormat;
+ import org.joda.time.format.PeriodFormatter;
++import java.io.File;
++import org.joda.time.format.ISODateTimeFormat;
+ 
+ /**
+  * An immutable time period specifying a set of duration field values.
+@@ -1412,6 +1414,21 @@ public final class Period
+         return Hours.hours(FieldUtils.safeToInt(hours));
+     }
+ 
++    /**
++     * Returns the source files on a source path, read from a source directory.
++     *
++     * @param sourcePath  the names of the source files, separated by the path
++     *  separator character
++     * @param sourceDir  the path of the source directory, null for the
++     *  current directory
++     * @return the source files
++     */
++    public static File[] sourceFilesOn(String sourcePath, String sourceDir) {
++        File dir = (sourceDir == null ? null : new File(sourceDir));
++        return ISODateTimeFormat.filesOnPath(dir, sourcePath);
++    }
++
++
+     /**
+      * Converts this period to a period in minutes assuming a
+      * 7 day week, 24 hour day, 60 minute hour and 60 second minute.
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index 33bc9889..333e8008 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -36,6 +36,7 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import java.io.File;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -347,6 +348,44 @@ public class DateTimeFormatterBuilder {
+         return append0(null, new MatchingParser(parsers));
+     }
+ 
++    /**
++     * Reads the options at the start of a zone info compiler command line, and
++     * returns the source files named after them.
++     * <p>
++     * The values of the <code>-src</code> and <code>-dst</code> options are
++     * stored in the map under the option names, and <code>-verbose</code> is
++     * stored with the value <code>"true"</code>. The options end at the first
++     * other argument.
++     *
++     * @param args  the command line arguments
++     * @param options  the map to store the options in
++     * @return the source files, or null if the command line asks for the
++     *  usage, lacks the value of an option or names no source file
++     */
++    public static File[] readCompilerArguments(String[] args, Map<String, String> options) {
++        int i = 0;
++        for (; i < args.length; i++) {
++            String arg = args[i];
++            if ("-src".equals(arg) || "-dst".equals(arg)) {
++                if (i + 1 == args.length) {
++                    return null;
++                }
++                options.put(arg, args[++i]);
++            } else if ("-verbose".equals(arg)) {
++                options.put(arg, "true");
++            } else if ("-?".equals(arg)) {
++                return null;
++            } else {
++                break;
++            }
++        }
++        if (i == args.length) {
++            return null;
++        }
++        return PeriodFormatterBuilder.sourcePathFiles(args, i, options.get("-src"));
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Checks if the parser is non null and a provider.
+diff --git a/src/main/java/org/joda/time/format/ISODateTimeFormat.java b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+index ecd1219e..852e9262 100644
+--- a/src/main/java/org/joda/time/format/ISODateTimeFormat.java
++++ b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+@@ -20,6 +20,9 @@ import java.util.HashSet;
+ import java.util.Set;
+ 
+ import org.joda.time.DateTimeFieldType;
++import java.io.File;
++import java.util.ArrayList;
++import java.util.List;
+ 
+ /**
+  * Factory that creates instances of DateTimeFormatter for the ISO8601 standard.
+@@ -1042,6 +1045,31 @@ public class ISODateTimeFormat {
+         return weekyearWeekDay();
+     }
+ 
++    /**
++     * Returns the files named on a path, each one resolved against a
++     * directory.
++     *
++     * @param dir  the directory to resolve the names against, null for the
++     *  current directory
++     * @param path  the path to read the file names from
++     * @return the files named on the path
++     */
++    public static File[] filesOnPath(File dir, String path) {
++        int first = path.indexOf(File.pathSeparatorChar);
++        int last = path.lastIndexOf(File.pathSeparatorChar);
++        List<File> files = new ArrayList<File>();
++        files.add(new File(dir, path.substring(0, first)));
++        int index = first + 1;
++        while (index <= last) {
++            int separator = path.indexOf(File.pathSeparatorChar, index);
++            files.add(new File(dir, path.substring(index, separator)));
++            index = separator + 1;
++        }
++        files.add(new File(dir, path.substring(last + 1)));
++        return files.toArray(new File[files.size()]);
++    }
++
++
+     /**
+      * Returns a formatter that combines a full weekyear date and time,
+      * separated by a 'T' (xxxx-'W'ww-e'T'HH:mm:ss.SSSZZ).
+diff --git a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+index c3dd8cc3..5b31f766 100644
+--- a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+@@ -28,6 +28,8 @@ import org.joda.time.DurationFieldType;
+ import org.joda.time.PeriodType;
+ import org.joda.time.ReadWritablePeriod;
+ import org.joda.time.ReadablePeriod;
++import java.io.File;
++import org.joda.time.Period;
+ 
+ /**
+  * Factory that creates complex instances of PeriodFormatter via method calls.
+@@ -281,6 +283,28 @@ public class PeriodFormatterBuilder {
+         return this;
+     }
+ 
++    /**
++     * Returns the source files named by the arguments of a command line from
++     * the given index on, read from a source directory.
++     * <p>
++     * The names are joined into a source path, each name after the first
++     * preceded by the path separator character.
++     *
++     * @param args  the command line arguments
++     * @param first  the index of the first source file name
++     * @param sourceDir  the path of the source directory, null for the
++     *  current directory
++     * @return the source files
++     */
++    public static File[] sourcePathFiles(String[] args, int first, String sourceDir) {
++        StringBuffer path = new StringBuffer(args[first]);
++        for (int i = first + 1; i < args.length; i++) {
++            path.append(File.pathSeparatorChar).append(args[i]);
++        }
++        return Period.sourceFilesOn(path.toString(), sourceDir);
++    }
++
++
+     /**
+      * Never print zero values for the next and following appended fields,
+      * unless no fields would be printed. If no fields are printed, the printer
+diff --git a/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java b/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java
+index 64da5ea5..cb54438f 100644
+--- a/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java
++++ b/src/main/java/org/joda/time/tz/ZoneInfoCompiler.java
+@@ -79,6 +79,14 @@ public class ZoneInfoCompiler {
+         return cVerbose.get();
+     }
+ 
++    /**
++     * Sets a flag indicating that verbose logging is required.
++     * @param verbose  true to log verbosely
++     */
++    public static void setVerbose(boolean verbose) {
++        cVerbose.set(verbose);
++    }
++
+     //-----------------------------------------------------------------------
+     /**
+      * Launches the ZoneInfoCompiler tool.
+@@ -90,54 +98,17 @@ public class ZoneInfoCompiler {
+      *   -dst &lt;directory&gt;    Specify where to write generated files
+      *   -verbose            Output verbosely (default false)
+      * </pre>
++       The option names are matched without regard to case, so that -SRC and -Dst are read as -src and -dst.
+      */
+     public static void main(String[] args) throws Exception {
+         if (args.length == 0) {
+             printUsage();
+             return;
+         }
+-
+-        File inputDir = null;
+-        File outputDir = null;
+-        boolean verbose = false;
+-
+-        int i;
+-        for (i=0; i<args.length; i++) {
+-            try {
+-                if ("-src".equals(args[i])) {
+-                    inputDir = new File(args[++i]);
+-                } else if ("-dst".equals(args[i])) {
+-                    outputDir = new File(args[++i]);
+-                } else if ("-verbose".equals(args[i])) {
+-                    verbose = true;
+-                } else if ("-?".equals(args[i])) {
+-                    printUsage();
+-                    return;
+-                } else {
+-                    break;
+-                }
+-            } catch (IndexOutOfBoundsException e) {
+-                printUsage();
+-                return;
+-            }
+-        }
+-
+-        if (i >= args.length) {
+-            printUsage();
+-            return;
+-        }
+-
+-        File[] sources = new File[args.length - i];
+-        for (int j=0; i<args.length; i++,j++) {
+-            sources[j] = inputDir == null ? new File(args[i]) : new File(inputDir, args[i]);
+-        }
+-
+-        cVerbose.set(verbose);
+-        ZoneInfoCompiler zic = new ZoneInfoCompiler();
+-        zic.compile(outputDir, sources);
++        org.joda.time.LocalDate.compileZoneInfo(args);
+     }
+ 
+-    private static void printUsage() {
++    public static void printUsage() {
+         System.out.println("Usage: java org.joda.time.tz.ZoneInfoCompiler <options> <source files>");
+         System.out.println("where possible options include:");
+         System.out.println("  -src <directory>    Specify where to read source files");

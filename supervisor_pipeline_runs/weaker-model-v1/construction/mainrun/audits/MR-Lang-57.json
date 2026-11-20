@@ -1,0 +1,54 @@
+{
+  "instance": "Lang-57",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang.math.NumberUtils::createLocale (hop 4)",
+      "edit": "return ArrayUtils.localeOfChars(str.toCharArray());  ->  Locale l = ArrayUtils.localeOfChars(str.toCharArray()); return new Locale(l.getLanguage(), l.getCountry().substring(l.getCountry().length() > 0 ? l.getLanguage().length() : 0), l.getVariant());",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "note": "Defect-dependent post-processing: it overrides the gold's country by cutting off the language's length, i.e. it assumes the gold returns language+country concatenated, contrary to the gold's own contract. It breaks the facade's documented example: toLocale(\"en_GB_xxx\") gives variant \"enGBxxx\" instead of \"xxx\" (probe-verified; the 3-part test is disabled in the checkout). With the correct gold it would also turn \"en_GB\" into country \"\". Not a competing repair."
+    },
+    {
+      "method": "org.apache.commons.lang.math.NumberUtils::createLocale (hop 4)",
+      "edit": "return ArrayUtils.localeOfChars(str.toCharArray());  ->  return str.length() == 2 ? new Locale(str, \"\") : (str.length() == 5 ? new Locale(str.substring(0, 2), str.substring(3, 5)) : new Locale(str.substring(0, 2), str.substring(3, 5), str.substring(6)));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "note": "Re-implements the Locale construction from fixed positions and makes the gold dead on the path."
+    },
+    {
+      "method": "org.apache.commons.lang.builder.ToStringStyle::localeFor (hop 3)",
+      "edit": "return NumberUtils.createLocale(str);  ->  return NumberUtils.createLocale(str.length() > 2 ? str.substring(3) : str);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "Declared compensating edit; trigger still fails (validator G9 also reports the two declared hop-4 edits as not absorbing)."
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang.LocaleUtils::toLocale (null guard + FastDateFormat.parseLocale(str))",
+    "hop1 org.apache.commons.lang.time.FastDateFormat::parseLocale (length 2/5/>=7 check)",
+    "hop2 org.apache.commons.lang.text.StrBuilder::readLocale (lowercase language check)",
+    "hop3 org.apache.commons.lang.builder.ToStringStyle::localeFor (underscore at 2, uppercase country check)",
+    "hop4 org.apache.commons.lang.math.NumberUtils::createLocale (underscore at 5 check, passes str.toCharArray())",
+    "gold org.apache.commons.lang.ArrayUtils::localeOfChars (collects codes split on '_'; omits code = \"\" after storing a code)"
+  ],
+  "reasons": "(a) On \"us_EN\" the gold stores codes[0]=\"us\" but keeps accumulating, so codes[1]=\"usEN\" and it returns Locale(\"us\",\"USEN\"), which is not the Locale of that locale String. Hops 1-4 only check fixed positions and pass the String on unchanged, so given a correct callee each would return the documented Locale; the violation starts only in the gold. (b) Every hop's javadoc matches its code: hop1 length rule, hop2 lowercase language, hop3 underscore plus uppercase country, hop4 variant separator. None transforms the String, so none can explain a country of \"USEN\". (c) Whatever String a hop passes on, the defective gold returns a country that starts with the language, so no hop input edit that uses the gold as documented can pass the trigger. The two passing hop-4 edits are a positional re-implementation (gold dead) and a defect-dependent post-cut that breaks the facade's en_GB_xxx example. Both are bypasses or inconsistent with the documentation, not competing repairs. (d) The names (parseLocale/readLocale/localeFor/createLocale/localeOfChars) and the docs are neutral; validator G2b is clean. The lie (regex compiled once, groups read) is false procedure and names neither the reset nor the gold. (e) The gold is five calls below the facade; the hosts are FastDateFormat, StrBuilder, ToStringStyle, NumberUtils and ArrayUtils, all existing and all different; the facade is a null guard plus one call; there is one added lie sentence; the gold javadoc is silent on the reset; the trigger is the existing testToLocale_2Part; test.patch is empty; my own full-suite run shows only the trigger failing. (f) The convention is pinned outside the gold: by the facade examples (en_GB -> Locale(\"en\",\"GB\")) and by production code that restarts or clears its token after a separator (StringUtils.splitWorker start=++i; StrTokenizer.readWithQuotes workArea.clear(); StringEscapeUtils.unescapeJava unicode.setLength(0)). These are covered by the passing tests testSplit_StringChar, testBasic1 and testUnescapeJava, and testToLocale_1Part passes through the same chain.",
+  "notes": "Two caveats. First, the spec's ownership_reason claims the country 'cannot be cut back without re-reading the String'. That is overstated: hop 4 can cut it back by the language's length (alternative 1). The cut, however, depends on the defect and breaks the documented 3-part example, so ownership is unaffected. Second, testToLocale_3Part is emptied in the Defects4J checkout (flaky), so 3-part behaviour is pinned only by the facade javadoc, not by a running test. The lie sentence sits after the @throws tag without a leading '*', a recipe formatting artifact that does not point at the gold. Pristine *.java.bak test files (Defects4J artifacts) exist in the checkout. Scratch copies were in /private/tmp/mxb-* and have been deleted."
+}

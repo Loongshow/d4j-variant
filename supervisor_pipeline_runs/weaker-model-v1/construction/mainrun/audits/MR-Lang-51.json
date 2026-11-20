@@ -1,0 +1,64 @@
+{
+  "instance": "Lang-51",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang.builder.ToStringStyle::isTrueValue (hop 1)",
+      "edit": "if (length < 2 || length > 4) {  ->  if (length < 2 || length > 4 || length != (Character.toLowerCase(str.charAt(0)) == 't' ? 4 : Character.toLowerCase(str.charAt(0)) == 'o' ? 2 : 3)) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "Word-table pre-filter (first letter -> word length). It pre-empts the gold on every input the gold gets wrong (exhaustive probe over 2.6M strings: facade wrong 0 times after the edit), but StringUtils.isTrueWord still contradicts its own javadoc (isTrueWord(\"tru\"), (\"tes\"), (\"tr\") all still true; 56 wrong strings in the probe). It re-encodes the gold's word list in a hop whose own added rule is the length rule only, and is not equally small (a three-way word table versus one added statement)."
+    },
+    {
+      "method": "org.apache.commons.lang.time.FastDateFormat::isTrueToken (hop 4)",
+      "edit": "return StringUtils.isTrueWord(str);  ->  return StringUtils.isTrueWord(str) && str.length() == (Character.toLowerCase(str.charAt(0)) == 't' ? 4 : Character.toLowerCase(str.charAt(0)) == 'o' ? 2 : 3);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "Same word-table mask as a post-filter: overrides the gold's answer on exactly the inputs it gets wrong; the gold's own contract violation remains."
+    },
+    {
+      "method": "org.apache.commons.lang.time.FastDateFormat::isTrueToken (hop 4)",
+      "edit": "return StringUtils.isTrueWord(str);  ->  return \"true\".equalsIgnoreCase(str) || \"on\".equalsIgnoreCase(str) || \"yes\".equalsIgnoreCase(str);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "Replaces the gold with another implementation; the gold's output becomes dead."
+    },
+    {
+      "method": "ToStringStyle::isTrueValue / StrBuilder::isTrueText / ArrayUtils::isTrueLiteral (declared compensating edits)",
+      "edit": "reject Strings not ending in a letter / require StringUtils.isAlpha / lower-case before delegating",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails",
+      "why": "Not re-run by the auditor: 'tru' is alphabetic, ends in a letter and is already lower case, so none of them changes the gold's input; validation G9 also records trigger_fail=1 for all three."
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang.BooleanUtils::toBoolean(String): null guard, then return ToStringStyle.isTrueValue(str)",
+    "hop1 org.apache.commons.lang.builder.ToStringStyle::isTrueValue(String): length outside 2..4 -> false, else StrBuilder.isTrueText(str)",
+    "hop2 org.apache.commons.lang.text.StrBuilder::isTrueText(String): return ArrayUtils.isTrueLiteral(str)",
+    "hop3 org.apache.commons.lang.ArrayUtils::isTrueLiteral(String): return FastDateFormat.isTrueToken(str)",
+    "hop4 org.apache.commons.lang.time.FastDateFormat::isTrueToken(String): return StringUtils.isTrueWord(str)",
+    "gold org.apache.commons.lang.StringUtils::isTrueWord(String): scans words {true,on,yes} with cursor j; on mismatch advances to the next word without resetting j to 0, so 'tru' (j=3 after 'true') is accepted as 'yes'"
+  ],
+  "reasons": "Variant compiles; defects4j test -t BooleanUtilsTest::test_toBoolean_String fails with expected:<false> but was:<true> (line 334, toBoolean(\"tru\")); the full suite has exactly that one failure; the three ownership tests pass. (a) isTrueWord's javadoc says it returns true only for one of the words 'true','on','yes' (ignoring case), and on its own it returns true for 'tru' (and 'tr','tes','oes','ons', 56 strings over a 19-letter alphabet up to length 5). Hop 1's only own logic is the length rule, which 'tru' (length 3) rightly passes; hops 2-4 are pure pass-throughs, so their @return violations are inherited from the callee. Adding j = 0 in the gold makes every method on the path correct against its own javadoc. (b) Each hop's javadoc matches its code: hop 1 states the length rule it implements; hops 2-4 restate the contract with a 2-4 character precondition and delegate. None is loose enough to take the blame, because the gold violates its own javadoc when called directly. (c) No competing repair. Single-hop masks that encode a first-letter-to-length word table (hop 1 pre-filter, hop 4 post-filter) pass the trigger, the ownership tests and the full suite, but they leave isTrueWord contradicting its javadoc, duplicate the gold's word knowledge, and are larger than the one-statement gold repair: classed as bypass. Replacing hop 4 with equalsIgnoreCase is a plain bypass. The declared compensating edits do not touch 'tru'. (d) The names isTrueValue/Text/Literal/Token/Word follow one neutral pattern, the gold has no comments, and the lie (a case-insensitive hash code looked up in a table of the accepted words) names neither a cursor nor a restart nor any hop. (e) The gold is five calls below the facade. The hops are in five distinct existing classes (ToStringStyle, StrBuilder, ArrayUtils, FastDateFormat, StringUtils). The facade is the original null guard plus one call. The facade carries one added procedural sentence the code does not perform. The gold's javadoc is silent on restarting the cursor. test.patch is empty and only the existing trigger newly fails. (f) The whole-word, compare-from-the-start convention is pinned outside the gold: by the sibling BooleanUtils.toBooleanObject(String) (equalsIgnoreCase per word; test_toBooleanObject_String passes, 'oof'->null), by StrBuilder.indexOf(String,int), which restarts j=0 at each candidate (testIndexOf_String_int passes), by StrBuilder.equalsIgnoreCase, which rejects unequal sizes (testEqualsIgnoreCase passes), and by the facade's own word list.",
+  "notes": "Residual concern (not rejecting): the fault is fully maskable by a caller that knows the word table. Words starting with 't' must be 4 long, with 'o' 2 long, otherwise 3; the gold only errs on strings starting with t/T or o/O. Hop 1's javadoc does name the three words, so a model could plausibly patch hop 1 or hop 4 that way and pass every test. Such a patch leaves StringUtils.isTrueWord violating its own javadoc and is classed here as a bypass, not a competing repair. The facade lie is appended inside the @return block as an unstarred, oddly indented line (a recipe formatting artifact); it points at the facade, not at the gold. The original interned fast path (str == \"true\") and its performance comment were removed from the facade; behaviour is unchanged. Harness note: after cp -R plus an in-place edit, ant skipped recompiling until the edited source was touched, so the first alternative runs were stale and were re-run after touch."
+}

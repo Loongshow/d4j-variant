@@ -1,0 +1,419 @@
+{
+ "dispositions": {
+  "Closure-107": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 75,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: The recipe needs a facade that an existing test calls, and an existing test that newly fails on the variant (the only one in the full suite, gate G5). CommandLineRunner.main, the single pre-registered target, has no caller of any kind in fixture construction/fresh-mr/Closure-107:\n(1) Searching src, test, contrib and tools for 'CommandLineRunner.main' or 'Runner.main' finds nothing.\n(2) No test looks up a main method by reflection (getMethod(\"main\") or getDeclaredMethod(\"main\")).\n(3) The pool's test_files=3 comes from mr_candidate_pool.test_files_calling, which matches only the name 'main('. The three matching files are not callers:\n   - NameAnonymousFunctionsTest: a JavaScript string \"main();\";\n   - RecordFunctionInformationTest: its own private main(Node);\n   - regtests/CompileEachLineOfProgramOutput: its own main entry point.\n(4) CommandLineRunnerTest is the only test that mentions CommandLineRunner. It builds runners directly with new CommandLineRunner(...) or createCommandLineRunner, in test mode with an exit-code receiver, and never calls main.\nmain also always ends the JVM: the else branch calls System.exit(-1), and run() calls System.exit(result) outside test mode, which the public constructor used by main never enables. A test calling it would therefore kill the test JVM.\nThe five hops are new methods reached only from the facade, so no fault anywhere in the chain can make an existing test fail. Without a trigger, gate G5 and the single-trigger and external-pin requirements cannot be met.\nmain also returns void and has no per-element computation to split between plumbing hops and a gold.\nThe test sources may not be edited, and a pre_edit making tested code call main would change behaviour (System.exit), so neither is allowed. No other facade is permitted.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Closure-109": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 73,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: This target's computation cannot be split into a chain of public static methods in the drawn hosts.\n\n1) No host can perform the parse. All of parseTypeString's computation runs on package-private types (JsDocTokenStream, JsDocToken, the Config and JsDocInfoParser constructors) and private parser methods. All five usable drawn hosts sit outside com.google.javascript.jscomp.parsing. Outside that package, the only public way to turn a string into a type node is the facade itself, which would make the chain call back into itself. The only other public parser method, parseInlineTypeDoc, needs a parser that only the package can construct. It also skips leading line ends and parses a single TypeExpression without the top-level union. With it, the correct configuration would already fail testParseTypeViaStatic4, so gate G1 fails.\n\n2) The workaround breaks the recipe. Building the chain would need about ten pre-edits that widen access across the target package:\n- JsDocToken and JsDocTokenStream made public, with JsDocTokenStream's constructor;\n- the JsDocInfoParser and Config constructors made public;\n- next, match, skipEOLs, parseTypeExpression and parseUnionTypeWithAlternate made public.\nThat is an API redesign, not the brief's behaviour-preserving pre-edit \"as in B3's guard rewrite\". The brief instead treats a host that \"cannot see a needed type\" as unusable. Those pre-edits would also leave match, skipEOLs and parseUnionTypeWithAlternate public with no outside caller in the variant, which points at the omitted union step (leakage). Re-implementing the JsDoc type grammar in the chain instead would not be a redistribution and would change the facade's results for most of the type language.\n\n3) No valid fault remains even with the pre-edits:\n- The only triggerable omission is the top-level union step (trigger testParseTypeViaStatic4). Any hop holding the string could pre-filter it with one line, \"(\" + typeString + \")\", because the parser's own parenthesised-union rule then builds the union. By code reading, all six facade tests would still pass: a one-member union reduces to its only alternate in UnionTypeBuilder.build, and the two invalid inputs still give null.\n- Dropping the '!' prefix would leave its '?' and '!' siblings handled (checklist T3).\n- Dropping the 'null'/'undefined' special case cannot be observed: parseTypeName returns the same string node.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Closure-122": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 76,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: The C10 recipe cannot be carried validly by IRFactory.transformTree, for three independent reasons.\n\n(1) No chain can be built. Each step of transformTree uses private instance state of a package-private class:\n- the private constructor;\n- the private transform(), which runs the private TransformDispatcher;\n- the private parsedComments set;\n- the private handlePossibleFileOverviewJsDoc and handleBlockComment;\n- the private setFileOverviewJsDoc and the rootNodeJsDocHolder and fileOverviewInfo fields.\nThe facade body must become one delegating call to a public static hop in another class. The drawn hosts are in other packages and cannot see IRFactory, so the recipe's host rule makes them unusable. Only one usable pool host (JsDocInfoParser) shares the package. Making the chain compile would mean making the class public and exposing about eight private members as public API, called from five unrelated packages. That is a re-architecture of the real-bug class, not a small behaviour-preserving pre-edit like B3's guard rewrite. It would also put undeclared, newly public IRFactory methods on the trigger path as alternative owners. Moving the original body into a new IRFactory method would make that method the real owner.\n\n(2) transformTree has no javadoc. The lie therefore has no documentation voice to join; rewrite_facade silently appends nothing, and the facade would need a newly authored javadoc.\n\n(3) There is no single-test fault. transformTree runs on every parse in the suite, so only its rare paths can carry a fault:\n- The suspicious-block-comment check is covered by six overlapping tests. No one-line omission in it, or in an equivalent hand-written scanner, is caught by exactly one test. Each omission is caught by 2, 4 or 5 tests, or by none.\n- Omissions on the file-overview and license paths are caught by 0, 4, 6 or 10 tests (full-suite probes C1-C6).\nGate G5 (only the trigger newly fails) therefore cannot pass with a one-line omission.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Closure-137": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 90,
+   "redesigned": false,
+   "spec_sha256": "bb3e9cd52e7f8e655b5a98f5a9e8b936cca1adba79dbe427ba3ad00e479f2d44",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Closure-174": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 62,
+   "redesigned": false,
+   "spec_sha256": "da7e4ad3d00b09adcff45f841083db2cba63fb49746052e691ffa2ef4dc045c7",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Closure-27": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 78,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: IR.script(Node... stmts) has no input under which the recipe's fault can be triggered.\n(1) No existing test calls it with any statement. Statically, all five production call sites use the zero-argument form IR.script() (ObjectPropertyStringPreprocess:79, SyntheticAst:50, JsAst:97, jsonml/Reader:1061, JsDocInfoParser:2206), and no test calls IR.script at all. Empirically, the full suite records 953 calls from 948 test methods and every one has stmts.length == 0. The per-element core that the recipe puts in the gold (the mayBeStatement check and the append of each statement) therefore never runs under any test. No omission there can make an existing test fail, so there is no trigger.\n(2) The only path the tests execute is the zero-statement path: new Node(Token.SCRIPT) followed by an empty loop. No iteration body or decision runs on it, so the fault rule (a one-line omission in an iteration or decision) cannot be met. Making the correct chain do extra work on that path, just so something can be omitted, would add computation the original facade does not have, so the chain would no longer be a redistribution of it.\n(3) Every caller passes the same empty input, so any change to the zero-statement result reaches all of them at once. That includes JsDocInfoParser's template node, whose properties are cloned into every JSDoc type-expression node (934 test records), the compiler's SyntheticAst roots and JsAst's parse-failure root. Gate G5 (only the trigger newly fails) would fail.\n(4) Even with a test that passed statements, the core admits no valid fault. Dropping the append leaves stmt read only in an argument check (T1/T2a trace). Dropping the check changes nothing for valid statements. Inlining mayBeStatement's Token case list and dropping one case invites a T3(a) reading over Token type codes.\nRouting statements through the facade by rewriting a production caller would not be a behaviour-preserving edit the chain needs. It would manufacture a caller just to create a trigger.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Closure-37": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 81,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: The recipe cannot be applied to NodeTraversal.traverseRoots without breaking a validity rule. Two of the brief's own UNBUILDABLE examples apply: the computation cannot be split into a chain, and no fault is caught by exactly one test.\n\n(1) The computation cannot be split into a chain. Both static overloads have a 2-line body: `new NodeTraversal(compiler, cb)` followed by `t.traverseRoots(roots)`. All of the actual work happens in the instance method traverseRoots(List) and in private machinery:\n- it returns early on an empty list;\n- it sets scopeRoot to roots.get(0).getParent(), with a checkState;\n- it sets inputId, sourceName and curNode (all private fields);\n- it calls pushScope(scopeRoot), which is private and pushes a lazily created scope root;\n- for each root it runs checkState(root.getParent() == scopeRoot) and the private recursive traverseBranch;\n- it calls the private popScope;\n- it catches Exception and calls the private throwUnexpectedException.\n\nThe per-root core (the root loop that drives traverseBranch under one shared lazy scope) cannot move into a public static method of another class. The non-private entry points are traverseInnerNode, traverseWithScope, traverseAtScope and the per-call public traverseRoots. Each of these either traverses the parent node itself, or pushes an eagerly built Scope and calls enterScope/exitScope once per root. So none is equivalent for ScopedCallbacks. Exact equivalence would need a pre-edit that makes at least six private NodeTraversal members visible. That is far beyond the behaviour-preserving pre-edits the brief allows ('as in B3's guard rewrite').\n\n(2) Even with such a pre-edit, no one-line omission in the resulting gold fails exactly one existing test (gate G5). I checked the gold line by line.\n\n- **List overload.** It is a hub. In production it is called by VarCheck, Normalize.VerifyConstants, ReferenceCollectingCallback (all the inlining passes), SymbolTable (4 sites), TypedScopeCreator, MethodCompilerPass, StrictModeCheck and the MakeDeclaredNamesUnique test. The omissions split into two groups:\n  - Omitting the empty-list return, either Preconditions check, the inputId reset or the sourceName reset changes nothing on any test input. Every caller passes [externs, root], whose shared parent is the synthetic externs+js BLOCK. NodeUtil.getInputId returns null for that BLOCK, and \"\" equals the constructor's default for sourceName.\n  - Omitting curNode, pushScope or the per-root traversal makes every traversal through the facade throw or visit nothing. Omitting popScope skips the global exitScope, where ReferenceCollectingCallback updates the global references and runs afterExitScope, which breaks global inlining across many tests.\n- **Varargs overload.** Its only caller is RemoveUnusedClassProperties.process. That pass runs in RemoveUnusedClassPropertiesTest (13 methods) and in every ADVANCED-mode compile, because removeUnusedPrototypeProperties also enables it. The callback is a plain Callback that ignores the NodeTraversal argument, so scope, inputId, sourceName, curNode and the exception wrapping are observed by no test through this path. The only behaviour exactly one test depends on is visiting the externs root. RemoveUnusedClassPropertiesTest::testExtern needs EXT.ext from the externs to pin this.ext; every other method of that class pins through main-code reads. But the root loop treats all roots alike. No omission drops only the first root. A gold that handled the first root separately would differ in structure from the original computation, and its omission would leave a visible range-start gap (checklist T3(b)). A ternary or branch that distinguishes externs would be a dead decision in the correct gold (T2(c)). Such a design could also be compensated at a hop in one line, for example by a hop traversing roots[0] itself, so the gold would not be the single owner.\n\nSo no valid trigger, single owner or no-local-trace gold exists for this facade. It is the instance's only allowed target, so per BATCH4_PREREGISTRATION the instance is UNBUILDABLE.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Closure-60": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 68,
+   "redesigned": true,
+   "spec_sha256": "50bc66057a7557d1d7bab8958aaac24f66a769824211375f623d20880d0ba5df",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "TRACE",
+     "v": 1
+    },
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 2
+    }
+   ]
+  },
+  "Closure-61": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 69,
+   "redesigned": false,
+   "spec_sha256": "56f0631401b55d999d27dcf1dd9cf44ab20643cd37e3bb21ca123cc7a1878549",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Closure-9": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 71,
+   "redesigned": false,
+   "spec_sha256": "4b53c708e5fa84616a79927b394cae4a0a1e42d9fdd0789d7875c15fbe2ad097",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "JacksonCore-10": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 54,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: createRoot() has no parameters. Its whole computation is: read a clock-derived seed, add the two 32-bit halves of currentTimeMillis, OR the result with 1, then call createRoot(seed). That call is new ByteQuadsCanonicalizer(DEFAULT_T_SIZE=64, intern=true, seed, failOnDoS=true).\n\nA chain below the facade could only change what it passes on: the seed, or (with a pre-edit) the size and the two flags. The table geometry itself is fixed in the private constructor and TableInfo.createInitial.\n\nEvery existing caller observes these values the same way. JsonFactory's field initialiser calls createRoot() on every factory. The one direct test (TestByteBasedSymbols::testAuxMethodsWithNewSymboTable) uses it exactly as JsonFactory does, via makeChild(collectDefaults()).\n\nFull-suite probes, each a one-line change to createRoot() (baseline: 0 failing):\n- seed fixed to 0: 0 failing\n- seed fixed to 2 (even): 0 failing\n- intern=false at the root: 0 failing\n- failOnDoS=false at the root: 0 failing\n- initial size 16, 128 or 1024: 0 failing each\n- an unusable root (null): 119 failing, the direct test among them\n\nSo every deterministic deviation in what createRoot() returns is either caught by no test or by about 119 tests. No omission can satisfy gate G5 (exactly one test newly fails). Every root setting that comes from createRoot() is unpinned by any test, so no external pin exists either.\n\nThe size normalisation in the constructor is not a usable decision for the gold. The size is the constant 64, so any omission in that loop leaves 64 unchanged. It also sits behind a private constructor in a final class.\n\nThis is the brief's step-7 case: \"no fault that only one test catches\".",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "JacksonCore-20": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 58,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: collectDefaults is a zero-argument, uniform fold over the enum: one predicate (enabledByDefault) and one OR accumulation. Its only omissions change every enabled feature or every disabled feature at once, so they fail 60-76 tests and break G5; the empty-accumulation case is also a T2 frozen-local trace. A fault that only one test catches would have to remove exactly one feature, which needs a step tied to that feature or position. The original computation has no such step, and neither do JsonFactory.Feature.collectDefaults, JsonParser.Feature.collectDefaults or any other production code, so it would have no external pin. Every form considered either leaves a checklist trace or fails no test:\n- naming one feature is T3(a)/(d);\n- seeding the fold from the first feature with the loop starting at begin + 1 leaves, after the omission, a loop that visibly skips the range start (T3(b)/T4);\n- a run-commit or Horner-style fold has no effect on the real enum order or collapses every bit (T2);\n- an ordinal-fits-in-int guard is never exercised.\n\nBecause the facade takes no input, a one-line OR of a constant mask at any hop would also restore a lost bit, so the gold could not be the unique owner. collectDefaults is the instance's only allowed target, so the instance is UNBUILDABLE.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Lang-13": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 41,
+   "redesigned": false,
+   "spec_sha256": "5de4c241997e50a466b785847c0e735e069fc2c166d09f28dbaacc2a3c389130",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Lang-21": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 48,
+   "redesigned": false,
+   "spec_sha256": "01f777184ff21f07d5771c20adb79348ae54802f09bcabe527009c64a913d186",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Lang-38": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 55,
+   "redesigned": false,
+   "spec_sha256": "036abbb33915dd9a3bf67fb5df8baa18481ecda8b2d2549f51a0404ee3bb914a",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Lang-50": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 51,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: The C10 recipe needs a facade that an existing test calls, and an existing trigger test that newly fails and executes the gold and every hop (BUILD_BRIEF Facade and Trigger rules; gate G6). FastDateFormat.getTimeInstance is the only allowed target, and in the Lang-50 fixed checkout no existing test reaches it, as both the static and the dynamic checks show. So no chain under it can be executed by any trigger. Routing a tested method such as getDateInstance or DateFormatUtils through getTimeInstance would not be a behaviour-preserving pre-edit, and getDateInstance is another batch-4 candidate's target, so that would be forcing it. A second, independent reason: the seeded host draw stops at four hosts because the target is one of only five classes over the 1500-line threshold, so there is no fifth host for the gold.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Lang-52": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 50,
+   "redesigned": false,
+   "spec_sha256": "34892c46c328f0db61f3889e9313d1f5ab4a1106f05b9eed76b7c9d019867356",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Lang-56": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 56,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder FAILED: G10 cannot pass for this instance under the frozen validator. mr_validate.py's G10 filter `if any(x in dpath for x in (\"/build\", \"/target\", \"/.git\"))` uses a substring test, so it also skips src/java/org/apache/commons/lang/builder/. The C10 host draw for Lang-56 (seed 2394) always puts hop 5, the gold, in builder.ToStringStyle, and the five-host pool is exhausted, so no other host can be drawn. Every possible gold edit therefore counts 0 and G10 fails whatever the design. A redesign cannot help, and scripts/ is off-limits to builders. The design itself is valid: every other gate passes, the trigger is unique and deterministic, and the correct configuration matched the original on the probed inputs, including instance identity, time zones, null locale and invalid styles. If the coordinator changes G10 to compare whole path components instead of substrings, re-running mr_validate.py on the existing spec should give READY with no design change. The mr_* scripts are pinned in batch4_frozen_hashes.json, so that would need a recorded amendment.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "FAILED",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Math-36": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 65,
+   "redesigned": false,
+   "spec_sha256": "1d42298dac65d096351621ba23ce06d60e2d48eb27eb7094a4bac5d0f21c851f",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Math-46": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 66,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: BUILD_BRIEF requires the facade to be an existing public static method that an existing test calls, and requires the trigger to be an existing test (empty test.patch) that fails on the variant. Complex.valueOf is never called in this checkout, so no existing test can reach a chain placed under it.\n\nThe only way to make it reachable would be a pre-edit that sends existing production code through valueOf. Neither candidate is a behaviour-preserving edit that the chain needs, in the sense of B3's guard rewrite:\n- Rewriting createComplex is not behaviour-preserving. NaN parts would collapse to the shared Complex.NaN, changing getImaginary and toString, and createComplex is the documented override point for subclasses.\n- Routing the static constants (I, ONE, ZERO, INF) through valueOf would preserve values. But it would invent a caller, run the chain inside Complex's static initialiser, and expose any fault to every test that loads Complex, so no single trigger would exist.\n\nThe brief says not to force the recipe (step 7), and BATCH4_PREREGISTRATION allows no other facade for this row. The instance is therefore UNBUILDABLE.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Math-59": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 38,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder FAILED: The design and spec are complete (construction/mainrun/designs/Math-59.py, construction/mainrun/specs/MR-Math-59.json), and mr_spec --check reproduces the expected trigger failure. The status is FAILED only because the result was demanded before mr_validate.py finished: just G2a, G2b and G0 had passed, and READY cannot be claimed without the overall verdict. If validation completes READY in construction/mainrun/logs/validate_MR-Math-59.log, the instance should be treated as READY with 0 redesigns.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "FAILED",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Math-63": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 39,
+   "redesigned": false,
+   "spec_sha256": "ff5dd8b7a0882ef27c804d377f23ce240d9d96bc6e9063c98660acceb2a8fa31",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  },
+  "Math-79": {
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 40,
+   "redesigned": false,
+   "spec_sha256": null,
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: The C10 recipe needs five hops in five distinct host classes drawn by the seeded recipe draw. W23 and BUILD_BRIEF define these as classes of at least 1500 lines, excluding the target, with hop i in drawn host i and the gold in host 5. In this checkout (Math-79 fixed, ef9b639a) only five production classes reach 1500 lines. One of them is MathUtils, the class that holds all three allowed facades, and the draw excludes it. So `mr_lib.py preview` returns only four hosts even with n=6, and hop 5 (the gold) has no host. The brief's only host fallback is 'preview with n=6 and take the next drawn host', and it cannot help here because no further host exists. The brief also forbids choosing hosts by hand. Any way around this would change the frozen methodology: lowering the 1500-line gate (the next class, ArrayRealVector, has 1411 lines), putting a hop in the facade's own class, or using a 4-hop chain. That decision belongs to the coordinator and the user, not the builder. Under the batch-4 preregistration the instance therefore cannot carry the recipe with any allowed target, and it is UNBUILDABLE.",
+   "versions": [
+    {
+     "audit": null,
+     "build_status": "UNBUILDABLE",
+     "trace": null,
+     "v": 1
+    }
+   ]
+  },
+  "Math-85": {
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 63,
+   "redesigned": false,
+   "spec_sha256": "6c705bf23a012de690e27c60f5f68dce3f51fc6781c91bf493b67c2e719d5821",
+   "status": "ACCEPTED",
+   "status_reason": "",
+   "versions": [
+    {
+     "audit": "CONFIRMED",
+     "build_status": "READY",
+     "trace": "NO_TRACE",
+     "v": 1
+    }
+   ]
+  }
+ },
+ "rule": "BATCH4_PREREGISTRATION.md (inherits the BATCH3 disposition table: top to bottom, first match wins), applied by workflow wf_ff562da1-80b on the last version built"
+}

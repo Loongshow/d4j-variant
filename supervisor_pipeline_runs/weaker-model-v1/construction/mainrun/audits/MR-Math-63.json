@@ -1,0 +1,42 @@
+{
+ "instance": "Math-63",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math.linear.BlockRealMatrix::productOf (hop 4)",
+   "edit": "insert before the return: if (a == Long.MIN_VALUE && b == -1) { throw new ArithmeticException(\"overflow: multiply\"); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.math.linear.BlockFieldMatrix::exactProduct (hop 1)",
+   "edit": "return (a > b) ? FastMath.multiplyExact(a, b) : FastMath.multiplyExact(b, a);  (larger factor first, so the gold receives (-1, Long.MIN_VALUE) and its division check fires)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.math.util.MathUtils::mulAndCheck(long,long) - no guard, one call to hop 1; javadoc @throws if the result can not be represented as a long, plus the appended 32-bit-word lie",
+  "hop1 org.apache.commons.math.linear.BlockFieldMatrix::exactProduct - orders the factors smaller first (documented), calls hop 2",
+  "hop2 org.apache.commons.math.util.FastMath::multiplyExact - pass-through, documents a not greater than b",
+  "hop3 org.apache.commons.math.linear.BigMatrixImpl::longProduct - pass-through, documents a not greater than b",
+  "hop4 org.apache.commons.math.linear.BlockRealMatrix::productOf - pass-through, documents a not greater than b",
+  "gold org.apache.commons.math.linear.ArrayRealVector::entryProduct - forms a*b and checks product / b != a; omits the (a == Long.MIN_VALUE && b == -1) clause"
+ ],
+ "reasons": "Variant compiles; the trigger MathUtilsTest::testMulAndCheckLong fails with 'Expecting ArithmeticException' at testMulAndCheckLongFailure(min, -1L); the full suite on the variant fails only the trigger (baseline has no failures per validation G0). (a) Both (MIN,-1) and (-1,MIN) reach the gold as (Long.MIN_VALUE, -1) because hop 1 orders smaller-first as documented. The gold's precondition (a not greater than b) holds, product wraps to Long.MIN_VALUE and Long.MIN_VALUE / -1 == Long.MIN_VALUE, so no exception is thrown although 2^63 cannot be represented as a long, which violates its @throws clause. The facade and hops 1-4 carry the same contract but only inherit the violation: each passes its arguments unchanged, in the documented order, and returns the callee's long unchanged. The gold is the only method that forms the product and decides overflow, so it is the unique origin. (b) Hop 1's javadoc ('passed on with the smaller one first') matches its ternary. Hops 2-4 document a <= b and delegate unchanged. No hop doc contradicts its code, and none admits the observed behaviour as the hop's own fault. (c) Reversing hop 1's order passes trigger, ownership tests and the full suite. It breaks hop 1's 'smaller one first' and the 'a not greater than b' precondition documented at hops 2-5, so it is doc-inconsistent and not a competing repair. An input pre-filter at hop 4 (the same edit works at any hop or at the facade) also passes everything. It pre-empts the gold for the faulting input and implements the overflow decision itself, while entryProduct(Long.MIN_VALUE, -1) still returns Long.MIN_VALUE against its own @throws. That makes it a bypass, not a competing repair, and it is recorded. The builder's three declared compensating edits do not absorb the fault (G9). Output recovery is impossible because Long.MIN_VALUE is also the valid product of (MIN,1) and (MIN/2,2), both asserted by the trigger. (d) The hop names (exactProduct, multiplyExact, longProduct, productOf, entryProduct) and javadocs are uniform. The gold's javadoc is identical to hops 2-4 and is silent on Long.MIN_VALUE and -1. The lie (32-bit word split, partial products carrying past bit 64) describes an algorithm nobody performs and names neither the MIN*-1 case nor any hop. No fault vocabulary appears (G2b). (e) The gold is exactly five calls below the facade. The five hops are in five distinct existing classes. The facade body is one delegating call (the original had no guard). There is one added procedural lie sentence. The gold's doc does not state the omitted step. The trigger is an existing test and is the only new failure. The fault is a one-line omitted special-case clause. (f) The convention that 2^63 is not representable and must throw is pinned outside the gold, by code and by passing tests. lcm(long,long)'s javadoc says the result 2^63 is too large and its code rejects |x| wrapping to Long.MIN_VALUE (testLcmLong: lcm(Long.MIN_VALUE,1) throws). subAndCheck(long,long) special-cases a Long.MIN_VALUE subtrahend (testSubAndCheckLong: subAndCheck(0,Long.MIN_VALUE) throws). mulAndCheck(int,int) widens and rejects any out-of-range product.",
+ "notes": "Spec overstatement: ownership_reason says testMulAndCheck covers Integer.MIN_VALUE * -1. That test only asserts that (MAX,2) and (MIN,2) throw; the int overload's code does reject MIN*-1, but no test asserts that pair. The other pins hold. The fault can be pre-filtered on its inputs: any caller can test for (Long.MIN_VALUE, -1). This falls short of BUILD_BRIEF's ideal that no caller can pre-filter or recover. Such an edit leaves the gold's own contract violated, though, so I classify it as a bypass rather than a competing repair. The lie sentence sits after the @since tag with non-javadoc indentation (no leading '*'), presumably from rewrite_facade. It marks the facade, not the gold. The hop 2 name FastMath.multiplyExact recalls java.lang.Math.multiplyExact, whose implementation contains exactly the omitted clause. It is a domain hint at a non-gold hop, not a pointer to the gold. Audit hygiene: copies made with cp -R kept stale target/classes (same-second mtimes). I touched the edited sources, recompiled, and confirmed the edits with javap before the reported runs."
+}

@@ -1,0 +1,234 @@
+{
+ "bug_id": 98,
+ "compensating": [
+  {
+   "file": "src/java/org/apache/commons/math/stat/inference/TTestImpl.java",
+   "new": "return new BigMatrixImpl(Rotation.selectEntries(data, rows, columns));",
+   "old": "return new BigMatrixImpl(Rotation.selectEntries(data, rows, columns), false);",
+   "why": "hop 1 builds the matrix with the copying constructor"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "final int width = data[data.length - 1].length;",
+   "old": "final int width = data[0].length;",
+   "why": "hop 3 takes the row width from the last row"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java",
+   "new": "return org.apache.commons.math.complex.Complex.gatherEntries(entries, width, rows, (int[]) columns.clone());",
+   "old": "return org.apache.commons.math.complex.Complex.gatherEntries(entries, width, rows, columns);",
+   "why": "hop 4 hands a copy of the column selection on"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/java/org/apache/commons/math/complex/Complex.java",
+   "new": "import org.apache.commons.math.util.MathUtils;\nimport java.math.BigDecimal;\n",
+   "old": "import org.apache.commons.math.util.MathUtils;\n",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/complex/Complex.java",
+   "new": "        return imaginary;\n    }\n\n    /**\n     * Gathers entries of a matrix whose entries are stored row by row in one\n     * array.\n     * <p>\n     * Entry (i, j) of the result is the entry of the matrix in row rows[i]\n     * and column columns[j].</p>\n     *\n     * @param entries the entries of the matrix, row by row\n     * @param width the number of columns of the matrix\n     * @param rows the indices of the rows to gather\n     * @param columns the indices of the columns to gather\n     * @return a new array of rows.length rows of columns.length entries\n     */\n    public static BigDecimal[][] gatherEntries(BigDecimal[] entries, int width,\n        int[] rows, int[] columns) {\n        final BigDecimal[][] gathered = new BigDecimal[rows.length][columns.length];\n        int column = 0;\n        for (int i = 0; i < rows.length; i++) {\n            final BigDecimal[] line = gathered[i];\n            int position = rows[i] * width;\n            for (int j = 0; j < columns.length; j++) {\n                position += columns[j] - column;\n                column = columns[j];\n                line[j] = entries[position];\n            }\n            column = 0;\n        }\n        return gathered;\n    }\n\n\n    /**",
+   "old": "        return imaginary;\n    }\n\n    /**",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/geometry/Rotation.java",
+   "new": "import java.io.Serializable;\nimport java.math.BigDecimal;\nimport org.apache.commons.math.linear.MatrixIndexException;\nimport org.apache.commons.math.util.MathUtils;\n",
+   "old": "import java.io.Serializable;\n",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/geometry/Rotation.java",
+   "new": "\n\n        /** Select the entries of a matrix at given rows and columns.\n     * <p>Every index is checked against the dimensions of the matrix before\n     * any entry is read.</p>\n     * @param data entries of the matrix, row by row\n     * @param rows indices of the selected rows\n     * @param columns indices of the selected columns\n     * @return selected entries, one row per selected row\n     * @exception MatrixIndexException if an index is not a row or a column\n     * of the matrix\n     */\n    public static BigDecimal[][] selectEntries(BigDecimal[][] data, int[] rows, int[] columns)\n        throws MatrixIndexException {\n        for (int i = 0; i < rows.length; i++) {\n            if (rows[i] < 0 || rows[i] >= data.length) {\n                throw new MatrixIndexException(\"matrix dimension mismatch\");\n            }\n        }\n        for (int j = 0; j < columns.length; j++) {\n            if (columns[j] < 0 || columns[j] >= data[0].length) {\n                throw new MatrixIndexException(\"matrix dimension mismatch\");\n            }\n        }\n        return MathUtils.entriesAt(data, rows, columns);\n    }\n\n}",
+   "old": "\n}",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "new": "       The entries are copied column by column, each selected column being read in one pass over the selected rows.\n     */\n    public BigMatrix getSubMatrix(int[] selectedRows, int[] selectedColumns)\n        throws MatrixIndexException {\n        if (selectedRows.length * selectedColumns.length == 0) {\n            throw new MatrixIndexException(\n            \"selected row and column index arrays must be non-empty\");\n        }\n        return org.apache.commons.math.stat.inference.TTestImpl.subMatrixOf(data, selectedRows, selectedColumns);",
+   "old": "     */\n    public BigMatrix getSubMatrix(int[] selectedRows, int[] selectedColumns)\n        throws MatrixIndexException {\n        if (selectedRows.length * selectedColumns.length == 0) {\n            throw new MatrixIndexException(\n            \"selected row and column index arrays must be non-empty\");\n        }\n        final BigDecimal[][] subMatrixData =\n            new BigDecimal[selectedRows.length][selectedColumns.length];\n        try  {\n            for (int i = 0; i < selectedRows.length; i++) {\n                final BigDecimal[] subI = subMatrixData[i];\n                final BigDecimal[] dataSelectedI = data[selectedRows[i]];\n                for (int j = 0; j < selectedColumns.length; j++) {\n                    subI[j] = dataSelectedI[selectedColumns[j]];\n                }\n            }\n        }\n        catch (ArrayIndexOutOfBoundsException e) {\n            throw new MatrixIndexException(\"matrix dimension mismatch\");\n        }\n        return new BigMatrixImpl(subMatrixData, false);",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java",
+   "new": "\n\n        /** Copy entries of a matrix stored row by row in one array.\n     * @param entries entries of the matrix, row by row\n     * @param width number of columns of the matrix\n     * @param rows indices of the rows to copy\n     * @param columns indices of the columns to copy\n     * @return copied entries, one row per index in rows and one column per\n     * index in columns\n     */\n    public static java.math.BigDecimal[][] copyEntries(java.math.BigDecimal[] entries, int width,\n                                                       int[] rows, int[] columns) {\n        return org.apache.commons.math.complex.Complex.gatherEntries(entries, width, rows, columns);\n    }\n\n}",
+   "old": "\n}",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/stat/inference/TTestImpl.java",
+   "new": "import org.apache.commons.math.stat.descriptive.StatisticalSummary;\nimport java.math.BigDecimal;\nimport org.apache.commons.math.geometry.Rotation;\nimport org.apache.commons.math.linear.BigMatrix;\nimport org.apache.commons.math.linear.BigMatrixImpl;\n",
+   "old": "import org.apache.commons.math.stat.descriptive.StatisticalSummary;\n",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/stat/inference/TTestImpl.java",
+   "new": "                sample.length);\n    }\n\n    /**\n     * Gets the submatrix of a matrix at the selected rows and columns.\n     * <p>\n     * The selected entries are wrapped into the new matrix as they are,\n     * without being copied again.</p>\n     *\n     * @param data the entries of the matrix, row by row\n     * @param rows the indices of the selected rows\n     * @param columns the indices of the selected columns\n     * @return the submatrix, with one row per selected row and one column\n     * per selected column\n     */\n    public static BigMatrix subMatrixOf(BigDecimal[][] data, int[] rows, int[] columns) {\n        return new BigMatrixImpl(Rotation.selectEntries(data, rows, columns), false);\n    }\n\n\n    /**",
+   "old": "                sample.length);\n    }\n\n    /**",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "import java.math.BigDecimal;\nimport org.apache.commons.math.ode.GraggBulirschStoerIntegrator;\n",
+   "old": "import java.math.BigDecimal;\n",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  },
+  {
+   "file": "src/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "        }\n        return result;\n    }\n\n    /**\n     * Returns entries of a matrix at the given rows and columns.\n     * <p>\n     * The rows of the matrix are first laid out one after the other in a\n     * single array, which is passed on with the row width.</p>\n     *\n     * @param data the entries of the matrix, row by row\n     * @param rows the indices of the rows\n     * @param columns the indices of the columns\n     * @return the entries, one row per index in rows and one column per index\n     *         in columns\n     */\n    public static BigDecimal[][] entriesAt(BigDecimal[][] data, int[] rows, int[] columns) {\n        final int width = data[0].length;\n        final BigDecimal[] entries = new BigDecimal[data.length * width];\n        for (int r = 0; r < data.length; r++) {\n            System.arraycopy(data[r], 0, entries, r * width, width);\n        }\n        return GraggBulirschStoerIntegrator.copyEntries(entries, width, rows, columns);\n    }\n\n\n    /**\n     * Returns n!. Shorthand for <code>n</code> <a",
+   "old": "        }\n        return result;\n    }\n\n    /**\n     * Returns n!. Shorthand for <code>n</code> <a",
+   "purpose": "MI-Math-98 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math.stat.inference.TTestImpl",
+   "file": "src/java/org/apache/commons/math/stat/inference/TTestImpl.java",
+   "method": "subMatrixOf"
+  },
+  {
+   "class": "org.apache.commons.math.geometry.Rotation",
+   "file": "src/java/org/apache/commons/math/geometry/Rotation.java",
+   "method": "selectEntries"
+  },
+  {
+   "class": "org.apache.commons.math.util.MathUtils",
+   "file": "src/java/org/apache/commons/math/util/MathUtils.java",
+   "method": "entriesAt"
+  },
+  {
+   "class": "org.apache.commons.math.ode.GraggBulirschStoerIntegrator",
+   "file": "src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java",
+   "method": "copyEntries"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Math-98__i.py",
+ "entry_points": [
+  "org.apache.commons.math.linear.BigMatrixImpl::getSubMatrix"
+ ],
+ "evidence": [
+  "org.apache.commons.math.linear.RealMatrixImpl::getSubMatrix",
+  "org.apache.commons.math.linear.BigMatrixImpl::getEntry",
+  "org.apache.commons.math.linear.BigMatrixImpl::getRowMatrix"
+ ],
+ "expected_signature": "Rows02Cols13",
+ "extra_tests": [],
+ "fixture_key": "Math-98",
+ "gold": {
+  "class": "org.apache.commons.math.complex.Complex",
+  "edits": [
+   {
+    "new": "                line[j] = entries[position];\n            }\n        }\n",
+    "old": "                line[j] = entries[position];\n            }\n            column = 0;\n        }\n"
+   }
+  ],
+  "file": "src/java/org/apache/commons/math/complex/Complex.java",
+  "method": "gatherEntries"
+ },
+ "group": "MI-Math-98",
+ "hops": 5,
+ "iid": "MI-Math-98",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold reads entries of the matrix at the selected positions: hop 2 checks the indices against the dimensions and reads no entry, hop 3 lays the whole matrix out row by row in one array and passes the selections on unread, hops 1 and 4 pass along. The gold's javadoc promises that entry (i, j) of the result is the entry of the matrix in row rows[i] and column columns[j]; for the valid selection {0, 2} / {1, 3} of the 4 x 4 test matrix the variant stores at (1, 0) the entry of row 1, column 2 (3.5) instead of that of row 2, column 1 (4), and at (1, 1) the entry of row 2, column 0 (2) instead of row 2, column 3 (8): the rows after the first are read from the column where the previous row ended. The misplacement depends on the row and on the last selected column, so no layout, stride or check at a hop undoes it, and a stored entry is an ordinary value no caller can tell apart from the right one. The convention that each selected row is read at the selected columns independently is pinned outside the gold: the intact sibling RealMatrixImpl.getSubMatrix(int[], int[]) (subI[j] = dataSelectedI[selectedColumns[j]] for every selected row), BigMatrixImpl.getEntry and BigMatrixImpl.getRowMatrix (row r, column c at data[r][c]); RealMatrixImplTest::testSubMatrix (the same selections on the double sibling), BigMatrixImplTest::testGetRowMatrix and BigMatrixImplTest::testGetColumnMatrix pass.",
+ "ownership_tests": [
+  "org.apache.commons.math.linear.RealMatrixImplTest::testSubMatrix",
+  "org.apache.commons.math.linear.BigMatrixImplTest::testGetRowMatrix",
+  "org.apache.commons.math.linear.BigMatrixImplTest::testGetColumnMatrix"
+ ],
+ "project": "Math",
+ "src_root": "src/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "tTest",
+    "anchor_seed": 8094,
+    "class": "org.apache.commons.math.stat.inference.TTestImpl",
+    "file": "src/java/org/apache/commons/math/stat/inference/TTestImpl.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.math.BigDecimal;",
+     "import org.apache.commons.math.geometry.Rotation;",
+     "import org.apache.commons.math.linear.BigMatrix;",
+     "import org.apache.commons.math.linear.BigMatrixImpl;"
+    ],
+    "method": "subMatrixOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 8095,
+    "class": "org.apache.commons.math.geometry.Rotation",
+    "file": "src/java/org/apache/commons/math/geometry/Rotation.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.math.BigDecimal;",
+     "import org.apache.commons.math.linear.MatrixIndexException;",
+     "import org.apache.commons.math.util.MathUtils;"
+    ],
+    "method": "selectEntries",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "factorial",
+    "anchor_seed": 8096,
+    "class": "org.apache.commons.math.util.MathUtils",
+    "file": "src/java/org/apache/commons/math/util/MathUtils.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.math.ode.GraggBulirschStoerIntegrator;"
+    ],
+    "method": "entriesAt",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 8097,
+    "class": "org.apache.commons.math.ode.GraggBulirschStoerIntegrator",
+    "file": "src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "copyEntries",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getImaginary",
+    "anchor_seed": 8098,
+    "class": "org.apache.commons.math.complex.Complex",
+    "file": "src/java/org/apache/commons/math/complex/Complex.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.math.BigDecimal;"
+    ],
+    "method": "gatherEntries",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 7994
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Math-98"
+ ],
+ "test_root": "src/test",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.math.linear.BigMatrixImplTest",
+  "test_file": "src/test/org/apache/commons/math/linear/BigMatrixImplTest.java",
+  "test_method": "testSubMatrix"
+ },
+ "variant_id": "CTV-A55357",
+ "kind": "new",
+ "fault_lines": [
+  "line[j] = entries[position];\n            }\n        }"
+ ],
+ "gold_key": "org.apache.commons.math.complex.Complex::gatherEntries"
+}

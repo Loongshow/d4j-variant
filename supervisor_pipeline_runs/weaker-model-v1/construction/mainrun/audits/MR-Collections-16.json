@@ -1,0 +1,101 @@
+{
+ "instance": "Collections-16",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.collections.MapUtils::refillInOrder (hop 4)",
+   "edit": "List copy = new ArrayList(list);  ->  List copy = new ArrayList(new java.util.LinkedHashSet(list));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "contradicts hop 4's own javadoc ('copied, element for element, into a new ArrayList'); pre-filters repeats so the gold never sees one, re-implementing the gold's decision; the gold's own contract stays violated for any collection with repeats"
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::refillInOrder (hop 4)",
+   "edit": "List copy = new ArrayList(list);  ->  List copy = new ArrayList(new java.util.HashSet(list));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "same pre-filter, and passes only because Integer 1,2 hash in list order: decorate([b,a,b,c,a]) gives [a,b,c] instead of [b,a,c], violating the facade's order retention / 'first indexed one kept' and hop 4's element-for-element copy"
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::refillInOrder (hop 4)",
+   "edit": "return CursorableSubList.addInOrder(copy, list, set);  ->  return CursorableSubList.addInOrder(copy, org.apache.commons.collections.list.SetUniqueList.decorate(list), set);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "hands the gold a de-duplicating decorator so SetUniqueList.add(int,Object) makes the decision the gold documents; the gold still appends every element to a plain list (its contract unfixed); re-enters the facade recursively. Replaces the gold's result with another implementation"
+  },
+  {
+   "method": "org.apache.commons.collections.ExtendedProperties::orderInto (hop 3)",
+   "edit": "return MapUtils.refillInOrder(list, set);  ->  Set r = MapUtils.refillInOrder(list, set); list.clear(); list.addAll(r); return r;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "discards the list the gold built (gold output dead) and refills it in HashSet iteration order, not insertion order: decorate([b,a,b,c,a]) gives [a,b,c]; contradicts hop 3's and the facade's documented order"
+  },
+  {
+   "method": "org.apache.commons.collections.ExtendedProperties::orderInto (hop 3)",
+   "edit": "return MapUtils.refillInOrder(list, set);  ->  List u = new java.util.ArrayList(new java.util.LinkedHashSet(list)); list.clear(); list.addAll(u); return MapUtils.refillInOrder(list, set);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "note": "three-statement in-place pre-de-duplication, not an equally small repair; re-implements with LinkedHashSet the decision the gold documents, leaving the gold's own code contradicting its javadoc for any input with repeats (the gold's decision is dead on this path)"
+  },
+  {
+   "method": "org.apache.commons.collections.DoubleOrderedMap::newSetFor (hop 2, declared)",
+   "edit": "new HashSet()  ->  new HashSet(list)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.collections.ExtendedProperties::orderInto (hop 3, declared)",
+   "edit": "return MapUtils.refillInOrder(list, set);  ->  Set result = MapUtils.refillInOrder(list, set); list.retainAll(result); return result;",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.collections.bidimap.TreeBidiMap::orderedSetFor (hop 1, declared)",
+   "edit": "if (list.isEmpty()) { return new HashSet();  ->  if (list.size() < 2) { return new HashSet(list);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections.list.SetUniqueList::decorate(List) -- null guard + return new SetUniqueList(list, TreeBidiMap.orderedSetFor(list))",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::orderedSetFor(List) -- empty list -> new HashSet(); else DoubleOrderedMap.newSetFor(list)",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::newSetFor(List) -- ExtendedProperties.orderInto(list, new HashSet())",
+  "hop3 org.apache.commons.collections.ExtendedProperties::orderInto(List, Set) -- MapUtils.refillInOrder(list, set)",
+  "hop4 org.apache.commons.collections.MapUtils::refillInOrder(List, Set) -- copy = new ArrayList(list); list.clear(); CursorableSubList.addInOrder(copy, list, set)",
+  "gold org.apache.commons.collections.CursorableSubList::addInOrder(Collection, List, Set) (in CursorableLinkedList.java) -- variant appends every element: set.add(item); list.add(item);"
+ ],
+ "reasons": "Compile OK; trigger TestSetUniqueList::testFactory fails with 'Duplicate element was added. expected:<2> but was:<3>'; full suite (12971 tests) on the variant newly fails only the trigger; correct.patch gives 0 failures; ownership tests pass on the variant. (a) The gold's javadoc ('keeps the insertion order of the set in a list') is violated by its own code on [1,2,1] (set {1,2}, list [1,2,1]); every hop 1-4 does exactly what its javadoc says given its callee's contract (pure delegation, empty-list guard, new HashSet, copy/clear/hand-over), so the gold is the unique own-code violation. (b) No hop javadoc contradicts its code; hop 4 explicitly documents an element-for-element copy and hands the per-element add/order-keeping to the next step; hops 1-3 do no per-element work. (c) Five non-declared passing alternatives tried (three at hop 4, two at hop 3); all are bypasses: they pre-filter repeats against hop 4's documented element-for-element copy, refill the list from HashSet order (reorders [b,a,b,c,a] to [a,b,c]), wrap the list in a de-duplicating SetUniqueList (re-entering the facade), or de-duplicate in place with three statements; each re-implements the gold's documented decision and leaves the gold's code contradicting its javadoc. The three declared compensations fail the trigger. No competing repair. (d) Names (orderedSetFor, newSetFor, orderInto, refillInOrder, addInOrder) and javadocs are neutral; the fault line set.add(item); list.add(item); reads as ordinary code; the facade lie (reverse transfer with insertion at index zero) is false for the code and names neither duplicates nor the set check. (e) Gold is exactly five calls below the facade; five different existing classes; host_mode largest5 (only 4 other classes reach 1500 lines): hosts are, in order, TreeBidiMap (2085), DoubleOrderedMap (1995), ExtendedProperties (1784), MapUtils (1678), CursorableLinkedList.java (1468), matching the five largest public classes other than SetUniqueList and the task record; the recipe's seeded anchors (seeds 3101-3105) reproduce toString, containsKey, getBoolean, getNumber, lastIndexOf. Facade = null guard + one delegating call; one added procedural lie sentence; gold javadoc silent on the conditional append; trigger existing, test.patch empty, only it newly fails. (f) Convention pinned outside the gold by ListOrderedSet.add ('re-adding doesn't change order', appends to the order list only on first add), SetUniqueList.add(int,Object) and SetUniqueList.addAll, with passing tests TestListOrderedSet::testOrdering, TestSetUniqueList::testAdd, ::testAddAll.",
+ "notes": "Hop 5 sits in the package-private class CursorableSubList inside the host file CursorableLinkedList.java, because the recipe's seeded anchor (lastIndexOf, seed 3105) lies in that secondary class; reproduced with stageB_lib.pick_anchor, so it is recipe-determined, not a hand choice; MapUtils is in the same package so the call compiles. The facade's single statement wraps the hop-1 call in the SetUniqueList constructor (needed to return the declared type, as the original body did). The recipe appends the lie after the @throws tag without a leading '*' (chain_transform.rewrite_facade behaviour). The omitted decision can be pre-filtered by a caller (de-duplicating the list before hop 4), but only against hop 4's documented element-for-element copy or with a multi-statement in-place re-implementation, recorded as bypasses. Only testFactory decorates a non-empty list, so only it reaches hops 2-5. Stale-build caveat for re-auditors: copying a compiled tree and editing within the same second leaves ant's timestamp check satisfied; delete build/ before compiling an alternative."
+}

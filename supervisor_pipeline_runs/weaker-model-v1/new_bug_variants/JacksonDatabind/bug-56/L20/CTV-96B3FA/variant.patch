@@ -1,0 +1,231 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index 821261e92..56b955816 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -2980,6 +2980,21 @@ public class ObjectMapper
+         _configAndWriteValue(_jsonFactory.createGenerator(w), value);
+     }
+ 
++    /**
++     * Method for selecting, from given candidate types, the simple value types
++     * that the general-purpose from-String deserializer handles.
++     *
++     * @param candidates Types to select from
++     *
++     * @return Selected types, in the order given
++     */
++    public static Class<?>[] stringValueTypesOf(Class<?>[] candidates)
++    {
++        List<Class<?>> selected = TokenBuffer.scalarTypesAccepted(candidates);
++        return selected.toArray(new Class<?>[selected.size()]);
++    }
++
++
+     /**
+      * Method that can be used to serialize any Java value as
+      * a String. Functionally equivalent to calling
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 1d4c386d1..77f0574ea 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -20,6 +20,14 @@ import com.fasterxml.jackson.databind.node.NullNode;
+ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import java.net.URI;
++import java.net.InetAddress;
++import java.net.InetSocketAddress;
++import java.nio.ByteBuffer;
++import java.nio.charset.Charset;
++import java.util.concurrent.atomic.AtomicBoolean;
++import java.util.regex.Pattern;
++import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -1392,6 +1400,36 @@ public class ObjectReader
+         
+         return _bindAndReadValues(_considerFilter(_parserFactory.createParser(src), true));
+     }
++
++    /**
++     * Method for accessing the simple value types that are deserialized from
++     * JSON Strings by the general-purpose from-String deserializer.
++     *
++     * @return Value types handled by the general-purpose from-String
++     *   deserializer
++     */
++    public static Class<?>[] simpleValueTypes()
++    {
++        return BeanDeserializerBase.fromStringValueTypes(new Class<?>[] {
++                File.class,
++                URL.class,
++                URI.class,
++                Class.class,
++                JavaType.class,
++                Currency.class,
++                Pattern.class,
++                Locale.class,
++                Charset.class,
++                TimeZone.class,
++                InetAddress.class,
++                InetSocketAddress.class,
++                UUID.class,
++                AtomicBoolean.class,
++                StackTraceElement.class,
++                ByteBuffer.class
++        });
++    }
++
+     
+     /**
+      * Overloaded version of {@link #readValue(InputStream)}.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 40a3c1824..497cd1b6a 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -19,6 +19,13 @@ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
+ import com.fasterxml.jackson.databind.jsontype.TypeResolverBuilder;
+ import com.fasterxml.jackson.databind.type.*;
+ import com.fasterxml.jackson.databind.util.*;
++import java.io.File;
++import java.net.URI;
++import java.net.URL;
++import java.net.InetAddress;
++import java.net.InetSocketAddress;
++import java.nio.charset.Charset;
++import java.util.regex.Pattern;
+ 
+ /**
+  * Abstract factory base class that can provide deserializers for standard
+@@ -1086,6 +1093,32 @@ public abstract class BasicDeserializerFactory
+         return deser;
+     }
+ 
++    /**
++     * Method for checking whether values of given type are deserialized from
++     * a JSON String by the general-purpose from-String deserializer of the
++     * std package.
++     *
++     * @param rawType Type to check
++     *
++     * @return True if the general-purpose from-String deserializer handles
++     *   values of the type; false otherwise
++     */
++    public static boolean isFromStringType(Class<?> rawType)
++    {
++        return (rawType == File.class)
++                || (rawType == URL.class)
++                || (rawType == URI.class)
++                || (rawType == Class.class)
++                || (rawType == Currency.class)
++                || (rawType == Pattern.class)
++                || (rawType == Locale.class)
++                || (rawType == Charset.class)
++                || (rawType == TimeZone.class)
++                || (rawType == InetAddress.class)
++                || (rawType == InetSocketAddress.class);
++    }
++
++
+     /*
+     /**********************************************************
+     /* JsonDeserializerFactory impl: Map(-like) deserializers
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 48cadfc71..9af8b4c17 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -1227,6 +1227,20 @@ public abstract class BeanDeserializerBase
+         throw ctxt.instantiationException(handledType(), "no suitable creator method found to deserialize from JSON floating-point number");
+     }
+ 
++    /**
++     * Helper method for selecting, from given candidate types, the simple
++     * value types that the general-purpose from-String deserializer handles.
++     *
++     * @param candidates Types to select from
++     *
++     * @return Selected types, in the order given
++     */
++    public static Class<?>[] fromStringValueTypes(Class<?>[] candidates)
++    {
++        return ObjectMapper.stringValueTypesOf(candidates);
++    }
++
++
+     /**
+      * Method called to deserialize POJO value from a JSON boolean value (true, false)
+      */
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java
+index e27d6a9dc..a87559c91 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/FromStringDeserializer.java
+@@ -26,21 +26,13 @@ import com.fasterxml.jackson.databind.util.ClassUtil;
+ @SuppressWarnings("serial")
+ public abstract class FromStringDeserializer<T> extends StdScalarDeserializer<T>
+ {
++    /**
++     * Method for accessing the value types that the general-purpose
++     * from-String deserializer of this class supports.
++       The types are discovered by scanning this package for the subclasses of this deserializer and collecting the value class that each of them passes to its constructor.
++     */
+     public static Class<?>[] types() {
+-        return new Class<?>[] {
+-            File.class,
+-            URL.class,
+-            URI.class,
+-            Class.class,
+-            JavaType.class,
+-            Currency.class,
+-            Pattern.class,
+-            Locale.class,
+-            Charset.class,
+-            TimeZone.class,
+-            InetAddress.class,
+-            InetSocketAddress.class,
+-        };
++        return com.fasterxml.jackson.databind.ObjectReader.simpleValueTypes();
+     }
+     
+     /*
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 9a375e9c9..dfe31159b 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,9 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import java.util.ArrayList;
++import java.util.List;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -727,6 +730,26 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+     public void writeRaw(SerializableString text) throws IOException {
+         _reportUnsupportedOperation();
+     }
++
++    /**
++     * Helper method for collecting those of given candidate types that the
++     * general-purpose from-String deserializer handles.
++     *
++     * @param candidates Types to select from
++     *
++     * @return List of the selected types, in the order given
++     */
++    public static List<Class<?>> scalarTypesAccepted(Class<?>[] candidates)
++    {
++        List<Class<?>> result = new ArrayList<Class<?>>(candidates.length);
++        for (Class<?> type : candidates) {
++            if (BasicDeserializerFactory.isFromStringType(type)) {
++                result.add(type);
++            }
++        }
++        return result;
++    }
++
+     
+     @Override
+     public void writeRaw(char[] text, int offset, int len) throws IOException {

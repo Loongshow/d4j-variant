@@ -1,0 +1,200 @@
+diff --git a/src/main/java/org/joda/time/LocalDate.java b/src/main/java/org/joda/time/LocalDate.java
+index 9806eb32..58a861c3 100644
+--- a/src/main/java/org/joda/time/LocalDate.java
++++ b/src/main/java/org/joda/time/LocalDate.java
+@@ -38,6 +38,7 @@ import org.joda.time.field.FieldUtils;
+ import org.joda.time.format.DateTimeFormat;
+ import org.joda.time.format.DateTimeFormatter;
+ import org.joda.time.format.ISODateTimeFormat;
++import org.joda.time.format.PeriodFormatterBuilder;
+ 
+ /**
+  * LocalDate is an immutable datetime class representing a date
+@@ -459,6 +460,21 @@ public final class LocalDate
+         iLocalMillis = instant;
+     }
+ 
++    /**
++     * Checks whether an instant has the given value in each of the given
++     * fields.
++     *
++     * @param types  the types of the fields to check, not null
++     * @param values  the value expected for each field, not null
++     * @param instant  the milliseconds from 1970-01-01T00:00:00Z
++     * @param chronology  the chronology of the instant, not null
++     * @return true if each of the fields has its expected value
++     */
++    public static boolean matchesFieldValues(DateTimeFieldType[] types, int[] values, long instant, Chronology chronology) {
++        return PeriodFormatterBuilder.matchFieldValues(types, values, instant, chronology);
++    }
++
++
+     /**
+      * Handle broken serialization from other tools.
+      * @return the resolved object, not null
+diff --git a/src/main/java/org/joda/time/LocalTime.java b/src/main/java/org/joda/time/LocalTime.java
+index 6c3c5777..86eefa84 100644
+--- a/src/main/java/org/joda/time/LocalTime.java
++++ b/src/main/java/org/joda/time/LocalTime.java
+@@ -759,6 +759,30 @@ public final class LocalTime
+         return withLocalMillis(getChronology().set(partial, getLocalMillis()));
+     }
+ 
++    /**
++     * Checks whether an instant has the given value in each of the given
++     * fields.
++     * <p>
++     * The fields are checked in order, and the check stops at the first
++     * field whose value differs.
++     *
++     * @param types  the types of the fields to check, not null
++     * @param values  the value expected for each field, not null
++     * @param instant  the milliseconds from 1970-01-01T00:00:00Z
++     * @param chronology  the chronology of the instant, not null
++     * @return true if each of the fields has its expected value
++     */
++    public static boolean hasFieldValues(DateTimeFieldType[] types, int[] values, long instant, Chronology chronology) {
++        chronology = chronology.withUTC();
++        for (int i = 0; i < types.length; i++) {
++            if (types[i].getField(chronology).get(instant) != values[i]) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++
+     /**
+      * Returns a copy of this time with the specified field set
+      * to a new value.
+diff --git a/src/main/java/org/joda/time/Partial.java b/src/main/java/org/joda/time/Partial.java
+index 8e8e6034..b75f7cff 100644
+--- a/src/main/java/org/joda/time/Partial.java
++++ b/src/main/java/org/joda/time/Partial.java
+@@ -651,17 +651,10 @@ public final class Partial
+      *
+      * @param instant  an instant to check against, null means now in default zone
+      * @return true if this partial matches the specified instant
++       The values of this partial are set onto the instant one field at a time, and a match occurs when the resulting instant equals the original instant.
+      */
+     public boolean isMatch(ReadableInstant instant) {
+-        long millis = DateTimeUtils.getInstantMillis(instant);
+-        Chronology chrono = DateTimeUtils.getInstantChronology(instant);
+-        for (int i = 0; i < iTypes.length; i++) {
+-            int value = iTypes[i].getField(chrono).get(millis);
+-            if (value != iValues[i]) {
+-                return false;
+-            }
+-        }
+-        return true;
++        return org.joda.time.format.DateTimeFormatterBuilder.matchesInstantFields(instant, iTypes, iValues);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index 8f76f06e..d9cf9935 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -36,6 +36,8 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import org.joda.time.ReadableInstant;
++import org.joda.time.tz.DateTimeZoneBuilder;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -631,6 +633,22 @@ public class DateTimeFormatterBuilder {
+         return appendFraction(DateTimeFieldType.hourOfDay(), minDigits, maxDigits);
+     }
+ 
++    /**
++     * Checks whether an instant has the given value in each of the given
++     * fields.
++     *
++     * @param instant  the instant to check, null means now in the default zone
++     * @param types  the types of the fields to check, not null
++     * @param values  the value expected for each field, not null
++     * @return true if each of the fields has its expected value
++     */
++    public static boolean matchesInstantFields(ReadableInstant instant, DateTimeFieldType[] types, int[] values) {
++        long millis = DateTimeUtils.getInstantMillis(instant);
++        Chronology chrono = DateTimeUtils.getInstantChronology(instant);
++        return DateTimeZoneBuilder.fieldValuesMatch(types, values, millis, chrono);
++    }
++
++
+     /**
+      * Appends the print/parse of a fractional day.
+      * <p>
+diff --git a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+index c3dd8cc3..39950449 100644
+--- a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+@@ -28,6 +28,9 @@ import org.joda.time.DurationFieldType;
+ import org.joda.time.PeriodType;
+ import org.joda.time.ReadWritablePeriod;
+ import org.joda.time.ReadablePeriod;
++import org.joda.time.Chronology;
++import org.joda.time.DateTimeFieldType;
++import org.joda.time.LocalTime;
+ 
+ /**
+  * Factory that creates complex instances of PeriodFormatter via method calls.
+@@ -217,6 +220,21 @@ public class PeriodFormatterBuilder {
+         return this;
+     }
+ 
++    /**
++     * Checks whether an instant has the given value in each of the given
++     * fields.
++     *
++     * @param types  the types of the fields to check, not null
++     * @param values  the value expected for each field, not null
++     * @param instant  the milliseconds from 1970-01-01T00:00:00Z
++     * @param chronology  the chronology of the instant, not null
++     * @return true if each of the fields has its expected value
++     */
++    public static boolean matchFieldValues(DateTimeFieldType[] types, int[] values, long instant, Chronology chronology) {
++        return LocalTime.hasFieldValues(types, values, instant, chronology);
++    }
++
++
+     /**
+      * Instructs the printer to emit specific text, and the parser to expect it.
+      * The parser is case-insensitive.
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index fa5c1644..a6cde626 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,8 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import org.joda.time.DateTimeFieldType;
++import org.joda.time.LocalDate;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -447,6 +449,21 @@ public class DateTimeZoneBuilder {
+         }
+     }
+ 
++    /**
++     * Checks whether an instant has the given value in each of the given
++     * fields.
++     *
++     * @param types  the types of the fields to check, not null
++     * @param values  the value expected for each field, not null
++     * @param instant  the milliseconds from 1970-01-01T00:00:00Z
++     * @param chronology  the chronology of the instant, not null
++     * @return true if each of the fields has its expected value
++     */
++    public static boolean fieldValuesMatch(DateTimeFieldType[] types, int[] values, long instant, Chronology chronology) {
++        return LocalDate.matchesFieldValues(types, values, instant, chronology);
++    }
++
++
+     /**
+      * Encodes a built DateTimeZone to the given stream. Call readFrom to
+      * decode the data into a DateTimeZone object.

@@ -1,0 +1,221 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index f55c2e9f5..99c2af56f 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -2589,6 +2589,30 @@ public class ArrayUtils {
+         return result;
+     }
+ 
++    /**
++     * <p>Finds the first index at which a String occurs in another String,
++     * when that index is lower than a limit.</p>
++     *
++     * @param str  the String to search in, not null
++     * @param search  the String to search for, not null
++     * @param limit  the index before which the occurrence must start, not negative
++     * @return the first index of <code>search</code> in <code>str</code> if it is
++     *  lower than <code>limit</code>, otherwise <code>limit</code>
++     */
++    public static int indexBefore(String str, String search, int limit) {
++        if (search.length() == 0) {
++            return 0;
++        }
++        final char first = search.charAt(0);
++        for (int pos = str.indexOf(first); pos >= 0 && pos < limit; pos = str.indexOf(first, pos + 1)) {
++            if (str.startsWith(search, pos)) {
++                return pos;
++            }
++        }
++        return limit;
++    }
++
++
+     /**
+      * <p>Converts an array of primitive bytes to objects.</p>
+      *
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index 8351b3e82..a5f5335ab 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -1434,33 +1434,13 @@ public class StringUtils {
+      * @param str  the String to check, may be null
+      * @param searchStrs  the Strings to search for, may be null
+      * @return the first index of any of the searchStrs in str, -1 if no match
++       The String is read once from its last character back to its first, every search String being tried at each position, and the position of the last match met on the way is returned.
+      */
+     public static int indexOfAny(String str, String[] searchStrs) {
+         if ((str == null) || (searchStrs == null)) {
+             return -1;
+         }
+-        int sz = searchStrs.length;
+-
+-        // String's can't have a MAX_VALUEth index.
+-        int ret = Integer.MAX_VALUE;
+-
+-        int tmp = 0;
+-        for (int i = 0; i < sz; i++) {
+-            String search = searchStrs[i];
+-            if (search == null) {
+-                continue;
+-            }
+-            tmp = str.indexOf(search);
+-            if (tmp == -1) {
+-                continue;
+-            }
+-
+-            if (tmp < ret) {
+-                ret = tmp;
+-            }
+-        }
+-
+-        return (ret == Integer.MAX_VALUE) ? -1 : ret;
++        return org.apache.commons.lang.text.StrBuilder.positionOfAny(str, searchStrs);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 56045f105..bc0ddf0e5 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.time.DateUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -662,6 +663,20 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Finds the earliest index in a String at which any of the Strings in
++     * an array occurs.</p>
++     *
++     * @param str  the String to search in, not null
++     * @param searchStrs  the Strings to search for, not null
++     * @return the earliest index of any of the Strings,
++     *  <code>Integer.MAX_VALUE</code> if none of them occurs
++     */
++    public static int earliestOf(String str, String[] searchStrs) {
++        return DateUtils.earliestMatch(str, searchStrs);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> an <code>int</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 8a70fd7a1..11aba7e11 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -831,6 +832,24 @@ public class StrBuilder implements CharSequence, Appendable {
+         return append(str, startIndex, length).appendNewLine();
+     }
+ 
++    /**
++     * <p>Finds the first index in a String of any of the Strings in an
++     * array.</p>
++     *
++     * <p>An empty array gives <code>-1</code>.</p>
++     *
++     * @param str  the String to search in, not null
++     * @param searchStrs  the Strings to search for, not null
++     * @return the first index of any of the Strings, -1 if none of them occurs
++     */
++    public static int positionOfAny(String str, String[] searchStrs) {
++        if (searchStrs.length == 0) {
++            return -1;
++        }
++        return FastDateFormat.findFirst(str, searchStrs);
++    }
++
++
+     /**
+      * Appends another string builder followed by a new line to this string builder.
+      * Appending null will call {@link #appendNull()}.
+diff --git a/src/java/org/apache/commons/lang/time/DateUtils.java b/src/java/org/apache/commons/lang/time/DateUtils.java
+index 1f0701740..07edf91dd 100644
+--- a/src/java/org/apache/commons/lang/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import org.apache.commons.lang.ArrayUtils;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -607,6 +608,30 @@ public class DateUtils {
+         return gval.getTime();
+     }
+ 
++    /**
++     * <p>Finds the earliest index in a String at which any of the Strings in
++     * an array occurs.</p>
++     *
++     * <p>The Strings are taken in array order, each one being looked for
++     * only before the earliest index found so far. A <code>null</code>
++     * entry is skipped.</p>
++     *
++     * @param str  the String to search in, not null
++     * @param searchStrs  the Strings to search for, not null
++     * @return the earliest index of any of the Strings,
++     *  <code>Integer.MAX_VALUE</code> if none of them occurs
++     */
++    public static int earliestMatch(String str, String[] searchStrs) {
++        int earliest = Integer.MAX_VALUE;
++        for (int i = 0; i < searchStrs.length; i++) {
++            if (searchStrs[i] != null) {
++                earliest = ArrayUtils.indexBefore(str, searchStrs[i], earliest);
++            }
++        }
++        return earliest;
++    }
++
++
+     /**
+      * <p>Round this date, leaving the field specified as the most
+      * significant field.</p>
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index 6bfa85354..6e3f0d925 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.builder.ToStringStyle;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -933,6 +934,20 @@ public class FastDateFormat extends Format {
+         return mTimeZone;
+     }
+ 
++    /**
++     * <p>Finds the first index in a String of any of the Strings in a
++     * non-empty array.</p>
++     *
++     * @param str  the String to search in, not null
++     * @param searchStrs  the Strings to search for, not null or empty
++     * @return the first index of any of the Strings, -1 if none of them occurs
++     */
++    public static int findFirst(String str, String[] searchStrs) {
++        final int index = ToStringStyle.earliestOf(str, searchStrs);
++        return index == Integer.MAX_VALUE ? -1 : index;
++    }
++
++
+     /**
+      * <p>Returns <code>true</code> if the time zone of the
+      * calendar overrides the time zone of the formatter.</p>

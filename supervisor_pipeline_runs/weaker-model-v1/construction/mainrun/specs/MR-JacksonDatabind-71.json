@@ -1,0 +1,240 @@
+{
+ "bug_id": 71,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "return BasicDeserializerFactory.findStdKeyDeserializer(raw != null && raw.isPrimitive() ? ClassUtil.wrapperType(raw) : raw);",
+   "old": "return BasicDeserializerFactory.findStdKeyDeserializer(raw);",
+   "why": "hop 1 maps a primitive key class to its wrapper before the lookup"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "return ObjectMapper.standardKeyDeserializer(raw != null && raw.isInterface() && raw.getInterfaces().length > 0 ? raw.getInterfaces()[0] : raw);",
+   "old": "return ObjectMapper.standardKeyDeserializer(raw);",
+   "why": "hop 2 looks an interface key class up by its first super-interface"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "return (raw != null && raw.getSuperclass() != null && BeanDeserializerBase.keyDeserializerOf(raw) == null) ? BeanDeserializerBase.keyDeserializerOf(raw.getSuperclass()) : BeanDeserializerBase.keyDeserializerOf(raw);",
+   "old": "return BeanDeserializerBase.keyDeserializerOf(raw);",
+   "why": "hop 3 retries with the superclass when nothing is found for the key class"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "import com.fasterxml.jackson.databind.util.TokenBuffer;\nimport com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;\n",
+   "old": "import com.fasterxml.jackson.databind.util.TokenBuffer;\n",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "        return _typeFactory.constructType(t);\n    }\n\n    /**\n     * Convenience method for finding the key deserializer to use for keys\n     * of the given class, without explicit context.\n     *\n     * @param raw Class of the keys\n     *\n     * @return Key deserializer to use, which reports <code>raw</code> as its\n     *   key class, if one found; null if not\n     */\n    public static StdKeyDeserializer standardKeyDeserializer(Class<?> raw) {\n        return BeanDeserializerBase.keyDeserializerOf(raw);\n    }\n\n    \n    /*",
+   "old": "        return _typeFactory.constructType(t);\n    }\n    \n    /*",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "import com.fasterxml.jackson.databind.type.TypeFactory;\nimport java.net.URI;\nimport com.fasterxml.jackson.databind.deser.std.FromStringDeserializer;\nimport com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;\n",
+   "old": "import com.fasterxml.jackson.databind.type.TypeFactory;\n",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "        return _with(_config.with(l));\n    }\n\n    /**\n     * Helper method for finding the key deserializer to use for keys of\n     * the given class.\n     *\n     * @param raw Class of the keys\n     *\n     * @return Key deserializer to use, if one found; null if not\n     */\n    public static StdKeyDeserializer stdKeyDeserializer(Class<?> raw)\n    {\n        int kind;\n        if (raw == String.class || raw == Object.class || raw == CharSequence.class) {\n            return StdKeyDeserializer.StringKD.forType(raw);\n        } else if (raw == UUID.class) {\n            kind = StdKeyDeserializer.TYPE_UUID;\n        } else if (raw == Integer.class) {\n            kind = StdKeyDeserializer.TYPE_INT;\n        } else if (raw == Long.class) {\n            kind = StdKeyDeserializer.TYPE_LONG;\n        } else if (raw == Date.class) {\n            kind = StdKeyDeserializer.TYPE_DATE;\n        } else if (raw == Calendar.class) {\n            kind = StdKeyDeserializer.TYPE_CALENDAR;\n        } else if (raw == Boolean.class) {\n            kind = StdKeyDeserializer.TYPE_BOOLEAN;\n        } else if (raw == Byte.class) {\n            kind = StdKeyDeserializer.TYPE_BYTE;\n        } else if (raw == Character.class) {\n            kind = StdKeyDeserializer.TYPE_CHAR;\n        } else if (raw == Short.class) {\n            kind = StdKeyDeserializer.TYPE_SHORT;\n        } else if (raw == Float.class) {\n            kind = StdKeyDeserializer.TYPE_FLOAT;\n        } else if (raw == Double.class) {\n            kind = StdKeyDeserializer.TYPE_DOUBLE;\n        } else if (raw == URI.class) {\n            kind = StdKeyDeserializer.TYPE_URI;\n        } else if (raw == URL.class) {\n            kind = StdKeyDeserializer.TYPE_URL;\n        } else if (raw == Class.class) {\n            kind = StdKeyDeserializer.TYPE_CLASS;\n        } else if (raw == Locale.class) {\n            FromStringDeserializer<?> deser = FromStringDeserializer.findDeserializer(Locale.class);\n            return new StdKeyDeserializer(StdKeyDeserializer.TYPE_LOCALE, raw, deser);\n        } else if (raw == Currency.class) {\n            FromStringDeserializer<?> deser = FromStringDeserializer.findDeserializer(Currency.class);\n            return new StdKeyDeserializer(StdKeyDeserializer.TYPE_CURRENCY, raw, deser);\n        } else {\n            return null;\n        }\n        return new StdKeyDeserializer(kind, raw);\n    }\n\n\n    public ObjectReader with(TimeZone tz) {",
+   "old": "        return _with(_config.with(l));\n    }\n\n    public ObjectReader with(TimeZone tz) {",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "\n    /**\n     * Method called to find the standard key deserializer to use for\n     * keys of the given class.\n     *\n     * @param raw Class of the keys\n     *\n     * @return Key deserializer to use, which reports <code>raw</code> as its\n     *   key class, if one found; null if not\n     */\n    public static StdKeyDeserializer findStdKeyDeserializer(Class<?> raw)\n    {\n        return ObjectMapper.standardKeyDeserializer(raw);\n    }\n\n\n    protected CollectionType _mapAbstractCollectionType(JavaType type, DeserializationConfig config)",
+   "old": "\n    protected CollectionType _mapAbstractCollectionType(JavaType type, DeserializationConfig config)",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "import com.fasterxml.jackson.databind.util.*;\nimport com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;\n",
+   "old": "import com.fasterxml.jackson.databind.util.*;\n",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "        return _needViewProcesing;\n    }\n\n    /**\n     * Helper method for finding the key deserializer to use for keys of\n     * the given class.\n     *\n     * @param raw Class of the keys\n     *\n     * @return Key deserializer to use, which reports <code>raw</code> as its\n     *   key class, if one found; null if not\n     */\n    public static StdKeyDeserializer keyDeserializerOf(Class<?> raw)\n    {\n        return ObjectReader.stdKeyDeserializer(raw);\n    }\n\n    \n    /**",
+   "old": "        return _needViewProcesing;\n    }\n    \n    /**",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdKeyDeserializer.java",
+   "new": "    public StdKeyDeserializer(int kind, Class<?> cls) {\n        this(kind, cls, null);\n    }\n\n    public StdKeyDeserializer(int kind, Class<?> cls, FromStringDeserializer<?> deser) {\n        _kind = kind;\n        _keyClass = cls;\n        _deser = deser;\n    }\n\n    /**\n     * Factory method for finding the key deserializer to use for keys of\n     * the given class; returns null if there is none.\n       The class is looked up by its name in a hash table of the supported key classes, which is filled once when this class is initialized.\n     */\n    public static StdKeyDeserializer forType(Class<?> raw)\n    {\n        return com.fasterxml.jackson.databind.util.TokenBuffer.keyDeserializerFor(raw);",
+   "old": "    protected StdKeyDeserializer(int kind, Class<?> cls) {\n        this(kind, cls, null);\n    }\n\n    protected StdKeyDeserializer(int kind, Class<?> cls, FromStringDeserializer<?> deser) {\n        _kind = kind;\n        _keyClass = cls;\n        _deser = deser;\n    }\n\n    public static StdKeyDeserializer forType(Class<?> raw)\n    {\n        int kind;\n\n        // first common types:\n        if (raw == String.class || raw == Object.class || raw == CharSequence.class) {\n            return StringKD.forType(raw);\n        } else if (raw == UUID.class) {\n            kind = TYPE_UUID;\n        } else if (raw == Integer.class) {\n            kind = TYPE_INT;\n        } else if (raw == Long.class) {\n            kind = TYPE_LONG;\n        } else if (raw == Date.class) {\n            kind = TYPE_DATE;\n        } else if (raw == Calendar.class) {\n            kind = TYPE_CALENDAR;\n        // then less common ones...\n        } else if (raw == Boolean.class) {\n            kind = TYPE_BOOLEAN;\n        } else if (raw == Byte.class) {\n            kind = TYPE_BYTE;\n        } else if (raw == Character.class) {\n            kind = TYPE_CHAR;\n        } else if (raw == Short.class) {\n            kind = TYPE_SHORT;\n        } else if (raw == Float.class) {\n            kind = TYPE_FLOAT;\n        } else if (raw == Double.class) {\n            kind = TYPE_DOUBLE;\n        } else if (raw == URI.class) {\n            kind = TYPE_URI;\n        } else if (raw == URL.class) {\n            kind = TYPE_URL;\n        } else if (raw == Class.class) {\n            kind = TYPE_CLASS;\n        } else if (raw == Locale.class) {\n            FromStringDeserializer<?> deser = FromStringDeserializer.findDeserializer(Locale.class);\n            return new StdKeyDeserializer(TYPE_LOCALE, raw, deser);\n        } else if (raw == Currency.class) {\n            FromStringDeserializer<?> deser = FromStringDeserializer.findDeserializer(Currency.class);\n            return new StdKeyDeserializer(TYPE_CURRENCY, raw, deser);\n        } else {\n            return null;\n        }\n        return new StdKeyDeserializer(kind, raw);",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/std/StdKeyDeserializer.java",
+   "new": "    public final static class StringKD extends StdKeyDeserializer",
+   "old": "    final static class StringKD extends StdKeyDeserializer",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "import com.fasterxml.jackson.databind.*;\nimport com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;\nimport com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;\n",
+   "old": "import com.fasterxml.jackson.databind.*;\n",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "        throw new UnsupportedOperationException();\n    }\n\n    /**\n     * Helper method for finding the key deserializer to use for keys of\n     * the given class.\n     *\n     * @param raw Class of the keys\n     *\n     * @return Key deserializer to use, which reports <code>raw</code> as its\n     *   key class, if one found; null if not\n     */\n    public static StdKeyDeserializer keyDeserializerFor(Class<?> raw)\n    {\n        return BasicDeserializerFactory.findStdKeyDeserializer(raw);\n    }\n\n\n    /*",
+   "old": "        throw new UnsupportedOperationException();\n    }\n\n    /*",
+   "purpose": "MR-JacksonDatabind-71 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "method": "keyDeserializerFor"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "method": "findStdKeyDeserializer"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectMapper",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "method": "standardKeyDeserializer"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "method": "keyDeserializerOf"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonDatabind-71.py",
+ "entry_points": [
+  "com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer::forType"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findDefaultDeserializer",
+  "com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer$StringKD::forType",
+  "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::_handleSingleArgumentConstructor",
+  "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::_handleSingleArgumentFactory"
+ ],
+ "expected_signature": "Can not find a (Map) Key deserializer for type [simple type, class java.lang.CharSequence]",
+ "extra_tests": [],
+ "fixture_key": "JacksonDatabind-71",
+ "gold": {
+  "class": "com.fasterxml.jackson.databind.ObjectReader",
+  "edits": [
+   {
+    "new": "        if (raw == String.class || raw == Object.class) {\n            return StdKeyDeserializer.StringKD.forType(raw);",
+    "old": "        if (raw == String.class || raw == Object.class || raw == CharSequence.class) {\n            return StdKeyDeserializer.StringKD.forType(raw);"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+  "method": "stdKeyDeserializer"
+ },
+ "group": "MR-JacksonDatabind-71",
+ "hops": 5,
+ "iid": "MR-JacksonDatabind-71",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold decides which key classes get which key deserializer: hops 1-4 pass the key class down and the deserializer (or null) back, and each documents that the deserializer it returns reports raw as its key class. The gold's String-equivalent branch gives String and Object keys the String key deserializer but lets a CharSequence key class fall through to null, so no key deserializer is found for Map<CharSequence, ...> although one exists: StdKeyDeserializer$StringKD.forType keeps any nominal key class other than String and Object (its third branch, new StringKD(nominalType), is reachable only through that branch). The convention is pinned outside the gold: BasicDeserializerFactory.findDefaultDeserializer treats String and CharSequence alike as the 'String equivalents' (StringDeserializer.instance; TestJdkTypes testCharSequence passes), and _handleSingleArgumentConstructor / _handleSingleArgumentFactory accept a String or a CharSequence parameter as a String creator. A hop that answers CharSequence itself before delegating replaces the gold's answer (bypass); a hop that passes String.class down for CharSequence returns a deserializer whose key class is String, contradicting its own documentation and StringKD's nominal-class convention. The context edits in StdKeyDeserializer.java widen its two constructors and the nested StringKD class to public (the gold is in another package and constructs the same deserializers forType constructed) and give forType, which had no javadoc in the checkout, a one-sentence description to which the recipe's facade sentence is appended.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.databind.deser.TestJdkTypes::testCharSequence",
+  "com.fasterxml.jackson.databind.deser.TestMapDeserialization::testExactStringStringMap",
+  "com.fasterxml.jackson.databind.deser.TestMapDeserialization::testUntypedMap",
+  "com.fasterxml.jackson.databind.deser.TestMapDeserialization::testLocaleKeyMap"
+ ],
+ "project": "JacksonDatabind",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "writeBinary",
+    "anchor_seed": 2465,
+    "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+    "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;",
+     "import com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;"
+    ],
+    "method": "keyDeserializerFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "createCollectionDeserializer",
+    "anchor_seed": 2466,
+    "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "findStdKeyDeserializer",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "constructType",
+    "anchor_seed": 2467,
+    "class": "com.fasterxml.jackson.databind.ObjectMapper",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;"
+    ],
+    "method": "standardKeyDeserializer",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "hasViews",
+    "anchor_seed": 2468,
+    "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;"
+    ],
+    "method": "keyDeserializerOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "with",
+    "anchor_seed": 2469,
+    "class": "com.fasterxml.jackson.databind.ObjectReader",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.net.URI;",
+     "import com.fasterxml.jackson.databind.deser.std.FromStringDeserializer;",
+     "import com.fasterxml.jackson.databind.deser.std.StdKeyDeserializer;"
+    ],
+    "method": "stdKeyDeserializer",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2365
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonDatabind-71"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.databind.deser.TestMapDeserialization",
+  "test_file": "src/test/java/com/fasterxml/jackson/databind/deser/TestMapDeserialization.java",
+  "test_method": "testcharSequenceKeyMap"
+ },
+ "variant_id": "CTV-349890",
+ "kind": "new",
+ "fault_lines": [
+  "if (raw == String.class || raw == Object.class) {\n            return StdKeyDeserializer.StringKD.forType(raw);"
+ ],
+ "gold_key": "com.fasterxml.jackson.databind.ObjectReader::stdKeyDeserializer"
+}

@@ -1,0 +1,191 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 27afddcf..3a3ff25a 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -17,6 +17,7 @@ import java.security.cert.X509Certificate;
+ import java.util.*;
+ import java.util.regex.Pattern;
+ import java.util.zip.GZIPInputStream;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -195,6 +196,17 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Make a link absolute against the base URI of the node it is on.
++     * @param baseUri the base URI of the node
++     * @param link the link, as written in the attribute
++     * @return the absolute URL, or an empty string if one could not be made
++     */
++    public static String absoluteUrl(String baseUri, String link) {
++        return Evaluator.CssNthEvaluator.absoluteUrlFor(baseUri, link);
++    }
++
++
+     public Document get() throws IOException {
+         req.method(Method.GET);
+         execute();
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index cb6bf14d..92cfb6b4 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -9,6 +9,7 @@ import org.jsoup.select.*;
+ import java.util.*;
+ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -206,6 +207,21 @@ public class Element extends Node {
+         return new Elements(elements);
+     }
+ 
++    /**
++     * Get an absolute URL from a URL attribute of a node, which may be relative.
++     *
++     * @param node the node that holds the attribute
++     * @param attributeKey the attribute key
++     * @return an absolute URL, or an empty string if the attribute is missing or could not be made into a URL
++     */
++    public static String absoluteAttr(Node node, String attributeKey) {
++        if (!node.hasAttr(attributeKey)) {
++            return "";
++        }
++        return HttpConnection.absoluteUrl(node.baseUri(), node.attr(attributeKey));
++    }
++
++
+     /**
+      * Get this element's child text nodes. The list is unmodifiable but the text nodes may be manipulated.
+      * <p>
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index b6bdb93b..054991f4 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -175,15 +175,12 @@ public abstract class Node implements Cloneable {
+      * could not be made successfully into a URL.
+      * @see #attr
+      * @see java.net.URL#URL(java.net.URL, String)
++       The attribute value is first percent-decoded and split at each slash, and the segments are then appended one by one to the directory of the base URI.
+      */
+     public String absUrl(String attributeKey) {
+         Validate.notEmpty(attributeKey);
+ 
+-        if (!hasAttr(attributeKey)) {
+-            return ""; // nothing to make absolute with
+-        } else {
+-            return StringUtil.resolve(baseUri, attr(attributeKey));
+-        }
++        return Element.absoluteAttr(this, attributeKey);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index 4ac8870c..49930975 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -7,6 +7,7 @@ import org.jsoup.select.Elements;
+ 
+ import java.util.ArrayList;
+ import java.util.List;
++import org.jsoup.safety.Whitelist;
+ 
+ /**
+  * HTML Tree Builder; creates a DOM from Tokens.
+@@ -637,6 +638,17 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         }
+     }
+ 
++    /**
++     * Gets the absolute form of a link, against the base URI of the document.
++     * @param baseUri the base URI
++     * @param link the link, as written in the attribute
++     * @return the absolute URL, or an empty string if one could not be made
++     */
++    public static String absoluteHref(String baseUri, String link) {
++        return Whitelist.absoluteLink(baseUri, link);
++    }
++
++
+     void removeFromActiveFormattingElements(Element el) {
+         for (int pos = formattingElements.size() -1; pos >= 0; pos--) {
+             Element next = formattingElements.get(pos);
+diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java
+index f641308c..7ba22c7c 100644
+--- a/src/main/java/org/jsoup/safety/Whitelist.java
++++ b/src/main/java/org/jsoup/safety/Whitelist.java
+@@ -14,6 +14,8 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Set;
++import java.net.MalformedURLException;
++import java.net.URL;
+ 
+ 
+ /**
+@@ -476,6 +478,31 @@ public class Whitelist {
+         return this;
+     }
+ 
++    /**
++     * Makes a link absolute by reading it relative to a base URI. If the base URI is not itself a URL, the link is tried
++     * on its own.
++     *
++     * @param baseUri the base URI the link is read against
++     * @param link the link, as written in the attribute
++     * @return the absolute URL, or an empty string if one could not be made
++     */
++    public static String absoluteLink(String baseUri, String link) {
++        try {
++            URL base;
++            try {
++                base = new URL(baseUri);
++            } catch (MalformedURLException e) {
++                return new URL(link).toExternalForm();
++            }
++            if (link.indexOf('.') == 0 && base.getFile().indexOf('/') != 0)
++                base = new URL(base.getProtocol(), base.getHost(), base.getPort(), "/" + base.getFile());
++            return new URL(base, link).toExternalForm();
++        } catch (MalformedURLException e) {
++            return "";
++        }
++    }
++
++
+     /**
+      * Test if the supplied tag is allowed by this whitelist
+      * @param tag test tag
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 606b8294..d1fd3f96 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -11,6 +11,7 @@ import org.jsoup.nodes.XmlDeclaration;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -411,6 +412,17 @@ public abstract class Evaluator {
+     	public CssNthEvaluator(int b) {
+     		this(0,b);
+     	}
++
++    /**
++     * Gets the absolute URL of a link, read against a base URI.
++     * @param baseUri the base URI
++     * @param link the link, as written in the attribute
++     * @return the absolute URL, or an empty string if one could not be made
++     */
++    public static String absoluteUrlFor(String baseUri, String link) {
++        return HtmlTreeBuilder.absoluteHref(baseUri, link);
++    }
++
+     	
+     	@Override
+     	public boolean matches(Element root, Element element) {

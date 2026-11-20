@@ -1,0 +1,233 @@
+diff --git a/src/java/org/apache/commons/math/complex/Complex.java b/src/java/org/apache/commons/math/complex/Complex.java
+index 16b387332..43bf3d3b2 100644
+--- a/src/java/org/apache/commons/math/complex/Complex.java
++++ b/src/java/org/apache/commons/math/complex/Complex.java
+@@ -19,6 +19,7 @@ package org.apache.commons.math.complex;
+ 
+ import java.io.Serializable;
+ import org.apache.commons.math.util.MathUtils;
++import java.math.BigDecimal;
+ 
+ /**
+  * Representation of a Complex number - a number which has both a 
+@@ -293,6 +294,37 @@ public class Complex implements Serializable  {
+         return imaginary;
+     }
+ 
++    /**
++     * Gathers entries of a matrix whose entries are stored row by row in one
++     * array.
++     * <p>
++     * Entry (i, j) of the result is the entry of the matrix in row rows[i]
++     * and column columns[j].</p>
++     *
++     * @param entries the entries of the matrix, row by row
++     * @param width the number of columns of the matrix
++     * @param rows the indices of the rows to gather
++     * @param columns the indices of the columns to gather
++     * @return a new array of rows.length rows of columns.length entries
++     */
++    public static BigDecimal[][] gatherEntries(BigDecimal[] entries, int width,
++        int[] rows, int[] columns) {
++        final BigDecimal[][] gathered = new BigDecimal[rows.length][columns.length];
++        int column = 0;
++        for (int i = 0; i < rows.length; i++) {
++            final BigDecimal[] line = gathered[i];
++            int position = rows[i] * width;
++            for (int j = 0; j < columns.length; j++) {
++                position += columns[j] - column;
++                column = columns[j];
++                line[j] = entries[position];
++            }
++            column = 0;
++        }
++        return gathered;
++    }
++
++
+     /**
+      * Access the real part.
+      *
+diff --git a/src/java/org/apache/commons/math/geometry/Rotation.java b/src/java/org/apache/commons/math/geometry/Rotation.java
+index 7f2dba786..a7e1447df 100644
+--- a/src/java/org/apache/commons/math/geometry/Rotation.java
++++ b/src/java/org/apache/commons/math/geometry/Rotation.java
+@@ -18,6 +18,9 @@
+ package org.apache.commons.math.geometry;
+ 
+ import java.io.Serializable;
++import java.math.BigDecimal;
++import org.apache.commons.math.linear.MatrixIndexException;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  * This class implements rotations in a three-dimensional space.
+@@ -1054,4 +1057,30 @@ public class Rotation implements Serializable {
+       return r1.applyInverseTo(r2).getAngle();
+   }
+ 
++
++        /** Select the entries of a matrix at given rows and columns.
++     * <p>Every index is checked against the dimensions of the matrix before
++     * any entry is read.</p>
++     * @param data entries of the matrix, row by row
++     * @param rows indices of the selected rows
++     * @param columns indices of the selected columns
++     * @return selected entries, one row per selected row
++     * @exception MatrixIndexException if an index is not a row or a column
++     * of the matrix
++     */
++    public static BigDecimal[][] selectEntries(BigDecimal[][] data, int[] rows, int[] columns)
++        throws MatrixIndexException {
++        for (int i = 0; i < rows.length; i++) {
++            if (rows[i] < 0 || rows[i] >= data.length) {
++                throw new MatrixIndexException("matrix dimension mismatch");
++            }
++        }
++        for (int j = 0; j < columns.length; j++) {
++            if (columns[j] < 0 || columns[j] >= data[0].length) {
++                throw new MatrixIndexException("matrix dimension mismatch");
++            }
++        }
++        return MathUtils.entriesAt(data, rows, columns);
++    }
++
+ }
+diff --git a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index 919a5bab1..fb64a8aaa 100644
+--- a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -605,6 +605,7 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+      *     specified rows and columns
+      * @exception MatrixIndexException  if supplied row or column index arrays
+      *     are not valid
++       The entries are copied column by column, each selected column being read in one pass over the selected rows.
+      */
+     public BigMatrix getSubMatrix(int[] selectedRows, int[] selectedColumns)
+         throws MatrixIndexException {
+@@ -612,21 +613,7 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+             throw new MatrixIndexException(
+             "selected row and column index arrays must be non-empty");
+         }
+-        final BigDecimal[][] subMatrixData =
+-            new BigDecimal[selectedRows.length][selectedColumns.length];
+-        try  {
+-            for (int i = 0; i < selectedRows.length; i++) {
+-                final BigDecimal[] subI = subMatrixData[i];
+-                final BigDecimal[] dataSelectedI = data[selectedRows[i]];
+-                for (int j = 0; j < selectedColumns.length; j++) {
+-                    subI[j] = dataSelectedI[selectedColumns[j]];
+-                }
+-            }
+-        }
+-        catch (ArrayIndexOutOfBoundsException e) {
+-            throw new MatrixIndexException("matrix dimension mismatch");
+-        }
+-        return new BigMatrixImpl(subMatrixData, false);
++        return org.apache.commons.math.stat.inference.TTestImpl.subMatrixOf(data, selectedRows, selectedColumns);
+     } 
+     
+     /**
+diff --git a/src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java b/src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java
+index fceae5f43..8e25f0a76 100644
+--- a/src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java
++++ b/src/java/org/apache/commons/math/ode/GraggBulirschStoerIntegrator.java
+@@ -1017,4 +1017,18 @@ public class GraggBulirschStoerIntegrator
+   /** interpolation order control parameter. */
+   private int mudif;
+ 
++
++        /** Copy entries of a matrix stored row by row in one array.
++     * @param entries entries of the matrix, row by row
++     * @param width number of columns of the matrix
++     * @param rows indices of the rows to copy
++     * @param columns indices of the columns to copy
++     * @return copied entries, one row per index in rows and one column per
++     * index in columns
++     */
++    public static java.math.BigDecimal[][] copyEntries(java.math.BigDecimal[] entries, int width,
++                                                       int[] rows, int[] columns) {
++        return org.apache.commons.math.complex.Complex.gatherEntries(entries, width, rows, columns);
++    }
++
+ }
+diff --git a/src/java/org/apache/commons/math/stat/inference/TTestImpl.java b/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
+index d69d60a49..25d9c9490 100644
+--- a/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
++++ b/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
+@@ -21,6 +21,10 @@ import org.apache.commons.math.distribution.TDistribution;
+ import org.apache.commons.math.distribution.TDistributionImpl;
+ import org.apache.commons.math.stat.StatUtils;
+ import org.apache.commons.math.stat.descriptive.StatisticalSummary;
++import java.math.BigDecimal;
++import org.apache.commons.math.geometry.Rotation;
++import org.apache.commons.math.linear.BigMatrix;
++import org.apache.commons.math.linear.BigMatrixImpl;
+ 
+ /**
+  * Implements t-test statistics defined in the {@link TTest} interface.
+@@ -425,6 +429,23 @@ public class TTestImpl implements TTest  {
+                 sample.length);
+     }
+ 
++    /**
++     * Gets the submatrix of a matrix at the selected rows and columns.
++     * <p>
++     * The selected entries are wrapped into the new matrix as they are,
++     * without being copied again.</p>
++     *
++     * @param data the entries of the matrix, row by row
++     * @param rows the indices of the selected rows
++     * @param columns the indices of the selected columns
++     * @return the submatrix, with one row per selected row and one column
++     * per selected column
++     */
++    public static BigMatrix subMatrixOf(BigDecimal[][] data, int[] rows, int[] columns) {
++        return new BigMatrixImpl(Rotation.selectEntries(data, rows, columns), false);
++    }
++
++
+     /**
+      * Performs a <a href="http://www.itl.nist.gov/div898/handbook/eda/section3/eda353.htm">
+      * two-sided t-test</a> evaluating the null hypothesis that the mean of the population from
+diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java
+index 0b87cae40..1a277f90b 100644
+--- a/src/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/java/org/apache/commons/math/util/MathUtils.java
+@@ -18,6 +18,7 @@
+ package org.apache.commons.math.util;
+ 
+ import java.math.BigDecimal;
++import org.apache.commons.math.ode.GraggBulirschStoerIntegrator;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -334,6 +335,28 @@ public final class MathUtils {
+         return result;
+     }
+ 
++    /**
++     * Returns entries of a matrix at the given rows and columns.
++     * <p>
++     * The rows of the matrix are first laid out one after the other in a
++     * single array, which is passed on with the row width.</p>
++     *
++     * @param data the entries of the matrix, row by row
++     * @param rows the indices of the rows
++     * @param columns the indices of the columns
++     * @return the entries, one row per index in rows and one column per index
++     *         in columns
++     */
++    public static BigDecimal[][] entriesAt(BigDecimal[][] data, int[] rows, int[] columns) {
++        final int width = data[0].length;
++        final BigDecimal[] entries = new BigDecimal[data.length * width];
++        for (int r = 0; r < data.length; r++) {
++            System.arraycopy(data[r], 0, entries, r * width, width);
++        }
++        return GraggBulirschStoerIntegrator.copyEntries(entries, width, rows, columns);
++    }
++
++
+     /**
+      * Returns n!. Shorthand for <code>n</code> <a
+      * href="http://mathworld.wolfram.com/Factorial.html"> Factorial</a>, the

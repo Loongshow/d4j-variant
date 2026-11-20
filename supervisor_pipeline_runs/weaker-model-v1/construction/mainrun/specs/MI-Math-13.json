@@ -1,0 +1,240 @@
+{
+ "bug_id": 13,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/dfp/Dfp.java",
+   "new": "        final double[] errors = BOBYQAOptimizer.fitDeviations(jacobian.scalarMultiply(1.0 / jacobian.getFrobeniusNorm()), threshold);",
+   "old": "        final double[] errors = BOBYQAOptimizer.fitDeviations(jacobian, threshold);",
+   "why": "hop 1 normalises the Jacobian by its Frobenius norm"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+   "new": "        final RealMatrix normal = new QRDecomposition(jacobian.transpose().multiply(jacobian), threshold).getSolver().getInverse();",
+   "old": "        final RealMatrix normal = jacobian.transpose().multiply(jacobian);",
+   "why": "hop 3 hands down the covariance matrix instead of the normal matrix"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java",
+   "new": "        return BlockRealMatrix.jacobianDeviations(jacobian, 0);",
+   "old": "        return BlockRealMatrix.jacobianDeviations(jacobian, threshold);",
+   "why": "hop 2 drops the singularity threshold"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/dfp/Dfp.java",
+   "new": "import org.apache.commons.math3.FieldElement;\nimport org.apache.commons.math3.linear.RealMatrix;\nimport org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer;\nimport org.apache.commons.math3.util.FastMath;\n",
+   "old": "import org.apache.commons.math3.FieldElement;\n",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/dfp/Dfp.java",
+   "new": "        return new Dfp(getField(), x);\n    }\n\n    /**\n     * Computes the asymptotic standard errors of the parameters of a\n     * least-squares fit from its weighted Jacobian and its chi-square.\n     *\n     * <p>The standard deviation of each parameter is multiplied by the\n     * residual factor sqrt(chiSquare / (observations - parameters)), the\n     * square root of the chi-square per degree of freedom.</p>\n     *\n     * @param jacobian the weighted Jacobian of the fit, one row per\n     * observation and one column per parameter\n     * @param chiSquare the chi-square of the fit\n     * @param observations the number of observations\n     * @param parameters the number of parameters, less than the number of\n     * observations\n     * @param threshold the singularity threshold of the decomposition\n     * @return the asymptotic standard error of each parameter\n     * @throws org.apache.commons.math3.linear.SingularMatrixException if the\n     * covariance matrix cannot be computed\n     */\n    public static double[] parameterErrors(final RealMatrix jacobian, final double chiSquare,\n                                           final int observations, final int parameters,\n                                           final double threshold) {\n        final double[] errors = BOBYQAOptimizer.fitDeviations(jacobian, threshold);\n        final double factor = FastMath.sqrt(chiSquare / (observations - parameters));\n        for (int i = 0; i < errors.length; i++) {\n            errors[i] *= factor;\n        }\n        return errors;\n    }\n\n\n    /** Create an instance from a double value.",
+   "old": "        return new Dfp(getField(), x);\n    }\n\n    /** Create an instance from a double value.",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+   "new": "        }\n\n        return out;\n    }\n\n    /**\n     * Computes the standard deviations of the parameters of a least-squares\n     * fit from its normal matrix.\n     *\n     * <p>The normal matrix is equilibrated before it is decomposed: each entry\n     * is divided by the square roots of the diagonal entries of its row and of\n     * its column, which keeps the decomposition well conditioned when the\n     * parameters have very different magnitudes. The inverse of the\n     * equilibrated matrix is computed with a QR decomposition with the given\n     * singularity threshold, and the deviations are derived from the diagonal\n     * of the inverse.</p>\n     *\n     * @param normal the normal matrix J<sup>T</sup>J of the fit, one row and\n     * one column per parameter\n     * @param threshold the singularity threshold of the QR decomposition\n     * @return the standard deviation of each parameter\n     * @throws SingularMatrixException if the equilibrated matrix is singular\n     */\n    public static double[] deviationsFromNormal(final double[][] normal, final double threshold) {\n        final int n = normal.length;\n        final double[] scale = new double[n];\n        for (int i = 0; i < n; i++) {\n            scale[i] = FastMath.sqrt(normal[i][i]);\n        }\n        final double[][] equilibrated = new double[n][n];\n        for (int i = 0; i < n; i++) {\n            for (int j = 0; j < n; j++) {\n                equilibrated[i][j] = normal[i][j] / (scale[i] * scale[j]);\n            }\n        }\n        final double[][] inverse =\n            new QRDecomposition(MatrixUtils.createRealMatrix(equilibrated), threshold).getSolver().getInverse().getData();\n        final double[] deviations = new double[n];\n        for (int i = 0; i < n; i++) {\n            deviations[i] = FastMath.sqrt(inverse[i][i]) / scale[i];\n        }\n        return deviations;\n    }\n\n\n    /** {@inheritDoc} */\n    @Override\n    public FieldMatrix<T> multiply(final FieldMatrix<T> m)",
+   "old": "        }\n\n        return out;\n    }\n\n    /** {@inheritDoc} */\n    @Override\n    public FieldMatrix<T> multiply(final FieldMatrix<T> m)",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+   "new": "import org.apache.commons.math3.util.MathUtils;\nimport org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;\n",
+   "old": "import org.apache.commons.math3.util.MathUtils;\n",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+   "new": "        return out;\n    }\n\n    /**\n     * Computes the standard deviations of the parameters of a least-squares\n     * fit from its weighted Jacobian J, through the normal matrix\n     * J<sup>T</sup>J.\n     *\n     * @param jacobian weighted Jacobian (one row per observation, one column\n     * per parameter)\n     * @param threshold singularity threshold of the decomposition\n     * @return the standard deviation of each parameter\n     */\n    public static double[] jacobianDeviations(final RealMatrix jacobian, final double threshold) {\n        final RealMatrix normal = jacobian.transpose().multiply(jacobian);\n        return BOBYQAOptimizer.normalDeviations(normal, threshold);\n    }\n\n\n    /** {@inheritDoc} */\n    @Override\n    public void setRow(final int row, final double[] array)",
+   "old": "        return out;\n    }\n\n    /** {@inheritDoc} */\n    @Override\n    public void setRow(final int row, final double[] array)",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java",
+   "new": "import org.apache.commons.math3.optim.nonlinear.scalar.MultivariateOptimizer;\nimport org.apache.commons.math3.linear.BlockRealMatrix;\nimport org.apache.commons.math3.linear.RealMatrix;\n",
+   "old": "import org.apache.commons.math3.optim.nonlinear.scalar.MultivariateOptimizer;\n",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java",
+   "new": "        this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;\n    }\n\n    /**\n     * Computes the standard deviations of the parameters of a least-squares\n     * fit from its weighted Jacobian.\n     *\n     * @param jacobian Weighted Jacobian of the fit (one row per observation,\n     * one column per parameter).\n     * @param threshold Singularity threshold of the decomposition.\n     * @return the standard deviation of each parameter.\n     */\n    public static double[] fitDeviations(RealMatrix jacobian, double threshold) {\n        return BlockRealMatrix.jacobianDeviations(jacobian, threshold);\n    }\n\n\n    /** {@inheritDoc} */",
+   "old": "        this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;\n    }\n\n    /** {@inheritDoc} */",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java",
+   "new": "import org.apache.commons.math3.optimization.MultivariateOptimizer;\nimport org.apache.commons.math3.linear.BlockFieldMatrix;\nimport org.apache.commons.math3.linear.RealMatrix;\n",
+   "old": "import org.apache.commons.math3.optimization.MultivariateOptimizer;\n",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java",
+   "new": "        this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;\n    }\n\n    /**\n     * Computes the standard deviations of the parameters of a least-squares\n     * fit from its normal matrix.\n     *\n     * @param normal Normal matrix J<sup>T</sup>J of the fit.\n     * @param threshold Singularity threshold of the decomposition.\n     * @return the standard deviation of each parameter.\n     */\n    public static double[] normalDeviations(RealMatrix normal, double threshold) {\n        return BlockFieldMatrix.deviationsFromNormal(normal.getData(), threshold);\n    }\n\n\n    /** {@inheritDoc} */",
+   "old": "        this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;\n    }\n\n    /** {@inheritDoc} */",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optimization/general/AbstractLeastSquaresOptimizer.java",
+   "new": "     * covariance matrix. The diagonal entries {@code C[i][i]} are obtained\n     * from a Cholesky decomposition of <code>J<sup>T</sup>J</code>.",
+   "old": "     * covariance matrix.",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optimization/general/AbstractLeastSquaresOptimizer.java",
+   "new": "        return org.apache.commons.math3.dfp.Dfp.parameterErrors(computeWeightedJacobian(point), getChiSquare(), rows, cols, 1e-14);",
+   "old": "        double[] errors = new double[cols];\n        final double c = FastMath.sqrt(getChiSquare() / (rows - cols));\n        double[][] covar = computeCovariances(point, 1e-14);\n        for (int i = 0; i < errors.length; ++i) {\n            errors[i] = FastMath.sqrt(covar[i][i]) * c;\n        }\n        return errors;",
+   "purpose": "MI-Math-13 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math3.dfp.Dfp",
+   "file": "src/main/java/org/apache/commons/math3/dfp/Dfp.java",
+   "method": "parameterErrors"
+  },
+  {
+   "class": "org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer",
+   "file": "src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java",
+   "method": "fitDeviations"
+  },
+  {
+   "class": "org.apache.commons.math3.linear.BlockRealMatrix",
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+   "method": "jacobianDeviations"
+  },
+  {
+   "class": "org.apache.commons.math3.optimization.direct.BOBYQAOptimizer",
+   "file": "src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java",
+   "method": "normalDeviations"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Math-13__i.py",
+ "entry_points": [
+  "org.apache.commons.math3.optimization.general.AbstractLeastSquaresOptimizer::guessParametersErrors"
+ ],
+ "evidence": [
+  "org.apache.commons.math3.optimization.general.AbstractLeastSquaresOptimizer::computeSigma",
+  "org.apache.commons.math3.optimization.general.AbstractLeastSquaresOptimizer::computeCovariances",
+  "org.apache.commons.math3.optim.nonlinear.vector.jacobian.AbstractLeastSquaresOptimizer::computeSigma"
+ ],
+ "expected_signature": "expected:<123.456> but was:<",
+ "extra_tests": [],
+ "fixture_key": "Math-13",
+ "gold": {
+  "class": "org.apache.commons.math3.linear.BlockFieldMatrix",
+  "edits": [
+   {
+    "new": "            deviations[i] = FastMath.sqrt(inverse[i][i]);",
+    "old": "            deviations[i] = FastMath.sqrt(inverse[i][i]) / scale[i];"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+  "method": "deviationsFromNormal"
+ },
+ "group": "MI-Math-13",
+ "hops": 5,
+ "iid": "MI-Math-13",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold turns the normal matrix into the parameters' deviations: hop 1 multiplies them by the residual factor sqrt(chiSquare / (observations - parameters)) that its javadoc states, hop 2 passes the weighted Jacobian along, hop 3 forms J^T J exactly as computeCovariances does, hop 4 passes its entries on. The gold equilibrates the normal matrix, takes its inverse by QR and derives each deviation from the diagonal of the inverse; the variant omits the division by the parameter's scale, so it returns sqrt(A[i][i] * inverse(A)[i][i]), which is invariant under any rescaling of the parameters: no caller can pre-scale its input to recover the deviations, and recovering them afterwards needs a second, per-parameter implementation of the gold's step. The gold's javadoc promises the standard deviation of each parameter, the square root of the diagonal entry of the covariance matrix inverse(J^T J). The convention is pinned outside the gold: the facade's javadoc (sd(a[i]) = sqrt(S / (n - m) * C[i][i]), C the covariance matrix), the intact computeSigma of the same class (sqrt(cov[i][i])), the intact computeCovariances (C = QR inverse of J^T J) and the intact sibling optim.nonlinear.vector.jacobian.AbstractLeastSquaresOptimizer.computeSigma; the testCircleFitting covariance checks, the sibling's testCircleFitting2 (computeSigma on the same circle problem) and testComputeSigma (Kirby2, NIST certified deviations) pass.",
+ "ownership_tests": [
+  "org.apache.commons.math3.optimization.general.LevenbergMarquardtOptimizerTest::testCircleFitting",
+  "org.apache.commons.math3.optimization.general.GaussNewtonOptimizerTest::testCircleFitting",
+  "org.apache.commons.math3.optim.nonlinear.vector.jacobian.LevenbergMarquardtOptimizerTest::testCircleFitting2",
+  "org.apache.commons.math3.optimization.general.AbstractLeastSquaresOptimizerTest::testComputeSigma"
+ ],
+ "project": "Math",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "newInstance",
+    "anchor_seed": 5985,
+    "class": "org.apache.commons.math3.dfp.Dfp",
+    "file": "src/main/java/org/apache/commons/math3/dfp/Dfp.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.math3.linear.RealMatrix;",
+     "import org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer;",
+     "import org.apache.commons.math3.util.FastMath;"
+    ],
+    "method": "parameterErrors",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BOBYQAOptimizer",
+    "anchor_seed": 5986,
+    "class": "org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer",
+    "file": "src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.math3.linear.BlockRealMatrix;",
+     "import org.apache.commons.math3.linear.RealMatrix;"
+    ],
+    "method": "fitDeviations",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getRow",
+    "anchor_seed": 5987,
+    "class": "org.apache.commons.math3.linear.BlockRealMatrix",
+    "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;"
+    ],
+    "method": "jacobianDeviations",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BOBYQAOptimizer",
+    "anchor_seed": 5988,
+    "class": "org.apache.commons.math3.optimization.direct.BOBYQAOptimizer",
+    "file": "src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.math3.linear.BlockFieldMatrix;",
+     "import org.apache.commons.math3.linear.RealMatrix;"
+    ],
+    "method": "normalDeviations",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "scalarMultiply",
+    "anchor_seed": 5989,
+    "class": "org.apache.commons.math3.linear.BlockFieldMatrix",
+    "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "deviationsFromNormal",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 5885
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Math-13"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.math3.optimization.general.LevenbergMarquardtOptimizerTest",
+  "test_file": "src/test/java/org/apache/commons/math3/optimization/general/LevenbergMarquardtOptimizerTest.java",
+  "test_method": "testCircleFitting2"
+ },
+ "variant_id": "CTV-F5B575",
+ "kind": "new",
+ "fault_lines": [
+  "deviations[i] = FastMath.sqrt(inverse[i][i]);"
+ ],
+ "gold_key": "org.apache.commons.math3.linear.BlockFieldMatrix::deviationsFromNormal"
+}

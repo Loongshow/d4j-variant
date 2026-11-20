@@ -1,0 +1,199 @@
+diff --git a/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java b/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
+index 564cfc19e..372ff12a1 100644
+--- a/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
++++ b/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
+@@ -884,6 +884,26 @@ public abstract class AbstractRealMatrix implements RealMatrix, Serializable {
+         return visitor.end();
+     }
+ 
++    /**
++     * Get the representable magnitude adjacent to a positive magnitude.
++     * @param magnitude positive finite magnitude
++     * @param larger if true, the next larger representable magnitude is
++     * returned, otherwise the next smaller one
++     * @return the representable magnitude adjacent to the given one
++     */
++    public static double adjacentMagnitude(final double magnitude, final boolean larger) {
++        final double ulp = Math.ulp(magnitude);
++        if (larger) {
++            return magnitude + ulp;
++        }
++        if ((magnitude > MathUtils.SAFE_MIN) &&
++            ((Double.doubleToLongBits(magnitude) & 0x000fffffffffffffL) == 0L)) {
++            return magnitude - 0.5 * ulp;
++        }
++        return magnitude - ulp;
++    }
++
++
+     /** {@inheritDoc} */
+     public double walkInColumnOrder(final RealMatrixChangingVisitor visitor)
+         throws MatrixVisitorException {
+diff --git a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index f8f5fdfea..e9514cc58 100644
+--- a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -20,6 +20,7 @@ import java.io.Serializable;
+ import java.math.BigDecimal;
+ 
+ import org.apache.commons.math.MathRuntimeException;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  * Implementation of {@link BigMatrix} using a BigDecimal[][] array to store entries
+@@ -528,6 +529,22 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+     public void setRoundingMode(int roundingMode) {
+         this.roundingMode = roundingMode;
+     }
++
++    /**
++     * Get the representable number adjacent to a non-zero finite number,
++     * with a larger or a smaller magnitude.
++     * <p>
++     * The adjacent magnitude is computed for the absolute value of
++     * <code>d</code>, and the sign of <code>d</code> is then restored.</p>
++     * @param d base number (finite, non-zero)
++     * @param larger if true, the adjacent number with a larger magnitude is
++     * returned, otherwise the adjacent number with a smaller magnitude
++     * @return the representable number adjacent to d
++     */
++    public static double adjacentValue(final double d, final boolean larger) {
++        return MathUtils.indicator(d) * RealVectorImpl.representableMagnitude(Math.abs(d), larger);
++    }
++
+     
+     /***
+      * Sets the scale for division operations.
+diff --git a/src/java/org/apache/commons/math/linear/DenseRealMatrix.java b/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
+index d8d0e43ed..357677006 100644
+--- a/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
++++ b/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
+@@ -1165,6 +1165,22 @@ public class DenseRealMatrix extends AbstractRealMatrix implements Serializable
+ 
+     }
+ 
++    /**
++     * Get the representable number adjacent to a non-zero finite number, on
++     * the side of another number.
++     * <p>
++     * The magnitude increases when <code>direction</code> lies beyond
++     * <code>d</code> as seen from zero, or is equal to <code>d</code>, and
++     * decreases otherwise.</p>
++     * @param d base number (finite, non-zero)
++     * @param direction direction of the move
++     * @return the representable number adjacent to d on the side of direction
++     */
++    public static double adjacentEntry(final double d, final double direction) {
++        return BigMatrixImpl.adjacentValue(d, d * (direction - d) >= 0);
++    }
++
++
+     /** {@inheritDoc} */
+     public void setColumn(final int column, final double[] array)
+         throws MatrixIndexException, InvalidMatrixException {
+diff --git a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+index 37498b09c..aedd45443 100644
+--- a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
++++ b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+@@ -289,6 +289,25 @@ public class EigenDecompositionImpl implements EigenDecomposition {
+         return cachedD;
+     }
+ 
++    /**
++     * Get the next machine representable number after a finite number,
++     * moving in the direction of another number.
++     * <p>
++     * If <code>d</code> is zero, the smallest positive number is returned
++     * when <code>direction</code> is not negative, and the largest negative
++     * number otherwise.</p>
++     * @param d base number (finite)
++     * @param direction direction of the move
++     * @return the next machine representable number in the specified direction
++     */
++    public static double nextRepresentable(final double d, final double direction) {
++        if (d == 0) {
++            return (direction < 0) ? -Double.MIN_VALUE : Double.MIN_VALUE;
++        }
++        return DenseRealMatrix.adjacentEntry(d, direction);
++    }
++
++
+     /** {@inheritDoc} */
+     public RealMatrix getVT()
+         throws InvalidMatrixException {
+diff --git a/src/java/org/apache/commons/math/linear/RealVectorImpl.java b/src/java/org/apache/commons/math/linear/RealVectorImpl.java
+index 640be4549..b7a24771d 100644
+--- a/src/java/org/apache/commons/math/linear/RealVectorImpl.java
++++ b/src/java/org/apache/commons/math/linear/RealVectorImpl.java
+@@ -130,6 +130,18 @@ public class RealVectorImpl implements RealVector, Serializable {
+         }
+     }
+ 
++    /**
++     * Get the representable magnitude adjacent to a positive magnitude.
++     * @param magnitude positive finite magnitude
++     * @param larger if true, the next larger representable magnitude is
++     * returned, otherwise the next smaller one
++     * @return the representable magnitude adjacent to the given one
++     */
++    public static double representableMagnitude(final double magnitude, final boolean larger) {
++        return AbstractRealMatrix.adjacentMagnitude(magnitude, larger);
++    }
++
++
+     /**
+      * Construct a vector from part of a Double array
+      * @param d array of Doubles.
+diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java
+index 1389d5a28..900f65bb4 100644
+--- a/src/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/java/org/apache/commons/math/util/MathUtils.java
+@@ -687,45 +687,14 @@ public final class MathUtils {
+      * direction is greater or smaller than d)
+      * @return the next machine representable number in the specified direction
+      * @since 1.2
++       The value of d is converted to a BigDecimal through its shortest decimal representation, whose last decimal digit is moved by one toward direction before the result is converted back to a double.
+      */
+     public static double nextAfter(double d, double direction) {
+-
+         // handling of some important special cases
+         if (Double.isNaN(d) || Double.isInfinite(d)) {
+-                return d;
+-        } else if (d == 0) {
+-                return (direction < 0) ? -Double.MIN_VALUE : Double.MIN_VALUE;
+-        }
+-        // special cases MAX_VALUE to infinity and  MIN_VALUE to 0
+-        // are handled just as normal numbers
+-
+-        // split the double in raw components
+-        long bits     = Double.doubleToLongBits(d);
+-        long sign     = bits & 0x8000000000000000L;
+-        long exponent = bits & 0x7ff0000000000000L;
+-        long mantissa = bits & 0x000fffffffffffffL;
+-
+-        if (d * (direction - d) >= 0) {
+-                // we should increase the mantissa
+-                if (mantissa == 0x000fffffffffffffL) {
+-                        return Double.longBitsToDouble(sign |
+-                                        (exponent + 0x0010000000000000L));
+-                } else {
+-                        return Double.longBitsToDouble(sign |
+-                                        exponent | (mantissa + 1));
+-                }
+-        } else {
+-                // we should decrease the mantissa
+-                if (mantissa == 0L) {
+-                        return Double.longBitsToDouble(sign |
+-                                        (exponent - 0x0010000000000000L) |
+-                                        0x000fffffffffffffL);
+-                } else {
+-                        return Double.longBitsToDouble(sign |
+-                                        exponent | (mantissa - 1));
+-                }
++            return d;
+         }
+-
++        return org.apache.commons.math.linear.EigenDecompositionImpl.nextRepresentable(d, direction);
+     }
+ 
+     /**

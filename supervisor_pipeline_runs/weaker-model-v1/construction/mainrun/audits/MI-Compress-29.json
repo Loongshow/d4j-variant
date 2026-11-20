@@ -1,0 +1,33 @@
+{
+  "instance": "Compress-29__i",
+  "iid": "MI-Compress-29",
+  "cell": "C10i",
+  "batch": 8,
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {"method": "TarArchiveEntry::blockArchiveStream (gold)", "edit": "restore `if (encoding == null) { return tar ? new TarArchiveOutputStream(out) : new CpioArchiveOutputStream(out); }`", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": "G1 of validation.json (not re-run)", "doc_consistent": true, "class": "gold repair"},
+    {"method": "ZipArchiveInputStream::archiveStreamFor (hop 4)", "edit": "return TarArchiveEntry.blockArchiveStream(tar, out, encoding == null && !tar ? CharsetNames.US_ASCII : encoding);", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "fails (doc-inconsistent: hop 4 says the entry encoding is 'passed on as the factory holds it'; gold @param says the encoding is 'as getEntryEncoding() returns it')"},
+    {"method": "ZipArchiveInputStream::archiveStreamFor (hop 4)", "edit": "return !tar && encoding == null ? new CpioArchiveOutputStream(out) : TarArchiveEntry.blockArchiveStream(tar, out, encoding);", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass (replaces the gold's result for the cpio/null case with another construction)"},
+    {"method": "ArchiveStreamFactory::createArchiveOutputStream (facade)", "edit": "return ZipArchiveOutputStream.createArchiveStream(archiverName, out, entryEncoding == null && CPIO.equalsIgnoreCase(archiverName) ? CharsetNames.US_ASCII : entryEncoding);", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "fails (doc-inconsistent: every hop's @param encoding is 'the entry encoding of the factory' and the gold's is 'as getEntryEncoding() returns it'; facade would inject cpio-specific defaulting upstream)"},
+    {"method": "ZipArchiveInputStream::archiveStreamFor (hop 4, declared G9)", "edit": "encoding != null ? encoding : CharsetNames.US_ASCII", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": null, "doc_consistent": false, "class": "fails (tar default becomes US-ASCII)"}
+  ],
+  "path": [
+    "facade org.apache.commons.compress.archivers.ArchiveStreamFactory#createArchiveOutputStream(String, OutputStream) [instance, V1: reads entryEncoding]",
+    "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream#createArchiveStream (1613 lines)",
+    "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream#openArchiveStream (1329)",
+    "hop3 org.apache.commons.compress.archivers.zip.ZipFile#newArchiveStream (1121)",
+    "hop4 org.apache.commons.compress.archivers.zip.ZipArchiveInputStream#archiveStreamFor (1082)",
+    "gold org.apache.commons.compress.archivers.tar.TarArchiveEntry#blockArchiveStream (1073)"
+  ],
+  "reasons": "Variant compiles; trigger ArchiveStreamFactoryTest::testEncodingOutputStream fails (Tests failed: 1) and the four ownership tests pass; restoring the gold's null branch makes the trigger pass. (a) The gold promises a stream 'with the entry encoding of an archive stream factory', its @param being the encoding 'as getEntryEncoding() returns it', and getEntryEncoding documents null as 'the archiver default'; the variant always calls the encoding constructor, so a default factory gets a cpio stream with the platform default (null) instead of cpio's ASCII default. The hops, the facade and CpioArchiveOutputStream(out, String) ('null for the platform's default') all behave as documented. (b) Hop 4 says the encoding is 'passed on as the factory holds it', hops 2-3 pass it on with the factory's encoding, and hop 1 sets it only on the zip/jar streams it builds; none is loose enough to own default resolution for cpio. (c) Three alternative one-line edits pass trigger, ownership tests and full suite, but each contradicts hop 4's and/or the gold's documented input (substituting US-ASCII upstream) or is a bypass (hop 4 builds the cpio stream itself); no competing repair. (d) Names neutral (blockArchiveStream, archiveStreamFor, newArchiveStream, openArchiveStream, createArchiveStream); the lie ('converted to lower case and looked up in a table that maps each supported name to its stream constructor') is false for the equalsIgnoreCase chain and says nothing about encodings or defaults; the gold's javadoc does not state the null/default step. (e) Five hops in five distinct existing classes, exactly hosts_hop_order of the largest5 task record (allowed-candidate file ArchiveStreamFactory excluded); gold five calls below the facade; facade = two original null guards + one call to hop 1 passing the private field entryEncoding (V1); one appended lie sentence; existing trigger, only it newly fails (G5). (f) Pinned outside the gold by the intact sibling ArchiveStreamFactory.createArchiveInputStream(String, InputStream) and createArchiveInputStream(InputStream) cpio branches (default constructor when entryEncoding is null), by hop 1's own null check, by CpioArchiveOutputStream(OutputStream) javadoc ('using ASCII encoding for file names'), and by passing testEncodingInputStream/testEncodingInputStreamAutodetect (cpio + default factory expects CPIO_DEFAULT). (g) The diff only adds imports and five new public static methods and rewrites the facade body/javadoc: no visibility widening, no new type, no reflection, facade signature/modifiers/throws unchanged (public, throws ArchiveException), test.patch empty.",
+  "notes": "Omitted step is a three-line if-block (one guard statement with a return), not a literal single line; accepted as a one-statement omission. The omission only affects cpio (TarArchiveOutputStream(out) and (out, null) are equivalent). The facade lie sits after the @throws IllegalArgumentException tag without a leading '*' (rewrite_facade formatting); it reads as part of that tag but does not point at the gold. Recorded bypass: hop 4 `return !tar && encoding == null ? new CpioArchiveOutputStream(out) : TarArchiveEntry.blockArchiveStream(tar, out, encoding);`. Build caveat for re-auditors: copying a compiled checkout and editing within the same second leaves stale classes; delete target/ before compile."
+}

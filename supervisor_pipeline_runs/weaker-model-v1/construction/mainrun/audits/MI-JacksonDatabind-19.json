@@ -1,0 +1,45 @@
+{
+ "instance": "MI-JacksonDatabind-19",
+ "task_key": "JacksonDatabind-19__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::typeWithParameters (hop 1)",
+   "edit": "insert before 'return TokenBuffer.parametrizedTypeOf(...)': if (java.util.Map.class.isAssignableFrom(parametrized)) { if (parameterTypes.length != 2) { throw new IllegalArgumentException(\"Need exactly 2 parameter types for Map types (\"+parametrized.getName()+\")\"); } return typeFactory.constructMapType((Class<java.util.Map<?,?>>) parametrized, parameterTypes[0], parameterTypes[1]); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "hops 1-3 (declared compensating edits: Map routed through the array branch; parametersFor rebound to the class; parametersFor rebound to Map.class)",
+   "edit": "as declared in spec.compensating; checked by gate G9",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.databind.type.TypeFactory::constructParametrizedType (public instance; V2, passes this)",
+  "hop1 com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::typeWithParameters (array branch, else delegates)",
+  "hop2 com.fasterxml.jackson.databind.util.TokenBuffer::parametrizedTypeOf (pass-through)",
+  "hop3 com.fasterxml.jackson.databind.ObjectMapper::parametrizedType (pass-through)",
+  "hop4 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::typeForParameters (pass-through)",
+  "gold com.fasterxml.jackson.databind.ObjectReader::parametrizedTypeFor (Collection branch, else constructSimpleType; Map branch omitted)"
+ ],
+ "reasons": "Scratch copy of fresh-mr/JacksonDatabind-19 with variant.patch: compiles; TestTypeFactory::testParametricTypes fails with 'expected:<...MapType> but was:<...SimpleType>'; full suite: only the trigger fails. (a) For Map.class with two parameters the gold, which documents and returns 'the JavaType that represents a parameterized type' and dispatches container kinds (Collection -> constructCollectionType), sends a Map class to constructSimpleType, so it returns a SimpleType where Jackson's type model (TypeFactory._fromClass/_mapType, _fromParameterizedClass, _fromParamType all build MapType) requires a MapType. Hop 1 decides only the array case, as its javadoc says, and correctly delegates a non-array; hops 2-4 are documented pass-throughs. (b) No hop javadoc contradicts its code; hop 1's only specific claim concerns arrays. (c) A one-line Map branch inserted in hop 1 passes the trigger, the four ownership tests and the full suite, but for Map classes it returns before hops 2-5 run, i.e. it reimplements the gold's dispatch and makes the chain's output dead for Maps while the gold, called directly, still violates its own contract: a bypass, recorded. The three declared compensating edits do not absorb the fault (G9). No competing repair found. (d) Hop and gold names are neutral host-vocabulary names; no fault vocabulary (G2b); ObjectReader already imports and uses java.util.Map, so no unused import points at the omission; the facade lie ('type parameters are matched to the type variables of parametersFor by name, after both have been sorted alphabetically') is a false procedural description that names neither Maps nor the omitted branch nor any hop. (e) Gold is exactly five calls below the facade; the five hops are new public static methods in five different existing classes; the hosts equal the seeded 1500-regime draw (mr_lib.py preview JacksonDatabind-19 .../TypeFactory.java 5 gives BasicDeserializerFactory, TokenBuffer, ObjectMapper, BeanDeserializerBase, ObjectReader in hop order; host_mode '1500' in batch8_tasks.json, hosts_hop_order null); the facade body is one delegating call (the original had no guard); the lie is one appended sentence; the gold javadoc is silent on Map handling; the trigger is an existing test and test.patch is empty. (f) TypeFactory._fromClass (via _mapType), _fromParameterizedClass and _fromParamType build Map classes as MapType before the Collection case; TestTypeFactory::testMaps/testCollections pass, and TestWithGenerics::testWrapperWithExplicitType and TestTypedContainerSerialization::testIssue329 pass through the chain. (g) C10i: facade constructParametrizedType is an allowed instance candidate (V2 receiver: hops call only public TypeFactory methods constructArrayType/constructMapType/constructCollectionType/constructSimpleType); signature, modifiers, overrides and thrown types unchanged; no visibility widened, no type added, no reflection, no test edited (diff touches only six main sources: new static methods, two imports, the facade body and javadoc).",
+ "notes": "(1) The omission removes a whole six-line Map branch (instanceof test, count check, return) rather than a single physical line; it is a single omitted dispatch step, and item (e) of the audit brief does not list line count, so (e) is not failed on it; the supervisor may check it against the 'one-line omission' wording. (2) The gold handles Collection and the simple case but not Map; whether this sibling asymmetry is a local trace is for the trace checker (not assessed here). (3) The lie is appended after the '@since 2.5' tag with odd indentation, so it renders as part of the @since text; formatting of the recipe's rewrite, not a content issue. (4) The trigger's two try blocks have no fail() call; the 'Need exactly 2 parameter types for Map types' check bites only if an exception is thrown, which constrains upstream repairs that route a one-parameter Map to constructSimpleType. (5) facade_reuse_of JacksonDatabind-11__i is recorded in the task record only for moreSpecificType; this instance uses constructParametrizedType (facade_planned_by null). Scratch /private/tmp/mxb-jDek4z deleted."
+}

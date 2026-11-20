@@ -1,0 +1,51 @@
+{
+  "instance": "Math-94",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.math.linear.RealVectorImpl::logFactorialValue (hop 4)",
+      "edit": "return AbstractRealMatrix.logFactorial(n);  ->  return n > 20 ? Math.log((double) n) + logFactorialValue(n - 1) : AbstractRealMatrix.logFactorial(n);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math.linear.EigenDecompositionImpl::factorialLogarithm (hop 1)",
+      "edit": "return DenseRealMatrix.logOfFactorial(n);  ->  return org.apache.commons.math.special.Gamma.logGamma(n + 1.0);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math.util.MathUtils::factorialLog (facade, not a hop)",
+      "edit": "restore the pristine summation loop (logSum += Math.log((double)i) for i = 2..n) in place of the delegating call",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.math.util.MathUtils::factorialLog (guard n < 0, then EigenDecompositionImpl.factorialLogarithm(n)); reached from the trigger via factorial(21) -> factorialDouble(21) and factorialDouble(171)",
+    "hop1 org.apache.commons.math.linear.EigenDecompositionImpl::factorialLogarithm (pass-through to DenseRealMatrix.logOfFactorial)",
+    "hop2 org.apache.commons.math.linear.DenseRealMatrix::logOfFactorial (n < 2 -> 0.0, else BigMatrixImpl.lnFactorial)",
+    "hop3 org.apache.commons.math.linear.BigMatrixImpl::lnFactorial (pass-through to RealVectorImpl.logFactorialValue)",
+    "hop4 org.apache.commons.math.linear.RealVectorImpl::logFactorialValue (pass-through to AbstractRealMatrix.logFactorial)",
+    "gold org.apache.commons.math.linear.AbstractRealMatrix::logFactorial (long partial product folded into logSum on overflow risk; variant omits 'product = 1;' after the fold)"
+  ],
+  "reasons": "Reproduced: variant compiles; trigger MathUtilsTest::testFactorialFail fails with 'expecting ArithmeticException'; full suite (1425 tests) on the variant fails only the trigger; pristine and correct.patch builds fail 0 (correct build verified by bytecode to contain the reset). Mechanism: for n >= 21 the gold folds log(20!) into logSum but keeps product = 20!, so product *= 21 wraps to a negative long; log gives NaN (171 gives -Infinity), so factorialDouble(21) = NaN, Math.round(NaN) = 0 and factorial(21) does not throw. (a) The gold is documented for every non-negative n ('@return the natural logarithm of n!', no upper bound) and its own code violates that for every n > 20 on a direct call. Every hop is a one-line delegate (hop 2 adds a documented n < 2 -> 0 case that is correct) to a callee documented for all n >= 0, so their wrong outputs are propagated, not local; the facade and MathUtils.factorial/factorialDouble likewise only propagate. (b) No hop javadoc contradicts its code; each promises ln(n!) and does exactly what its callee contract implies; none is loose enough to make a hop answerable for the overflow. (c) No hop holds the factors, so no argument a hop passes can make the gold right above 20. The edits that pass trigger, ownership tests and full suite all compute per-factor logarithms outside the gold: Gamma.logGamma(n + 1.0) at hop 1 (hops 2-5 dead), the original loop at the facade (chain dead), and a hop-4 recursion that adds log(n) and recurses down to 20 before calling the gold. The recursion keeps the gold called, but it re-implements the gold's per-factor core for every factor above 20 and leaves AbstractRealMatrix.logFactorial(21) returning NaN against its own documented contract, so it is a workaround (bypass), not a repair consistent with all documentation on the path. No competing repair found. (d) Names (factorialLogarithm, logOfFactorial, lnFactorial, logFactorialValue, logFactorial) are uniform synonyms that do not single out the gold; no comments in the gold; no fault vocabulary (G2b). The lie ('evaluated from Stirling's series for the logarithm of the Gamma function at n + 1, truncated after its third correction term') describes an algorithm the code does not perform and does not mention the partial product, overflow, reset or any hop. (e) Gold is the fifth call below the facade; hosts are five distinct existing classes; facade body = original guard + one delegating call; one added procedural sentence; gold javadoc silent on the reset; trigger is existing (empty test.patch) and the only new failure; fault is a one-line omission. C10f addendum section 1: in the pristine checkout only two public classes other than MathUtils reach 1500 lines (EigenDecompositionImpl 1832, DenseRealMatrix 1621), so host_mode largest5 applies; the five largest public non-interface, non-enum classes other than MathUtils by newline count are EigenDecompositionImpl 1832, DenseRealMatrix 1621, BigMatrixImpl 1499, RealVectorImpl 1407, AbstractRealMatrix 1244, which are exactly hops 1-5 in that order (gold in the fifth). (f) The convention (an exact ln(n!) above 20, with no wrapped long accumulator) is pinned outside the gold: MathUtils.factorial documents 20 as the largest n with n! < Long.MAX_VALUE and an ArithmeticException beyond it, factorialDouble documents finiteness up to 170! (both computed from the logarithm); MathUtils.mulAndCheck(long,long) refuses rather than wraps an overflowing long product (testMulAndCheckLong passes); the sibling binomialCoefficientLog sums factor logarithms and stays accurate for large arguments (testBinomialCoefficientFail passes, including binomialCoefficientDouble(1030,515) infinite); PoissonDistributionTest.testDensities passes through the chain with factorials up to 20!.",
+  "notes": "Minor spec imprecision: ownership_reason says testFactorial passes through the chain with factorials up to 20!; testFactorial only covers 0..9; PoissonDistributionTest.testDensities covers up to x = 20. The lie is placed after the facade's @throws tag on a line without a leading '*', so javadoc would render it as part of the @throws description; this looks like the recipe's rewrite_facade output and is not a fault marker. Observation for the separate trace check, not part of this verdict: in the variant the gold folds product into logSum inside the overflow guard but keeps multiplying the same product, which a reader can see locally. Facade membership in the batch-6 pre-registered allowed targets and the seeded insertion anchors were not re-derived (those inputs are outside this brief); the facade is in MathUtils, the class the real Math-94 bug modifies. Harness note: the fixture copy carries compiled target/ classes; a first run of the hop-4 edit used stale classes and had to be redone after removing target/classes (all reported results are from verified recompiled builds)."
+}

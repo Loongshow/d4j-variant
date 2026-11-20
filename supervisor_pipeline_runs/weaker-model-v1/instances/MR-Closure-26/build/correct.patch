@@ -1,0 +1,232 @@
+diff --git a/src/com/google/javascript/jscomp/Compiler.java b/src/com/google/javascript/jscomp/Compiler.java
+index 63c83992e..c207fb69f 100644
+--- a/src/com/google/javascript/jscomp/Compiler.java
++++ b/src/com/google/javascript/jscomp/Compiler.java
+@@ -58,6 +58,7 @@ import java.util.concurrent.Callable;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+ import java.util.regex.Matcher;
++import java.io.File;
+ 
+ /**
+  * Compiler (and the other classes in this package) does the following:
+@@ -1806,6 +1807,22 @@ public class Compiler extends AbstractCompiler {
+       return sb.toString();
+     }
+ 
++    /**
++     * Returns the module name of the file that a relative name leads to from
++     * a requiring file. The directory of the requiring file is the part of
++     * its name before the last separator, or the empty path if its name has
++     * no separator.
++     *
++     * @param name the relative name, without extension
++     * @param from the name of the requiring file, without extension
++     * @return the module name of the file that the name leads to
++     */
++    public static String relativeModuleName(String name, String from) {
++      String dir = from.substring(0, Math.max(from.lastIndexOf(File.separator), 0));
++      return JSDocInfo.Marker.moduleNameInDirectory(dir, name);
++    }
++
++
+     /** Returns the length of the text buffer. */
+     public int getLength() {
+       return sb.length();
+diff --git a/src/com/google/javascript/jscomp/NodeUtil.java b/src/com/google/javascript/jscomp/NodeUtil.java
+index 4022a133c..e54c2556a 100644
+--- a/src/com/google/javascript/jscomp/NodeUtil.java
++++ b/src/com/google/javascript/jscomp/NodeUtil.java
+@@ -40,6 +40,7 @@ import java.util.Map;
+ import java.util.Set;
+ 
+ import javax.annotation.Nullable;
++import com.google.javascript.rhino.jstype.JSTypeRegistry;
+ 
+ /**
+  * NodeUtil contains utilities that get properties from the Node object.
+@@ -2582,6 +2583,22 @@ public final class NodeUtil {
+     public boolean apply(Node n) {
+       return n.getType() == type;
+     }
++
++    /**
++     * Returns the module name of a file that is required from another file.
++     * The ".js" extension is removed from both file names first.
++     *
++     * @param requiredFilename the name of the required file
++     * @param currentFilename the name of the file that requires it
++     * @return the module name of the required file
++     */
++    public static String moduleNameOfRequire(String requiredFilename,
++        String currentFilename) {
++      return JSTypeRegistry.requiredModuleName(
++          requiredFilename.replaceAll("\\.js$", ""),
++          currentFilename.replaceAll("\\.js$", ""));
++    }
++
+   }
+ 
+ 
+diff --git a/src/com/google/javascript/jscomp/ProcessCommonJSModules.java b/src/com/google/javascript/jscomp/ProcessCommonJSModules.java
+index fa01cd9e8..89fa8d5a6 100644
+--- a/src/com/google/javascript/jscomp/ProcessCommonJSModules.java
++++ b/src/com/google/javascript/jscomp/ProcessCommonJSModules.java
+@@ -22,8 +22,7 @@ import com.google.javascript.rhino.IR;
+ import com.google.javascript.rhino.Node;
+ 
+ import java.io.File;
+-import java.net.URI;
+-import java.net.URISyntaxException;
++
+ import java.util.Set;
+ import java.util.regex.Pattern;
+ 
+@@ -93,23 +92,12 @@ public class ProcessCommonJSModules implements CompilerPass {
+   /**
+    * Turn a filename into a moduleName with support for relative addressing
+    * with ./ and ../ based on currentFilename;
+-   */
++     Each pair of names is resolved only once; a later call with the same pair is answered from a table of the module names already computed.
++     */
+   public static String toModuleName(String requiredFilename,
+       String currentFilename) {
+-    requiredFilename = requiredFilename.replaceAll("\\.js$", "");
+-    currentFilename = currentFilename.replaceAll("\\.js$", "");
+-
+-    if (requiredFilename.startsWith("." + File.separator) ||
+-        requiredFilename.startsWith(".." + File.separator)) {
+-      try {
+-        requiredFilename = (new URI(currentFilename)).resolve(new URI(requiredFilename))
+-            .toString();
+-      } catch (URISyntaxException e) {
+-        throw new RuntimeException(e);
+-      }
++        return NodeUtil.MatchNodeType.moduleNameOfRequire(requiredFilename, currentFilename);
+     }
+-    return toModuleName(requiredFilename);
+-  }
+ 
+   private String normalizeSourceName(String filename) {
+     if (filename.indexOf(filenamePrefix) == 0) {
+diff --git a/src/com/google/javascript/jscomp/SymbolTable.java b/src/com/google/javascript/jscomp/SymbolTable.java
+index d8b133ef4..d4440de7a 100644
+--- a/src/com/google/javascript/jscomp/SymbolTable.java
++++ b/src/com/google/javascript/jscomp/SymbolTable.java
+@@ -53,6 +53,7 @@ import java.util.TreeSet;
+ import java.util.logging.Logger;
+ 
+ import javax.annotation.Nullable;
++import java.io.File;
+ 
+ /**
+  * A symbol table for people that want to use Closure Compiler as an indexer.
+@@ -1238,6 +1239,31 @@ public final class SymbolTable
+       return typeOfThis;
+     }
+ 
++    /**
++     * Returns the module name of the file that a sequence of path parts
++     * leads to from a directory.
++     *
++     * @param dir the path of the directory, without a trailing separator
++     * @param parts the path parts, in order
++     * @return the module name of the file that the parts lead to
++     */
++    public static String moduleNameOfParts(String dir, List<String> parts) {
++      StringBuilder path = new StringBuilder(dir);
++      for (String part : parts) {
++        if (part.equals("..") && path.length() > 0
++            && !path.substring(path.lastIndexOf(File.separator) + 1).equals("..")) {
++          path.setLength(Math.max(path.lastIndexOf(File.separator), 0));
++          continue;
++        }
++        if (path.length() > 0) {
++          path.append(File.separator);
++        }
++        path.append(part);
++      }
++      return "module$" + path.toString().replace(File.separator, "$").replace("-", "_");
++    }
++
++
+     public boolean isGlobalScope() {
+       return getParentScope() == null && getRootNode() != null;
+     }
+diff --git a/src/com/google/javascript/rhino/JSDocInfo.java b/src/com/google/javascript/rhino/JSDocInfo.java
+index c6f1caac1..490218c44 100644
+--- a/src/com/google/javascript/rhino/JSDocInfo.java
++++ b/src/com/google/javascript/rhino/JSDocInfo.java
+@@ -52,6 +52,9 @@ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.SymbolTable;
++import java.io.File;
++import java.util.regex.Pattern;
+ 
+ /**
+  * <p>JSDoc information describing JavaScript code. JSDoc is represented as a
+@@ -188,6 +191,23 @@ public class JSDocInfo implements Serializable {
+       return annotation;
+     }
+ 
++    /**
++     * Returns the module name of the file that a relative name leads to from
++     * a directory. The name is split into its parts at the separators, and
++     * its "." parts, which stand for the directory itself, are left out.
++     *
++     * @param dir the path of the directory, without a trailing separator
++     * @param name the relative name, without extension
++     * @return the module name of the file that the name leads to
++     */
++    public static String moduleNameInDirectory(String dir, String name) {
++      List<String> parts = Lists.newArrayList(
++          name.split(Pattern.quote(File.separator)));
++      parts.removeAll(Collections.singleton("."));
++      return SymbolTable.SymbolScope.moduleNameOfParts(dir, parts);
++    }
++
++
+     void setAnnotation(TrimmedStringPosition p) {
+       annotation = p;
+     }
+diff --git a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+index 8477243b8..e32d9162d 100644
+--- a/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
++++ b/src/com/google/javascript/rhino/jstype/JSTypeRegistry.java
+@@ -66,6 +66,9 @@ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
++import com.google.javascript.jscomp.Compiler;
++import com.google.javascript.jscomp.ProcessCommonJSModules;
++import java.io.File;
+ 
+ /**
+  * The type registry is used to resolve named types.
+@@ -1679,4 +1682,24 @@ public class JSTypeRegistry implements Serializable {
+     templateTypeName = null;
+     templateType = null;
+   }
++
++        /**
++     * Returns the module name of a file that is required from another file,
++     * both names given without extension. A name that starts with "./" or
++     * "../" is relative and is taken from the directory of the requiring
++     * file; any other name is a top-level name, whose module name does not
++     * depend on the requiring file.
++     *
++     * @param name the name of the required file
++     * @param from the name of the requiring file
++     * @return the module name of the required file
++     */
++    public static String requiredModuleName(String name, String from) {
++      if (name.startsWith("." + File.separator)
++          || name.startsWith(".." + File.separator)) {
++        return Compiler.CodeBuilder.relativeModuleName(name, from);
++      }
++      return ProcessCommonJSModules.toModuleName(name);
++    }
++
+ }

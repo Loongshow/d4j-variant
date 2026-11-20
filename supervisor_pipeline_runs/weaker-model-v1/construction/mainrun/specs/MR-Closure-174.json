@@ -1,0 +1,223 @@
+{
+ "bug_id": 174,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "return \"this\".equals(name) ? IR.thisNode() : JSTypeRegistry.createDottedName(convention, name.split(\"\\\\.\", -1));",
+   "old": "return JSTypeRegistry.createDottedName(convention, name.split(\"\\\\.\", -1));",
+   "why": "hop 1 returns a THIS node for the bare name this"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "return \"this\".equals(parts[0]) ? JSDocInfo.Marker.dottedNameOf(convention, java.util.Arrays.copyOfRange(parts, 1, parts.length), parts.length - 1) : JSDocInfo.Marker.dottedNameOf(convention, parts, parts.length);",
+   "old": "return JSDocInfo.Marker.dottedNameOf(convention, parts, parts.length);",
+   "why": "hop 2 drops a leading this part"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "return count == 1 && \"this\".equals(parts[0]) ? IR.thisNode() : SymbolTable.Symbol.qualifiedNameFrom(convention, parts, count);",
+   "old": "return SymbolTable.Symbol.qualifiedNameFrom(convention, parts, count);",
+   "why": "hop 4 returns a THIS node for a one-part name this"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /**\n     * Creates a node representing a qualified name.\n     *\n     * @param convention the coding convention in use\n     * @param name a qualified name (e.g. \"foo\" or \"foo.bar.baz\")\n     * @return a NAME or GETPROP node\n     */\n    public static Node qualifiedNameTree(CodingConvention convention,\n        String name) {\n      return JSTypeRegistry.createDottedName(convention, name.split(\"\\\\.\", -1));\n    }\n\n\n    /** Returns the length of the text buffer. */",
+   "old": "\n    /** Returns the length of the text buffer. */",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "\n    /**\n     * Creates a node representing the qualified name made of the first\n     * {@code count} parts.\n     *\n     * @param convention the coding convention in use\n     * @param parts the parts of the qualified name, in order\n     * @param count the number of parts to use, at least one\n     * @return a NAME or GETPROP node\n     */\n    public static Node accessPathOf(CodingConvention convention,\n        String[] parts, int count) {\n      return SymbolTable.Symbol.qualifiedNameFrom(convention, parts, count);\n    }\n\n\n    public boolean shouldStrip() {",
+   "old": "\n    public boolean shouldStrip() {",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/NodeUtil.java",
+   "new": "     The name is scanned from its last dot back to its first, and the node built for each prefix of the name is kept in a cache, so that a prefix shared with a name created earlier is reused instead of being created again.\n     */\n  public static Node newQualifiedNameNode(\n      CodingConvention convention, String name) {\n        return Compiler.CodeBuilder.qualifiedNameTree(convention, name);\n    }",
+   "old": "   */\n  public static Node newQualifiedNameNode(\n      CodingConvention convention, String name) {\n    int endPos = name.indexOf('.');\n    if (endPos == -1) {\n      return newName(convention, name);\n    }\n    Node node;\n    String nodeName = name.substring(0, endPos);\n    if (\"this\".equals(nodeName)) {\n      node = IR.thisNode();\n    } else {\n      node = newName(convention, nodeName);\n    }\n    int startPos;\n    do {\n      startPos = endPos + 1;\n      endPos = name.indexOf('.', startPos);\n      String part = (endPos == -1\n                     ? name.substring(startPos)\n                     : name.substring(startPos, endPos));\n      Node propNode = IR.string(part);\n      if (convention.isConstantKey(part)) {\n        propNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);\n      }\n      node = IR.getprop(node, propNode);\n    } while (endPos != -1);\n\n    return node;\n  }",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "import javax.annotation.Nullable;\nimport com.google.javascript.rhino.IR;\n",
+   "old": "import javax.annotation.Nullable;\n",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "\n    /**\n     * Creates a node representing the qualified name made of the given parts,\n     * the first part being the root of the name and each following part the\n     * name of a property.\n     *\n     * @param convention the coding convention in use\n     * @param parts the parts of the qualified name, in order\n     * @param count the number of parts to use, at least one\n     * @return a NAME or GETPROP node\n     */\n    public static Node qualifiedNameFrom(CodingConvention convention,\n        String[] parts, int count) {\n      String rootName = parts[0];\n      Node node;\n      if (count > 1 && \"this\".equals(rootName)) {\n        node = IR.thisNode();\n      } else {\n        node = IR.name(rootName);\n        if (convention.isConstant(rootName)) {\n          node.putBooleanProp(Node.IS_CONSTANT_NAME, true);\n        }\n      }\n      for (int i = 1; i < count; i++) {\n        Node propNode = IR.string(parts[i]);\n        if (convention.isConstantKey(parts[i])) {\n          propNode.putBooleanProp(Node.IS_CONSTANT_NAME, true);\n        }\n        node = IR.getprop(node, propNode);\n      }\n      return node;\n    }\n\n\n    public boolean inExterns() {",
+   "old": "\n    public boolean inExterns() {",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.CodingConvention;\nimport com.google.javascript.jscomp.CompilerOptions;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "      return description;\n    }\n\n    /**\n     * Creates a node representing the qualified name made of the first\n     * {@code count} parts.\n     *\n     * @param convention the coding convention in use\n     * @param parts the parts of the qualified name, in order\n     * @param count the number of parts to use, at least one\n     * @return a NAME or GETPROP node\n     */\n    public static Node dottedNameOf(CodingConvention convention,\n        String[] parts, int count) {\n      return CompilerOptions.TweakProcessing.accessPathOf(convention, parts, count);\n    }\n\n\n    void setDescription(StringPosition p) {",
+   "old": "      return description;\n    }\n\n    void setDescription(StringPosition p) {",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.CodingConvention;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  }\n\n        /**\n     * Creates a node representing the qualified name made of the given parts.\n     *\n     * @param convention the coding convention in use\n     * @param parts the dot-separated parts of the name, in order\n     * @return a NAME or GETPROP node\n     */\n    public static Node createDottedName(CodingConvention convention,\n        String[] parts) {\n      return JSDocInfo.Marker.dottedNameOf(convention, parts, parts.length);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Closure-174 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "method": "qualifiedNameTree"
+  },
+  {
+   "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "method": "createDottedName"
+  },
+  {
+   "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "method": "dottedNameOf"
+  },
+  {
+   "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "method": "accessPathOf"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-174.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.NodeUtil::newQualifiedNameNode"
+ ],
+ "evidence": [
+  "com.google.javascript.rhino.Node::getQualifiedName",
+  "com.google.javascript.rhino.Node::isQualifiedName",
+  "com.google.javascript.rhino.Node::isUnscopedQualifiedName",
+  "com.google.javascript.jscomp.NodeUtil::getRootOfQualifiedName"
+ ],
+ "expected_signature": "Subtree2: NAME this",
+ "extra_tests": [],
+ "fixture_key": "Closure-174",
+ "gold": {
+  "class": "com.google.javascript.jscomp.SymbolTable$Symbol",
+  "edits": [
+   {
+    "new": "      Node node = IR.name(rootName);\n      if (convention.isConstant(rootName)) {\n        node.putBooleanProp(Node.IS_CONSTANT_NAME, true);\n      }\n",
+    "old": "      Node node;\n      if (count > 1 && \"this\".equals(rootName)) {\n        node = IR.thisNode();\n      } else {\n        node = IR.name(rootName);\n        if (convention.isConstant(rootName)) {\n          node.putBooleanProp(Node.IS_CONSTANT_NAME, true);\n        }\n      }\n"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+  "method": "qualifiedNameFrom"
+ },
+ "group": "MR-Closure-174",
+ "hops": 5,
+ "iid": "MR-Closure-174",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold builds the root of the name together with its properties; hop 1 splits the name, hop 2 counts the parts and hops 3-4 pass them along, and each gets back one finished tree. No part string makes the gold produce a THIS root, and replacing the root of a finished tree takes a search for the root and a replaceChild, which is more than a one-line change. The convention is pinned outside the gold: Node.getQualifiedName returns \"this\" for a THIS root (the inverse of the facade) and NodeTest.testQualifiedName expects GETPROP(THIS, b) to read \"this.b\"; Node.isQualifiedName names this.a as a qualified name (case THIS; NodeTest.testIsQualifiedName) while Node.isUnscopedQualifiedName excludes this.a (NAME roots only); NodeUtil.getRootOfQualifiedName, beside the facade, requires the root to be a NAME or a THIS node. The parser never produces a NAME node named \"this\", so GETPROP(NAME this, prop) is not the node of the qualified name this.prop.",
+ "ownership_tests": [
+  "com.google.javascript.rhino.NodeTest::testQualifiedName",
+  "com.google.javascript.rhino.NodeTest::testIsQualifiedName",
+  "com.google.javascript.jscomp.NodeUtilTest::testNewQualifiedNameNode1"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 5111,
+    "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "qualifiedNameTree",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 5112,
+    "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+    "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.google.javascript.jscomp.CodingConvention;"
+    ],
+    "method": "createDottedName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getDescription",
+    "anchor_seed": 5113,
+    "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+    "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.google.javascript.jscomp.CodingConvention;",
+     "import com.google.javascript.jscomp.CompilerOptions;"
+    ],
+    "method": "dottedNameOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isOn",
+    "anchor_seed": 5114,
+    "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+    "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "accessPathOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "inGlobalScope",
+    "anchor_seed": 5115,
+    "class": "com.google.javascript.jscomp.SymbolTable$Symbol",
+    "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+    "hop": 5,
+    "imports_added": [
+     "import com.google.javascript.rhino.IR;"
+    ],
+    "method": "qualifiedNameFrom",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 5011
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-174"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.NodeUtilTest",
+  "test_file": "test/com/google/javascript/jscomp/NodeUtilTest.java",
+  "test_method": "testNewQualifiedNameNode2"
+ },
+ "variant_id": "CTV-9907BA",
+ "kind": "new",
+ "fault_lines": [
+  "Node node = IR.name(rootName);\n      if (convention.isConstant(rootName)) {\n        node.putBooleanProp(Node.IS_CONSTANT_NAME, true);\n      }"
+ ],
+ "gold_key": "com.google.javascript.jscomp.SymbolTable$Symbol::qualifiedNameFrom"
+}

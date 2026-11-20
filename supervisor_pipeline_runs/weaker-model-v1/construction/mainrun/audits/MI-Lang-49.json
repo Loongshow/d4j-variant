@@ -1,0 +1,74 @@
+{
+ "instance": "MI-Lang-49",
+ "task_key": "Lang-49__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::raiseFraction (hop 4)",
+   "edit": "return power == 1 ? FastDateFormat.raisedFraction(fraction, power) : (power & 1) == 0 ? raiseFraction(fraction.multiplyBy(fraction), power / 2) : raiseFraction(fraction.multiplyBy(fraction), power / 2).multiplyBy(fraction);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "hop 4 computes the power itself by recursive square-and-multiply; the gold is only ever called with power 1, where its loop does not run and it returns its input, so the gold's result is replaced by another implementation"
+  },
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::raiseFraction (hop 4)",
+   "edit": "return FastDateFormat.raisedFraction(fraction, (1 << power) - 1);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "passes only because the faulty gold returns fraction^popcount(power); under the gold's documented contract this returns fraction^(2^power - 1), and the shift wraps for power >= 31 (power 32 gives power 0), so it uses the gold against its documentation and is not a repair (fails criterion (c) doc consistency)"
+  },
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::raiseFraction (hop 4, declared compensating)",
+   "edit": "return (power & 1) == 0 ? FastDateFormat.raisedFraction(fraction.multiplyBy(fraction), power / 2) : FastDateFormat.raisedFraction(fraction, power);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.ArrayUtils::powerOfFraction (hop 3, declared compensating)",
+   "edit": "return StrBuilder.raiseFraction(fraction.reduce(), power);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::fractionToPower (hop 1, declared compensating)",
+   "edit": "return StringUtils.fractionPower(power > 1 ? fraction.multiplyBy(fraction) : fraction, power);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.math.Fraction::pow (public instance, V2: passes this and power to hop 1)",
+  "hop1 org.apache.commons.lang.builder.ToStringStyle::fractionToPower (power 0 -> Fraction.ONE, else hop 2)",
+  "hop2 org.apache.commons.lang.StringUtils::fractionPower (positive power straight on; negative -> reciprocal to the magnitude; MIN_VALUE -> squared reciprocal to half the magnitude)",
+  "hop3 org.apache.commons.lang.ArrayUtils::powerOfFraction (pass-through)",
+  "hop4 org.apache.commons.lang.text.StrBuilder::raiseFraction (pass-through)",
+  "gold org.apache.commons.lang.time.FastDateFormat::raisedFraction (left-to-right binary exponentiation; the squaring result = result.multiplyBy(result) is omitted)"
+ ],
+ "reasons": "Variant compiles; FractionTest::testPow fails with 'expected:<9> but was:<3>' (3/5 pow 2 returns 3/5) and is the only failure in the full suite; the correct patch passes it. (a) With the squaring omitted the gold returns fraction^popcount(power), so 3/5 raised to 2 comes back as 3/5, violating its own contract ('the fraction raised to the power'); hops 1-4 hand (3/5, 2) through unchanged and fail only because the gold does, and Fraction.multiplyBy behaves as documented, so the gold is the unique originating violation. (b) Every hop's javadoc matches its code: hop 1 the zero power, hop 2 the reciprocal and MIN_VALUE handling, hops 3-4 pure delegation with the same positive-power contract; none is loose enough to own a wrong result for a positive power passed unchanged. (c) The faulty gold equals fraction^power only for power 1 (for fractions other than 0 and +-1), so any non-gold repair that relies on the gold as documented must call it only with power 1 and compute the power elsewhere, which is a bypass; the recursive square-and-multiply at hop 4 passes the trigger, the ownership tests and the full suite and is recorded as a bypass; the (1 << power) - 1 exponent trick also passes but uses the gold against its documentation; all three declared compensating edits fail the trigger on a clean rebuild. (d) Hop and gold names are neutral power vocabulary, there are no added comments, and the facade lie (numerator and denominator raised separately, then divided by their gcd) names neither the squaring nor any hop. (e) Gold is five calls below the facade; hosts ToStringStyle (2285 lines), StringUtils (5501), ArrayUtils (4417), StrBuilder (2712), FastDateFormat (1747) are five different existing classes, exactly the seeded draw and anchors that mr_lib.py preview prints for Lang-49 (all hosts are at least 1500 lines, so the C10f largest-five allowance is not needed); the facade body is one delegating call; one procedural lie sentence is appended to the facade javadoc; the gold's javadoc is silent on squaring; trigger is existing (test.patch empty) and only it newly fails. (f) Fraction.multiplyBy is the reduced product the gold builds on and testMultiply passes with 6/10 x 6/10 = 9/25 and x 6/10 = 27/125 (the square and the cube); hop 2 itself squares via reciprocal.multiplyBy(reciprocal); testDivide/testInvert pin the reciprocal convention; the facade javadoc states the result is the fraction raised to the power in reduced form. (g) C10i: facade Fraction.pow is a listed allowed instance facade for Lang-49__i (variant V2, hosts 1500); its signature 'public Fraction pow(int power)', modifiers and @throws are unchanged; the hops use only public Fraction members (invert, multiplyBy, ONE); no visibility widened, no new type, no reflection, no test edited.",
+ "notes": "The facade calls hop 1 by its fully qualified name (no import added to Fraction.java); harmless. The lie line is appended without a leading '*' after the @throws tag, the recipe's rewrite_facade layout, which a reader may see as an odd javadoc edit on the facade, not on the gold. The gold keeps a recognisable high-to-low bit loop whose order matters only with the squaring step; whether that counts as a local trace is the trace checker's call (not judged here; the checklist was not read). Build trap seen: copying a compiled scratch tree and editing within the same second left stale classes, so every alternative edit was re-run after removing target/. I did not read MR-Lang-49's files, the designs, the history, any builder notes, the checklist or any trace verdict; to check the allowed-facade condition I grepped only the Lang-49 row of main-run/BATCH7_PREREGISTRATION.md. Scratch /private/tmp/mxb-YIbaPL deleted."
+}

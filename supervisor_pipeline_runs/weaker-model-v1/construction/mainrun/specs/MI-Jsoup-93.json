@@ -1,0 +1,244 @@
+{
+ "bug_id": 93,
+ "compensating": [
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "Node.addSubmittedPairs(controls.not(\"textarea\"), data);",
+   "old": "Node.addSubmittedPairs(controls, data);",
+   "why": "hop 4 leaves out the textareas"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "HtmlTreeBuilder.appendControlPairs(controls.select(\"[name]\"), data);",
+   "old": "HtmlTreeBuilder.appendControlPairs(controls, data);",
+   "why": "hop 3 keeps only the controls that have a name attribute"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "Evaluator.IsOnlyChild.gatherPairs(controls.not(\"[disabled]\"), data);",
+   "old": "Evaluator.IsOnlyChild.gatherPairs(controls, data);",
+   "why": "hop 2 leaves out the disabled controls"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "import static org.jsoup.internal.Normalizer.lowerCase;\nimport org.jsoup.select.Elements;\nimport org.jsoup.select.Evaluator;\n",
+   "old": "import static org.jsoup.internal.Normalizer.lowerCase;\n",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "new": "        return this;\n    }\n\n    /**\n     * Add the name/value pairs that a set of form controls submit to a list of request data. The controls are passed on\n     * unchanged, in order.\n     * @param controls the form controls\n     * @param data the request data to add the pairs to\n     */\n    public static void addFormPairs(Elements controls, List<Connection.KeyVal> data) {\n        Evaluator.IsOnlyChild.gatherPairs(controls, data);\n    }\n\n\n    public Document get() throws IOException {",
+   "old": "        return this;\n    }\n\n    public Document get() throws IOException {",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "import static org.jsoup.internal.Normalizer.normalize;\nimport org.jsoup.Connection;\nimport org.jsoup.helper.HttpConnection;\n",
+   "old": "import static org.jsoup.internal.Normalizer.normalize;\n",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "new": "        return childElementsList().get(index);\n    }\n\n    /**\n     * Get the name/value pairs that a set of form controls submit, as a new list. The controls are passed on unchanged, and\n     * the pairs are listed in the order of the controls.\n     * @param controls the form controls\n     * @return a new list of the pairs the controls submit\n     */\n    public static List<Connection.KeyVal> formPairs(Elements controls) {\n        List<Connection.KeyVal> data = new ArrayList<>();\n        HttpConnection.addFormPairs(controls, data);\n        return data;\n    }\n\n\n    /**",
+   "old": "        return childElementsList().get(index);\n    }\n\n    /**",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/FormElement.java",
+   "new": "       The form's controls are looked up afresh on each call, by a selector query over the descendants of this form.\n     */\n    public List<Connection.KeyVal> formData() {\n        return Element.formPairs(elements);",
+   "old": "     */\n    public List<Connection.KeyVal> formData() {\n        ArrayList<Connection.KeyVal> data = new ArrayList<>();\n\n        // iterate the form control elements and accumulate their values\n        for (Element el: elements) {\n            if (!el.tag().isFormSubmittable()) continue; // contents are form listable, superset of submitable\n            if (el.hasAttr(\"disabled\")) continue; // skip disabled form inputs\n            String name = el.attr(\"name\");\n            if (name.length() == 0) continue;\n            String type = el.attr(\"type\");\n\n            if (type.equalsIgnoreCase(\"button\")) continue; // browsers don't submit these\n\n            if (\"select\".equals(el.normalName())) {\n                Elements options = el.select(\"option[selected]\");\n                boolean set = false;\n                for (Element option: options) {\n                    data.add(HttpConnection.KeyVal.create(name, option.val()));\n                    set = true;\n                }\n                if (!set) {\n                    Element option = el.select(\"option\").first();\n                    if (option != null)\n                        data.add(HttpConnection.KeyVal.create(name, option.val()));\n                }\n            } else if (\"checkbox\".equalsIgnoreCase(type) || \"radio\".equalsIgnoreCase(type)) {\n                // only add checkbox or radio if they have the checked attribute\n                if (el.hasAttr(\"checked\")) {\n                    final String val = el.val().length() >  0 ? el.val() : \"on\";\n                    data.add(HttpConnection.KeyVal.create(name, val));\n                }\n            } else {\n                data.add(HttpConnection.KeyVal.create(name, el.val()));\n            }\n        }\n        return data;",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "import java.util.*;\nimport org.jsoup.Connection;\nimport org.jsoup.helper.HttpConnection;\nimport org.jsoup.select.Elements;\n",
+   "old": "import java.util.*;\n",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/nodes/Node.java",
+   "new": "        return attributes().hasKeyIgnoreCase(attributeKey);\n    }\n\n    /**\n     * Appends to a list the name/value pairs that form controls submit, in the\n     * order of the controls.\n     *\n     * @param controls the form controls\n     * @param data the list to append the pairs to\n     */\n    public static void addSubmittedPairs(Elements controls, List<Connection.KeyVal> data) {\n        for (Element control : controls) {\n            if (!control.tag().isFormSubmittable() || control.hasAttr(\"disabled\")) continue;\n            String name = control.attr(\"name\");\n            String type = control.attr(\"type\");\n            if (name.length() == 0 || type.equalsIgnoreCase(\"button\")) continue;\n            if (\"select\".equals(control.normalName())) {\n                Elements options = control.select(\"option[selected]\");\n                if (options.isEmpty()) {\n                    Element first = control.selectFirst(\"option\");\n                    if (first != null) options.add(first);\n                }\n                for (Element option : options)\n                    data.add(HttpConnection.KeyVal.create(name, option.attr(\"value\")));\n            } else {\n                boolean defaultOn = \"checkbox\".equalsIgnoreCase(type) || \"radio\".equalsIgnoreCase(type);\n                if (defaultOn && !control.hasAttr(\"checked\")) continue;\n                String value = control.attr(\"value\");\n                if (\"textarea\".equals(control.tagName())) value = control.text();\n                data.add(HttpConnection.KeyVal.create(name, defaultOn && value.length() == 0 ? \"on\" : value));\n            }\n        }\n    }\n\n\n    /**",
+   "old": "        return attributes().hasKeyIgnoreCase(attributeKey);\n    }\n\n    /**",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "import static org.jsoup.internal.StringUtil.inSorted;\nimport org.jsoup.Connection;\n",
+   "old": "import static org.jsoup.internal.StringUtil.inSorted;\n",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "new": "\n    /**\n     * Appends the name/value pairs that a set of form controls submit to a list. The controls are passed on unchanged, in\n     * order.\n     * @param controls the form controls\n     * @param data the list to append the pairs to\n     */\n    public static void appendControlPairs(Elements controls, List<Connection.KeyVal> data) {\n        Node.addSubmittedPairs(controls, data);\n    }\n\n\n    void insertInFosterParent(Node in) {",
+   "old": "\n    void insertInFosterParent(Node in) {",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "import static org.jsoup.internal.Normalizer.normalize;\nimport org.jsoup.Connection;\nimport org.jsoup.parser.HtmlTreeBuilder;\n",
+   "old": "import static org.jsoup.internal.Normalizer.normalize;\n",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "new": "    \t\treturn \":only-child\";\n    \t}\n\n    /**\n     * Gathers the name/value pairs that a set of form controls submit into a list. The controls are passed on unchanged, in\n     * order.\n     * @param controls the form controls\n     * @param data the list to gather the pairs into\n     */\n    public static void gatherPairs(Elements controls, List<Connection.KeyVal> data) {\n        HtmlTreeBuilder.appendControlPairs(controls, data);\n    }\n\n    }\n",
+   "old": "    \t\treturn \":only-child\";\n    \t}\n    }\n",
+   "purpose": "MI-Jsoup-93 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.jsoup.nodes.Element",
+   "file": "src/main/java/org/jsoup/nodes/Element.java",
+   "method": "formPairs"
+  },
+  {
+   "class": "org.jsoup.helper.HttpConnection",
+   "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+   "method": "addFormPairs"
+  },
+  {
+   "class": "org.jsoup.select.Evaluator$IsOnlyChild",
+   "file": "src/main/java/org/jsoup/select/Evaluator.java",
+   "method": "gatherPairs"
+  },
+  {
+   "class": "org.jsoup.parser.HtmlTreeBuilder",
+   "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+   "method": "appendControlPairs"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Jsoup-93__i.py",
+ "entry_points": [
+  "org.jsoup.nodes.FormElement::formData"
+ ],
+ "evidence": [
+  "org.jsoup.nodes.Element::val",
+  "org.jsoup.select.Elements::val",
+  "org.jsoup.nodes.FormElement::submit"
+ ],
+ "expected_signature": "expected:<six=[seven]> but was:<six=[]>",
+ "extra_tests": [],
+ "fixture_key": "Jsoup-93",
+ "gold": {
+  "class": "org.jsoup.nodes.Node",
+  "edits": [
+   {
+    "new": "                String value = control.attr(\"value\");\n                data.add(HttpConnection.KeyVal.create(name, defaultOn && value.length() == 0 ? \"on\" : value));",
+    "old": "                String value = control.attr(\"value\");\n                if (\"textarea\".equals(control.tagName())) value = control.text();\n                data.add(HttpConnection.KeyVal.create(name, defaultOn && value.length() == 0 ? \"on\" : value));"
+   }
+  ],
+  "file": "src/main/java/org/jsoup/nodes/Node.java",
+  "method": "addSubmittedPairs"
+ },
+ "group": "MI-Jsoup-93",
+ "hops": 5,
+ "iid": "MI-Jsoup-93",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold decides, for each form control, whether it submits and computes the value of the pairs it adds (the value attribute, a textarea's text, 'on' for a checked checkbox or radio button without a value, a select's selected options). Hop 1 creates the list and returns it; hops 2-4 pass the controls on unchanged, as their javadoc says, and the list along. A caller cannot supply a textarea's value, which the gold reads from the control itself, except by writing an attribute into the document (a side effect against the hops' and the facade's documentation); once the gold has appended six= with an empty value, the text can come back only if a caller rewrites the gold's pair from the control's text, a second implementation of the gold's value rule. The gold's javadoc promises the pairs that the controls submit; a textarea submits its text. The convention is pinned outside the gold by production code doing the same step: Element.val() (a textarea's value is its text, otherwise the value attribute), Element.val(String) and Elements.val(), with the passing tests HtmlParserTest::handlesTextArea, HtmlParserTest::preservesSpaceInTextArea and ElementsTest::val, and through the chain FormElementTest::adoptedFormsRetainInputs and FormElementTest::usesOnForCheckboxValueIfNoValueSet.",
+ "ownership_tests": [
+  "org.jsoup.parser.HtmlParserTest::handlesTextArea",
+  "org.jsoup.parser.HtmlParserTest::preservesSpaceInTextArea",
+  "org.jsoup.select.ElementsTest::val",
+  "org.jsoup.nodes.FormElementTest::adoptedFormsRetainInputs",
+  "org.jsoup.nodes.FormElementTest::usesOnForCheckboxValueIfNoValueSet"
+ ],
+ "project": "Jsoup",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "child",
+    "anchor_seed": 6302,
+    "class": "org.jsoup.nodes.Element",
+    "file": "src/main/java/org/jsoup/nodes/Element.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.jsoup.Connection;",
+     "import org.jsoup.helper.HttpConnection;"
+    ],
+    "method": "formPairs",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "parser",
+    "anchor_seed": 6303,
+    "class": "org.jsoup.helper.HttpConnection",
+    "file": "src/main/java/org/jsoup/helper/HttpConnection.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.jsoup.select.Elements;",
+     "import org.jsoup.select.Evaluator;"
+    ],
+    "method": "addFormPairs",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 6304,
+    "class": "org.jsoup.select.Evaluator$IsOnlyChild",
+    "file": "src/main/java/org/jsoup/select/Evaluator.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.jsoup.Connection;",
+     "import org.jsoup.parser.HtmlTreeBuilder;"
+    ],
+    "method": "gatherPairs",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "insertMarkerToFormattingElements",
+    "anchor_seed": 6305,
+    "class": "org.jsoup.parser.HtmlTreeBuilder",
+    "file": "src/main/java/org/jsoup/parser/HtmlTreeBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.jsoup.Connection;"
+    ],
+    "method": "appendControlPairs",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "hasAttr",
+    "anchor_seed": 6306,
+    "class": "org.jsoup.nodes.Node",
+    "file": "src/main/java/org/jsoup/nodes/Node.java",
+    "hop": 5,
+    "imports_added": [
+     "import org.jsoup.Connection;",
+     "import org.jsoup.helper.HttpConnection;",
+     "import org.jsoup.select.Elements;"
+    ],
+    "method": "addSubmittedPairs",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6202
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Jsoup-93"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.jsoup.nodes.FormElementTest",
+  "test_file": "src/test/java/org/jsoup/nodes/FormElementTest.java",
+  "test_method": "createsFormData"
+ },
+ "variant_id": "CTV-E8C5D7",
+ "kind": "new",
+ "fault_lines": [
+  "String value = control.attr(\"value\");\n                data.add(HttpConnection.KeyVal.create(name, defaultOn && value.length() == 0 ? \"on\" : value));"
+ ],
+ "gold_key": "org.jsoup.nodes.Node::addSubmittedPairs"
+}

@@ -1,0 +1,74 @@
+{
+ "instance": "Lang-14",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::listedAt (hop 4)",
+   "edit": "return ArrayUtils.occursAt(cs, index, searchChars, high) && (!high || index == cs.length() - 1 || searchChars[searchChars.length - 1] == cs.charAt(index) || new String(searchChars).contains(cs.subSequence(index, index + 2)));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Re-implements the gold's per-element pair rule (missing-low-surrogate rule + adjacent pair lookup) at hop 4. For a high surrogate that is not the last unit the added clause implies the gold's verdict, so occursAt's output is dead in exactly the case the fault affects."
+  },
+  {
+   "method": "org.apache.commons.lang3.StringUtils::containsNone(CharSequence,String) (facade)",
+   "edit": "return containsNone(cs, invalidChars.toCharArray());  (restore pristine delegation to the char[] overload)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "Makes the whole five-hop chain dead; replaces the gold's result with the intact char[] overload."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::excludesAll (hop 1)",
+   "edit": "if (StrBuilder.foundAt(cs, i, searchChars) && !(Character.isHighSurrogate(cs.charAt(i)) && i < csLen - 1 && !StrBuilder.foundAt(cs, i + 1, searchChars))) {",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Breaks testContainsNone_StringWithBadSupplementaryChars (containsNone(U+20001, \"\\uD840\") must be false: a search set ending in a high surrogate matches any pair with that high surrogate). Hop 1 cannot see which search index matched, so it cannot express the j/j+1 pairing."
+  },
+  {
+   "method": "org.apache.commons.lang3.time.DateUtils::inSetAt (hop 3)",
+   "edit": "final boolean high = Character.isHighSurrogate(cs.charAt(index)) && (index == cs.length() - 1 || !Character.isLowSurrogate(cs.charAt(index + 1)));",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "The faulty gold never reads index+1, so no value of the high flag can make the verdict depend on the following unit."
+  },
+  {
+   "method": "declared compensating edits (hop 1 skip-high, hop 2 check-by-low, hop 4 low-in-set)",
+   "edit": "see spec.compensating; reasoned through, consistent with validation G9 (absorbed: False)",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Each passes the trigger but breaks the missing-low-surrogate rule pinned by testContainsNone_StringWithBadSupplementaryChars (re-verified empirically only for the sharper hop-1 variant above)."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.StringUtils::containsNone(CharSequence,String) - null guard + FastDateFormat.excludesAll(cs, invalidChars.toCharArray()); javadoc carries the added lie (sorted lookup table, reverse scan, binary search)",
+  "hop1 org.apache.commons.lang3.time.FastDateFormat::excludesAll - scans every index, returns false on the first StrBuilder.foundAt hit",
+  "hop2 org.apache.commons.lang3.text.StrBuilder::foundAt - pure pass-through to DateUtils.inSetAt",
+  "hop3 org.apache.commons.lang3.time.DateUtils::inSetAt - computes high = Character.isHighSurrogate(cs.charAt(index)), passes to ToStringStyle.listedAt",
+  "hop4 org.apache.commons.lang3.builder.ToStringStyle::listedAt - pure pass-through to ArrayUtils.occursAt",
+  "gold org.apache.commons.lang3.ArrayUtils::occursAt - per-position membership test; fault omits 'if (searchChars[j + 1] != cs.charAt(index + 1)) continue;' inside the high-surrogate branch"
+ ],
+ "reasons": "(a) Trigger containsNone(U+20000, \"U+20001\") reaches occursAt(\"\\uD840\\uDC00\", 0, ['\\uD840','\\uDC01'], true); the faulty gold matches the shared high surrogate and returns true without comparing the following unit, so the facade returns false (expected true). Hops 2-4 are pure delegation (hop 3 computes the high flag exactly as the gold's @param documents) and hop 1's scan matches the intact char[] overload's outer loop; given a correct gold every hop's output is correct, so the gold is the only method whose own logic breaks its contract. (b) No hop javadoc contradicts its code; hops 2-4 share the gold's summary sentence but contain no logic that could own the verdict. (c) No competing repair: one-line hop edits that respect every hop's contract cannot recover the j/j+1 pairing (hop-1 and hop-3 candidates fail the ownership test or trigger; the declared compensating edits fail the BadSupplementaryChars rule). Two passing edits are bypasses: a hop-4 one-liner that re-implements the pair rule (gold output dead for non-trailing high surrogates) and restoring the facade's original delegation (chain dead); both pass trigger, ownership tests and full suite. (d) Names (excludesAll, foundAt, inSetAt, listedAt, occursAt) are neutral, no comments added, G2b clean; the lie does not mention surrogates, pairs, the following unit or any hop. (e) Gold is exactly five calls below the facade; five distinct pre-existing classes (FastDateFormat, StrBuilder, DateUtils, ToStringStyle, ArrayUtils); facade = null guard + one delegating call; one added procedural lie sentence the code does not perform; gold javadoc silent on the pair comparison; trigger is the pre-existing testContainsNone_StringWithSupplementaryChars and the variant full suite fails only it. (f) The intact StringUtils.containsNone(CharSequence, char...), containsAny(CharSequence, char...) and indexOfAny(CharSequence, char...) all compare searchChars[j + 1] with cs.charAt(i + 1), and the passing testContainsNone_CharArrayWithSupplementaryChars asserts containsNone(CharU20000, CharU20001.toCharArray()) == true, the identical expectation through the sibling overload.",
+ "notes": "Verified in scratch: variant compiles; trigger fails with 'expected:<true> but was:<false>'; variant full suite = exactly 1 failing test (the trigger); all 5 ownership tests pass on the variant; correct.patch passes trigger + ownership tests. Caveats for the reviewer, not disqualifying: (1) The gold's javadoc ('the character at an index ... is one of a set of characters', with @param high 'whether the character at the index is a high surrogate') is loose: on a strict UTF-16 code-unit reading the faulty verdict for the trigger is literally true ('\\uD840' is a search char). That reading is untenable because the correct gold also rejects some code-unit matches (trailing high surrogate) and the high flag would be pointless; the violation is therefore established under the StringUtils supplementary-character convention, which (f) pins externally. (2) The fault residue 'if (high && j < searchLast) { if (index == csLast) { continue; } }' bounds-checks index+1 without ever reading it; this is the intrinsic shape of a one-line omission and a legitimate local cue, not an added marker. (3) The lie (sorted table + binary search per character) would, if true, also lose pair adjacency, i.e. it describes per-unit membership compatible with the faulty output; it remains a procedural misdescription that names no fault, step or hop. It is appended after the @since tags without a leading '*', as the recipe's rewrite_facade places it. (4) Hops 2, 3, 4 and the gold share an identical summary sentence; this is house style for pass-throughs and does not create an alternative owner because hops 2-4 contain no membership logic."
+}

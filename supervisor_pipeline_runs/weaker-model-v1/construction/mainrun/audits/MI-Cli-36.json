@@ -1,0 +1,52 @@
+{
+ "instance": "Cli-36__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "Option.bracketedList (hop 2)",
+   "edit": "return \"[\" + DefaultParser.optionListText(options).replaceAll(\"(^|, )-(?=[^ ,]{2})\", \"$1--\") + \"]\";",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "Option.bracketedList (hop 2)",
+   "edit": "spec compensating: \"[-\" prefix / replace(\", -\", \", --\") (G9)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "DefaultParser.optionListText (hop 3)",
+   "edit": "spec compensating: new StringBuilder(\"-\") (G9)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade OptionGroup.toString (instance, V2: passes this)",
+  "hop1 HelpFormatter.groupSummary",
+  "hop2 Option.bracketedList",
+  "hop3 DefaultParser.optionListText",
+  "hop4 Parser.appendOptions",
+  "gold OptionBuilder.listOptions"
+ ],
+ "reasons": "(a) Only the gold writes each option's prefix and name; its javadoc promises the options 'in their command-line form', and it writes '-foo' for a long-only option where the library's displayed form is '--foo'; hops 1-4 only pass the collection, add brackets, create/return the buffer, or delegate, and their contracts hold. (b) Hop javadocs are accurate and say nothing about option form. (c) No one-line hop edit preserving every hop's documented role passes; the declared compensations fail the trigger (G9); a heuristic regex rewrite of the gold's text in hop 2 passes trigger, ownership tests and the full suite but rewrites the gold's output and misclassifies multi-character short names, so it is a bypass. (d) Lie ('options are first sorted by their keys') is false (no sorting; LinkedHashMap order) and unrelated to the hyphen; names neutral; G2a/G2b clean. (e) Gold five calls below facade; hosts are exactly hosts_hop_order (HelpFormatter, Option, DefaultParser, Parser, OptionBuilder; largest5 regime); facade is state gathering (receiver) plus one call; gold javadoc silent on the double hyphen; trigger OptionGroupTest::testToString is existing and the only new failure (re-run here: compile OK, trigger fails, 4 ownership tests pass). C10i rules: signature/@Override/modifiers unchanged, no visibility widening, no new type, no reflection, test.patch empty. (f) HelpFormatter.appendOption writes '--'+longOpt, renderOptions uses getLongOptPrefix() ('--'), PosixParser.flatten emits '--'+longOpt; HelpFormatterTest ownership tests pass.",
+ "notes": "Minor: OptionGroup still imports java.util.Iterator, now unused (warning only, not a fault marker). DefaultParser also accepts '-L' single-hyphen long options when parsing, so 'command-line form' is not literally unique, but the display convention ('--') is pinned by evidence and the original toString, and no non-gold method touches option prefixes, so ownership is not contested. Hop anchors taken from the spec's recipe record (anchor_seed 5091-5095); not independently re-drawn."
+}

@@ -1,0 +1,344 @@
+diff --git a/gson/src/main/java/com/google/gson/Gson.java b/gson/src/main/java/com/google/gson/Gson.java
+index ac49e703..a1899600 100644
+--- a/gson/src/main/java/com/google/gson/Gson.java
++++ b/gson/src/main/java/com/google/gson/Gson.java
+@@ -28,6 +28,10 @@ import java.lang.reflect.Type;
+ import java.util.LinkedList;
+ import java.util.List;
+ import java.util.Map;
++import java.lang.reflect.GenericArrayType;
++import java.lang.reflect.ParameterizedType;
++import java.lang.reflect.TypeVariable;
++import java.lang.reflect.WildcardType;
+ 
+ /**
+  * This is the main class for using Gson. Gson is typically used by first constructing a
+@@ -563,4 +567,47 @@ public final class Gson {
+         .append("}");
+   	return sb.toString();
+   }
++
++        /**
++     * Returns the actual type of the declared type of a field, with every type
++     * variable that it uses replaced by the type that the parent type assigns
++     * to it. Type arguments, array components and wildcard upper bounds are
++     * evaluated in turn.
++     *
++     * @param fieldType the declared type of the field, or a part of it
++     * @param parentType the type of the object that contains the field
++     * @param rawParentClass the raw class of {@code parentType}
++     * @return the actual type
++     */
++    public static Type actualTypeOf(Type fieldType, Type parentType, Class<?> rawParentClass) {
++      if (fieldType instanceof Class<?>) {
++        return fieldType;
++      } else if (fieldType instanceof ParameterizedType) {
++        ParameterizedType parameterized = (ParameterizedType) fieldType;
++        Type[] arguments = parameterized.getActualTypeArguments();
++        Type[] actualArguments = new Type[arguments.length];
++        for (int i = 0; i < arguments.length; ++i) {
++          actualArguments[i] = actualTypeOf(arguments[i], parentType, rawParentClass);
++        }
++        return new ParameterizedTypeImpl(parameterized.getRawType(), actualArguments,
++            parameterized.getOwnerType());
++      } else if (fieldType instanceof GenericArrayType) {
++        Type componentType = ((GenericArrayType) fieldType).getGenericComponentType();
++        Type actualComponentType = actualTypeOf(componentType, parentType, rawParentClass);
++        if (componentType.equals(actualComponentType)) {
++          return fieldType;
++        }
++        return actualComponentType instanceof Class<?>
++            ? TypeUtils.wrapWithArray(TypeUtils.toRawClass(actualComponentType))
++            : new GenericArrayTypeImpl(actualComponentType);
++      } else if (fieldType instanceof TypeVariable<?>) {
++        return JsonWriter.typeOfVariable((TypeVariable<?>) fieldType, parentType, rawParentClass);
++      } else if (fieldType instanceof WildcardType) {
++        return actualTypeOf(((WildcardType) fieldType).getUpperBounds()[0], parentType, rawParentClass);
++      } else {
++        throw new IllegalArgumentException("Type \'" + fieldType + "\' is not a Class, "
++            + "ParameterizedType, GenericArrayType or TypeVariable. Can't extract type.");
++      }
++    }
++
+ }
+diff --git a/gson/src/main/java/com/google/gson/GsonBuilder.java b/gson/src/main/java/com/google/gson/GsonBuilder.java
+index ecc1ee6e..6594e4a8 100644
+--- a/gson/src/main/java/com/google/gson/GsonBuilder.java
++++ b/gson/src/main/java/com/google/gson/GsonBuilder.java
+@@ -567,4 +567,17 @@ public final class GsonBuilder {
+       }
+     }
+   }
++
++        /**
++     * Returns the actual type of the declared type of a field, as seen from
++     * the object that contains the field.
++     *
++     * @param fieldType the declared type of the field
++     * @param parentType the type of the object that contains the field
++     * @return the actual type of the field
++     */
++    public static Type fieldTypeIn(Type fieldType, Type parentType) {
++      return Gson.actualTypeOf(fieldType, parentType, TypeUtils.toRawClass(parentType));
++    }
++
+ }
+diff --git a/gson/src/main/java/com/google/gson/JsonPrimitive.java b/gson/src/main/java/com/google/gson/JsonPrimitive.java
+index b00e46ea..99df2b32 100644
+--- a/gson/src/main/java/com/google/gson/JsonPrimitive.java
++++ b/gson/src/main/java/com/google/gson/JsonPrimitive.java
+@@ -19,6 +19,9 @@ package com.google.gson;
+ import java.io.IOException;
+ import java.math.BigDecimal;
+ import java.math.BigInteger;
++import java.lang.reflect.ParameterizedType;
++import java.lang.reflect.Type;
++import java.lang.reflect.TypeVariable;
+ 
+ /**
+  * A class representing a Json primitive value. A primitive value
+@@ -384,4 +387,29 @@ public final class JsonPrimitive extends JsonElement {
+     }
+     return false;
+   }
++
++        /**
++     * Returns the actual type that a parent type assigns to a type variable
++     * used in the declaration of one of its fields.
++     *
++     * @param variable the type variable to evaluate
++     * @param parentType the type of the object that contains the field
++     * @param rawParentClass the raw class of {@code parentType}
++     * @return the type assigned to {@code variable}, or {@code variable} itself
++     *     if the parent type assigns none
++     */
++    public static Type typeAssignedTo(TypeVariable<?> variable, Type parentType,
++        Class<?> rawParentClass) {
++      if (parentType instanceof ParameterizedType) {
++        TypeVariable<?>[] variables = rawParentClass.getTypeParameters();
++        Type[] arguments = ((ParameterizedType) parentType).getActualTypeArguments();
++        for (int i = 0; i < variables.length; i++) {
++          if (variables[i].equals(variable)) {
++            return arguments[i];
++          }
++        }
++      }
++      return variable;
++    }
++
+ }
+diff --git a/gson/src/main/java/com/google/gson/TypeInfoFactory.java b/gson/src/main/java/com/google/gson/TypeInfoFactory.java
+index 3085e8a8..172d832b 100644
+--- a/gson/src/main/java/com/google/gson/TypeInfoFactory.java
++++ b/gson/src/main/java/com/google/gson/TypeInfoFactory.java
+@@ -17,11 +17,7 @@
+ package com.google.gson;
+ 
+ import java.lang.reflect.Field;
+-import java.lang.reflect.GenericArrayType;
+-import java.lang.reflect.ParameterizedType;
+ import java.lang.reflect.Type;
+-import java.lang.reflect.TypeVariable;
+-import java.lang.reflect.WildcardType;
+ 
+ /**
+  * A static factory class used to construct the "TypeInfo" objects.
+@@ -47,129 +43,9 @@ final class TypeInfoFactory {
+    * @param f the actual field object to retrieve the type from
+    * @param typeDefiningF the type that contains the field {@code f}
+    * @return the type information for the field
+-   */
++     The real type is built by reading the generic signature of the field as a string, replacing the name of every "TypeVariable" in it with the name of the matching actual type, and parsing the edited signature back into a type.
++     */
+   public static TypeInfo getTypeInfoForField(Field f, Type typeDefiningF) {
+-    Class<?> classDefiningF = TypeUtils.toRawClass(typeDefiningF);
+-    Type type = f.getGenericType();
+-    Type actualType = getActualType(type, typeDefiningF, classDefiningF);
+-    return new TypeInfo(actualType);
+-  }
+-
+-  private static Type getActualType(
+-      Type typeToEvaluate, Type parentType, Class<?> rawParentClass) {
+-    if (typeToEvaluate instanceof Class<?>) {
+-      return typeToEvaluate;
+-    } else if (typeToEvaluate instanceof ParameterizedType) {
+-      ParameterizedType castedType = (ParameterizedType) typeToEvaluate;
+-      Type owner = castedType.getOwnerType();
+-      Type[] actualTypeParameters =
+-          extractRealTypes(castedType.getActualTypeArguments(), parentType, rawParentClass);
+-      Type rawType = castedType.getRawType();
+-      return new ParameterizedTypeImpl(rawType, actualTypeParameters, owner);
+-    } else if (typeToEvaluate instanceof GenericArrayType) {
+-      GenericArrayType castedType = (GenericArrayType) typeToEvaluate;
+-      Type componentType = castedType.getGenericComponentType();
+-      Type actualType = getActualType(componentType, parentType, rawParentClass);
+-      if (componentType.equals(actualType)) {
+-        return castedType;
+-      }
+-      return actualType instanceof Class<?> ?
+-          TypeUtils.wrapWithArray(TypeUtils.toRawClass(actualType))
+-          : new GenericArrayTypeImpl(actualType);
+-    } else if (typeToEvaluate instanceof TypeVariable<?>) {
+-      if (parentType instanceof ParameterizedType) {
+-        // The class definition has the actual types used for the type variables.
+-        // Find the matching actual type for the Type Variable used for the field.
+-        // For example, class Foo<A> { A a; }
+-        // new Foo<Integer>(); defines the actual type of A to be Integer.
+-        // So, to find the type of the field a, we will have to look at the class'
+-        // actual type arguments.
+-        TypeVariable<?> fieldTypeVariable = (TypeVariable<?>) typeToEvaluate;
+-        TypeVariable<?>[] classTypeVariables = rawParentClass.getTypeParameters();
+-        ParameterizedType objParameterizedType = (ParameterizedType) parentType;
+-        int indexOfActualTypeArgument = getIndex(classTypeVariables, fieldTypeVariable);
+-        Type[] actualTypeArguments = objParameterizedType.getActualTypeArguments();
+-        return actualTypeArguments[indexOfActualTypeArgument];
+-      } else if (typeToEvaluate instanceof TypeVariable<?>) {
+-        Type theSearchedType = null;
+-
+-        do {
+-          theSearchedType = extractTypeForHierarchy(parentType, (TypeVariable<?>) typeToEvaluate);
+-        } while ((theSearchedType != null) && (theSearchedType instanceof TypeVariable<?>));
+-
+-        if (theSearchedType != null) {
+-          return theSearchedType;
+-        }
+-      }
+-
+-      throw new UnsupportedOperationException("Expecting parameterized type, got " + parentType
+-          + ".\n Are you missing the use of TypeToken idiom?\n See "
+-          + "http://sites.google.com/site/gson/gson-user-guide#TOC-Serializing-and-Deserializing-Gener");
+-    } else if (typeToEvaluate instanceof WildcardType) {
+-      WildcardType castedType = (WildcardType) typeToEvaluate;
+-      return getActualType(castedType.getUpperBounds()[0], parentType, rawParentClass);
+-    } else {
+-      throw new IllegalArgumentException("Type \'" + typeToEvaluate + "\' is not a Class, "
+-          + "ParameterizedType, GenericArrayType or TypeVariable. Can't extract type.");
+-    }
+-  }
+-
+-  private static Type extractTypeForHierarchy(Type parentType, TypeVariable<?> typeToEvaluate) {
+-    Class<?> rawParentType = null;
+-    if (parentType instanceof Class<?>) {
+-      rawParentType = (Class<?>) parentType;
+-    } else if (parentType instanceof ParameterizedType) {
+-      ParameterizedType parentTypeAsPT = (ParameterizedType) parentType;
+-      rawParentType = (Class<?>) parentTypeAsPT.getRawType();
+-    } else {
+-      return null;
+-    }
+-
+-    Type superClass = rawParentType.getGenericSuperclass();
+-    if (superClass instanceof ParameterizedType
+-        && ((ParameterizedType) superClass).getRawType() == typeToEvaluate.getGenericDeclaration()) {
+-      // Evaluate type on this type
+-      TypeVariable<?>[] classTypeVariables =
+-          ((Class<?>) ((ParameterizedType) superClass).getRawType()).getTypeParameters();
+-      int indexOfActualTypeArgument = getIndex(classTypeVariables, typeToEvaluate);
+-
+-      Type[] actualTypeArguments = null;
+-      if (parentType instanceof Class<?>) {
+-        actualTypeArguments = ((ParameterizedType) superClass).getActualTypeArguments();
+-      } else if (parentType instanceof ParameterizedType) {
+-        actualTypeArguments = ((ParameterizedType) parentType).getActualTypeArguments();
+-      } else {
+-        return null;
+-      }
+-
+-      return actualTypeArguments[indexOfActualTypeArgument];
+-    }
+-
+-    Type searchedType = null;
+-    if (superClass != null) {
+-      searchedType = extractTypeForHierarchy(superClass, typeToEvaluate);
++        return new TypeInfo(com.google.gson.stream.JsonReader.typeOfField(f, typeDefiningF));
+     }
+-    return searchedType;
+-  }
+-
+-  private static Type[] extractRealTypes(
+-      Type[] actualTypeArguments, Type parentType, Class<?> rawParentClass) {
+-    Preconditions.checkNotNull(actualTypeArguments);
+-
+-    Type[] retTypes = new Type[actualTypeArguments.length];
+-    for (int i = 0; i < actualTypeArguments.length; ++i) {
+-      retTypes[i] = getActualType(actualTypeArguments[i], parentType, rawParentClass);
+-    }
+-    return retTypes;
+-  }
+-
+-  private static int getIndex(TypeVariable<?>[] types, TypeVariable<?> type) {
+-    for (int i = 0; i < types.length; ++i) {
+-      if (type.equals(types[i])) {
+-        return i;
+-      }
+-    }
+-    throw new IllegalStateException(
+-        "How can the type variable not be present in the class declaration!");
+-  }
+ }
+diff --git a/gson/src/main/java/com/google/gson/stream/JsonReader.java b/gson/src/main/java/com/google/gson/stream/JsonReader.java
+index a136b3bb..02529abe 100644
+--- a/gson/src/main/java/com/google/gson/stream/JsonReader.java
++++ b/gson/src/main/java/com/google/gson/stream/JsonReader.java
+@@ -22,6 +22,9 @@ import java.io.IOException;
+ import java.io.Reader;
+ import java.util.ArrayList;
+ import java.util.List;
++import java.lang.reflect.Field;
++import java.lang.reflect.Type;
++import com.google.gson.GsonBuilder;
+ 
+ /**
+  * Reads a JSON (<a href="http://www.ietf.org/rfc/rfc4627.txt">RFC 4627</a>)
+@@ -1115,4 +1118,17 @@ public final class JsonReader implements Closeable {
+     snippet.append(buffer, pos, afterPos);
+     return snippet;
+   }
++
++        /**
++     * Returns the actual type of a field, as seen from the object that
++     * contains it.
++     *
++     * @param field the field to evaluate
++     * @param parentType the type of the object that contains the field
++     * @return the actual type of the field
++     */
++    public static Type typeOfField(Field field, Type parentType) {
++      return GsonBuilder.fieldTypeIn(field.getGenericType(), parentType);
++    }
++
+ }
+diff --git a/gson/src/main/java/com/google/gson/stream/JsonWriter.java b/gson/src/main/java/com/google/gson/stream/JsonWriter.java
+index dba653a1..848101cb 100644
+--- a/gson/src/main/java/com/google/gson/stream/JsonWriter.java
++++ b/gson/src/main/java/com/google/gson/stream/JsonWriter.java
+@@ -21,6 +21,9 @@ import java.io.IOException;
+ import java.io.Writer;
+ import java.util.ArrayList;
+ import java.util.List;
++import java.lang.reflect.Type;
++import java.lang.reflect.TypeVariable;
++import com.google.gson.JsonPrimitive;
+ 
+ /**
+  * Writes a JSON (<a href="http://www.ietf.org/rfc/rfc4627.txt">RFC 4627</a>)
+@@ -550,4 +553,19 @@ public final class JsonWriter implements Closeable {
+       throw new IllegalStateException("Nesting problem: " + stack);
+     }
+   }
++
++        /**
++     * Returns the actual type that a parent type assigns to a type variable
++     * used in the declaration of one of its fields.
++     *
++     * @param variable the type variable to evaluate
++     * @param parentType the type of the object that contains the field
++     * @param rawParentClass the raw class of {@code parentType}
++     * @return the actual type of the variable
++     */
++    public static Type typeOfVariable(TypeVariable<?> variable, Type parentType,
++        Class<?> rawParentClass) {
++      return JsonPrimitive.typeAssignedTo(variable, parentType, rawParentClass);
++    }
++
+ }

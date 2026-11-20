@@ -1,0 +1,235 @@
+{
+ "bug_id": 12,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "return DateTimeZoneBuilder.javaDateOf(date, date.getYearOfEra() - 1900);",
+   "old": "return DateTimeZoneBuilder.javaDateOf(date, date.getYear() - 1900);",
+   "why": "hop 1 counts the year of era, not the proleptic year, from 1900"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "return LocalTime.javaDateFor(date, year, date.toDateTimeAtStartOfDay().getMonthOfYear() - 1);",
+   "old": "return LocalTime.javaDateFor(date, year, date.getMonthOfYear() - 1);",
+   "why": "hop 2 takes the month from the start of the date in Joda-Time's default zone"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "new": "return ISODateTimeFormat.javaDateAt(year, month, date.toDateTimeAtStartOfDay().getDayOfMonth());",
+   "old": "return ISODateTimeFormat.javaDateAt(year, month, date.getDayOfMonth());",
+   "why": "hop 3 takes the day of month from the start of the date in Joda-Time's default zone"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/LocalDate.java",
+   "new": "       The first guess is computed directly from the local millis of this date and the raw offset of the default time zone, rather than with the JDK Date constructor.\n     */\n    @SuppressWarnings(\"deprecation\")\n    public Date toDate() {\n        return org.joda.time.format.PeriodFormatterBuilder.toJavaDate(this);",
+   "old": "     */\n    @SuppressWarnings(\"deprecation\")\n    public Date toDate() {\n        int dom = getDayOfMonth();\n        Date date = new Date(getYear() - 1900, getMonthOfYear() - 1, dom);\n        LocalDate check = LocalDate.fromDateFields(date);\n        if (check.isBefore(this)) {\n            // DST gap (no midnight)\n            // move forward in units of one hour until date correct\n            while (check.equals(this) == false) {\n                date.setTime(date.getTime() + 3600000);\n                check = LocalDate.fromDateFields(date);\n            }\n            // move back in units of one second until date wrong\n            while (date.getDate() == dom) {\n                date.setTime(date.getTime() - 1000);\n            }\n            // fix result\n            date.setTime(date.getTime() + 1000);\n        } else if (check.equals(this)) {\n            // check for DST overlap (two midnights)\n            Date earlier = new Date(date.getTime() - TimeZone.getDefault().getDSTSavings());\n            if (earlier.getDate() == dom) {\n                date = earlier;\n            }\n        }\n        return date;",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "new": "        return 4;\n    }\n\n    /**\n     * Converts a date to a <code>java.util.Date</code> at the start of that\n     * date in the default time zone of the JDK, given its year and month in\n     * the form the JDK uses.\n     *\n     * @param date  the date to convert, not null\n     * @param year  the year of the date minus 1900\n     * @param month  the month of the date, from 0 for January\n     * @return a Date at the start of the date, never null\n     */\n    public static Date javaDateFor(LocalDate date, int year, int month) {\n        return ISODateTimeFormat.javaDateAt(year, month, date.getDayOfMonth());\n    }\n\n\n    /**",
+   "old": "        return 4;\n    }\n\n    /**",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "import org.joda.time.field.PreciseDateTimeField;\nimport java.util.Date;\nimport org.joda.time.LocalDate;\n",
+   "old": "import org.joda.time.field.PreciseDateTimeField;\n",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "        return appendDecimal(DateTimeFieldType.monthOfYear(), minDigits, 2);\n    }\n\n    /**\n     * Gets a <code>java.util.Date</code> at the start of a day in the\n     * default time zone of the JDK.\n     *\n     * @param year  the year minus 1900\n     * @param month  the month, from 0 for January\n     * @param dom  the day of month\n     * @return a Date at the start of the day, never null\n     */\n    @SuppressWarnings(\"deprecation\")\n    public static Date javaDayStart(int year, int month, int dom) {\n        Date start = new Date(year, month, dom, 12, 0, 0);\n        LocalDate day = LocalDate.fromDateFields(start);\n        start.setTime(start.getTime() - 86400000);\n        while (LocalDate.fromDateFields(start).equals(day) == false) {\n            start.setTime(start.getTime() + 3600000);\n        }\n        while (LocalDate.fromDateFields(new Date(start.getTime() - 1000)).equals(day)) {\n            start.setTime(start.getTime() - 1000);\n        }\n        return start;\n    }\n\n\n    /**",
+   "old": "        return appendDecimal(DateTimeFieldType.monthOfYear(), minDigits, 2);\n    }\n\n    /**",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "import org.joda.time.DateTimeFieldType;\nimport java.util.Date;\n",
+   "old": "import org.joda.time.DateTimeFieldType;\n",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "    /**\n     * Gets a <code>java.util.Date</code> at the start of a day in the\n     * default time zone of the JDK, given the day in the form the JDK uses.\n     *\n     * @param year  the year minus 1900\n     * @param month  the month, from 0 for January\n     * @param dom  the day of month\n     * @return a Date at the start of the day, never null\n     */\n    public static Date javaDateAt(int year, int month, int dom) {\n        return DateTimeFormatterBuilder.javaDayStart(year, month, dom);\n    }\n\n\n    /**\n     * Returns a basic formatter that combines a basic date and time without millis,",
+   "old": "    /**\n     * Returns a basic formatter that combines a basic date and time without millis,",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "import org.joda.time.ReadablePeriod;\nimport java.util.Date;\nimport org.joda.time.LocalDate;\nimport org.joda.time.tz.DateTimeZoneBuilder;\n",
+   "old": "import org.joda.time.ReadablePeriod;\n",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "        iFieldFormatters = new FieldFormatter[10];\n    }\n\n    /**\n     * Converts a date to a <code>java.util.Date</code> at the start of that\n     * date in the default time zone of the JDK.\n     * <p>\n     * The JDK counts years from 1900.\n     *\n     * @param date  the date to convert, not null\n     * @return a Date at the start of the date, never null\n     */\n    public static Date toJavaDate(LocalDate date) {\n        return DateTimeZoneBuilder.javaDateOf(date, date.getYear() - 1900);\n    }\n\n\n    /**",
+   "old": "        iFieldFormatters = new FieldFormatter[10];\n    }\n\n    /**",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport java.util.Date;\nimport org.joda.time.LocalDate;\nimport org.joda.time.LocalTime;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "        getLastRuleSet().setStandardOffset(standardOffset);\n        return this;\n    }\n\n    /**\n     * Converts a date to a <code>java.util.Date</code> at the start of that\n     * date in the default time zone of the JDK, given its year in the form\n     * the JDK uses.\n     * <p>\n     * The JDK counts months from 0 for January.\n     *\n     * @param date  the date to convert, not null\n     * @param year  the year of the date minus 1900\n     * @return a Date at the start of the date, never null\n     */\n    public static Date javaDateOf(LocalDate date, int year) {\n        return LocalTime.javaDateFor(date, year, date.getMonthOfYear() - 1);\n    }\n\n\n    /**\n     * Set a fixed savings rule at the cutover.",
+   "old": "        getLastRuleSet().setStandardOffset(standardOffset);\n        return this;\n    }\n\n    /**\n     * Set a fixed savings rule at the cutover.",
+   "purpose": "MI-Time-12 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.format.PeriodFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "method": "toJavaDate"
+  },
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "javaDateOf"
+  },
+  {
+   "class": "org.joda.time.LocalTime",
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "method": "javaDateFor"
+  },
+  {
+   "class": "org.joda.time.format.ISODateTimeFormat",
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "method": "javaDateAt"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-12__i.py",
+ "entry_points": [
+  "org.joda.time.LocalDate::toDate"
+ ],
+ "evidence": [
+  "org.joda.time.LocalDateTime::toDate",
+  "org.joda.time.DateTimeZone::getOffsetFromLocal",
+  "org.joda.time.LocalDate::toDateTimeAtStartOfDay"
+ ],
+ "expected_signature": "but was:<Mon Apr 02 0[3:0]0:00 GMT+03:40 2007>",
+ "extra_tests": [],
+ "fixture_key": "Time-12",
+ "gold": {
+  "class": "org.joda.time.format.DateTimeFormatterBuilder",
+  "edits": [
+   {
+    "new": "            start.setTime(start.getTime() + 3600000);\n        }",
+    "old": "            start.setTime(start.getTime() + 3600000);\n        }\n        while (LocalDate.fromDateFields(new Date(start.getTime() - 1000)).equals(day)) {\n            start.setTime(start.getTime() - 1000);\n        }"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+  "method": "javaDayStart"
+ },
+ "group": "MI-Time-12",
+ "hops": 5,
+ "iid": "MI-Time-12",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold searches for the start of the day: hops 1-3 gather the receiver's year, month and day of month in the form the JDK uses and hop 4 passes them on, so no caller holds an instant before the gold returns, and no choice of fields naming the same day moves the gold's search, which starts 24 hours before the JDK's noon of that day. Once the gold has returned its Date, the start of the day can come back only if a caller searches again from the gold's result, a second implementation of the gold's search. The gold's javadoc promises a Date at the start of the day in the default time zone of the JDK; on the trigger the variant returns 03:00 on a day that starts at 02:40. The convention is pinned outside the gold: the facade's own javadoc ('The time will be set to the earliest valid time for that date'); LocalDateTime.toDate, the sibling conversion, sets the earliest valid time after a gap by stepping forward by minutes and back by seconds (TestLocalDateTime_Basics testToDate_springDST_2Hour40Savings, same zone, expects 02:40, passes); DateTimeZone.getOffsetFromLocal moves a local time in a gap to after the gap (TestDateTimeZoneCutover test_getOffsetFromLocal_NewYork_Spring); LocalDate.toDateTimeAtStartOfDay converts to the earliest valid time for the date (testToDateTimeAtStartOfDay_avoidDST); TestLocalDate_Basics testToDate_springDST pins the start of a day without midnight on the facade's own path.",
+ "ownership_tests": [
+  "org.joda.time.TestLocalDateTime_Basics::testToDate_springDST_2Hour40Savings",
+  "org.joda.time.TestDateTimeZoneCutover::test_getOffsetFromLocal_NewYork_Spring",
+  "org.joda.time.TestLocalDate_Basics::testToDate_springDST",
+  "org.joda.time.TestLocalDate_Basics::testToDateTimeAtStartOfDay_avoidDST"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "clear",
+    "anchor_seed": 4843,
+    "class": "org.joda.time.format.PeriodFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.util.Date;",
+     "import org.joda.time.LocalDate;",
+     "import org.joda.time.tz.DateTimeZoneBuilder;"
+    ],
+    "method": "toJavaDate",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "setStandardOffset",
+    "anchor_seed": 4844,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.util.Date;",
+     "import org.joda.time.LocalDate;",
+     "import org.joda.time.LocalTime;"
+    ],
+    "method": "javaDateOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "size",
+    "anchor_seed": 4845,
+    "class": "org.joda.time.LocalTime",
+    "file": "src/main/java/org/joda/time/LocalTime.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "javaDateFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "basicDateTime",
+    "anchor_seed": 4846,
+    "class": "org.joda.time.format.ISODateTimeFormat",
+    "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.util.Date;"
+    ],
+    "method": "javaDateAt",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendMonthOfYear",
+    "anchor_seed": 4847,
+    "class": "org.joda.time.format.DateTimeFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.util.Date;",
+     "import org.joda.time.LocalDate;"
+    ],
+    "method": "javaDayStart",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4743
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-12"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.TestLocalDate_Basics",
+  "test_file": "src/test/java/org/joda/time/TestLocalDate_Basics.java",
+  "test_method": "testToDate_springDST_2Hour40Savings"
+ },
+ "variant_id": "CTV-4BBE98",
+ "kind": "new",
+ "fault_lines": [
+  "start.setTime(start.getTime() + 3600000);\n        }"
+ ],
+ "gold_key": "org.joda.time.format.DateTimeFormatterBuilder::javaDayStart"
+}

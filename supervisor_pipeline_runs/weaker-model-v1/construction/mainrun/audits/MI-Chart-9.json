@@ -1,0 +1,45 @@
+{
+ "instance": "Chart-9__i",
+ "iid": "MI-Chart-9",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.jfree.chart.axis.ValueAxis::pruneSeriesHistory (hop 4)",
+   "edit": "ChartPanel.removeOldItems(series, data, maximumAge, notify && series.getItemCount() > 1 && series.getTimePeriod(series.getItemCount() - 1).getSerialIndex() - series.getTimePeriod(0).getSerialIndex() > maximumAge);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "AbstractXYItemRenderer::ageTimeSeries / SpiderWebPlot::trimAgedItems / JFreeChart::discardAgedItems (declared compensating edits: notify && count>1; empty-list early return; maximumAge+1)",
+   "edit": "as declared in spec.compensating (gate G9)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.jfree.data.time.TimeSeries::removeAgedItems(boolean) [instance; passes this, this.data, this.maximumItemAge, notify]",
+  "hop1 org.jfree.chart.renderer.xy.AbstractXYItemRenderer::ageTimeSeries",
+  "hop2 org.jfree.chart.plot.SpiderWebPlot::trimAgedItems",
+  "hop3 org.jfree.chart.JFreeChart::discardAgedItems",
+  "hop4 org.jfree.chart.axis.ValueAxis::pruneSeriesHistory",
+  "gold org.jfree.chart.ChartPanel::removeOldItems"
+ ],
+ "reasons": "(a) On the trigger (two Year items 1999/2001, setMaximumItemAge(2) -> removeAgedItems(true)) nothing is aged, yet the gold calls series.fireSeriesChanged(), whose contract is 'signalling to registered listeners that the series has been changed'; hops 1-4 are pure pass-throughs of (series, data, maximumAge, notify) and make no decision, so only the gold (the method that removes and fires) breaks the convention. The facade's own original javadoc ('sent ... IF any items are removed') is the symptom surface. (b) Hop javadocs match their code (each describes the composite aging operation and delegates unchanged); none decides or documents a notification rule differently from the gold. (c) The only passing non-gold edit found re-implements the gold's aging test upstream as a notify pre-filter in a hop (verified: trigger, testRemoveAgedItems2, testDelete2 and full suite pass); it duplicates the gold's own decision and makes the gold's internal outcome irrelevant to notification, so it is a bypass, not a competing repair. The declared compensating edits fail the trigger (G9). (d) Hop/gold names are neutral host-vocabulary names; no fault vocabulary (G2b); the appended lie ('located by a binary search ... removed together in a single step') is false procedure and does not mention notification or the omitted check. (e) Chain is exactly five calls; hosts AbstractXYItemRenderer, SpiderWebPlot, JFreeChart, ValueAxis, ChartPanel are five existing classes and match `mr_lib.py preview Chart-9 org/jfree/data/time/TimeSeries.java` draw order and anchors exactly (host_mode 1500, seed 4325); facade body is state gathering + one delegating call (no original argument guard; the getItemCount()>1 computation moved into the gold); one added lie sentence; gold javadoc silent on the 'only if removed' step; test.patch empty; independently reproduced: variant compiles, full suite has exactly one failure, the trigger. (f) Convention pinned outside the gold by TimeSeries.removeAgedItems(long, boolean) ('if (removed && notify)') with passing testRemoveAgedItems2, TimeSeries.delete(RegularTimePeriod) with passing testDelete2, TimeSeries.clear, and Series.fireSeriesChanged's javadoc. (g) C10i rules: facade TimeSeries.removeAgedItems(boolean) is an allowed candidate; signature/modifiers/throws unchanged; no visibility change, no new type, no reflection added (the reflection in the sibling overload is pristine code), no test edit; V1+V2 (receiver plus private field values passed down; hops use only public TimeSeries/Series methods).",
+ "notes": "Bypass recorded: hop 4 (or any hop, or the facade) can pass notify && <series spans more than maximumAge> to the gold; this copies the gold's omitted check outside its owner. Minor formatting quirk: the lie sentence is appended as a continuation of the facade's @param notify description without a leading '*'; it renders inside that parameter's description but is not a fault marker. Hop 4 edit was tested in /private/tmp scratch and reverted; scratch deleted."
+}

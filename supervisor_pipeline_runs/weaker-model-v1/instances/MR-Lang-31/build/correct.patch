@@ -1,0 +1,195 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index bf1318d39..612e61ae6 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -2803,6 +2803,30 @@ public class ArrayUtils {
+         return result;
+     }
+ 
++    /**
++     * <p>Checks whether a CharSequence contains any character in the given
++     * set of characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param searchChars  the characters to search for, not null
++     * @return <code>true</code> if any of the characters is found
++     */
++    public static boolean anyCharFound(CharSequence cs, char[] searchChars) {
++        final int csLength = cs.length();
++        final int searchLength = searchChars.length;
++        for (int i = 0; i < csLength; i++) {
++            final char ch = cs.charAt(i);
++            for (int k = 0; k < searchLength; k++) {
++                if (searchChars[k] == ch
++                        && (i + 1 == csLength || k + 1 == searchLength || !Character.isHighSurrogate(ch) || searchChars[k + 1] == cs.charAt(i + 1))) {
++                    return true;
++                }
++            }
++        }
++        return false;
++    }
++
++
+     // Int array converters
+     // ----------------------------------------------------------------------
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 4aac02d17..da6317405 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -1490,12 +1490,13 @@ public class StringUtils {
+      *            the chars to search for, may be null
+      * @return the <code>true</code> if any of the chars are found, <code>false</code> if no match or null input
+      * @since 2.4
++       The search characters are first sorted into a new array, and each character of the CharSequence is then looked up in that array by a binary search.
+      */
+     public static boolean containsAny(CharSequence cs, String searchChars) {
+         if (searchChars == null) {
+             return false;
+         }
+-        return containsAny(cs, searchChars.toCharArray());
++        return org.apache.commons.lang3.builder.ToStringStyle.anyCharacterOf(cs, searchChars);
+     }
+ 
+     // IndexOfAnyBut chars
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 6df1e6d68..85a6d6233 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,7 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -1274,6 +1275,25 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Checks whether a CharSequence contains any character of a search
++     * String.</p>
++     *
++     * <p>A <code>null</code> or empty CharSequence contains no character and
++     * gives <code>false</code>.</p>
++     *
++     * @param cs  the CharSequence to check, may be null
++     * @param searchChars  the characters to search for, not null
++     * @return <code>true</code> if any of the characters is found
++     */
++    public static boolean anyCharacterOf(CharSequence cs, String searchChars) {
++        if (cs == null || cs.length() == 0) {
++            return false;
++        }
++        return DateUtils.anyCharacterIn(cs, searchChars);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the detail of a
+      * <code>double</code> array.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 6f2be0069..c907be589 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -23,6 +23,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -2171,6 +2172,24 @@ public class StrBuilder implements CharSequence, Appendable {
+         return indexOf(ch, 0);
+     }
+ 
++    /**
++     * <p>Checks whether a non-empty CharSequence contains any character in a
++     * set of characters.</p>
++     *
++     * <p>An empty set of characters gives <code>false</code>.</p>
++     *
++     * @param cs  the CharSequence to check, not null or empty
++     * @param searchChars  the characters to search for, not null
++     * @return <code>true</code> if any of the characters is found
++     */
++    public static boolean anyCharOf(CharSequence cs, char[] searchChars) {
++        if (searchChars.length == 0) {
++            return false;
++        }
++        return FastDateFormat.charsFoundIn(cs, searchChars);
++    }
++
++
+     /**
+      * Searches the string builder to find the first reference to the specified char.
+      * 
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index f6c2adae0..29b0772a6 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -1379,6 +1380,21 @@ public class DateUtils {
+     public static long getFragmentInHours(Date date, int fragment) {
+         return getFragment(date, fragment, Calendar.HOUR_OF_DAY);
+     }
++
++    /**
++     * <p>Checks whether a non-empty CharSequence contains any character of a
++     * search String.</p>
++     *
++     * <p>The characters of the search String are taken as a char array.</p>
++     *
++     * @param cs  the CharSequence to check, not null or empty
++     * @param searchChars  the characters to search for, not null
++     * @return <code>true</code> if any of the characters is found
++     */
++    public static boolean anyCharacterIn(CharSequence cs, String searchChars) {
++        return StrBuilder.anyCharOf(cs, searchChars.toCharArray());
++    }
++
+     
+     /**
+      * <p>Returns the number of days within the 
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index e30da2a56..7906a1788 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang3.Validate;
++import org.apache.commons.lang3.ArrayUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -220,6 +221,19 @@ public class FastDateFormat extends Format {
+         return format;
+     }
+ 
++    /**
++     * <p>Checks whether a CharSequence contains any character in a set of
++     * characters.</p>
++     *
++     * @param cs  the CharSequence to check, not null
++     * @param searchChars  the characters to search for, not null
++     * @return <code>true</code> if any of the characters is found
++     */
++    public static boolean charsFoundIn(CharSequence cs, char[] searchChars) {
++        return ArrayUtils.anyCharFound(cs, searchChars);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Gets a date formatter instance using the specified style in the

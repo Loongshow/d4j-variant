@@ -1,0 +1,69 @@
+{
+ "instance": "JacksonDatabind-56",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.databind.util.TokenBuffer::scalarTypesAccepted (hop 4)",
+   "edit": "if (BasicDeserializerFactory.isFromStringType(type)) {  ->  if (BasicDeserializerFactory.isFromStringType(type) || type == JavaType.class) {",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.std.JdkDeserializers static initializer (caller of the facade, not a hop)",
+   "edit": "local array {UUID, AtomicBoolean, StackTraceElement, ByteBuffer}  ->  {UUID, AtomicBoolean, StackTraceElement, ByteBuffer, JavaType.class}",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.ObjectMapper::stringValueTypesOf (hop 3)",
+   "edit": "List<Class<?>> selected = TokenBuffer.scalarTypesAccepted(candidates); return selected.toArray(...);  ->  return candidates;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::findDefaultDeserializer (off-chain)",
+   "edit": "after the TokenBuffer special case add: if (rawType == JavaType.class) { return FromStringDeserializer.findDeserializer(rawType); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.databind.deser.std.JdkDeserializers::find (off-chain)",
+   "edit": "move 'JsonDeserializer<?> d = FromStringDeserializer.findDeserializer(rawType); if (d != null) return d;' above the _classNames.contains(clsName) check",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.databind.deser.std.FromStringDeserializer::types (called from JdkDeserializers static init, reached by ObjectMapper.readValue(json, JavaType.class) -> BasicDeserializerFactory.findDefaultDeserializer -> JdkDeserializers.find)",
+  "hop1 com.fasterxml.jackson.databind.ObjectReader::simpleValueTypes (16 candidate types incl. JavaType)",
+  "hop2 com.fasterxml.jackson.databind.deser.BeanDeserializerBase::fromStringValueTypes (pass-through)",
+  "hop3 com.fasterxml.jackson.databind.ObjectMapper::stringValueTypesOf (list -> array)",
+  "hop4 com.fasterxml.jackson.databind.util.TokenBuffer::scalarTypesAccepted (filter loop)",
+  "gold com.fasterxml.jackson.databind.deser.BasicDeserializerFactory::isFromStringType (per-type decision; omits rawType == JavaType.class)"
+ ],
+ "reasons": "(a) The gold documents 'True if the general-purpose from-String deserializer handles values of the type'. That deserializer is FromStringDeserializer.Std: findDeserializer(JavaType.class) returns a Std of kind STD_JAVA_TYPE, which Std._deserialize reads with TypeFactory.constructFromCanonical. The gold returns false for JavaType, so it violates its own contract on the trigger input. Hop1 supplies JavaType among its candidates. Hops 2 and 3 pass the candidates through, and hop 4 keeps exactly what the gold accepts. Their outputs, and the facade's, are wrong only because the gold's answer propagates; none of their own code departs from its documentation. (b) Each hop's javadoc matches its code. Hops 2 and 3 share a selection description and delegate it; hop 4 says 'collecting those ... the deserializer handles' and delegates the per-type decision to the gold. No hop's text makes dropping JavaType its own responsibility. (c) Five non-gold edits pass the trigger, the four ownership tests and the full suite: hop 4 hard-coding JavaType, JdkDeserializers' local array, hop 3 returning the candidates unfiltered, a JavaType special case in findDefaultDeserializer, and findDeserializer moved before the _classNames check in JdkDeserializers.find. Each one either restates the gold's decision for JavaType or makes the chain's output dead (hop 3 also returns UUID, AtomicBoolean, StackTraceElement and ByteBuffer, which Std does not handle). All five leave isFromStringType(JavaType.class) == false and types() without JavaType, so the gold's and the facade's documented contracts stay violated. That makes all five bypasses; none is a competing repair. The spec's three declared compensating edits (SimpleType at hop 1, ResolvedType at hop 2, superclass at hop 4) fail the trigger, as G9 records. (d) No fault vocabulary appears in the added lines (grep clean). Names are neutral, and the gold's text never names JavaType or lists the accepted types. The lie (scanning the package for subclasses and collecting constructor value classes) describes a discovery algorithm the code does not perform and names neither the fault nor the filtering step. (e) The gold is five calls below the facade. The five hops sit in five distinct existing classes, none of them the facade's class: ObjectReader, BeanDeserializerBase, ObjectMapper, TokenBuffer, BasicDeserializerFactory. The facade body is a single delegating call; the original had no guard. The facade javadoc carries one procedural lie sentence, and the gold's javadoc is silent on the omitted type. The trigger TestJacksonTypes::testJavaType is an existing test (test.patch is empty) and is the only failure in my full variant run; the correct.patch run has 0 failures. (f) The convention is pinned outside the gold: FromStringDeserializer.findDeserializer handles JavaType.class (STD_JAVA_TYPE -> constructFromCanonical), TypeBase.serialize writes a JavaType as its canonical String, and TestTypeFactory::testCanonicalNames, which passes on the variant, pins the canonical round trip.",
+ "notes": "Independently reproduced: variant compiles; trigger fails with 'Can not construct instance of com.fasterxml.jackson.databind.JavaType'; the 4 ownership tests pass; the full variant suite fails only the trigger; correct.patch passes the trigger, the ownership tests and the full suite. On the correct configuration types() returns the same 12 types in the same order as the pristine literal. The original facade had no javadoc. The variant adds a two-sentence javadoc: a non-procedural contract sentence plus the procedural lie. The lie line lacks the leading ' * ' javadoc prefix (an indented bare line). This is a formatting oddity of the facade comment only; it does not point at any hop or at the gold. The ownership tests pin the canonical-string convention and other from-String types (Charset, Locale, InetSocketAddress); the direct pin that JavaType belongs to the general-purpose deserializer is the production code FromStringDeserializer.findDeserializer and Std._deserialize. Bypasses recorded above; none counts as a competing repair because each leaves the gold's documented per-type answer false for a type the deserializer handles. Scratch at /private/tmp/mxb-Ihj3fW deleted after the audit."
+}

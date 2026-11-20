@@ -1,0 +1,244 @@
+diff --git a/src/java/org/apache/commons/collections/CollectionUtils.java b/src/java/org/apache/commons/collections/CollectionUtils.java
+index 25ec7193..267b70ec 100644
+--- a/src/java/org/apache/commons/collections/CollectionUtils.java
++++ b/src/java/org/apache/commons/collections/CollectionUtils.java
+@@ -736,51 +736,10 @@ public class CollectionUtils {
+      * @throws ArrayIndexOutOfBoundsException
+      *
+      * @deprecated use {@link #get(Object, int)} instead. Will be removed in v4.0
++       The values of the object are first copied into a new array, and the value at the index is then read from that array in a single lookup.
+      */
+     public static Object index(Object obj, Object index) {
+-        if(obj instanceof Map) {
+-            Map map = (Map)obj;
+-            if(map.containsKey(index)) {
+-                return map.get(index);
+-            }
+-        }
+-        int idx = -1;
+-        if(index instanceof Integer) {
+-            idx = ((Integer)index).intValue();
+-        }
+-        if(idx < 0) {
+-            return obj;
+-        } 
+-        else if(obj instanceof Map) {
+-            Map map = (Map)obj;
+-            Iterator iterator = map.keySet().iterator();
+-            return index(iterator, idx);
+-        } 
+-        else if(obj instanceof List) {
+-            return ((List)obj).get(idx);
+-        } 
+-        else if(obj instanceof Object[]) {
+-            return ((Object[])obj)[idx];
+-        } 
+-        else if(obj instanceof Enumeration) {
+-            Enumeration it = (Enumeration)obj;
+-            while(it.hasMoreElements()) {
+-                idx--;
+-                if(idx == -1) {
+-                    return it.nextElement();
+-                } else {
+-                    it.nextElement();
+-                }
+-            }
+-        } 
+-        else if(obj instanceof Iterator) {
+-            return index((Iterator)obj, idx);
+-        }
+-        else if(obj instanceof Collection) {
+-            Iterator iterator = ((Collection)obj).iterator();
+-            return index(iterator, idx);
+-        }
+-        return obj;
++        return org.apache.commons.collections.bidimap.TreeBidiMap.keyedValue(obj, index);
+     }
+ 
+     private static Object index(Iterator iterator, int idx) {
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index f2b6dde5..187c93d9 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -1257,6 +1257,29 @@ class CursorableSubList extends CursorableLinkedList implements List {
+         return super.isEmpty();
+     }
+ 
++    /**
++     * Given an Object, and an index, returns the nth value in the object.
++     *
++     * @param obj  the object to get the nth value of
++     * @param idx  the index of the value, not negative
++     * @return the nth value, or the object itself if it has no nth value
++     */
++    public static Object nthElement(Object obj, int idx) {
++        Iterator it = IteratorUtils.EMPTY_ITERATOR;
++        if (obj instanceof Iterator) {
++            it = (Iterator) obj;
++        }
++        while (it.hasNext()) {
++            idx--;
++            if (idx == -1) {
++                return it.next();
++            }
++            it.next();
++        }
++        return obj;
++    }
++
++
+     public Object[] toArray() {
+         checkForComod();
+         return super.toArray();
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e444aae4..e66247c4 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -1306,6 +1306,28 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return lookup((Comparable) key, KEY) != null;
+     }
+ 
++    /**
++     * Given an Object, and an index, returns the value at the position given
++     * by the index in the Object.
++     * <p>
++     * An index that is not an Integer, or is a negative Integer, gives the
++     * object itself; for any other index the object is passed on unchanged.
++     *
++     * @param obj  the object to get a value from
++     * @param index  the index to get
++     * @return the value at the position, or the object itself
++     */
++    public static Object positionalValue(Object obj, Object index) {
++        if (index instanceof Integer) {
++            int idx = ((Integer) index).intValue();
++            if (idx >= 0) {
++                return ExtendedProperties.getNth(obj, idx);
++            }
++        }
++        return obj;
++    }
++
++
+     /**
+      * Returns true if this map maps one or more keys to the
+      * specified value.
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index 7046bc8d..535442dd 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -34,6 +34,7 @@ import java.util.NoSuchElementException;
+ import java.util.Properties;
+ import java.util.StringTokenizer;
+ import java.util.Vector;
++import java.util.Map;
+ 
+ /**
+  * This class extends normal Java properties by adding the possibility
+@@ -984,6 +985,22 @@ public class ExtendedProperties extends Hashtable {
+         return getProperties(key, new Properties());
+     }
+ 
++    /**
++     * Gets the value at a position of an object. A Map is read through its
++     * key set; any other object is passed on unchanged.
++     *
++     * @param obj  the object to get a value from
++     * @param idx  the position of the value, not negative
++     * @return the value at the position
++     */
++    public static Object getNth(Object obj, int idx) {
++        if (obj instanceof Map) {
++            return MapUtils.getNthValue(((Map) obj).keySet(), idx);
++        }
++        return MapUtils.getNthValue(obj, idx);
++    }
++
++
+     /**
+      * Get a list of properties associated with the given
+      * configuration key.
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 07bf3b44..249a5f4a 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -42,6 +42,8 @@ import org.apache.commons.collections.map.TypedMap;
+ import org.apache.commons.collections.map.TypedSortedMap;
+ import org.apache.commons.collections.map.UnmodifiableMap;
+ import org.apache.commons.collections.map.UnmodifiableSortedMap;
++import java.util.Collection;
++import java.util.List;
+ 
+ /** 
+  * Provides utility methods and decorators for
+@@ -325,6 +327,28 @@ public class MapUtils {
+         return new Double(answer.doubleValue());
+     }
+ 
++    /**
++     * Gets the value at a position of an object.
++     * <p>
++     * A List or an object array is read at the position, and a Collection
++     * through its iterator; any other object is passed on unchanged.
++     *
++     * @param obj  the object to get a value from
++     * @param idx  the position of the value, not negative
++     * @return the value at the position
++     */
++    public static Object getNthValue(Object obj, int idx) {
++        if (obj instanceof List) {
++            return ((List) obj).get(idx);
++        } else if (obj instanceof Object[]) {
++            return ((Object[]) obj)[idx];
++        } else if (obj instanceof Collection) {
++            return CursorableSubList.nthElement(((Collection) obj).iterator(), idx);
++        }
++        return CursorableSubList.nthElement(obj, idx);
++    }
++
++
+     /**
+      * Gets a Map from a Map in a null-safe manner.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index 778ebb55..2359b9a9 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -31,6 +31,7 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import org.apache.commons.collections.DoubleOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -411,6 +412,29 @@ public class TreeBidiMap implements OrderedBidiMap {
+         return new ViewMapIterator(this, KEY);
+     }
+ 
++    /**
++     * Given an Object, and a key (index), returns the value associated with
++     * that key in the Object.
++     * <p>
++     * If the object is a Map that contains the key, the value mapped to the
++     * key is returned; otherwise the object and the index are passed on
++     * unchanged.
++     *
++     * @param obj  the object to get a value from
++     * @param index  the key (index) to get
++     * @return the value associated with the key
++     */
++    public static Object keyedValue(Object obj, Object index) {
++        if (obj instanceof Map) {
++            Map map = (Map) obj;
++            if (map.containsKey(index)) {
++                return map.get(index);
++            }
++        }
++        return DoubleOrderedMap.positionalValue(obj, index);
++    }
++
++
+     /**
+      * Gets an ordered iterator over the map entries.
+      * <p>

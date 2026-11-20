@@ -1,0 +1,223 @@
+diff --git a/src/main/java/org/apache/commons/cli/CommandLine.java b/src/main/java/org/apache/commons/cli/CommandLine.java
+index 81d89dd..8321d7f 100644
+--- a/src/main/java/org/apache/commons/cli/CommandLine.java
++++ b/src/main/java/org/apache/commons/cli/CommandLine.java
+@@ -305,6 +305,35 @@ public class CommandLine implements Serializable
+         return answer;
+     }
+ 
++    /**
++     * Returns whether a String is a permissible name for an Option.
++     * A <code>null</code> name is permitted: it stands for an Option that
++     * has only a long name.
++     *
++     * @param opt the name to check, may be null
++     * @return true if <code>opt</code> can be used as the name of an Option
++     */
++    public static boolean isOptionName(String opt)
++    {
++        if (opt == null)
++        {
++            return true;
++        }
++
++        for (int i = 0; i < opt.length(); i++)
++        {
++            char ch = opt.charAt(i);
++
++            if (!Character.isJavaIdentifierPart(ch))
++            {
++                return false;
++            }
++        }
++
++        return true;
++    }
++
++
+     /** 
+      * Retrieve any left-over non-recognized options and arguments
+      *
+diff --git a/src/main/java/org/apache/commons/cli/DefaultParser.java b/src/main/java/org/apache/commons/cli/DefaultParser.java
+index 2f957b1..84d28b6 100644
+--- a/src/main/java/org/apache/commons/cli/DefaultParser.java
++++ b/src/main/java/org/apache/commons/cli/DefaultParser.java
+@@ -75,6 +75,29 @@ public class DefaultParser implements CommandLineParser
+         return parse(options, arguments, properties, false);
+     }
+ 
++    /**
++     * Creates an Option with the given name, description, long name and flags.
++     *
++     * @param opt the name of the Option, may be null
++     * @param description the description of the Option
++     * @param longOpt the long name of the Option
++     * @param required whether the Option is required
++     * @param optionalArg whether the argument of the Option is optional
++     * @return the Option
++     * @throws IllegalArgumentException if <code>opt</code> is not a
++     * permissible name for an Option
++     */
++    public static Option optionWithFlags(String opt, String description, String longOpt, boolean required,
++            boolean optionalArg)
++    {
++        Option option = Parser.namedOption(opt, description, longOpt);
++        option.setRequired(required);
++        option.setOptionalArg(optionalArg);
++
++        return option;
++    }
++
++
+     public CommandLine parse(Options options, String[] arguments, boolean stopAtNonOption) throws ParseException
+     {
+         return parse(options, arguments, null, stopAtNonOption);
+diff --git a/src/main/java/org/apache/commons/cli/HelpFormatter.java b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+index e44c719..bb13208 100644
+--- a/src/main/java/org/apache/commons/cli/HelpFormatter.java
++++ b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+@@ -308,6 +308,33 @@ public class HelpFormatter
+         return longOptSeparator;
+     }
+ 
++    /**
++     * Creates an Option with the given name, description and settings.
++     *
++     * @param opt the name of the Option, may be null
++     * @param description the description of the Option
++     * @param longOpt the long name of the Option
++     * @param required whether the Option is required
++     * @param optionalArg whether the argument of the Option is optional
++     * @param numberOfArgs the number of argument values the Option can take
++     * @param type the type of the Option
++     * @param valuesep the character that separates the argument values
++     * @param argName the display name for the argument value
++     * @return the Option
++     * @throws IllegalArgumentException if <code>opt</code> is not a
++     * permissible name for an Option
++     */
++    public static Option optionWithArgName(String opt, String description, String longOpt, boolean required,
++            boolean optionalArg, int numberOfArgs, Class type, char valuesep, String argName)
++    {
++        Option option = Option.typedOption(opt, description, longOpt, required, optionalArg, numberOfArgs, type);
++        option.setValueSeparator(valuesep);
++        option.setArgName(argName);
++
++        return option;
++    }
++
++
+     /**
+      * Sets the 'argName'.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/Option.java b/src/main/java/org/apache/commons/cli/Option.java
+index 66c7ef9..948d1f6 100644
+--- a/src/main/java/org/apache/commons/cli/Option.java
++++ b/src/main/java/org/apache/commons/cli/Option.java
+@@ -579,6 +579,32 @@ public class Option implements Cloneable, Serializable
+         return buf.toString();
+     }
+ 
++    /**
++     * Creates an Option with the given name, description, long name, flags,
++     * number of argument values and type.
++     *
++     * @param opt the name of the Option, may be null
++     * @param description the description of the Option
++     * @param longOpt the long name of the Option
++     * @param required whether the Option is required
++     * @param optionalArg whether the argument of the Option is optional
++     * @param numberOfArgs the number of argument values the Option can take
++     * @param type the type of the Option
++     * @return the Option
++     * @throws IllegalArgumentException if <code>opt</code> is not a
++     * permissible name for an Option
++     */
++    public static Option typedOption(String opt, String description, String longOpt, boolean required,
++            boolean optionalArg, int numberOfArgs, Class type)
++    {
++        Option option = DefaultParser.optionWithFlags(opt, description, longOpt, required, optionalArg);
++        option.setArgs(numberOfArgs);
++        option.setType(type);
++
++        return option;
++    }
++
++
+     /**
+      * Returns whether this Option has any values.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/OptionBuilder.java b/src/main/java/org/apache/commons/cli/OptionBuilder.java
+index 6fd1b43..ab1435d 100644
+--- a/src/main/java/org/apache/commons/cli/OptionBuilder.java
++++ b/src/main/java/org/apache/commons/cli/OptionBuilder.java
+@@ -347,31 +347,19 @@ public final class OptionBuilder
+      * @return the Option instance
+      * @throws IllegalArgumentException if <code>opt</code> is not
+      * a valid character.  See Option.
++       The current settings are first recorded in a prototype Option, and the Option returned is a clone of that prototype.
+      */
+     public static Option create(String opt) throws IllegalArgumentException
+     {
+-        Option option = null;
+         try
+         {
+-            // create the option
+-            option = new Option(opt, description);
+-
+-            // set the option properties
+-            option.setLongOpt(longopt);
+-            option.setRequired(required);
+-            option.setOptionalArg(optionalArg);
+-            option.setArgs(numberOfArgs);
+-            option.setType(type);
+-            option.setValueSeparator(valuesep);
+-            option.setArgName(argName);
++            return HelpFormatter.optionWithArgName(opt, description, longopt, required, optionalArg,
++                    numberOfArgs, type, valuesep, argName);
+         }
+         finally
+         {
+             // reset the OptionBuilder properties
+             OptionBuilder.reset();
+         }
+-
+-        // return the Option instance
+-        return option;
+     }
+ }
+diff --git a/src/main/java/org/apache/commons/cli/Parser.java b/src/main/java/org/apache/commons/cli/Parser.java
+index ba4b6bc..83f9a58 100644
+--- a/src/main/java/org/apache/commons/cli/Parser.java
++++ b/src/main/java/org/apache/commons/cli/Parser.java
+@@ -364,6 +364,30 @@ public abstract class Parser implements CommandLineParser
+         }
+     }
+ 
++    /**
++     * Creates an Option with the given name, description and long name.
++     *
++     * @param opt the name of the Option, may be null
++     * @param description the description of the Option
++     * @param longOpt the long name of the Option
++     * @return the Option
++     * @throws IllegalArgumentException if <code>opt</code> is not a
++     * permissible name for an Option
++     */
++    public static Option namedOption(String opt, String description, String longOpt)
++    {
++        if (!CommandLine.isOptionName(opt))
++        {
++            throw new IllegalArgumentException("Illegal option name '" + opt + "'");
++        }
++
++        Option option = new Option(opt, description);
++        option.setLongOpt(longOpt);
++
++        return option;
++    }
++
++
+     /**
+      * Process the Option specified by <code>arg</code> using the values
+      * retrieved from the specfied iterator <code>iter</code>.

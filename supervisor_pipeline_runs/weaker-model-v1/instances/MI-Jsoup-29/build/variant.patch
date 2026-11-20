@@ -1,0 +1,170 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 8639e0af..229c37d1 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -14,6 +14,9 @@ import java.nio.ByteBuffer;
+ import java.nio.charset.Charset;
+ import java.util.*;
+ import java.util.zip.GZIPInputStream;
++import org.jsoup.nodes.Element;
++import org.jsoup.nodes.Node;
++import org.jsoup.select.Elements;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -71,6 +74,19 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Get the text of the first of a list of elements, normalised and trimmed.
++     * @param elements the elements
++     * @return the text of the first element, or empty string if there are none
++     */
++    public static String firstElementText(Elements elements) {
++        Element first = elements.first();
++        if (first == null)
++            return "";
++        return Node.trimmedText(first.text());
++    }
++
++
+     public Connection referrer(String referrer) {
+         Validate.notNull(referrer, "Referrer must not be null");
+         req.header("Referer", referrer);
+diff --git a/src/main/java/org/jsoup/nodes/Document.java b/src/main/java/org/jsoup/nodes/Document.java
+index d1d0dfdd..5e23a7d7 100644
+--- a/src/main/java/org/jsoup/nodes/Document.java
++++ b/src/main/java/org/jsoup/nodes/Document.java
+@@ -63,11 +63,10 @@ public class Document extends Element {
+     /**
+      Get the string contents of the document's {@code title} element.
+      @return Trimmed title, or empty string if none set.
++       The {@code head} is searched first, and the rest of the document only when the head holds no {@code title} element.
+      */
+     public String title() {
+-        // title is a preserve whitespace tag (for document output), but normalised here
+-        Element titleEl = getElementsByTag("title").first();
+-        return titleEl != null ? StringUtil.normaliseWhitespace(titleEl.text()).trim() : "";
++        return Element.documentTitle(this);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index 5c1894c9..1e49305d 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -12,6 +12,7 @@ import org.jsoup.select.Selector;
+ import java.util.*;
+ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -58,6 +59,17 @@ public class Element extends Node {
+         return tag.getName();
+     }
+ 
++    /**
++     * Get the text of the first {@code title} element of a document.
++     *
++     * @param document the document to search
++     * @return the title text, or empty string if the document has no {@code title} element
++     */
++    public static String documentTitle(Document document) {
++        return HttpConnection.firstElementText(document.getElementsByTag("title"));
++    }
++
++
+     /**
+      * Get the name of the tag for this element. E.g. {@code div}
+      * 
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index fa74e3b3..4dd22b8a 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -11,6 +11,7 @@ import java.net.URL;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.List;
++import org.jsoup.select.Elements;
+ 
+ /**
+  The base, abstract Node model. Elements, Documents, Comments etc are all Node instances.
+@@ -248,6 +249,16 @@ public abstract class Node implements Cloneable {
+         parentNode.removeChild(this);
+     }
+ 
++    /**
++     * Get a text with its whitespace normalised and trimmed.
++     * @param text the text
++     * @return the normalised and trimmed text
++     */
++    public static String trimmedText(String text) {
++        return Elements.spacedText(text).trim();
++    }
++
++
+     /**
+      * Insert the specified HTML into the DOM before this node (i.e. as a preceding sibling).
+      * @param html HTML to add before this node
+diff --git a/src/main/java/org/jsoup/select/Elements.java b/src/main/java/org/jsoup/select/Elements.java
+index 8302da1e..94e03681 100644
+--- a/src/main/java/org/jsoup/select/Elements.java
++++ b/src/main/java/org/jsoup/select/Elements.java
+@@ -429,6 +429,16 @@ public class Elements implements List<Element>, Cloneable {
+     public Elements eq(int index) {
+         return contents.size() > index ? new Elements(get(index)) : new Elements();
+     }
++
++    /**
++     * Get a text with its whitespace normalised.
++     * @param text the text
++     * @return the normalised text
++     */
++    public static String spacedText(String text) {
++        return Evaluator.normalisedText(text);
++    }
++
+     
+     /**
+      * Test if any of the matched elements match the supplied query.
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 16a083bd..3d7d1e31 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -6,6 +6,7 @@ import org.jsoup.nodes.Element;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import org.jsoup.helper.StringUtil;
+ 
+ 
+ /**
+@@ -451,4 +452,25 @@ public abstract class Evaluator {
+             return String.format(":matchesOwn(%s", pattern);
+         }
+     }
++
++        /**
++     * Get a text with its whitespace normalised, in the same way as the text of an {@link Element}.
++     *
++     * @param text the text to normalise
++     * @return the normalised text
++     */
++    public static String normalisedText(String text) {
++        StringBuilder sb = new StringBuilder(text.length());
++        int c;
++        for (int i = 0; i < text.length(); i += Character.charCount(c)) {
++            c = text.codePointAt(i);
++            if (StringUtil.isWhitespace(c)) {
++                sb.append(' ');
++            } else {
++                sb.appendCodePoint(c);
++            }
++        }
++        return sb.toString();
++    }
++
+ }

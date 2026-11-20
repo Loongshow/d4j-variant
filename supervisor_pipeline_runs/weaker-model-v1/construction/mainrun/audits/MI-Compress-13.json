@@ -1,0 +1,58 @@
+{
+ "instance": "MI-Compress-13",
+ "task_key": "Compress-13__i",
+ "cell": "C10i",
+ "batch": 8,
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipArchiveEntry::setUnixMode (facade)",
+   "edit": "after the storeUnixMode(this, mode) call add: setExternalAttributes(getExternalAttributes() | (isDirectory() ? 0x10 : 0));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "re-implements the gold's directory-flag step after the gold and overwrites the gold's stored attribute word; the gold still stores directory entries outside the Unix-system form its javadoc promises"
+  },
+  {
+   "method": "org.apache.commons.compress.archivers.zip.ZipFile::setUnixAttributes (hop 4)",
+   "edit": "after TarArchiveEntry.putUnixMode(ze, mode) add: ze.setExternalAttributes(ze.getExternalAttributes() | (ze.isDirectory() ? 0x10 : 0));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "same post-hoc patch-up one level higher; replaces the gold's result"
+  },
+  {
+   "method": "hops 1-4 argument edits (validation G9: mode & 07777 at hop 1, mode | DIR_FLAG for directories at hop 2, mode & PERM_MASK at hop 4)",
+   "edit": "see spec compensating edits",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails",
+   "why": "the gold writes (mode << 16) plus a read-only bit, so no argument a caller passes can produce 0x10 in the lower half; any DIR_FLAG in the mode breaks the upper-half assertion"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.compress.archivers.zip.ZipArchiveEntry::setUnixMode (instance, V2: passes this; keeps platform = PLATFORM_UNIX since setPlatform is protected)",
+  "hop1 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::storeUnixMode",
+  "hop2 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::applyUnixMode",
+  "hop3 org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream::recordUnixMode",
+  "hop4 org.apache.commons.compress.archivers.zip.ZipFile::setUnixAttributes",
+  "gold org.apache.commons.compress.archivers.tar.TarArchiveEntry::putUnixMode"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger ZipArchiveEntryTest::testUnixMode fails with expected:<16> but was:<0> (entry 'foo/', mode 0777); both ownership tests pass; full suite has only the trigger failing. (a) putUnixMode is the only method that builds the external-attribute word; its javadoc promises 'the form used for entries made on a Unix system' (Info-ZIP: mode in the upper 16 bits, MS-DOS read-only 0x01 and directory 0x10 in the lower bits), and it computes the read-only bit but omits the directory bit. Hops 1-4 hand the entry and mode down unchanged. (b) The hop javadocs are generic delegation statements that match their code and make no claim about the form of the word. (c) No argument edit at any hop can produce 0x10. The only passing non-gold edits OR the flag in after the gold (facade, hop 4), which overwrites the gold's result: bypass. (d) The names are neutral. The facade lie (masking a mode larger than 07777) does not name the directory flag. (e) The gold is five calls below the facade. The hosts are exactly the largest5 hosts_hop_order (1886/1495/1048/969/926 lines) in five existing classes. The facade is the allowed instance method setUnixMode as V2, with one delegating call. The lie is appended and the code does not do it (it passes the mode unmasked). The gold's javadoc does not state the directory step. The trigger is an existing test and the gold is a one-line omission. (f) AsiExtraField.getMode/setDirectory record directory nature with the stored Unix mode (testModes passes), and isDirectory is pinned by testExplicitDirectoryEntry. (g) No visibility widened, no type added, no reflection, the facade's signature, modifiers and throws are unchanged, and test.patch is empty.",
+ "notes": "Caveats, none decisive: (1) The specific value 0x10 for the lower-half directory flag appears nowhere in the variant's main code outside the gold's correct form. The external pin covers the convention family (directory nature recorded with the Unix metadata, decided by the trailing slash). The exact bit relies on the MS-DOS/Info-ZIP standard invoked by the gold's and the facade's javadocs, together with the gold's own read-only DOS bit. (2) The lie line is inserted after the @param tag with odd 7-space indentation and no leading '*'. It reads as an appended line on the facade (which is a decoy location), not on the gold. Its clause 'only the permissions are stored' concerns the mode half and does not forbid the DOS flags. (3) Hops 1 and 3 sit in bzip2 stream classes, which is semantically odd but required by the largest5 host rule. (4) In scratch copies, ant's incremental compile kept a stale class after cp -R. I deleted target/classes before re-testing the alternatives."
+}

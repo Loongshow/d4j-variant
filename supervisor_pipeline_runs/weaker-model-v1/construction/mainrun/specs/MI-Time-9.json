@@ -1,0 +1,233 @@
+{
+ "bug_id": 9,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "return LocalTime.localMillisOffset(zone, instantLocal - 1, offsetLocal, offsetAdjusted);",
+   "old": "return LocalTime.localMillisOffset(zone, instantLocal, offsetLocal, offsetAdjusted);",
+   "why": "hop 4 hands the gold the local instant one millisecond earlier"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "return ISODateTimeFormat.localInstantOffset(zone, instantLocal, offsetLocal, zone.getOffset(instantLocal - offsetLocal - 1));",
+   "old": "return ISODateTimeFormat.localInstantOffset(zone, instantLocal, offsetLocal, zone.getOffset(instantLocal - offsetLocal));",
+   "why": "hop 3 takes the second estimate one millisecond earlier"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "return PeriodFormatterBuilder.offsetForLocalInstant(zone, instantLocal, zone.getOffset(instantLocal - 1));",
+   "old": "return PeriodFormatterBuilder.offsetForLocalInstant(zone, instantLocal, zone.getOffset(instantLocal));",
+   "why": "hop 1 takes the first estimate one millisecond earlier"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/DateTimeZone.java",
+   "new": "       Offsets already found are kept in a cache held by the zone, keyed by the local instant, and a cached offset is returned without consulting the rules of the zone again.\n     */\n    public int getOffsetFromLocal(long instantLocal) {\n        return org.joda.time.tz.DateTimeZoneBuilder.wallOffsetOfLocal(this, instantLocal);",
+   "old": "     */\n    public int getOffsetFromLocal(long instantLocal) {\n        // get the offset at instantLocal (first estimate)\n        final int offsetLocal = getOffset(instantLocal);\n        // adjust instantLocal using the estimate and recalc the offset\n        final long instantAdjusted = instantLocal - offsetLocal;\n        final int offsetAdjusted = getOffset(instantAdjusted);\n        // if the offsets differ, we must be near a DST boundary\n        if (offsetLocal != offsetAdjusted) {\n            // we need to ensure that time is always after the DST gap\n            // this happens naturally for positive offsets, but not for negative\n            if ((offsetLocal - offsetAdjusted) < 0) {\n                // if we just return offsetAdjusted then the time is pushed\n                // back before the transition, whereas it should be\n                // on or after the transition\n                long nextLocal = nextTransition(instantAdjusted);\n                long nextAdjusted = nextTransition(instantLocal - offsetAdjusted);\n                if (nextLocal != nextAdjusted) {\n                    return offsetLocal;\n                }\n            }\n        } else if (offsetLocal >= 0) {\n            long prev = previousTransition(instantAdjusted);\n            if (prev < instantAdjusted) {\n                int offsetPrev = getOffset(prev);\n                int diff = offsetPrev - offsetLocal;\n                if (instantAdjusted - prev <= diff) {\n                    return offsetPrev;\n                }\n            }\n        }\n        return offsetAdjusted;",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "new": "        return getChronology().millisOfDay().get(getLocalMillis());\n    }\n\n    /**\n     * Chooses the millisecond offset to subtract from a local instant of a\n     * zone to get the UTC instant, from two estimates of that offset.\n     * <p>\n     * The first estimate is the offset of the zone at the local instant, read\n     * as a UTC instant, and the second is the offset at the local instant less\n     * the first estimate. The second estimate is the result, with two\n     * exceptions.\n     * <ul>\n     * <li>A local time in a gap gets the offset that places its instant after\n     * the gap. The second estimate does so unless it is the larger one; the\n     * first estimate is then used when the zone changes offset between the two\n     * estimated instants.</li>\n     * <li>A local time that occurs twice, in an overlap, gets the offset of its\n     * earlier instant. The second estimate does so unless the two estimates\n     * agree on an offset that is not negative; the offset the zone has at its\n     * previous transition is then used.</li>\n     * </ul>\n     *\n     * @param zone  the time zone, not null\n     * @param instantLocal  the millisecond instant, relative to the zone\n     * @param offsetLocal  the first estimate of the offset\n     * @param offsetAdjusted  the second estimate of the offset\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int localMillisOffset(DateTimeZone zone, long instantLocal, int offsetLocal, int offsetAdjusted) {\n        long instantAdjusted = instantLocal - offsetLocal;\n        if (offsetLocal < offsetAdjusted) {\n            long nextLocal = zone.nextTransition(instantAdjusted);\n            long nextAdjusted = zone.nextTransition(instantLocal - offsetAdjusted);\n            if (nextLocal != nextAdjusted) {\n                return offsetLocal;\n            }\n        } else if (offsetLocal == offsetAdjusted && offsetLocal >= 0) {\n            long transition = zone.previousTransition(instantAdjusted);\n            if (transition < instantAdjusted) {\n                int offsetEarlier = zone.getOffset(transition);\n                transition++;\n                if (instantAdjusted - transition < offsetEarlier - offsetLocal) {\n                    return offsetEarlier;\n                }\n            }\n        }\n        return offsetAdjusted;\n    }\n\n\n    //-----------------------------------------------------------------------\n    /**\n     * Returns a copy of this time with the hour of day field updated.",
+   "old": "        return getChronology().millisOfDay().get(getLocalMillis());\n    }\n\n    //-----------------------------------------------------------------------\n    /**\n     * Returns a copy of this time with the hour of day field updated.",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "import org.joda.time.format.PeriodFormatter;\nimport org.joda.time.format.ISODateTimeFormat;\n",
+   "old": "import org.joda.time.format.PeriodFormatter;\n",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Period.java",
+   "new": "    /**\n     * Gets the millisecond offset to subtract from a local instant of a zone\n     * to get the UTC instant, given a first estimate of that offset.\n     * <p>\n     * The second estimate of the offset is the offset of the zone at the local\n     * instant less the first estimate.\n     *\n     * @param zone  the time zone, not null\n     * @param instantLocal  the millisecond instant, relative to the zone\n     * @param offsetLocal  the first estimate of the offset\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int localToUTCOffset(DateTimeZone zone, long instantLocal, int offsetLocal) {\n        return ISODateTimeFormat.localInstantOffset(zone, instantLocal, offsetLocal, zone.getOffset(instantLocal - offsetLocal));\n    }\n\n\n    /**\n     * Check that there are no years or months in the period.",
+   "old": "    /**\n     * Check that there are no years or months in the period.",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "import org.joda.time.DateTimeFieldType;\nimport org.joda.time.DateTimeZone;\nimport org.joda.time.LocalTime;\n",
+   "old": "import org.joda.time.DateTimeFieldType;\n",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "new": "    /**\n     * Gets the millisecond offset to subtract from a local instant of a zone\n     * to get the UTC instant, from two estimates of that offset.\n     *\n     * @param zone  the time zone, not null\n     * @param instantLocal  the millisecond instant, relative to the zone\n     * @param offsetLocal  the first estimate of the offset\n     * @param offsetAdjusted  the second estimate of the offset\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int localInstantOffset(DateTimeZone zone, long instantLocal, int offsetLocal, int offsetAdjusted) {\n        return LocalTime.localMillisOffset(zone, instantLocal, offsetLocal, offsetAdjusted);\n    }\n\n\n    /**\n     * Returns a formatter that combines a full weekyear date and time,",
+   "old": "    /**\n     * Returns a formatter that combines a full weekyear date and time,",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "import org.joda.time.ReadablePeriod;\nimport org.joda.time.DateTimeZone;\nimport org.joda.time.Period;\n",
+   "old": "import org.joda.time.ReadablePeriod;\n",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "        return appendSeparator(text, text, null, true, false);\n    }\n\n    /**\n     * Gets the millisecond offset to subtract from a local instant of a zone\n     * to get the UTC instant, given a first estimate of that offset.\n     *\n     * @param zone  the time zone, not null\n     * @param instantLocal  the millisecond instant, relative to the zone\n     * @param offsetLocal  the first estimate of the offset\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int offsetForLocalInstant(DateTimeZone zone, long instantLocal, int offsetLocal) {\n        return Period.localToUTCOffset(zone, instantLocal, offsetLocal);\n    }\n\n\n    /**",
+   "old": "        return appendSeparator(text, text, null, true, false);\n    }\n\n    /**",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport org.joda.time.format.PeriodFormatterBuilder;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "        getLastRuleSet().setFixedSavings(nameKey, saveMillis);\n        return this;\n    }\n\n    /**\n     * Gets the millisecond offset to subtract from a local instant of a zone\n     * to get the UTC instant.\n     * <p>\n     * The first estimate of the offset is the offset of the zone at the local\n     * instant, read as a UTC instant.\n     *\n     * @param zone  the time zone, not null\n     * @param instantLocal  the millisecond instant, relative to the zone\n     * @return the millisecond offset to subtract from local time to get UTC time\n     */\n    public static int wallOffsetOfLocal(DateTimeZone zone, long instantLocal) {\n        return PeriodFormatterBuilder.offsetForLocalInstant(zone, instantLocal, zone.getOffset(instantLocal));\n    }\n\n\n    /**\n     * Add a recurring daylight saving time rule.",
+   "old": "        getLastRuleSet().setFixedSavings(nameKey, saveMillis);\n        return this;\n    }\n\n    /**\n     * Add a recurring daylight saving time rule.",
+   "purpose": "MI-Time-9 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "wallOffsetOfLocal"
+  },
+  {
+   "class": "org.joda.time.format.PeriodFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "method": "offsetForLocalInstant"
+  },
+  {
+   "class": "org.joda.time.Period",
+   "file": "src/main/java/org/joda/time/Period.java",
+   "method": "localToUTCOffset"
+  },
+  {
+   "class": "org.joda.time.format.ISODateTimeFormat",
+   "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+   "method": "localInstantOffset"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-9__i.py",
+ "entry_points": [
+  "org.joda.time.DateTimeZone::getOffsetFromLocal"
+ ],
+ "evidence": [
+  "org.joda.time.DateTimeZone::adjustOffset",
+  "org.joda.time.DateTime.Property::withMaximumValue",
+  "org.joda.time.tz.DateTimeZoneBuilder.PrecalculatedZone::previousTransition",
+  "org.joda.time.tz.ZoneInfoCompiler::test"
+ ],
+ "expected_signature": "expected:<...10-28T02:59:59.999+0[4]:00> but was:<...10-28T02:59:59.999+0[3]:00>",
+ "extra_tests": [],
+ "fixture_key": "Time-9",
+ "gold": {
+  "class": "org.joda.time.LocalTime",
+  "edits": [
+   {
+    "new": "                int offsetEarlier = zone.getOffset(transition);\n                if (instantAdjusted - transition < offsetEarlier - offsetLocal) {",
+    "old": "                int offsetEarlier = zone.getOffset(transition);\n                transition++;\n                if (instantAdjusted - transition < offsetEarlier - offsetLocal) {"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/LocalTime.java",
+  "method": "localMillisOffset"
+ },
+ "group": "MI-Time-9",
+ "hops": 5,
+ "iid": "MI-Time-9",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold reads the zone's transitions around the estimated UTC instant and decides between the two estimates of the offset and the offset at the previous transition: hops 1 and 3 each read one offset of the zone (the first estimate at the local instant, the second at the local instant less the first) and hops 2 and 4 pass the values along. The chain returns one int, from which no caller can tell which rule produced it. The gold's javadoc promises that a local time that occurs twice, in an overlap, gets the offset of its earlier instant. The convention is pinned outside the gold: the facade's own javadoc ('During a DST overlap (where the local time is ambiguous) this method will return the earlier instant'); DateTimeZone.adjustOffset, whose overlap window [transition - diff, transition + diff) is built from nextTransition and includes the last millisecond of the overlap (TestDateTimeZoneCutover testBug3192457_adjustOffset); DateTime.Property.withMaximumValue, which takes previousTransition as the last instant before a gap (TestDateTime_Properties testPropertyWithMaximumValueMillisOfDayDSTGap expects 1926-04-17T22:59:59.999Z); DateTimeZoneBuilder.PrecalculatedZone.previousTransition returns prev - 1 and ZoneInfoCompiler.test checks trans - 1 against previousTransition; test_getOffsetFromLocal_Moscow_Autumn_overlap_mins and test_DateTime_constructor_Moscow_Autumn pin the earlier offset inside the Moscow overlap.",
+ "ownership_tests": [
+  "org.joda.time.TestDateTimeZoneCutover::test_getOffsetFromLocal_Moscow_Autumn_overlap_mins",
+  "org.joda.time.TestDateTimeZoneCutover::testBug3192457_adjustOffset",
+  "org.joda.time.TestDateTime_Properties::testPropertyWithMaximumValueMillisOfDayDSTGap",
+  "org.joda.time.TestDateTimeZoneCutover::test_DateTime_constructor_Moscow_Autumn"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "setFixedSavings",
+    "anchor_seed": 3367,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.joda.time.format.PeriodFormatterBuilder;"
+    ],
+    "method": "wallOffsetOfLocal",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendSeparatorIfFieldsBefore",
+    "anchor_seed": 3368,
+    "class": "org.joda.time.format.PeriodFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.joda.time.DateTimeZone;",
+     "import org.joda.time.Period;"
+    ],
+    "method": "offsetForLocalInstant",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toStandardDuration",
+    "anchor_seed": 3369,
+    "class": "org.joda.time.Period",
+    "file": "src/main/java/org/joda/time/Period.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.joda.time.format.ISODateTimeFormat;"
+    ],
+    "method": "localToUTCOffset",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "weekDate",
+    "anchor_seed": 3370,
+    "class": "org.joda.time.format.ISODateTimeFormat",
+    "file": "src/main/java/org/joda/time/format/ISODateTimeFormat.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.joda.time.DateTimeZone;",
+     "import org.joda.time.LocalTime;"
+    ],
+    "method": "localInstantOffset",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getMillisOfDay",
+    "anchor_seed": 3371,
+    "class": "org.joda.time.LocalTime",
+    "file": "src/main/java/org/joda/time/LocalTime.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "localMillisOffset",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3267
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-9"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.TestDateTimeZoneCutover",
+  "test_file": "src/test/java/org/joda/time/TestDateTimeZoneCutover.java",
+  "test_method": "test_getOffsetFromLocal_Moscow_Autumn"
+ },
+ "variant_id": "CTV-89F873",
+ "kind": "new",
+ "fault_lines": [
+  "int offsetEarlier = zone.getOffset(transition);\n                if (instantAdjusted - transition < offsetEarlier - offsetLocal) {"
+ ],
+ "gold_key": "org.joda.time.LocalTime::localMillisOffset"
+}

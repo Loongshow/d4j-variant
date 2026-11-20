@@ -1,0 +1,234 @@
+diff --git a/source/org/jfree/chart/ChartPanel.java b/source/org/jfree/chart/ChartPanel.java
+index e0f6435..01d23f1 100644
+--- a/source/org/jfree/chart/ChartPanel.java
++++ b/source/org/jfree/chart/ChartPanel.java
+@@ -191,6 +191,8 @@ import org.jfree.chart.plot.PlotOrientation;
+ import org.jfree.chart.plot.PlotRenderingInfo;
+ import org.jfree.chart.plot.Zoomable;
+ import org.jfree.chart.ui.ExtensionFileFilter;
++import java.util.List;
++import org.jfree.chart.plot.SpiderWebPlot;
+ 
+ /**
+  * A Swing GUI component for displaying a {@link JFreeChart} object.
+@@ -1949,6 +1951,25 @@ public class ChartPanel extends JPanel
+         }
+         return result;
+     }
++
++    /**
++     * Adds or updates an object in a table that is held as a list of row keys,
++     * a list of column keys and a list of rows.  An update leaves the existing
++     * rows and columns where they are.
++     *
++     * @param object  the object (<code>null</code> permitted).
++     * @param rowKey  the row key (<code>null</code> not permitted).
++     * @param columnKey  the column key (<code>null</code> not permitted).
++     * @param rowKeys  the row keys of the table.
++     * @param columnKeys  the column keys of the table.
++     * @param rows  the rows of the table.
++     */
++    public static void addOrUpdateObject(Object object, Comparable rowKey,
++            Comparable columnKey, List rowKeys, List columnKeys, List rows) {
++        SpiderWebPlot.setObjectInTable(object, rowKey, columnKey, rowKeys,
++                columnKeys, rows);
++    }
++
+     
+     /**
+      * Returns the initial tooltip delay value used inside this chart panel.
+diff --git a/source/org/jfree/chart/plot/SpiderWebPlot.java b/source/org/jfree/chart/plot/SpiderWebPlot.java
+index e1a1a52..6f43450 100644
+--- a/source/org/jfree/chart/plot/SpiderWebPlot.java
++++ b/source/org/jfree/chart/plot/SpiderWebPlot.java
+@@ -370,6 +370,25 @@ public class SpiderWebPlot extends Plot implements Cloneable, Serializable {
+         // send a dataset change event to self to trigger plot change event
+         datasetChanged(new DatasetChangeEvent(this, dataset));
+     }
++
++    /**
++     * Sets an object in a table that is held as a list of row keys, a list of
++     * column keys and a list of rows.  An update leaves the existing rows and
++     * columns where they are.
++     *
++     * @param object  the object (<code>null</code> permitted).
++     * @param rowKey  the row key (<code>null</code> not permitted).
++     * @param columnKey  the column key (<code>null</code> not permitted).
++     * @param rowKeys  the row keys of the table.
++     * @param columnKeys  the column keys of the table.
++     * @param rows  the rows of the table.
++     */
++    public static void setObjectInTable(Object object, Comparable rowKey,
++            Comparable columnKey, List rowKeys, List columnKeys, List rows) {
++        ThermometerPlot.storeByRowKey(object, rowKey, columnKey, rowKeys,
++                columnKeys, rows);
++    }
++
+     
+     /**
+      * Method to determine if the web chart is to be filled.
+diff --git a/source/org/jfree/chart/plot/ThermometerPlot.java b/source/org/jfree/chart/plot/ThermometerPlot.java
+index 48f8ef4..4300c43 100644
+--- a/source/org/jfree/chart/plot/ThermometerPlot.java
++++ b/source/org/jfree/chart/plot/ThermometerPlot.java
+@@ -125,6 +125,9 @@ import org.jfree.data.Range;
+ import org.jfree.data.general.DatasetChangeEvent;
+ import org.jfree.data.general.DefaultValueDataset;
+ import org.jfree.data.general.ValueDataset;
++import java.util.List;
++import org.jfree.data.KeyedObjects;
++import org.jfree.chart.renderer.category.AbstractCategoryItemRenderer;
+ 
+ /**
+  * A plot that displays a single value (from a {@link ValueDataset}) in a 
+@@ -898,6 +901,36 @@ public class ThermometerPlot extends Plot implements ValueAxisPlot,
+         return this.useSubrangePaint;
+     }
+ 
++    /**
++     * Stores an object in the row with the given key, in a table that is held
++     * as a list of row keys, a list of column keys and a list of rows.  If the
++     * table has no row with that key, a new row is appended to it.  An update
++     * leaves the existing rows and columns where they are.
++     *
++     * @param object  the object (<code>null</code> permitted).
++     * @param rowKey  the row key (<code>null</code> not permitted).
++     * @param columnKey  the column key (<code>null</code> not permitted).
++     * @param rowKeys  the row keys of the table.
++     * @param columnKeys  the column keys of the table.
++     * @param rows  the rows of the table.
++     */
++    public static void storeByRowKey(Object object, Comparable rowKey,
++            Comparable columnKey, List rowKeys, List columnKeys, List rows) {
++        KeyedObjects row;
++        int rowIndex = rowKeys.indexOf(rowKey);
++        if (rowIndex >= 0) {
++            row = (KeyedObjects) rows.get(rowIndex);
++        }
++        else {
++            rowKeys.add(rowKey);
++            row = new KeyedObjects();
++            rows.add(row);
++        }
++        AbstractCategoryItemRenderer.setRowObject(object, columnKey, row,
++                columnKeys);
++    }
++
++
+     /**
+      * Sets the range colour change option.
+      *
+diff --git a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+index 51c6a70..6602510 100644
+--- a/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
++++ b/source/org/jfree/chart/renderer/category/AbstractCategoryItemRenderer.java
+@@ -155,6 +155,8 @@ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.data.Range;
+ import org.jfree.data.category.CategoryDataset;
+ import org.jfree.data.general.DatasetUtilities;
++import org.jfree.data.KeyedObjects;
++import org.jfree.chart.renderer.xy.AbstractXYItemRenderer;
+ 
+ /**
+  * An abstract base class that you can use to implement a new
+@@ -1619,6 +1621,21 @@ public abstract class AbstractCategoryItemRenderer extends AbstractRenderer
+         notifyListeners(new RendererChangeEvent(this));
+     }
+ 
++    /**
++     * Sets an object in a row of a table under the given column key.  An
++     * update leaves the existing columns of the table where they are.
++     *
++     * @param object  the object (<code>null</code> permitted).
++     * @param columnKey  the column key (<code>null</code> not permitted).
++     * @param row  the row (<code>null</code> not permitted).
++     * @param columnKeys  the column keys of the table.
++     */
++    public static void setRowObject(Object object, Comparable columnKey,
++            KeyedObjects row, List columnKeys) {
++        AbstractXYItemRenderer.putObjectInRow(object, columnKey, row, columnKeys);
++    }
++
++
+     /**
+      * Returns the legend item tool tip generator.
+      *
+diff --git a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+index 57ec045..2316f9c 100644
+--- a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
++++ b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+@@ -159,6 +159,7 @@ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.data.Range;
+ import org.jfree.data.general.DatasetUtilities;
+ import org.jfree.data.xy.XYDataset;
++import org.jfree.data.KeyedObjects;
+ 
+ /**
+  * A base class that can be used to create new {@link XYItemRenderer}
+@@ -313,6 +314,26 @@ public abstract class AbstractXYItemRenderer extends AbstractRenderer
+         return generator;
+     }
+ 
++    /**
++     * Stores an object in a row of a table under the given column key, and
++     * makes the column key one of the columns of the table.  An object that is
++     * already stored in the row under that key is replaced.
++     *
++     * @param object  the object (<code>null</code> permitted).
++     * @param columnKey  the column key (<code>null</code> not permitted).
++     * @param row  the row (<code>null</code> not permitted).
++     * @param columnKeys  the column keys of the table (<code>null</code> not
++     *                    permitted).
++     */
++    public static void putObjectInRow(Object object, Comparable columnKey,
++            KeyedObjects row, List columnKeys) {
++        row.setObject(columnKey, object);
++        if (!columnKeys.contains(columnKey)) {
++            columnKeys.add(columnKey);
++        }
++    }
++
++
+     /**
+      * Returns the item label generator for a series.
+      *
+diff --git a/source/org/jfree/data/KeyedObjects2D.java b/source/org/jfree/data/KeyedObjects2D.java
+index 7cc5ad6..b74ccea 100644
+--- a/source/org/jfree/data/KeyedObjects2D.java
++++ b/source/org/jfree/data/KeyedObjects2D.java
+@@ -256,32 +256,18 @@ public class KeyedObjects2D implements Cloneable, Serializable {
+      * @param object  the object.
+      * @param rowKey  the row key (<code>null</code> not permitted).
+      * @param columnKey  the column key (<code>null</code> not permitted).
++       The row keys are kept in sorted order, so the row for a key is found by a binary search and a new row is inserted at its sorted position.
+      */
+     public void setObject(Object object, Comparable rowKey, 
+             Comparable columnKey) {
+-
+         if (rowKey == null) {
+             throw new IllegalArgumentException("Null 'rowKey' argument.");
+         }
+         if (columnKey == null) {
+             throw new IllegalArgumentException("Null 'columnKey' argument.");
+         }
+-        KeyedObjects row;
+-        int rowIndex = this.rowKeys.indexOf(rowKey);
+-        if (rowIndex >= 0) {
+-            row = (KeyedObjects) this.rows.get(rowIndex);
+-        }
+-        else {
+-            this.rowKeys.add(rowKey);
+-            row = new KeyedObjects();
+-            this.rows.add(row);
+-        }
+-        row.setObject(columnKey, object);
+-        int columnIndex = this.columnKeys.indexOf(columnKey);
+-        if (columnIndex < 0) {
+-            this.columnKeys.add(columnKey);
+-        }
+-
++        org.jfree.chart.ChartPanel.addOrUpdateObject(object, rowKey, columnKey,
++                this.rowKeys, this.columnKeys, this.rows);
+     }
+ 
+     /**

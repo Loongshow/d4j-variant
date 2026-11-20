@@ -1,0 +1,169 @@
+diff --git a/src/main/java/org/jsoup/nodes/Document.java b/src/main/java/org/jsoup/nodes/Document.java
+index 6ed4c127..d45b0080 100644
+--- a/src/main/java/org/jsoup/nodes/Document.java
++++ b/src/main/java/org/jsoup/nodes/Document.java
+@@ -57,10 +57,10 @@ public class Document extends Element {
+     /**
+      Get the string contents of the document's {@code title} element.
+      @return Trimed title, or empty string if none set.
++       The title element's HTML is rendered first, and its tags are then stripped to give the text.
+      */
+     public String title() {
+-        Element titleEl = getElementsByTag("title").first();
+-        return titleEl != null ? titleEl.text().trim() : "";
++        return Element.documentTitle(this);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index 2f42b3a6..b7679102 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -9,6 +9,7 @@ import org.jsoup.select.Elements;
+ import org.jsoup.select.Selector;
+ 
+ import java.util.*;
++import org.jsoup.safety.Whitelist;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -754,6 +755,17 @@ public class Element extends Node {
+         return this;
+     }
+ 
++    /**
++     * Gets the title of a document, from all of its elements.
++     *
++     * @param document the document to read
++     * @return the trimmed text of the document's title element, or empty string if it has none
++     */
++    public static String documentTitle(Document document) {
++        return Whitelist.trimmedTitle(document.getAllElements());
++    }
++
++
+     void outerHtml(StringBuilder accum) {
+         if (isBlock() || (parent() != null && parent().tag().canContainBlock() && siblingIndex() == 0))
+             indent(accum);
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index f405e2a4..20a064ac 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -208,6 +208,26 @@ public abstract class Node {
+         parentNode.replaceChild(this, in);
+     }
+ 
++    /**
++     Gets the text of a document's title element.
++     <p>
++     The elements are visited in document order, and the text of the element with the title tag name is returned.
++     @param elements elements of a document, in document order
++     @param titleTag lower case name of the title tag
++     @return title text, or empty string if no element has the title tag name
++     */
++    public static String titleText(List<Element> elements, String titleTag) {
++        String text = "";
++        for (Element element : elements) {
++            if (element.tagName().equals(titleTag)) {
++                text = element.text();
++                break;
++            }
++        }
++        return text;
++    }
++
++
+     protected void setParentNode(Node parentNode) {
+         if (this.parentNode != null)
+             throw new NotImplementedException("Cannot (yet) move nodes in tree"); // TODO: remove from prev node children
+diff --git a/src/main/java/org/jsoup/parser/Tag.java b/src/main/java/org/jsoup/parser/Tag.java
+index 67a4e502..a62911bb 100644
+--- a/src/main/java/org/jsoup/parser/Tag.java
++++ b/src/main/java/org/jsoup/parser/Tag.java
+@@ -3,6 +3,8 @@ package org.jsoup.parser;
+ import org.apache.commons.lang.Validate;
+ 
+ import java.util.*;
++import org.jsoup.nodes.Element;
++import org.jsoup.select.Elements;
+ 
+ /**
+  HTML Tag specifications. This is a very simplistic model without the full expressiveness as the DTD,
+@@ -122,6 +124,16 @@ public class Tag {
+         return !isBlock;
+     }
+ 
++    /**
++     Gets the text of a document's title element, matching elements by the name of the {@code title} tag.
++     @param elements elements of a document, in document order
++     @return title text, or empty string if there is no title element
++     */
++    public static String titleByTag(List<Element> elements) {
++        return Elements.tagText(elements, valueOf("title").getName());
++    }
++
++
+     /**
+      Gets if this tag is a data only tag.
+      @return if this tag is a data only tag
+diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java
+index 77f29537..1416e7a9 100644
+--- a/src/main/java/org/jsoup/safety/Whitelist.java
++++ b/src/main/java/org/jsoup/safety/Whitelist.java
+@@ -14,6 +14,8 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.Map;
+ import java.util.Set;
++import java.util.List;
++import org.jsoup.parser.Tag;
+ 
+ 
+ /**
+@@ -249,6 +251,17 @@ public class Whitelist {
+         return this;
+     }
+ 
++    /**
++     Gets the text of a document's title element, with leading and trailing whitespace removed.
++
++     @param elements elements of a document, in document order
++     @return trimmed title text, or empty string if there is no title element
++     */
++    public static String trimmedTitle(List<Element> elements) {
++        return Tag.titleByTag(elements).trim();
++    }
++
++
+     /**
+      Add allowed URL protocols for an element's URL attribute. This restricts the possible values of the attribute to
+      URLs with the defined protocol.
+diff --git a/src/main/java/org/jsoup/select/Elements.java b/src/main/java/org/jsoup/select/Elements.java
+index 0221ae64..22068ad4 100644
+--- a/src/main/java/org/jsoup/select/Elements.java
++++ b/src/main/java/org/jsoup/select/Elements.java
+@@ -4,6 +4,7 @@ import org.jsoup.nodes.Element;
+ import org.apache.commons.lang.Validate;
+ 
+ import java.util.*;
++import org.jsoup.nodes.Node;
+ 
+ /**
+  A list of {@link Element Elements}, with methods that act on every element in the list
+@@ -341,6 +342,17 @@ public class Elements implements List<Element> {
+ 
+     public boolean addAll(int index, Collection<? extends Element> c) {return contents.addAll(index, c);}
+ 
++    /**
++     Get the text of a document's title element.
++     @param elements elements of a document, in document order
++     @param tagName lower case name of the title tag
++     @return title text, or empty string if there is no title element
++     */
++    public static String tagText(List<Element> elements, String tagName) {
++        return Node.titleText(elements, tagName);
++    }
++
++
+     public boolean removeAll(Collection<?> c) {return contents.removeAll(c);}
+ 
+     public boolean retainAll(Collection<?> c) {return contents.retainAll(c);}

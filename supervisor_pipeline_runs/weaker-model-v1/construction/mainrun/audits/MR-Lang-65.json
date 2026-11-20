@@ -1,0 +1,84 @@
+{
+ "instance": "Lang-65",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.StringUtils::parseByPatterns (hop 2)",
+   "edit": "return StrBuilder.parsePatternRange(str, parsePatterns, parsePatterns.length > 1 ? 1 : 0, parsePatterns.length);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "1972-12-03 now parses (pattern 2 first), but 1972-338 loses yyyy'-'DDD and yyyyMMdd parses it whole as Oct 08 1971; also contradicts hop 2's 'from its first pattern to its last'."
+  },
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::parseDateText (hop 1)",
+   "edit": "String[] reversed = (String[]) org.apache.commons.lang.ArrayUtils.clone(parsePatterns); org.apache.commons.lang.ArrayUtils.reverse(reversed); return StringUtils.parseByPatterns(str, reversed);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "yyyyMMdd prefix-parses 1972-12-03 to index 7 and the unreset position still poisons the later patterns: ParseException 1972-12-03."
+  },
+  {
+   "method": "org.apache.commons.lang.ArrayUtils::dateOfPatternRange (hop 4)",
+   "edit": "return FastDateFormat.parseInTurn(str, parsePatterns, endIndex - startIndex > 1 ? startIndex + 1 : startIndex, endIndex);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Same as the hop-2 shift: 1972-338 returns Oct 08 1971."
+  },
+  {
+   "method": "org.apache.commons.lang.ArrayUtils::dateOfPatternRange (hop 4)",
+   "edit": "for (int i = startIndex; i < endIndex; i++) { try { return FastDateFormat.parseInTurn(str, parsePatterns, i, i + 1); } catch (ParseException ex) { } } throw new ParseException(\"Unable to parse the date: \" + str, -1);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "detail": "A 7-line rewrite with exception-driven control flow, not an equally small edit (the gold repair is a one-line insertion). It moves the per-pattern iteration out of the gold into hop 4 and only ever calls the gold with one-pattern ranges. The gold's multi-pattern loop is dead, and the gold still breaks its own documented contract for any range of two or more patterns. It replaces the gold's result with another implementation."
+  },
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::parseDateText (hop 1)",
+   "edit": "String[] ordered = (String[]) org.apache.commons.lang.ArrayUtils.clone(parsePatterns); java.util.Arrays.sort(ordered, new java.util.Comparator() { public int compare(Object a, Object b) { return ((String) b).length() - ((String) a).length(); } }); return StringUtils.parseByPatterns(str, ordered);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Sorting longest-first happens to give the order p2, p1, p3 for the trigger's patterns. It contradicts hop 1's 'in turn' and 'first pattern' and the facade's 'try each parse pattern in turn' (the caller's order). It does not remove the partial-parse poisoning: any longer prefix-parsing pattern still breaks a later whole-parsing one. It passes only by coincidence and is not a repair."
+  },
+  {
+   "method": "org.apache.commons.lang.time.DateUtils::parseDate (facade)",
+   "edit": "replace the delegating call with the original per-pattern SimpleDateFormat loop (pristine body, including pos.setIndex(0))",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "detail": "Checked by equivalence: the pristine checkout's full suite has 0 failures. It makes the whole chain dead and re-implements the gold."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.time.DateUtils::parseDate (null guard + return ToStringStyle.parseDateText(str, parsePatterns))",
+  "hop1 org.apache.commons.lang.builder.ToStringStyle::parseDateText (empty-array guard throws ParseException; delegates)",
+  "hop2 org.apache.commons.lang.StringUtils::parseByPatterns (range 0..length)",
+  "hop3 org.apache.commons.lang.text.StrBuilder::parsePatternRange (pass-through)",
+  "hop4 org.apache.commons.lang.ArrayUtils::dateOfPatternRange (pass-through)",
+  "gold org.apache.commons.lang.time.FastDateFormat::parseInTurn (per-pattern SimpleDateFormat loop; pos.setIndex(0) omitted)"
+ ],
+ "reasons": "Variant compiles. The trigger DateUtilsTest::testParseDate fails with 'ParseException: Unable to parse the date: 1972-12-03', thrown from the gold. On the full suite it is the only failure, the pristine suite has 0 failures, and correct.patch gives 0 failures. correct.patch differs from the variant only by the gold line 'pos.setIndex(0);'. Mechanism, confirmed with a JDK 11 probe: yyyy'-'DDD prefix-parses 1972-12-03 (non-null date, index 7). The ParsePosition is not reset, so yyyy'-'MM'-'dd and yyyyMMdd start at index 7 and return null. (a) The gold's contract ('the date given by the first pattern that parses the whole of the string') is violated: yyyy'-'MM'-'dd parses the whole string from index 0. Every hop passes str, the array and the range 0..length through exactly, so with a correct callee each hop meets its contract. Their observed violations come only from delegation. (b) Hop javadocs match their code: hop 1's empty-array rule, hop 2's 'whole array, from its first pattern to its last' with range 0..length, and the hop 3/4 range pass-through. No hop's documentation leaves room for it to be the faulty step. (c) The position is a local of the gold, and failure is signalled by throwing. No one-line hop edit can restart a pattern at index 0. The three declared compensating edits fail the trigger (re-run with clean builds). Only two hop edits pass. A longest-first sort in hop 1 passes by coincidence and contradicts 'in turn' and 'first pattern'. A multi-line per-pattern try/catch loop in hop 4 is a bypass: the gold's iteration becomes dead and the gold's contract stays violated. (d) The names are neutral. The lie (a compiled-format cache shared between calls) does not name the parse position or its reset. No fault vocabulary. (e) The gold is 5 frames below the facade (stack trace). The hosts are 5 distinct existing classes. The facade is a guard plus one call, with one added false procedural sentence (there is no cache). The gold javadoc is silent on the reset. The existing trigger is the only new failure. (f) The convention is pinned outside the gold by the facade's original javadoc ('A parse is only deemed sucessful if it parses the whole of the input string') and by JDK DateFormat.parse(String) and Format.parseObject(String), which start each parse at new ParsePosition(0). CompositeFormat.reformat uses parseObject(String), and the passing CompositeFormatTest::testUsage exercises it.",
+ "notes": "1. The ownership-test pin is weak. CompositeFormatTest::testUsage covers a single fresh-position parse, not a position reused across patterns. The strongest pin is the facade's original documented contract plus the JDK fresh-ParsePosition idiom. 2. The gold is the throw site, so the top stack frame of the trigger failure is the gold. That is a property of the design, not a recipe violation. 3. The gold's host FastDateFormat has static format-instance caches, the subject of the lie, so the lie may loosely evoke the gold's class. It does not name the gold, the position or the reset, and the stack trace already shows the class. 4. The lie is appended after the @throws ParseException tag, so rendered javadoc attaches it to that tag (recipe formatting). 5. A first round of alternative-repair runs reused stale class files: ant timestamps had equal mtimes after cp -R. All results above come from clean rebuilds (rm -rf target). 6. The trace-check items (no-local-trace checklist) were not assessed, per the brief."
+}

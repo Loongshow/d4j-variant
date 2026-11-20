@@ -1,0 +1,192 @@
+diff --git a/src/main/java/org/joda/time/DateTime.java b/src/main/java/org/joda/time/DateTime.java
+index 6cb6dc31..e54893ba 100644
+--- a/src/main/java/org/joda/time/DateTime.java
++++ b/src/main/java/org/joda/time/DateTime.java
+@@ -909,6 +909,19 @@ public final class DateTime
+         return withDurationAdded(duration, 1);
+     }
+ 
++    /**
++     * Gets a time zone instance for the specified offset to UTC in hours and
++     * minutes, suitable for {@link #withZone(DateTimeZone)}.
++     *
++     * @param hours  the hours of the offset
++     * @param minutes  the minutes of the offset, from 0 to 59
++     * @return the DateTimeZone object for the offset
++     */
++    public static DateTimeZone zoneAtOffset(int hours, int minutes) {
++        return LocalDate.zoneFromOffsetFields(hours, minutes);
++    }
++
++
+     /**
+      * Returns a copy of this datetime with the specified duration added.
+      * <p>
+diff --git a/src/main/java/org/joda/time/DateTimeZone.java b/src/main/java/org/joda/time/DateTimeZone.java
+index ec05941f..079d4987 100644
+--- a/src/main/java/org/joda/time/DateTimeZone.java
++++ b/src/main/java/org/joda/time/DateTimeZone.java
+@@ -249,27 +249,13 @@ public abstract class DateTimeZone implements Serializable {
+      * @param minutesOffset  the offset in minutes from UTC, must be between 0 and 59 inclusive
+      * @return the DateTimeZone object for the offset
+      * @throws IllegalArgumentException if the offset or minute is too large or too small
++       The offset is first expressed as a JDK TimeZone with a custom GMT ID, and the zone is then obtained from that TimeZone in the same way as by forTimeZone.
+      */
+     public static DateTimeZone forOffsetHoursMinutes(int hoursOffset, int minutesOffset) throws IllegalArgumentException {
+-        if (hoursOffset == 0 && minutesOffset == 0) {
+-            return DateTimeZone.UTC;
+-        }
+         if (minutesOffset < 0 || minutesOffset > 59) {
+             throw new IllegalArgumentException("Minutes out of range: " + minutesOffset);
+         }
+-        int offset = 0;
+-        try {
+-            int hoursInMinutes = FieldUtils.safeMultiply(hoursOffset, 60);
+-            if (hoursInMinutes < 0) {
+-                minutesOffset = FieldUtils.safeAdd(hoursInMinutes, -minutesOffset);
+-            } else {
+-                minutesOffset = FieldUtils.safeAdd(hoursInMinutes, minutesOffset);
+-            }
+-            offset = FieldUtils.safeMultiply(minutesOffset, DateTimeConstants.MILLIS_PER_MINUTE);
+-        } catch (ArithmeticException ex) {
+-            throw new IllegalArgumentException("Offset is too large");
+-        }
+-        return forOffsetMillis(offset);
++        return org.joda.time.format.DateTimeFormatterBuilder.timeZoneForOffset(hoursOffset, minutesOffset);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/joda/time/LocalDate.java b/src/main/java/org/joda/time/LocalDate.java
+index 8656c373..c069d5db 100644
+--- a/src/main/java/org/joda/time/LocalDate.java
++++ b/src/main/java/org/joda/time/LocalDate.java
+@@ -332,6 +332,24 @@ public final class LocalDate
+         iChronology = chronology;
+     }
+ 
++    /**
++     * Gets a time zone instance for the specified offset to UTC in hours and
++     * minutes.
++     *
++     * @param hours  the hours of the offset
++     * @param minutes  the minutes of the offset, from 0 to 59
++     * @return the DateTimeZone object for the offset
++     */
++    public static DateTimeZone zoneFromOffsetFields(int hours, int minutes) {
++        int hoursInMinutes = FieldUtils.safeMultiply(hours, 60);
++        if (hoursInMinutes < 0) {
++            minutes = -minutes;
++        }
++        int offsetMinutes = FieldUtils.safeAdd(hoursInMinutes, minutes);
++        return DateTimeZone.forOffsetMillis(FieldUtils.safeMultiply(offsetMinutes, DateTimeConstants.MILLIS_PER_MINUTE));
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Constructs an instance from an Object that represents a datetime.
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index ebb4b087..f4d54289 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -35,6 +35,7 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import org.joda.time.tz.DateTimeZoneBuilder;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -707,6 +708,24 @@ public class DateTimeFormatterBuilder {
+         return appendDecimal(DateTimeFieldType.hourOfHalfday(), minDigits, 2);
+     }
+ 
++    /**
++     * Gets a time zone instance for the specified offset to UTC in hours and
++     * minutes.
++     *
++     * @param hours  the hours of the offset
++     * @param minutes  the minutes of the offset, from 0 to 59
++     * @return the DateTimeZone object for the offset
++     * @throws IllegalArgumentException if the offset is too large or too small
++     */
++    public static DateTimeZone timeZoneForOffset(int hours, int minutes) {
++        try {
++            return DateTimeZoneBuilder.toOffsetZone(hours, minutes);
++        } catch (ArithmeticException ex) {
++            throw new IllegalArgumentException("Offset is too large");
++        }
++    }
++
++
+     /**
+      * Instructs the printer to emit a numeric clockhourOfHalfday field.
+      *
+diff --git a/src/main/java/org/joda/time/format/ISODateTimeFormat.java b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+index ecd1219e..e62e3617 100644
+--- a/src/main/java/org/joda/time/format/ISODateTimeFormat.java
++++ b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+@@ -20,6 +20,8 @@ import java.util.HashSet;
+ import java.util.Set;
+ 
+ import org.joda.time.DateTimeFieldType;
++import org.joda.time.DateTime;
++import org.joda.time.DateTimeZone;
+ 
+ /**
+  * Factory that creates instances of DateTimeFormatter for the ISO8601 standard.
+@@ -636,6 +638,19 @@ public class ISODateTimeFormat {
+         return dpe;
+     }
+ 
++    /**
++     * Gets a time zone instance for the specified offset to UTC in hours and
++     * minutes, such as the offset of a parsed datetime.
++     *
++     * @param hours  the hours of the offset
++     * @param minutes  the minutes of the offset, from 0 to 59
++     * @return the DateTimeZone object for the offset
++     */
++    public static DateTimeZone offsetZone(int hours, int minutes) {
++        return DateTime.zoneAtOffset(hours, minutes);
++    }
++
++
+     /**
+      * Returns a generic ISO time parser for parsing times with a possible zone.
+      * The parser is strict by default, thus time string {@code 24:00} cannot be parsed.
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ab4731bb..0960628d 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,7 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import org.joda.time.format.ISODateTimeFormat;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -400,6 +401,22 @@ public class DateTimeZoneBuilder {
+         return zone;
+     }
+ 
++    /**
++     * Gets a time zone instance for the specified offset to UTC in hours and
++     * minutes. A zero offset gives the UTC zone.
++     *
++     * @param hours  the hours of the offset
++     * @param minutes  the minutes of the offset, from 0 to 59
++     * @return the DateTimeZone object for the offset
++     */
++    public static DateTimeZone toOffsetZone(int hours, int minutes) {
++        if (hours == 0 && minutes == 0) {
++            return DateTimeZone.UTC;
++        }
++        return ISODateTimeFormat.offsetZone(hours, minutes);
++    }
++
++
+     private boolean addTransition(ArrayList<Transition> transitions, Transition tr) {
+         int size = transitions.size();
+         if (size == 0) {

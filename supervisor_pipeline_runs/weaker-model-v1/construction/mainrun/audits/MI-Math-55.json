@@ -1,0 +1,86 @@
+{
+ "instance": "MI-Math-55",
+ "task_key": "Math-55__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math.util.MathUtils::perpendicularTo (hop 2)",
+   "edit": "z branch: 'return BlockRealMatrix.perpendicularToAxis(v, 2);' -> 'return Vector3D.crossProduct(v, Vector3D.PLUS_K).normalize();'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "replaces the gold's result for the z axis with another implementation; hops 3, 4 and the gold become dead for that case"
+  },
+  {
+   "method": "org.apache.commons.math.linear.BlockRealMatrix::perpendicularToAxis (hop 3)",
+   "edit": "uniform frame rotation (4 lines): pass {c[axis], c[(axis+1)%3], c[(axis+2)%3]} with axis 0 to Dfp.perpendicularCoordinates, then place normal[0..2] back at axis, (axis+1)%3, (axis+2)%3",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "re-implements in hop 3 the gold's per-position placement, including the cyclic successor wrap the gold omits, and makes the gold's axis-1 and axis-2 handling dead; four-line rewrite, not equally small; the original hop 3 already met its contract"
+  },
+  {
+   "method": "org.apache.commons.math.linear.BlockRealMatrix::perpendicularToAxis (hop 3)",
+   "edit": "two lines: 'Dfp.perpendicularCoordinates(new double[] { v.getZ(), v.getX(), v.getY() }, (axis + 1) % 3);' and 'return new Vector3D(normal[1], normal[2], normal[0]);'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "relocation (not competing, not a repair)",
+   "why": "a fixed cyclic frame change: the z axis now reaches the gold as index 0, but the y axis reaches it as index 2, so the gold's violation moves to the y branch: (3,2,1).orthogonal() = (-0.32, 0, -0.95), dot -1.90 (0 on the variant). The repaired program violates the facade's and hop 3's contracts on reachable input; the suite pins y-branch output only through Rotation(u, -u), which checks only the angle"
+  },
+  {
+   "method": "org.apache.commons.math.linear.BlockRealMatrix::perpendicularToAxis (hop 3)",
+   "edit": "'new double[] { v.getX(), v.getY(), v.getZ() }' -> 'new double[] { axis == 2 ? -v.getX() : v.getX(), v.getY(), v.getZ() }'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "compensation (doc-inconsistent, not competing)",
+   "why": "under hop 4's and the gold's documented contract the call would return +-(y, x, 0)/n, which is not perpendicular to v; it works only because the gold returns a vector its javadoc excludes"
+  },
+  {
+   "method": "org.apache.commons.math.linear.BlockFieldMatrix::perpendicularUnitVector (hop 1)",
+   "edit": "'0.6 * v.getNorm()' -> '0.75 * v.getNorm()'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass (doc-inconsistent)",
+   "why": "contradicts hop 1's javadoc (six tenths of the norm); any factor >= 1/sqrt(2) makes the z branch, and so the gold's axis-2 path, unreachable"
+  },
+  {
+   "method": "org.apache.commons.math.util.MathUtils::perpendicularTo (hop 2)",
+   "edit": "'return BlockRealMatrix.perpendicularToAxis(v, 2);' -> 'return BlockRealMatrix.perpendicularToAxis(v, 1);'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "doc-inconsistent (not competing)",
+   "why": "contradicts hop 2's javadoc ('or the z axis if neither does')"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.math.geometry.Vector3D::orthogonal() (instance; zero-norm guard + BlockFieldMatrix.perpendicularUnitVector(this), variant V2)",
+  "hop1 org.apache.commons.math.linear.BlockFieldMatrix::perpendicularUnitVector(Vector3D): threshold 0.6 * norm",
+  "hop2 org.apache.commons.math.util.MathUtils::perpendicularTo(Vector3D, double): first of x, y within [-t, t], else z",
+  "hop3 org.apache.commons.math.linear.BlockRealMatrix::perpendicularToAxis(Vector3D, int): vector to and from coordinate array",
+  "hop4 org.apache.commons.math.dfp.Dfp::perpendicularCoordinates(double[], int): pass-through",
+  "gold org.apache.commons.math.util.FastMath::unitNormal(double[], int): next = axis + 1 is not wrapped to 0 for axis 2"
+ ],
+ "reasons": "(a) On v3 = (-1.7, 1.4, 0.2), hop 1 gives t = 0.6*2.211 = 1.327 and hop 2 picks z (|x| = 1.7 and |y| = 1.4 both exceed t), exactly as their javadoc says. Hops 3 and 4 pass (x, y, z) and axis 2 through. The gold leaves next = 3, so no position matches i == next and it returns (-y, -x, 0)/n. That vector is orthogonal to the z axis but not to the vector (dot 2.16), so it violates the gold's own contract ('unit vector orthogonal both to a vector and to the canonical axis'). No other method's contract is violated on its own inputs. (b) Every hop's javadoc matches its code and is specific: six tenths of the norm; first of x and y in the closed interval, else z; axis index 0/1/2; a pass-through. (c) No doc-consistent one-line edit at a hop passes. Every passing edit contradicts a hop's javadoc, depends on the gold's out-of-contract output, re-implements the gold's placement upstream (bypass), or only moves the gold's violation to the y branch. (d) The names (perpendicular*, unitNormal) and comments are neutral, with no fault vocabulary. The lie describes a Gram-Schmidt construction on the least-aligned axis and names neither the wrap nor any hop. (e) The gold is five calls below the facade, in five distinct existing hosts (1547, 2290, 1532, 2399 and 4047 lines; the 1500 regime). The facade is an instance method with the original zero-norm guard and one call passing this (V2), and the hops use only Vector3D's public getters. Nothing is widened, no type is added, there is no reflection, the signature (public Vector3D orthogonal(), no throws, no override) is unchanged, and test.patch is empty. The gold's javadoc is silent on the wrap. On an independent full-suite run of the variant, only Vector3DTest::testOrthogonal fails, and the correct patch passes it. (f) Vector3D.crossProduct's component formula (y uses z and x) pins the cyclic axis order. testVectorialProducts, testCrossProductCancellation, testAngularSeparation (x-branch orthogonality through dotProduct) and RotationTest::testVectorOnePair pass on the variant, and the facade's @return promises orthogonality.",
+ "notes": "The test suite pins orthogonal() output weakly: testOrthogonal covers the x and z branches, and the y branch is reached only through Rotation(u, -u), which checks only the angle. So several hop edits pass the full suite. None is a competing repair; see alternative_repairs_tried. The fault removes the single statement 'if (next == 3) { next = 0; }', which spans 3 physical lines. 'int next = axis + 1;' remains; read against hop 3's 0..2 axis doc, it shows that next can reach 3. That is a matter for the trace check, which was not consulted. The lie is appended after the @exception tag with no leading '*' (the recipe's rewrite_facade formatting); this is cosmetic. The facade's guard was rewritten from 'threshold == 0' to 'getNorm() == 0', which is equivalent. Verified in scratch: compile OK; the trigger fails with 'expected:<0.0> but was:<2.1614046597277388>'; the variant's full suite has 1 failing test (the trigger); the correct patch passes the trigger. The static instance MR-Math-55 was not read."
+}

@@ -1,0 +1,228 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 393eeaff..82bf5045 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -49,6 +49,9 @@ import java.util.zip.GZIPInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import org.jsoup.nodes.Element;
++import org.jsoup.select.Elements;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -238,6 +241,18 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Add the data of each form control in a list to a list of key vals, in the order of the controls.
++     * @param controls the form controls
++     * @param data the list to add to
++     */
++    public static void addFormData(Elements controls, List<Connection.KeyVal> data) {
++        for (Element control : controls) {
++            Evaluator.IsRoot.addControlData(control, data);
++        }
++    }
++
++
+     public Connection.KeyVal data(String key) {
+         Validate.notEmpty(key, "Data key must not be empty");
+         for (Connection.KeyVal keyVal : request().data()) {
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index f9746e56..5c15a01b 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -28,6 +28,8 @@ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
+ 
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.Connection;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -321,6 +323,18 @@ public class Element extends Node {
+         return Collections.unmodifiableList(textNodes);
+     }
+ 
++    /**
++     * Get the data that a list of form controls submits.
++     * @param controls the form controls, in the order their data is listed
++     * @return a new list of the key vals of the controls
++     */
++    public static List<Connection.KeyVal> formControlData(Elements controls) {
++        List<Connection.KeyVal> data = new ArrayList<>();
++        HttpConnection.addFormData(controls, data);
++        return data;
++    }
++
++
+     /**
+      * Get this element's child data nodes. The list is unmodifiable but the data nodes may be manipulated.
+      * <p>
+diff --git a/src/main/java/org/jsoup/nodes/FormElement.java b/src/main/java/org/jsoup/nodes/FormElement.java
+index f5c59d33..10fe4e10 100644
+--- a/src/main/java/org/jsoup/nodes/FormElement.java
++++ b/src/main/java/org/jsoup/nodes/FormElement.java
+@@ -74,40 +74,9 @@ public class FormElement extends Element {
+      * Get the data that this form submits. The returned list is a copy of the data, and changes to the contents of the
+      * list will not be reflected in the DOM.
+      * @return a list of key vals
++       The form's descendant elements are walked in document order, and each form control found is added in turn.
+      */
+     public List<Connection.KeyVal> formData() {
+-        ArrayList<Connection.KeyVal> data = new ArrayList<>();
+-
+-        // iterate the form control elements and accumulate their values
+-        for (Element el: elements) {
+-            if (!el.tag().isFormSubmittable()) continue; // contents are form listable, superset of submitable
+-            if (el.hasAttr("disabled")) continue; // skip disabled form inputs
+-            String name = el.attr("name");
+-            if (name.length() == 0) continue;
+-            String type = el.attr("type");
+-
+-            if ("select".equals(el.tagName())) {
+-                Elements options = el.select("option[selected]");
+-                boolean set = false;
+-                for (Element option: options) {
+-                    data.add(HttpConnection.KeyVal.create(name, option.val()));
+-                    set = true;
+-                }
+-                if (!set) {
+-                    Element option = el.select("option").first();
+-                    if (option != null)
+-                        data.add(HttpConnection.KeyVal.create(name, option.val()));
+-                }
+-            } else if ("checkbox".equalsIgnoreCase(type) || "radio".equalsIgnoreCase(type)) {
+-                // only add checkbox or radio if they have the checked attribute
+-                if (el.hasAttr("checked")) {
+-                    final String val = el.val().length() >  0 ? el.val() : "on";
+-                    data.add(HttpConnection.KeyVal.create(name, val));
+-                }
+-            } else {
+-                data.add(HttpConnection.KeyVal.create(name, el.val()));
+-            }
+-        }
+-        return data;
++        return Element.formControlData(elements);
+     }
+ }
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index 37467a7c..db021e51 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -10,6 +10,9 @@ import org.jsoup.select.NodeVisitor;
+ 
+ import java.io.IOException;
+ import java.util.*;
++import org.jsoup.Connection;
++import org.jsoup.helper.HttpConnection;
++import org.jsoup.select.Elements;
+ 
+ /**
+  The base, abstract Node model. Elements, Documents, Comments etc are all Node instances.
+@@ -156,6 +159,37 @@ public abstract class Node implements Cloneable {
+         });
+     }
+ 
++    /**
++     * Add the key vals that a named form control submits to a list. A select box submits one for each of its selected
++     * options, or for its first option if none is selected. A checkbox or radio button submits one only if it is checked,
++     * with the value "on" if it has no value of its own. Any other control submits one with its value.
++     * @param control the form control
++     * @param name the name to submit the control's values under
++     * @param data the list to add to
++     */
++    public static void addSubmittedValues(Element control, String name, List<Connection.KeyVal> data) {
++        if ("select".equals(control.tagName())) {
++            Elements options = control.select("option[selected]");
++            if (options.isEmpty()) {
++                Element first = control.selectFirst("option");
++                if (first != null)
++                    options.add(first);
++            }
++            for (Element option : options)
++                data.add(HttpConnection.KeyVal.create(name, option.attr("value")));
++            return;
++        }
++        String value = control.attr("value");
++        String type = control.attr("type");
++        if ("checkbox".equalsIgnoreCase(type) || "radio".equalsIgnoreCase(type)) {
++            if (control.hasAttr("checked"))
++                data.add(HttpConnection.KeyVal.create(name, value.length() > 0 ? value : "on"));
++        } else {
++            data.add(HttpConnection.KeyVal.create(name, value));
++        }
++    }
++
++
+     /**
+      * Get an absolute URL from a URL attribute that may be relative (i.e. an <code>&lt;a href&gt;</code> or
+      * <code>&lt;img src&gt;</code>).
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index b8cc1f03..9a2168c6 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -17,6 +17,7 @@ import java.util.ArrayList;
+ import java.util.List;
+ 
+ import static org.jsoup.helper.StringUtil.inSorted;
++import org.jsoup.Connection;
+ 
+ /**
+  * HTML Tree Builder; creates a DOM from Tokens.
+@@ -186,6 +187,17 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         }
+     }
+ 
++    /**
++     * Append the values that a named form control submits to a list of key vals.
++     * @param control the form control
++     * @param name the name to submit the values under
++     * @param data the list to append to
++     */
++    public static void appendControlValues(Element control, String name, List<Connection.KeyVal> data) {
++        Node.addSubmittedValues(control, name, data);
++    }
++
++
+     boolean isFragmentParsing() {
+         return fragmentParsing;
+     }
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index b6670d42..d83d9cd2 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -14,6 +14,8 @@ import java.util.regex.Pattern;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.Connection;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -579,6 +581,20 @@ public abstract class Evaluator {
+     		final Element r = root instanceof Document?root.child(0):root;
+     		return element == r;
+     	}
++
++    /**
++     * Add the data that a form control submits to a list of key vals. A control is skipped if its tag is not submittable
++     * with a form, if it is disabled, or if it has no name; any other control is passed on with its name.
++     * @param control the form control
++     * @param data the list to add to
++     */
++    public static void addControlData(Element control, List<Connection.KeyVal> data) {
++        if (!control.tag().isFormSubmittable() || control.hasAttr("disabled")) return;
++        String name = control.attr("name");
++        if (name.length() == 0) return;
++        HtmlTreeBuilder.appendControlValues(control, name, data);
++    }
++
+     	@Override
+     	public String toString() {
+     		return ":root";

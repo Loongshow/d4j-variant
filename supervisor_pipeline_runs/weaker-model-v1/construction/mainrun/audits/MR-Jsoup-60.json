@@ -1,0 +1,51 @@
+{
+ "instance": "Jsoup-60",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.jsoup.nodes.Element::unescapedText (hop 1)",
+   "edit": "return HttpConnection.unescapedValue(text);  ->  return HttpConnection.unescapedValue(text.replace(\"\\\\\\\\\", \"\\u0000\")).replace('\\u0000', '\\\\');",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.jsoup.helper.HttpConnection::unescapedValue (hop 2)",
+   "edit": "Evaluator.IsFirstChild.appendUnescapedText(accum, value);  ->  String[] parts = value.split(\"\\\\\\\\\\\\\\\\\", -1); for (int i = 0; i < parts.length; i++) { if (i > 0) accum.append('\\\\'); Evaluator.IsFirstChild.appendUnescapedText(accum, parts[i]); }  (5 lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.jsoup.nodes.Element::unescapedText (hop 1)",
+   "edit": "return HttpConnection.unescapedValue(text);  ->  return text.replaceAll(\"\\\\\\\\(.)\", \"$1\");",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.jsoup.parser.TokenQueue::unescape (body: return org.jsoup.nodes.Element.unescapedText(in);)",
+  "hop1 org.jsoup.nodes.Element::unescapedText (returns a text without a backslash as is, else delegates)",
+  "hop2 org.jsoup.helper.HttpConnection::unescapedValue (allocates a builder sized to the value, delegates, returns its content)",
+  "hop3 org.jsoup.select.Evaluator.IsFirstChild::appendUnescapedText (pass-through)",
+  "hop4 org.jsoup.parser.HtmlTreeBuilder::appendUnescapedChars (pass-through)",
+  "gold org.jsoup.nodes.Node::appendUnescaped (scans each backslash; omitted line: if (esc > 0 && text.charAt(esc - 1) == '\\\\') continue;)"
+ ],
+ "reasons": "(a) The gold's contract ('Append the unescaped form of a backslash escaped text') is violated by its own code on the trigger input: for 'one \\( \\) \\\\' it drops the escaped backslash as well as the escape characters and returns 'one ( ) '. Hops 1-4 only guard, size a builder or pass through; each meets its own documentation and is wrong only through its callee. (b) Every hop javadoc matches its code: hop 1's 'a text that holds no backslash is returned as is' is exactly its guard, hop 2's 'accumulated in a builder sized to the value' is exactly its body, hops 3 and 4 delegate. None of them claims any per-character decision, so no hop can reasonably be blamed. (c) All three passing non-gold edits are bypasses, not competing repairs. A1, a one-line placeholder at hop 1, turns any U+0000 in the input into a backslash ('a\\u0000\\\\b' -> 'a\\\\b'), which goes against hop 1's own contract. It also drops the third backslash of a run of three ('\\\\\\x' -> '\\x', where the gold gives '\\\\x'). That breaks the raw previous-character rule that chompBalanced pins (last != ESC: any character directly after a backslash is literal). A2, at hop 2, is five lines. It moves the pair decision out of the gold and has the same run-of-three deviation. A3 replaces the chain's result with a regex and makes hops 2-5 dead. The declared G9 compensations at hops 1, 2 and 4 do not absorb the fault (validation and my reading agree). Java source level 1.6 rules out a one-line split/join at a hop. (d) The names (unescapedText, unescapedValue, appendUnescapedText, appendUnescapedChars, appendUnescaped) are neutral and in the host's vocabulary. The gold's javadoc is the same as hops 3 and 4 and does not state the escaped-backslash rule. The gold has no comment. The faulty gold reads as an ordinary complete scan. The lie (characters read from the end and pushed onto a stack) does not name the fault or the omitted step. (e) The gold is exactly five calls below the facade. The facade body is one delegating call; the original had no guard. One procedural lie sentence was added. The trigger TokenQueueTest::unescape is an existing test, and the full suite shows it as the only failure on the variant (0 failures with the gold line restored). Hosts were judged against BUILD_BRIEF_C10F_ADDENDUM section 1. The checkout has no public class of at least 1500 lines other than TokenQueue (TokeniserState 1734 and HtmlTreeBuilderState 1513 are package-private enums; Connection 719 is an interface), so largest5 mode applies. The five largest public non-interface, non-enum classes by newline count are Element 1290, HttpConnection 1114, Evaluator 750, HtmlTreeBuilder 706 and Node 703. They hold hops 1-5 in that order, with the gold in the fifth and smallest host as required. (f) The convention is pinned outside the gold. chompBalanced's last != ESC rule is the same raw previous-character test the gold's omitted line performs, and its javadoc directs callers to unescape its output. QueryParser.contains and containsData unescape that output, while matches keeps the escapes. The passing ownership tests chompEscapedBalanced, chompBalanced, testPsuedoContainsWithParentheses and containsWithQuote pin that the escape is dropped and the escaped character kept.",
+ "notes": "Commands run: in my scratch copy, git apply variant.patch, defects4j compile, defects4j test -t org.jsoup.parser.TokenQueueTest::unescape (1 failure: expected:<one ( ) [\\]> but was:<one ( ) []>), and a full defects4j test (only the trigger fails). Restoring the gold line (the correct config) gives 0 failures in the full suite, and the trigger and all four ownership tests pass. Hop 3 sits in the nested static class Evaluator.IsFirstChild, inside the drawn host file Evaluator.java, after IsFirstChild.toString. That is the recipe's seeded anchor (seed 7512): the anchor picker counts a header indented with four spaces and a tab as an outer member. It is a distinct existing class and compiles, so I count it as conformant. Observation: like pristine jsoup, the correct gold keeps a backslash exactly when the character before it is a backslash. So for runs of three or more backslashes it differs from textbook pairing ('\\\\\\\\' -> '\\\\\\'). No test covers that, and it does not affect ownership of the trigger input, a single escaped pair. A facade-level placeholder edit would behave like A1 and break the same documentation. I did not read the design modules, history, builder notes, the trace checklist or any trace verdict. Scratch /private/tmp/mxb-2BOCGG has been deleted."
+}

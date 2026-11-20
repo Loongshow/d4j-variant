@@ -1,0 +1,112 @@
+[
+  {
+    "rid": "R51",
+    "q1": "yes",
+    "q1_outputs": [8],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "ArrayUtils.randomChars decrements count each loop and, for rejected non-letter/non-digit candidates, does not retry or fill the buffer slot. ... This directly explains uninitialized NUL characters in alphabetic/numeric outputs.",
+    "q4": "FIX_SITE",
+    "q4_quote": "RandomStringUtils.random(int, boolean, boolean) delegates to StrBuilder.randomText rather than the local full random implementation ... This anomalous delegation is the highest-impact place to correct the public API path.",
+    "notes": "Output #8 (nl | grep -A170 -B20 randomChars on ArrayUtils.java) shows the whole gold method, lines 4399-4421. The agent names the missing retry (the omitted else count++) at the gold, but ranks the facade first as the place to correct an 'anomalous delegation'."
+  },
+  {
+    "rid": "R52",
+    "q1": "yes",
+    "q1_outputs": [10],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "Node.appendUnescaped starts a new segment after every backslash, so consecutive final backslashes produce no appended slash. ... This matches the symptom: double backslash is unescaped to empty instead of one backslash.",
+    "q4": "ROLE",
+    "q4_quote": "The directly tested production method is the primary suspect.",
+    "notes": "Output #10 (grep -A120 -B50 on Node.java) shows the full gold, lines 246-255, including the marked line 249. The agent describes the missing check for a preceding backslash as the gold treating every backslash as an escape."
+  },
+  {
+    "rid": "R53",
+    "q1": "yes",
+    "q1_outputs": [15, 20],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "ArrayUtils.toField doubles quotes in its buffer but only encloses when searchChars match; if no enclosing occurs it returns the original value. ... This call chain explains the observed unescaped quote result",
+    "q4": "ROLE",
+    "q4_quote": "The direct API under test is the top candidate; its delegation path is suspicious for CSV escaping.",
+    "notes": "First shown in output #15 (sed 1910-1975 of ArrayUtils.java), shown again with line numbers in #20; full method. Borderline yes: the agent states the exact defect (a quote does not trigger enclosing) and ties it to the failure, but treats the chain as 'secondary candidates if the intended design is shared delimited-field escaping' and puts the blame on escapeCsv's delegation."
+  },
+  {
+    "rid": "R54",
+    "q1": "yes",
+    "q1_outputs": [8],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "UTF8JsonGenerator.expandedBufferLength computes length + 50%, but if that exceeds threshold it sets grown exactly to threshold. ... When current length is already the threshold (262144), the method returns the same length, directly matching the observed failure.",
+    "q4": "NA",
+    "q4_quote": "",
+    "notes": "Gold ranked first. Output #8 (grep -A70 -B25 on UTF8JsonGenerator.java) shows the full gold, lines 579-585."
+  },
+  {
+    "rid": "R55",
+    "q1": "yes",
+    "q1_outputs": [12],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "For an empty interval list, segmentsOfIntervals initializes lower=+Infinity and upper=-Infinity, then DSCompiler.addSegments unconditionally adds a final Segment from lower to upper. ... This explains the observed size 1 result for an empty region.",
+    "q4": "OTHER",
+    "q4_quote": "3D SubLine.getSegments delegates through optimizer/utility methods; the analogous 2D SubLine.getSegments directly iterates IntervalsSet.asList() ... The 3D implementation/delegation path is the prime suspect; it should preserve empty interval lists.",
+    "notes": "Output #12 (grep -A100 -B20 addSegments on DSCompiler.java) shows the full gold, lines 1477-1485. Q3: 'unconditionally adds' names the missing lower>upper guard at the gold. Q4 OTHER: the reason is an anomalous delegation compared with the analogous 2D implementation, not its role as the tested API. The gold is ranked 3rd, after segmentsOfIntervals."
+  },
+  {
+    "rid": "R56",
+    "q1": "yes",
+    "q1_outputs": [9],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "DateUtils.valueOfDigits accumulates in int without overflow checks. ... This helper chain can wrap 2147483648 to -2147483648 instead of raising NumberFormatException.",
+    "q4": "UNCLEAR",
+    "q4_quote": "NumberUtils.createInteger delegates to StrBuilder.decodeInteger, then StringUtils.decodeInt/SystemUtils.toDecodedInt/FastDateFormat.parseIntDigits/DateUtils.valueOfDigits",
+    "notes": "Output #9 (grep -C45 valueOfDigits on DateUtils.java) shows the full gold, lines 1606-1617. Q3: names the missing overflow check at the gold. Q4: no explicit reason is given for ranking createInteger first; it only heads the Integer-parsing delegation path. This is not plain CHAIN_ORDER: createNumber, further upstream, is ranked 2nd, and the remaining chain methods are listed downstream-first."
+  },
+  {
+    "rid": "R57",
+    "q1": "yes",
+    "q1_outputs": [7, 9],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "Node.appendUnescaped loops over every backslash and advances start past it, which removes both characters in a doubled backslash sequence. ... This implementation explains the missing trailing backslash in the failing test.",
+    "q4": "ROLE",
+    "q4_quote": "The public method under test is TokenQueue.unescape; its backslash handling is directly implicated.",
+    "notes": "First shown in output #7 (sed 70-115 of Node.java), again in #9 (sed 1-130 of Node.java); full method, lines 100-107. Q3: the agent describes the missing skip of an escaped backslash at the gold."
+  },
+  {
+    "rid": "R58",
+    "q1": "yes",
+    "q1_outputs": [10],
+    "q2": "most",
+    "q3": "partly",
+    "q3_quote": "The delegated octal writer writes unpadded digits at the start and does not clear/pad the numeric field ... methods along this octal-formatting chain are secondary candidates because they determine digit padding",
+    "q4": "FIX_SITE",
+    "q4_quote": "This direct production method is the most likely place to change to produce leading-zero octal digits followed by space and NUL.",
+    "notes": "tool_outputs.txt contains NUL bytes, so it must be searched with grep -a. Output #10 (grep -C40 encodeOctal on ZipFile.java) shows the full gold, lines 167-181. Q3 borderline partly/yes: the missing leading-zero padding is described, but attributed to 'the delegated octal writer' or the whole chain, never to ZipFile.encodeOctal by name. encodeOctal is named only as the end of the chain of secondary candidates."
+  },
+  {
+    "rid": "R59",
+    "q1": "yes",
+    "q1_outputs": [9],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "ChartFactory.putItemValue reaches helper that scans as if the items list is sorted and breaks when current x is greater than target. ... update of x=3 inserts before index 0 instead of updating existing item at index 2",
+    "q4": "OTHER",
+    "q4_quote": "XYSeries.addOrUpdate(Number, Number) delegates all non-null work to CategoryPlot.storeXYValue without passing or checking autoSort; XYSeries.indexOf has explicit unsorted linear-search logic that this path bypasses.",
+    "notes": "Output #9 (grep -A120 -B20 putItemValue on ChartFactory.java) shows the full gold, lines 2092-2111. Q3: the sorted-assumption break (the missing autoSort condition) is located at the gold. Q4 OTHER: the facade is ranked first because it supposedly lacks autoSort handling or bypasses indexOf. This is a claimed defect in the facade, not its role as the tested API and not stated as the fix site."
+  },
+  {
+    "rid": "R60",
+    "q1": "yes",
+    "q1_outputs": [13, 15],
+    "q2": "most",
+    "q3": "yes",
+    "q3_quote": "The delegated chain ends in CursorableSubList.insertSequence, which calls list.add(pos++, element) unconditionally. ... no insertion occurs, but pos is still incremented before the next unique element, producing the observed order [2,4,3,1].",
+    "q4": "OTHER",
+    "q4_quote": "ListOrderedSet.addAll has analogous logic that increments the index only after a successful unique insertion. ... The SetUniqueList indexed bulk-add implementation is the primary suspect; helper methods in the delegation path are secondary suspects.",
+    "notes": "First shown in output #13 (sed 1370-1425 of CursorableLinkedList.java, inside class CursorableSubList), again in #15 (nl 1388-1408); full method, lines 1394-1400. Q4 OTHER: the facade is ranked first by analogy with ListOrderedSet.addAll, as the owner of the uniqueness logic, not explicitly as the tested API."
+  }
+]

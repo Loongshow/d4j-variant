@@ -1,0 +1,223 @@
+{
+ "bug_id": 45,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "        while (first < end && (buffer[first] == ' ' || buffer[first] == 0)) {",
+   "old": "        while (first < end && buffer[first] == ' ') {",
+   "why": "hop 2 also skips leading NULs"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "        while (stop < end && buffer[stop] > ' ') {",
+   "old": "        while (stop < end && buffer[stop] != 0 && buffer[stop] != ' ') {",
+   "why": "hop 3 ends the number at any control byte or space"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        if (stop == end) { throw new IllegalArgumentException(\"Missing trailer at index \" + end); }\n        for (int i = stop; i < end; i++) {\n            if (buffer[i] != 0 && buffer[i] != ' ') {",
+   "old": "        for (int i = stop; i < end; i++) {\n            if (buffer[i] != 0 && buffer[i] != ' ') {",
+   "why": "hop 4 also requires the trailing NUL or space that the facade's javadoc mentions"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "import org.apache.commons.compress.utils.ArchiveUtils;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.utils.ArchiveUtils;\n",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "    /**\n     * Parses the octal number at the start of a field.\n     *\n     * <p>The number ends at the first NUL or space of the field, or at\n     * the end of the field if the field holds neither.</p>\n     *\n     * @param buffer the buffer holding the field\n     * @param start the index of the first byte of the number\n     * @param end the index after the last byte of the field\n     * @return the value of the number\n     */\n    public static long valueOfLeadingNumber(final byte[] buffer, final int start, final int end) {\n        int stop = start;\n        while (stop < end && buffer[stop] != 0 && buffer[stop] != ' ') {\n            stop++;\n        }\n        return ZipFile.valueBeforeTrailer(buffer, start, stop, end);\n    }\n\n\n    /**\n     * Return whether or not this entry represents a directory.",
+   "old": "    /**\n     * Return whether or not this entry represents a directory.",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "new": "       The digits are read from the last one towards the first, and each digit is multiplied by the matching power of eight before it is added to the result.\n     */\n    public static long parseOctal(final byte[] buffer, final int offset, final int length) {\n        if (length < 2){\n            throw new IllegalArgumentException(\"Length \"+length+\" must be at least 2\");\n        }\n        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.valueOfOctalField(buffer, offset, length);",
+   "old": "     */\n    public static long parseOctal(final byte[] buffer, final int offset, final int length) {\n        long    result = 0;\n        int     end = offset + length;\n        int     start = offset;\n\n        if (length < 2){\n            throw new IllegalArgumentException(\"Length \"+length+\" must be at least 2\");\n        }\n\n        if (buffer[start] == 0) {\n            return 0L;\n        }\n\n        // Skip leading spaces\n        while (start < end){\n            if (buffer[start] == ' '){\n                start++;\n            } else {\n                break;\n            }\n        }\n\n        // Trim all trailing NULs and spaces.\n        // The ustar and POSIX tar specs require a trailing NUL or\n        // space but some implementations use the extra digit for big\n        // sizes/uids/gids ...\n        byte trailer = buffer[end - 1];\n        while (start < end && (trailer == 0 || trailer == ' ')) {\n            end--;\n            trailer = buffer[end - 1];\n        }\n\n        for ( ;start < end; start++) {\n            final byte currentByte = buffer[start];\n            // CheckStyle:MagicNumber OFF\n            if (currentByte < '0' || currentByte > '7'){\n                throw new IllegalArgumentException(\n                        exceptionMessage(buffer, offset, length, start, currentByte));\n            }\n            result = (result << 3) + (currentByte - '0'); // convert from ASCII\n            // CheckStyle:MagicNumber ON\n        }\n\n        return result;",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "        this(inputStream, encoding, useUnicodeExtraFields, false);\n    }\n\n    /**\n     * Parses the octal number held in the bytes from start to end of a\n     * buffer.\n     *\n     * @param buffer the buffer holding the number\n     * @param start the index of the first byte of the number\n     * @param end the index after the last byte of the number\n     * @return the value of the number\n     */\n    public static long octalNumberValue(final byte[] buffer, final int start, final int end) {\n        long result = 0;\n        for (int i = start; i < end; i++) {\n            final byte currentByte = buffer[i];\n            if (currentByte < '0' || currentByte > '7') {\n                throw new IllegalArgumentException(\"Invalid byte \" + currentByte + \" at index \" + i);\n            }\n            result = (result << 3) + (currentByte - '0');\n        }\n        return result;\n    }\n\n\n    /**",
+   "old": "        this(inputStream, encoding, useUnicodeExtraFields, false);\n    }\n\n    /**",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\n",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "        putArchiveEntry(archiveEntry, false);\n    }\n\n    /**\n     * Parses the octal number held in a header field.\n     *\n     * <p>A field whose first byte is a NUL holds no number and gives\n     * 0.</p>\n     *\n     * @param buffer the buffer holding the field\n     * @param offset the offset of the field in the buffer\n     * @param length the length of the field\n     * @return the value of the field\n     */\n    public static long valueOfOctalField(final byte[] buffer, final int offset, final int length) {\n        if (buffer[offset] == 0) {\n            return 0L;\n        }\n        return BZip2CompressorOutputStream.valueAfterLeadingSpaces(buffer, offset, offset + length);\n    }\n\n\n    /**",
+   "old": "        putArchiveEntry(archiveEntry, false);\n    }\n\n    /**",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        return Arrays.asList(entriesOfThatName);\n    }\n\n    /**\n     * Parses the octal number of a field in which the number is followed\n     * by its trailing NULs and spaces.\n     *\n     * <p>Only NULs and spaces may follow the number; any other byte\n     * between the number and the end of the field gives an\n     * IllegalArgumentException.</p>\n     *\n     * @param buffer the buffer holding the field\n     * @param start the index of the first byte of the number\n     * @param stop the index after the last byte of the number\n     * @param end the index after the last byte of the field\n     * @return the value of the number\n     */\n    public static long valueBeforeTrailer(final byte[] buffer, final int start, final int stop, final int end) {\n        for (int i = stop; i < end; i++) {\n            if (buffer[i] != 0 && buffer[i] != ' ') {\n                throw new IllegalArgumentException(\"Invalid byte \" + buffer[i] + \" at index \" + i);\n            }\n        }\n        return ZipArchiveInputStream.octalNumberValue(buffer, start, stop);\n    }\n\n\n    /**",
+   "old": "        return Arrays.asList(entriesOfThatName);\n    }\n\n    /**",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "        init();\n    }\n\n    /**\n     * Parses the octal number held in the bytes from start to end of a\n     * buffer, after any leading spaces.\n     *\n     * <p>Leading spaces are skipped.</p>\n     *\n     * @param buffer the buffer holding the field\n     * @param start the index of the first byte of the field\n     * @param end the index after the last byte of the field\n     * @return the value of the field\n     */\n    public static long valueAfterLeadingSpaces(final byte[] buffer, final int start, final int end) {\n        int first = start;\n        while (first < end && buffer[first] == ' ') {\n            first++;\n        }\n        return TarArchiveEntry.valueOfLeadingNumber(buffer, first, end);\n    }\n\n\n    @Override",
+   "old": "        init();\n    }\n\n    @Override",
+   "purpose": "MR-Compress-45 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "valueOfOctalField"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "valueAfterLeadingSpaces"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "method": "valueOfLeadingNumber"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "method": "valueBeforeTrailer"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-45.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::parseOctal"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::parseOctalOrBinary",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream::readAsciiLong",
+  "org.apache.commons.compress.archivers.ar.ArArchiveInputStream::asInt"
+ ],
+ "expected_signature": "AssertionFailedError: Expected IllegalArgumentException",
+ "extra_tests": [],
+ "fixture_key": "Compress-45",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+  "edits": [
+   {
+    "new": "            final byte currentByte = buffer[i];\n            result = (result << 3) + (currentByte - '0');",
+    "old": "            final byte currentByte = buffer[i];\n            if (currentByte < '0' || currentByte > '7') {\n                throw new IllegalArgumentException(\"Invalid byte \" + currentByte + \" at index \" + i);\n            }\n            result = (result << 3) + (currentByte - '0');"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+  "method": "octalNumberValue"
+ },
+ "group": "MR-Compress-45",
+ "hops": 5,
+ "iid": "MR-Compress-45",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold looks at the bytes of the number one by one: hop 1 tests the first byte of the field for a NUL, hop 2 moves past the leading spaces, hop 3 locates the first NUL or space, and hop 4 tests only the bytes after the number; once the gold has folded a byte that is not an octal digit into the value, no caller can tell, since every byte pattern yields some long. The convention is pinned outside the gold: the facade's javadoc ('@throws IllegalArgumentException if ... a invalid byte is detected') and the sibling TarUtils.parseOctalOrBinary ('an invalid byte is detected in an octal number'); the octal header fields of the other archive formats are read with radix-8 parsers that reject a non-octal digit with NumberFormatException, an IllegalArgumentException (CpioArchiveInputStream.readAsciiLong for the old ASCII cpio fields, ArArchiveInputStream.asInt for the ar file mode); TarTestCase testCOMPRESS178 passes and requires an invalid byte in a tar header field to surface as an IllegalArgumentException cause. The gold's javadoc promises the octal number held in the bytes, which \"abcdef\" is not. A hop above the gold can only re-do the digit check itself (a second implementation of the gold's step, on the trigger input the gold is then never reached) or end the number at the first non-digit at hop 3, which contradicts hop 3's documented rule that the number ends at the first NUL or space of the field.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.TarTestCase::testCOMPRESS178",
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testParseOctal",
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testParseOctalCompress330",
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testRoundTripOctal",
+  "org.apache.commons.compress.archivers.ArTestCase::testArUnarchive"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "putArchiveEntry",
+    "anchor_seed": 3495,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "valueOfOctalField",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BZip2CompressorOutputStream",
+    "anchor_seed": 3496,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "valueAfterLeadingSpaces",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isGlobalPaxHeader",
+    "anchor_seed": 3497,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "valueOfLeadingNumber",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getEntriesInPhysicalOrder",
+    "anchor_seed": 3498,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "valueBeforeTrailer",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ZipArchiveInputStream",
+    "anchor_seed": 3499,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "octalNumberValue",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3395
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-45"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.tar.TarUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java",
+  "test_method": "testParseOctalInvalid"
+ },
+ "variant_id": "CTV-EBCD72",
+ "kind": "new",
+ "fault_lines": [
+  "final byte currentByte = buffer[i];\n            result = (result << 3) + (currentByte - '0');"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::octalNumberValue"
+}

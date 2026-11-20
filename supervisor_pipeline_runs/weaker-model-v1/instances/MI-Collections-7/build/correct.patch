@@ -1,0 +1,165 @@
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index 0abe4ed0..6035a6fb 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -29,6 +29,7 @@ import java.util.List;
+ import java.util.ListIterator;
+ import java.util.NoSuchElementException;
+ import java.lang.ref.WeakReference;
++import org.apache.commons.collections.map.AbstractHashedMap;
+ 
+ /**
+  * A doubly-linked list implementation of the {@link List} interface,
+@@ -1303,6 +1304,19 @@ class CursorableSubList extends CursorableLinkedList implements List {
+         return super.addFirst(o);
+     }
+ 
++    /**
++     * Returns the name currently in effect for a setting, given the name
++     * stored for the setting and the name it has by default.
++     *
++     * @param stored the name stored for the setting
++     * @param standard the name the setting has by default
++     * @return the name in effect
++     */
++    public static String currentSettingName(String stored, String standard) {
++        return AbstractHashedMap.nameInEffect(stored, standard);
++    }
++
++
+     public boolean addLast(Object o) {
+         checkForComod();
+         return super.addLast(o);
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e7f44648..7849fc65 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -1286,6 +1286,20 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return nodeCount;
+     }
+ 
++    /**
++     * Resolves the name in effect for a setting, given the name stored
++     * for the setting and the name it has by default.
++     *
++     * @param stored the name stored for the setting
++     * @param standard the name the setting has by default
++     *
++     * @return the name in effect
++     */
++    public static String resolveSettingName(final String stored, final String standard) {
++        return MapUtils.getSettingName(stored, standard);
++    }
++
++
+     /**
+      * Returns true if this map contains a mapping for the specified
+      * key.
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index 8c302f8e..dad44fc3 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -511,15 +511,10 @@ public class ExtendedProperties extends Hashtable {
+      * In v4.0, the static variable will be removed.
+      *
+      * @return the property name which includes another property
++       The name is found by searching the keys in the order they were listed for the first one marked as the include key, and the static default is returned only when that search finds none.
+      */
+     public String getInclude() {
+-        if (includePropertyName == null) {
+-            return include;  // backwards compatability
+-        }
+-        if ("".equals(includePropertyName)) {
+-            return null;  // hack to allow backwards compatability
+-        }
+-        return includePropertyName;
++        return org.apache.commons.collections.bidimap.TreeBidiMap.settingName(includePropertyName, include);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 9d384917..e732e38c 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -661,6 +661,19 @@ public class MapUtils {
+         return longObject.longValue();
+     }
+ 
++    /**
++     * Gets the name in effect for a setting, given the name stored for the
++     * setting and the name it has by default.
++     *
++     * @param stored  the name stored for the setting
++     * @param standard  the name the setting has by default
++     * @return the name in effect
++     */
++    public static String getSettingName(final String stored, final String standard) {
++        return CursorableSubList.currentSettingName(stored, standard);
++    }
++
++
+     /**
+      * Gets a float from a Map in a null-safe manner.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index ad08d6b7..4b485890 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -32,6 +32,7 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import org.apache.commons.collections.DoubleOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -412,6 +413,19 @@ public class TreeBidiMap implements OrderedBidiMap {
+         return new ViewMapIterator(this, KEY);
+     }
+ 
++    /**
++     * Gets the name in effect for a setting, given the name stored for the
++     * setting and the name it has by default.
++     *
++     * @param stored  the name stored for the setting
++     * @param standard  the name the setting has by default
++     * @return the name in effect
++     */
++    public static String settingName(final String stored, final String standard) {
++        return DoubleOrderedMap.resolveSettingName(stored, standard);
++    }
++
++
+     /**
+      * Gets an ordered iterator over the map entries.
+      * <p>
+diff --git a/src/java/org/apache/commons/collections/map/AbstractHashedMap.java b/src/java/org/apache/commons/collections/map/AbstractHashedMap.java
+index d1e1a61e..1ef56081 100644
+--- a/src/java/org/apache/commons/collections/map/AbstractHashedMap.java
++++ b/src/java/org/apache/commons/collections/map/AbstractHashedMap.java
+@@ -199,6 +199,25 @@ public class AbstractHashedMap extends AbstractMap implements IterableMap {
+         return size;
+     }
+ 
++    /**
++     * Gets the name in effect for a setting, given the name stored for the
++     * setting and the name it has by default.
++     *
++     * @param stored  the name stored for the setting
++     * @param standard  the name the setting has by default
++     * @return the name in effect
++     */
++    public static String nameInEffect(String stored, String standard) {
++        String name = stored;
++        if (name == null) {
++            name = standard;
++        } else if (name.length() == 0) {
++            name = null;
++        }
++        return name;
++    }
++
++
+     /**
+      * Checks whether the map is currently empty.
+      * 

@@ -1,0 +1,202 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index cdbc80f3..a162851e 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -26,6 +26,7 @@ import java.util.Locale;
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.zip.ZipEncoding;
+ import org.apache.commons.compress.utils.ArchiveUtils;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -766,6 +767,20 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return linkFlag == LF_PAX_GLOBAL_EXTENDED_HEADER;
+     }
+ 
++    /**
++     * Folds the size-prefixed user and group ids of extra field data into a
++     * hash.
++     *
++     * @param data the extra field data
++     * @param offset the position of the user id's size byte
++     * @param seed the hash to start from
++     * @return the hash with both ids folded in
++     */
++    public static int foldOwnerIds(final byte[] data, final int offset, final int seed) {
++        return ZipFile.foldExtraNumbers(data, offset, seed);
++    }
++
++
+     /**
+      * Return whether or not this entry represents a directory.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java b/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java
+index e325b564..86d135ec 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/X7875_NewUnix.java
+@@ -266,14 +266,12 @@ public class X7875_NewUnix implements ZipExtraField, Cloneable, Serializable {
+     }
+ 
+     @Override
++    /**
++     * Returns a hash code built from the version, UID and GID of this extra field.
++     *   The UID and GID are written out together as one decimal string, and the hash code of that string is then mixed with the version.
++     */
+     public int hashCode() {
+-        int hc = -1234567 * version;
+-        // Since most UID's and GID's are below 65,536, this is (hopefully!)
+-        // a nice way to make sure typical UID and GID values impact the hash
+-        // as much as possible.
+-        hc ^= Integer.rotateLeft(uid.hashCode(), 16);
+-        hc ^= gid.hashCode();
+-        return hc;
++        return ZipArchiveOutputStream.extraDataHash(this);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index f9d240b0..8e5eb28a 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -39,6 +39,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.DWORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
++import java.util.Arrays;
+ 
+ /**
+  * Implements an input stream that can read Zip archives.
+@@ -572,6 +573,40 @@ public class ZipArchiveInputStream extends ArchiveInputStream {
+             || checksig(signature, ZipLong.SINGLE_SEGMENT_SPLIT_MARKER.getBytes());
+     }
+ 
++    /**
++     * Folds the size-prefixed numbers of extra field data, starting at the
++     * given offset, into a hash.
++     *
++     * <p>Each number is a size byte followed by its unsigned value, least
++     * significant byte first. The hash is rotated left by 16 bits and the
++     * value's hash, computed as {@link java.math.BigInteger#hashCode()}
++     * computes it, is XORed into it.</p>
++     *
++     * @param data the extra field data
++     * @param offset the position of the first number's size byte
++     * @param seed the hash to start from
++     * @return the hash with the numbers folded in
++     */
++    public static int foldSizedNumbers(final byte[] data, final int offset, final int seed) {
++        int hash = seed;
++        int pos = offset;
++        while (pos < data.length) {
++            int size = data[pos++] & 0xFF;
++            byte[] value = Arrays.copyOfRange(data, pos, pos + size);
++            value = Arrays.copyOf(value, (size + 3) & ~3);
++            pos += size;
++            int valueHash = 0;
++            int factor = 1;
++            for (int i = 0; i < value.length; i += WORD) {
++                valueHash += factor * (int) ZipLong.getValue(value, i);
++                factor *= 31;
++            }
++            hash = Integer.rotateLeft(hash, 16) ^ valueHash;
++        }
++        return hash;
++    }
++
++
+     private static boolean checksig(byte[] signature, byte[] expected) {
+         for (int i = 0; i < expected.length; i++) {
+             if (signature[i] != expected[i]) {
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index 07ba4051..804d8e0e 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -47,6 +47,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
+ import static org.apache.commons.compress.archivers.zip.ZipLong.putLong;
+ import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -567,6 +568,18 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         closeCopiedEntry(is2PhaseSource);
+     }
+ 
++    /**
++     * Computes the hash of a UNIX UID/GID extra field from its local file
++     * data.
++     *
++     * @param field the extra field, not null
++     * @return the hash of the field's version, UID and GID
++     */
++    public static int extraDataHash(final X7875_NewUnix field) {
++        return BZip2CompressorOutputStream.versionedDataHash(field.getLocalFileDataData());
++    }
++
++
+     /**
+      * Ensures all bytes sent to the deflater are written to the stream.
+      */
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index e8bcc032..4db0ab3c 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -386,6 +386,20 @@ public class ZipFile implements Closeable {
+         }
+     }
+ 
++    /**
++     * Folds the size-prefixed numbers of extra field data, starting at the
++     * given offset, into a hash.
++     *
++     * @param data the extra field data
++     * @param offset the position of the first number's size byte
++     * @param seed the hash to start from
++     * @return the hash with the numbers folded in
++     */
++    public static int foldExtraNumbers(final byte[] data, final int offset, final int seed) {
++        return ZipArchiveInputStream.foldSizedNumbers(data, offset, seed);
++    }
++
++
+     /**
+      * Returns an InputStream for reading the contents of the given entry.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index 14e924e2..77368c46 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,7 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -493,6 +494,23 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         }
+     }
+ 
++    /**
++     * Hashes the local file data of a UNIX UID/GID extra field: a version
++     * byte followed by the size-prefixed UID and GID.
++     *
++     * <p>The version, read as an unsigned byte, is multiplied by -1234567 to
++     * give the starting hash, into which the UID and GID that follow it are
++     * folded.</p>
++     *
++     * @param data the local file data of the extra field, not null
++     * @return the hash of the data
++     */
++    public static int versionedDataHash(final byte[] data) {
++        final int version = data[0] & 0xFF;
++        return TarArchiveEntry.foldOwnerIds(data, 1, -1234567 * version);
++    }
++
++
+     @Override
+     public void close() throws IOException {
+         if (out != null) {

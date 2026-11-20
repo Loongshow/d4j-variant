@@ -1,0 +1,78 @@
+{
+ "instance": "Lang-27",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::parseIntDigits (hop 4)",
+   "edit": "before `return DateUtils.valueOfDigits(digits, radix, negative);` insert `if (Long.parseLong(digits, radix) > (negative ? 2147483648L : Integer.MAX_VALUE)) { throw new NumberFormatException(\"For input string: \\\"\" + digits + \"\\\"\"); }`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::parseIntDigits (hop 4)",
+   "edit": "before the delegating return insert `final String t = digits.replaceFirst(\"^0+(?=.)\", \"\").toLowerCase(); final String m = Long.toString(negative ? 2147483648L : 2147483647L, radix); if (t.length() > m.length() || t.length() == m.length() && t.compareTo(m) > 0) { throw new NumberFormatException(\"For input string: \\\"\" + digits + \"\\\"\"); }`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.SystemUtils::toDecodedInt (hop 3)",
+   "edit": "before the decimal return insert `if (str.length() - index > 10 || str.length() - index == 10 && str.substring(index).compareTo(negative ? \"2147483648\" : \"2147483647\") > 0) { throw new NumberFormatException(...); }`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::decodeInteger (hop 1)",
+   "edit": "`return Integer.valueOf(StringUtils.decodeInt(str));` -> `return Integer.decode(str);`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::decodeInteger (hop 1)",
+   "edit": "declared compensating: reject a decoded value whose sign disagrees with the sign of the string",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.FastDateFormat::parseIntDigits (hop 4)",
+   "edit": "declared compensating: `if (digits.length() == 0 || digits.length() > 10) {`",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.math.NumberUtils::createInteger (null guard + StrBuilder.decodeInteger(str)); reached from the trigger via NumberUtils::createNumber",
+  "hop1 org.apache.commons.lang3.text.StrBuilder::decodeInteger (zero-length check, Integer.valueOf(StringUtils.decodeInt(str)))",
+  "hop2 org.apache.commons.lang3.StringUtils::decodeInt (reads optional '-'/'+' sign, passes index and negative)",
+  "hop3 org.apache.commons.lang3.SystemUtils::toDecodedInt (0x/0X/# hex, leading-0 octal, else decimal; passes digits and radix)",
+  "hop4 org.apache.commons.lang3.time.FastDateFormat::parseIntDigits (empty-digits check, delegates)",
+  "gold org.apache.commons.lang3.time.DateUtils::valueOfDigits (per-digit loop; per-digit range check omitted, so 2147483648 wraps to -2147483648)"
+ ],
+ "reasons": "Compile OK; trigger NumberUtilsTest::testCreateNumber fails with 'createNumber(String) 5 failed expected:<2147483648> but was:<-2147483648>'; the 4 ownership tests pass; full suite on the variant fails only the trigger. (a) The gold's javadoc requires only non-null, non-empty digits and promises '@return the value of the number'; on digits '2147483648' it returns -2147483648, inside its own preconditions. Hops 1-4 and the facade violate their '@throws NFE if ... cannot be decoded/parsed' clauses only by propagation: each one meets its doc whenever its callee meets its own. The int a hop gets back cannot reveal a wrap ('10'+Long.MAX_VALUE comes back as the positive 1661992959, verified with the declared sign-check edit). (b) Every hop's javadoc matches its code: zero length (hop 1), sign (hop 2), radix prefix and octal rule (hop 3), empty digits (hop 4). The gold's @param assigns only the empty check to its caller, and hop 4 does it, so no hop doc puts the range check on a caller. (c) Four non-gold edits pass the trigger, the ownership tests and the full suite. All are bypasses. Hop 1 Integer.decode leaves hops 2-5 dead. Hop 4 Long.parseLong and hop 4 radix-limit string comparison both rebuild the gold's per-digit range decision outside the gold, and DateUtils.valueOfDigits('2147483648',10,false) still returns -2147483648 against its own @return. Hop 3 decimal compare also leaves 0x80000000, #FFFFFFFF and 020000000000 wrapping, which breaks hop 3's and the facade's @throws. The declared one-line compensating edits fail the trigger (cases 18 and 5). (d) The names are neutral, there are no comments in any body, and the added lines contain no fault vocabulary. The lie (digits read last-to-first and multiplied by powers of the radix) is procedural and false: the code reads first to last with Horner accumulation. It does not mention range, overflow or any hop. (e) The gold is five calls below the facade. The hops are in five different existing classes (StrBuilder, StringUtils, SystemUtils, FastDateFormat, DateUtils). The facade is the original null guard plus one delegating call, with one added sentence. The gold's javadoc is silent on the range check. The trigger is an existing test and is the only new failure. (f) Outside the gold, the overflow convention is pinned by Fraction.getFraction(String), whose Integer.parseInt rejects 2147483648 (FractionTest::testFactory_String_double, passing), and by createNumber, which widens to createLong only when createInteger throws NFE (its 'L' branch uses the same pattern with 'Too big for a long'). createLong uses Long.valueOf.",
+ "notes": "Residual points, none decisive: (1) The gold's @throws names only 'a character is not a digit in the radix', and the correct gold's @throws does too, though that version also throws on overflow. Read as exhaustive, this clause could suggest hop 4's broader '@throws if the digits cannot be parsed' owns the range rule. The gold's @return ('the value of the number') together with its @param (only non-empty required) outweighs that reading. (2) A complete range pre-filter at hop 4 is possible (alt 2, three statements, matches Integer.decode on 19 probe inputs), so 'no caller can pre-filter' holds only in the sense that the caller must reimplement the range decision. That edit leaves the gold's own contract violated, so it is classed as a bypass. (3) The gold keeps parseInt's negative-accumulation idiom (value*radix - digit, then negate) without its limit check. An expert may recognise the idiom; this is for the trace checker, not a name or comment marker. (4) ant skipped recompilation of copies edited in the same second as the cp; the alternatives were re-run after deleting target/. Host draw order was not re-derived (mr_lib preview is not an audit input); the stage_b anchors in validation.json are consistent with the spec."
+}

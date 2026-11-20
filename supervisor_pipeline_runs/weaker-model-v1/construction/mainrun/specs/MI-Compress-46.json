@@ -1,0 +1,225 @@
+{
+ "bug_id": 46,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "    return TarArchiveEntry.packedTimes(flags & 0x07, stamps);",
+   "old": "    return TarArchiveEntry.packedTimes(flags & 0xFF, stamps);",
+   "why": "hop 1 restricts the flags to the three timestamp bits"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "    final byte[] block = new byte[1 + 4 * Integer.bitCount(flags & 0x07)];",
+   "old": "    final byte[] block = new byte[1 + 4 * stamps.length];",
+   "why": "hop 3 makes room only for the flagged timestamps"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "    return Arrays.copyOf(block, 1 + 4 * Integer.bitCount(flags & 0x07));",
+   "old": "    return Arrays.copyOf(block, n);",
+   "why": "hop 3 cuts the block by the number of flag bits"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "import org.apache.commons.compress.utils.ArchiveUtils;\nimport org.apache.commons.compress.archivers.zip.ZipLong;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import org.apache.commons.compress.utils.ArchiveUtils;\n",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "        this(file, file.getPath());\n    }\n\n    /**\n     * Packs timestamps behind a flags byte.\n     *\n     * @param flags the flags, as an unsigned value\n     * @param stamps the timestamps of the field, null where the field holds\n     *               none\n     * @return the packed bytes\n     */\n    public static byte[] packedTimes(final int flags, final ZipLong[] stamps) {\n        return BZip2CompressorOutputStream.timesBlock(flags, stamps);\n    }\n\n\n    /**",
+   "old": "        this(file, file.getPath());\n    }\n\n    /**",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/X5455_ExtendedTimestamp.java",
+   "new": "       The array is sized by getLocalFileDataLength() before the timestamps are copied into it.\n     */\n    @Override\n    public byte[] getLocalFileDataData() {\n        return ZipArchiveOutputStream.timeFieldData(flags, new ZipLong[] {modifyTime, accessTime, createTime});",
+   "old": "     */\n    @Override\n    public byte[] getLocalFileDataData() {\n        final byte[] data = new byte[getLocalFileDataLength().getValue()];\n        int pos = 0;\n        data[pos++] = 0;\n        if (bit0_modifyTimePresent) {\n            data[0] |= MODIFY_TIME_BIT;\n            System.arraycopy(modifyTime.getBytes(), 0, data, pos, 4);\n            pos += 4;\n        }\n        if (bit1_accessTimePresent && accessTime != null) {\n            data[0] |= ACCESS_TIME_BIT;\n            System.arraycopy(accessTime.getBytes(), 0, data, pos, 4);\n            pos += 4;\n        }\n        if (bit2_createTimePresent && createTime != null) {\n            data[0] |= CREATE_TIME_BIT;\n            System.arraycopy(createTime.getBytes(), 0, data, pos, 4);\n            pos += 4; // NOSONAR - assignment as documentation\n        }\n        return data;",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "        return false;\n    }\n\n    /**\n     * Writes a flags byte and timestamps into a buffer, in the local file\n     * data layout of the extended timestamp extra field.\n     *\n     * <p>The flags byte is the given flags restricted to the bits of the\n     * timestamps, {@code 1 << i} being the bit of timestamp {@code i}, with\n     * the bit of a missing timestamp cleared. Each timestamp written takes\n     * the next four bytes.</p>\n     *\n     * @param flags the flags\n     * @param stamps the timestamps, null where there is none\n     * @param buffer the buffer, with room for the flags byte and four bytes\n     *               per timestamp\n     * @return the number of bytes written\n     */\n    public static int putTimes(final int flags, final ZipLong[] stamps, final byte[] buffer) {\n        int head = flags & ((1 << stamps.length) - 1);\n        int count = 1;\n        for (int i = 0; i < stamps.length; i++) {\n            final int bit = 1 << i;\n            if (stamps[i] == null) {\n                head &= ~bit;\n            } else if ((head & bit) != 0) {\n                stamps[i].putLong(buffer, count);\n                count += 4;\n            }\n        }\n        buffer[0] = (byte) head;\n        return count;\n    }\n\n\n    @Override",
+   "old": "        return false;\n    }\n\n    @Override",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;\n",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "    /**\n     * Creates the local file data of an extended timestamp extra field.\n     *\n     * @param flags the flags byte of the field\n     * @param stamps the modify, access and create times of the field, null\n     *               where the field holds none\n     * @return the local file data, without Header-ID or length specifier\n     */\n    public static byte[] timeFieldData(final byte flags, final ZipLong[] stamps) {\n        return TarArchiveEntry.packedTimes(flags & 0xFF, stamps);\n    }\n\n\n    /**\n     * Flushes this output stream and forces any buffered output bytes",
+   "old": "    /**\n     * Flushes this output stream and forces any buffered output bytes",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        this(new File(name), ZipEncodingHelper.UTF8);\n    }\n\n    /**\n     * Writes a flags byte and timestamps into a buffer.\n     *\n     * @param flags the flags\n     * @param stamps the timestamps of the field, null where the field holds\n     *               none\n     * @param buffer the buffer to write to\n     * @return the number of bytes written\n     */\n    public static int writeTimes(final int flags, final ZipLong[] stamps, final byte[] buffer) {\n        return ZipArchiveInputStream.putTimes(flags, stamps, buffer);\n    }\n\n\n    /**",
+   "old": "        this(new File(name), ZipEncodingHelper.UTF8);\n    }\n\n    /**",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport java.util.Arrays;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\nimport org.apache.commons.compress.archivers.zip.ZipLong;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "            write0(buf[offs++]);\n        }\n    }\n\n    /**\n     * Writes a flags byte and timestamps into a block, and returns the part\n     * of the block that was written.\n     *\n     * <p>The block has room for the flags byte and four bytes per\n     * timestamp; the bytes returned are its first {@code n} bytes,\n     * {@code n} being the count the writer reports.</p>\n     *\n     * @param flags the flags\n     * @param stamps the timestamps of the field, null where the field holds\n     *               none\n     * @return the bytes written\n     */\n    public static byte[] timesBlock(final int flags, final ZipLong[] stamps) {\n        final byte[] block = new byte[1 + 4 * stamps.length];\n        final int n = ZipFile.writeTimes(flags, stamps, block);\n        return Arrays.copyOf(block, n);\n    }\n\n\n    /**\n     * Keeps track of the last bytes written and implicitly performs",
+   "old": "            write0(buf[offs++]);\n        }\n    }\n\n    /**\n     * Keeps track of the last bytes written and implicitly performs",
+   "purpose": "MI-Compress-46 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "timeFieldData"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "method": "packedTimes"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "timesBlock"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "method": "writeTimes"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-46__i.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestamp::getLocalFileDataData"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestamp::getLocalFileDataLength",
+  "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestamp::parseFromLocalFileData",
+  "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestamp::toString"
+ ],
+ "expected_signature": "X5455_ExtendedTimestampTest.java:473)",
+ "extra_tests": [],
+ "fixture_key": "Compress-46",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+  "edits": [
+   {
+    "new": "                head &= ~bit;\n            } else {",
+    "old": "                head &= ~bit;\n            } else if ((head & bit) != 0) {"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+  "method": "putTimes"
+ },
+ "group": "MI-Compress-46",
+ "hops": 5,
+ "iid": "MI-Compress-46",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold decides, for each timestamp, whether it is written into the local file data and what the flags byte says: hop 1 reads the flags byte as unsigned, hops 2 and 4 pass the flags and the timestamps along, and hop 3 makes room for every timestamp and returns exactly the count of bytes the gold reports. The gold's javadoc promises the local file data layout of the extended timestamp extra field, in which the flags byte tells which timestamps are present in the data (X5455_ExtendedTimestamp.setFlags/getFlags documentation); on the trigger input (three timestamps set, then setFlags(1)) the variant writes the flags byte 1 followed by three timestamps. The convention is pinned outside the gold by the intact siblings X5455_ExtendedTimestamp.getLocalFileDataLength (counts a timestamp only when its bit is set), parseFromLocalFileData (reads only the timestamps whose bits are set) and toString (shows a timestamp only when its bit is set), and by passing tests: testGettersSetters (all three times set, flags 1, 2 and 4 each give a local length of 5), testWriteReadRoundtrip and testSampleFile (local data through the chain), testBitsAreSetWithTime.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestampTest::testGettersSetters",
+  "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestampTest::testWriteReadRoundtrip",
+  "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestampTest::testSampleFile",
+  "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestampTest::testBitsAreSetWithTime"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "close",
+    "anchor_seed": 8750,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "timeFieldData",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "TarArchiveEntry",
+    "anchor_seed": 8751,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.zip.ZipLong;",
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "packedTimes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "write",
+    "anchor_seed": 8752,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.util.Arrays;",
+     "import org.apache.commons.compress.archivers.zip.ZipFile;",
+     "import org.apache.commons.compress.archivers.zip.ZipLong;"
+    ],
+    "method": "timesBlock",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ZipFile",
+    "anchor_seed": 8753,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "writeTimes",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "canReadEntryData",
+    "anchor_seed": 8754,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "putTimes",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8650
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-46"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.zip.X5455_ExtendedTimestampTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/zip/X5455_ExtendedTimestampTest.java",
+  "test_method": "testParseReparse"
+ },
+ "variant_id": "CTV-E0F8D5",
+ "kind": "new",
+ "fault_lines": [
+  "head &= ~bit;\n            } else {"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::putTimes"
+}

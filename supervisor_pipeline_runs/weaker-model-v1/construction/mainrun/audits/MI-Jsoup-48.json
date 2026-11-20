@@ -1,0 +1,37 @@
+{
+ "instance": "Jsoup-48__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.jsoup.nodes.Node::readDataParameters (hop 4)",
+   "edit": "Whitelist.addDataParameters(keyvals, parameters);  ->  for (int i = 0; i < keyvals.size(); i += 2) Whitelist.addDataParameters(keyvals.subList(i, Math.min(i + 2, keyvals.size())), parameters);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass"},
+  {"method": "org.jsoup.nodes.Element::appendRequestData (hop 1) / org.jsoup.parser.HtmlTreeBuilder::dataParameters (hop 3)",
+   "edit": "same per-pair chunking of the call to the next hop (analysed, not run; equivalent to the hop-4 edit)",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass"},
+  {"method": "org.jsoup.select.Evaluator.IsNthChild::addRequestData (hop 2)",
+   "edit": "none possible: it receives (Name,Val),(Name,Foo),(Name,bar); the key Foo survives only as a value and no one-line doc-consistent edit restores it",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": null,
+   "class": "fails"}
+ ],
+ "path": [
+  "facade org.jsoup.helper.HttpConnection::data(String...) [instance, V1: passes field req]",
+  "hop1 org.jsoup.nodes.Element::appendRequestData",
+  "hop2 org.jsoup.select.Evaluator.IsNthChild::addRequestData",
+  "hop3 org.jsoup.parser.HtmlTreeBuilder::dataParameters",
+  "hop4 org.jsoup.nodes.Node::readDataParameters",
+  "gold org.jsoup.safety.Whitelist::addDataParameters"
+ ],
+ "reasons": "Variant compiles; HttpConnectionTest::data fails with expected:<[Foo]> but was:<[Name]> (validation READY, G5 only trigger). (a) Gold omits 'key = null;' after adding a parameter, so ('Name','Val','Foo','bar') yields three parameters of key Name, contradicting its javadoc ('read from a sequence of key value pairs ... each key followed by its value'); hops 1-4 only delegate / add what they receive, so their observed behaviour is inherited. (b) Hop javadocs match their code. (c) The only passing non-gold edits are per-pair chunking at hops 1/3/4: they take over the gold's pairing iteration and leave the gold violating its own javadoc for any multi-pair sequence (bypass, not doc-consistent; hop 4's doc also says it reads the whole sequence). (d) Neutral names; the lie ('pairs are counted first ... grown in a single step') does not name the reset. (e) Exactly five hops, in hosts_hop_order (Element, Evaluator[IsNthChild], HtmlTreeBuilder, Node, Whitelist: the five largest public classes excluding HttpConnection.java, largest5 regime); facade = original two Validate guards + one call to hop 1 + return this; signature/modifiers unchanged, no visibility widening, no new type, no reflection, test.patch empty. (f) Convention pinned by Connection.data(String...) javadoc example, sibling HttpConnection.data(Map)/data(String,String), FormElement.formData, and passing FormElementTest/HttpConnectionTest ownership tests.",
+ "notes": "Facade had no javadoc in the pristine source; a one-sentence javadoc was added and the lie appended, but the lie line lacks the leading ' * ' (cosmetic formatting irregularity, not leakage). Hop 2 sits inside the existing nested class Evaluator.IsNthChild in host file Evaluator.java (recipe anchor). Scratch copy needed 'rm -rf target' before recompiling the alternative edit because cp produced same-second timestamps (stale classes)."
+}

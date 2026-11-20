@@ -1,0 +1,212 @@
+{
+ "bug_id": 6,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "new": "    return UTF8JsonGenerator.pointerForSegments(expr.replace(\"/+\", \"/\"), tail);",
+   "old": "    return UTF8JsonGenerator.pointerForSegments(expr, tail);",
+   "why": "hop 4 drops a plus sign that opens a segment"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "    return JsonGenerator.compiledPointer((expr.length() > 1 && expr.endsWith(\"/\")) ? expr.substring(0, expr.length() - 1) : expr);",
+   "old": "    return JsonGenerator.compiledPointer(expr);",
+   "why": "hop 1 drops a trailing slash of the expression"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "new": "    return UTF8StreamJsonParser.parsePointerSegments(expr.replace(\"//\", \"/\"), tail);",
+   "old": "    return UTF8StreamJsonParser.parsePointerSegments(expr, tail);",
+   "why": "hop 3 collapses doubled slashes"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "import com.fasterxml.jackson.core.util.VersionUtil;\nimport com.fasterxml.jackson.core.json.WriterBasedJsonGenerator;\n",
+   "old": "import com.fasterxml.jackson.core.util.VersionUtil;\n",
+   "purpose": "MR-JacksonCore-6 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "        return writeBinary(Base64Variants.getDefaultVariant(), data, dataLength);\n    }\n\n    /**\n     * Helper method for constructing the {@link JsonPointer} that a pointer\n     * expression denotes: the pointer for the segments of the expression,\n     * with the empty pointer following the last segment.\n     *\n     * @param expr Pointer expression; non-empty, starts with a slash\n     *\n     * @return Pointer for the expression\n     */\n    public static JsonPointer compiledPointer(String expr)\n    {\n        return WriterBasedJsonGenerator.segmentPointer(expr, JsonPointer.EMPTY);\n    }\n\n    \n    /**",
+   "old": "        return writeBinary(Base64Variants.getDefaultVariant(), data, dataLength);\n    }\n    \n    /**",
+   "purpose": "MR-JacksonCore-6 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonPointer.java",
+   "new": "        _matchingElementIndex = _parseIndex(segment);\n    }\n\n    /**\n     * Constructor used for creating non-empty Segments when the index of the\n     * matching element is known: {@code matchIndex} is used as given (-1 if\n     * the segment matches no element); unlike the constructor above, the\n     * segment is not inspected for an index.\n     */\n    public JsonPointer(String fullString, String segment, int matchIndex, JsonPointer next) {\n        _asString = fullString;\n        _nextSegment = next;\n        _matchingPropertyName = segment;\n        _matchingElementIndex = matchIndex;\n    }\n    \n    /*",
+   "old": "        _matchingElementIndex = _parseIndex(segment);\n    }\n    \n    /*",
+   "purpose": "MR-JacksonCore-6 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonPointer.java",
+   "new": "       Each segment is first looked up, by its text, in a shared cache of the segments compiled earlier, and is parsed only if it is not found there.\n     */\n    public static JsonPointer compile(String input) throws IllegalArgumentException\n    {\n        // First quick checks for well-known 'empty' pointer\n        if ((input == null) || input.length() == 0) {\n            return EMPTY;\n        }\n        // And then quick validity check:\n        if (input.charAt(0) != '/') {\n            throw new IllegalArgumentException(\"Invalid input: JSON Pointer expression must start with '/': \"+\"\\\"\"+input+\"\\\"\");\n        }\n        return com.fasterxml.jackson.core.json.ReaderBasedJsonParser.pointerFromExpression(input);",
+   "old": "     */\n    public static JsonPointer compile(String input) throws IllegalArgumentException\n    {\n        // First quick checks for well-known 'empty' pointer\n        if ((input == null) || input.length() == 0) {\n            return EMPTY;\n        }\n        // And then quick validity check:\n        if (input.charAt(0) != '/') {\n            throw new IllegalArgumentException(\"Invalid input: JSON Pointer expression must start with '/': \"+\"\\\"\"+input+\"\\\"\");\n        }\n        return _parseTail(input);",
+   "purpose": "MR-JacksonCore-6 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "        _bufferRecyclable = true;\n    }\n\n    /**\n     * Helper method for constructing the {@link JsonPointer} that a pointer\n     * expression denotes.\n     *\n     * @param expr Pointer expression; non-empty, starts with a slash\n     *\n     * @return Pointer for the expression\n     */\n    public static JsonPointer pointerFromExpression(String expr)\n    {\n        return JsonGenerator.compiledPointer(expr);\n    }\n\n\n    /*",
+   "old": "        _bufferRecyclable = true;\n    }\n\n    /*",
+   "purpose": "MR-JacksonCore-6 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "new": "        }\n        _outputBuffer[_outputTail++] = BYTE_QUOTE;\n    }\n\n    /**\n     * Helper method for constructing the pointer for the segments of a pointer\n     * expression. The first segment, with its escapes decoded, becomes the\n     * matching segment of the returned pointer; the pointer for the rest of\n     * the expression follows it, and the given pointer follows the last\n     * segment.\n     *\n     * @param expr Pointer expression; non-empty, starts with a slash\n     * @param tail Pointer that follows the last segment of the expression\n     *\n     * @return Pointer for the first segment of the expression\n     */\n    public static JsonPointer pointerForSegments(String expr, JsonPointer tail)\n    {\n        final int end = expr.length();\n        final StringBuilder sb = new StringBuilder(Math.max(16, end));\n        int i = 1;\n        while (i < end) {\n            char c = expr.charAt(i);\n            if (c == '/') {\n                break;\n            }\n            ++i;\n            if (c == '~' && i < end) {\n                c = expr.charAt(i++);\n                if (c == '0') {\n                    c = '~';\n                } else if (c == '1') {\n                    c = '/';\n                } else {\n                    sb.append('~');\n                }\n            }\n            sb.append(c);\n        }\n        final String segment = sb.toString();\n        final int len = segment.length();\n        int index = (len == 0 || len > 10\n                || (len > 1 && segment.charAt(0) == '0')) ? -1 : 0;\n        for (int k = 0; k < len && index >= 0; ++k) {\n            final int d = segment.charAt(k) - '0';\n            index = (d < 0 || d > 9\n                    || index > (Integer.MAX_VALUE - d) / 10) ? -1 : (index * 10) + d;\n        }\n        final JsonPointer next = (i < end) ? pointerForSegments(expr.substring(i), tail) : tail;\n        return new JsonPointer(expr, segment, index, next);\n    }\n\n\n    @Override\n    public void writeRawUTF8String(byte[] text, int offset, int length) throws IOException",
+   "old": "        }\n        _outputBuffer[_outputTail++] = BYTE_QUOTE;\n    }\n\n    @Override\n    public void writeRawUTF8String(byte[] text, int offset, int length) throws IOException",
+   "purpose": "MR-JacksonCore-6 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "new": "        return count;\n    }\n\n    /**\n     * Helper method for constructing the pointer for the segments of a pointer\n     * expression, followed by the given pointer.\n     *\n     * @param expr Pointer expression; non-empty, starts with a slash\n     * @param tail Pointer that follows the last segment of the expression\n     *\n     * @return Pointer for the first segment of the expression\n     */\n    public static JsonPointer parsePointerSegments(String expr, JsonPointer tail)\n    {\n        return UTF8JsonGenerator.pointerForSegments(expr, tail);\n    }\n\n\n    @Override",
+   "old": "        return count;\n    }\n\n    @Override",
+   "purpose": "MR-JacksonCore-6 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "new": "            }\n        }\n    }\n\n    /**\n     * Helper method for constructing the pointer for the segments of a pointer\n     * expression, followed by the given pointer.\n     *\n     * @param expr Pointer expression; non-empty, starts with a slash\n     * @param tail Pointer that follows the last segment of the expression\n     *\n     * @return Pointer for the first segment of the expression\n     */\n    public static JsonPointer segmentPointer(String expr, JsonPointer tail)\n    {\n        return UTF8StreamJsonParser.parsePointerSegments(expr, tail);\n    }\n\n\n    @Override\n    public void close()",
+   "old": "            }\n        }\n    }\n\n    @Override\n    public void close()",
+   "purpose": "MR-JacksonCore-6 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "method": "pointerFromExpression"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.JsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "method": "compiledPointer"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "method": "segmentPointer"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "method": "parsePointerSegments"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonCore-6.py",
+ "entry_points": [
+  "com.fasterxml.jackson.core.JsonPointer::compile"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.core.JsonPointer::_parseIndex",
+  "com.fasterxml.jackson.core.base.ParserBase::_parseNumericValue",
+  "com.fasterxml.jackson.core.base.ParserBase::convertNumberToInt"
+ ],
+ "expected_signature": "expected:<-1> but was:<-2147483648>",
+ "extra_tests": [],
+ "fixture_key": "JacksonCore-6",
+ "gold": {
+  "class": "com.fasterxml.jackson.core.json.UTF8JsonGenerator",
+  "edits": [
+   {
+    "new": "            index = (d < 0 || d > 9) ? -1 : (index * 10) + d;",
+    "old": "            index = (d < 0 || d > 9\n                    || index > (Integer.MAX_VALUE - d) / 10) ? -1 : (index * 10) + d;"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+  "method": "pointerForSegments"
+ },
+ "group": "MR-JacksonCore-6",
+ "hops": 5,
+ "iid": "MR-JacksonCore-6",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold holds a segment's decoded name together with its conversion to an element index; hops 1-4 hold the whole expression (and the pointer that follows its last segment) and get back an immutable pointer whose following segments are built inside the gold's own recursion (the trigger's segment is the second one). A hop cannot pre-filter, because the same expression gives the full strings, the property names and the indices, all asserted by the trigger, and it cannot recover the index in one line, because the pointer is immutable and compile/valueOf re-enter the chain. The added public constructor stores the index it is given (-1 if the segment matches no element) and, by its javadoc, does not inspect the segment. Mapping every negative index to -1 (at that constructor or at getMatchingIndex) hides the trigger's value but not the overflow: \"/4294967296\" still matches element 0 and \"/4294967297\" element 1. The convention is pinned outside the gold: JsonPointer._parseIndex, beside the facade, gives a 10-digit name above Integer.MAX_VALUE the index -1 ('beware of super long indexes'); the JSON number reader ParserBase._parseNumericValue reads a 10-digit integer as an int only when it is at most Integer.MAX_VALUE ('Could still fit in int, need to check') and ParserBase.convertNumberToInt refuses a long outside the int range ('out of range of int'); TestNumericValues testLongRange, testIntRange and testNumbers pin that step and testSimplePath pins the rest of the index rule; all pass on the variant.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.core.json.TestNumericValues::testLongRange",
+  "com.fasterxml.jackson.core.json.TestNumericValues::testIntRange",
+  "com.fasterxml.jackson.core.json.TestNumericValues::testNumbers",
+  "com.fasterxml.jackson.core.TestJsonPointer::testSimplePath"
+ ],
+ "project": "JacksonCore",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "ReaderBasedJsonParser",
+    "anchor_seed": 4360,
+    "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "pointerFromExpression",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeBinary",
+    "anchor_seed": 4361,
+    "class": "com.fasterxml.jackson.core.JsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.fasterxml.jackson.core.json.WriterBasedJsonGenerator;"
+    ],
+    "method": "compiledPointer",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "flush",
+    "anchor_seed": 4362,
+    "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "segmentPointer",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "releaseBuffered",
+    "anchor_seed": 4363,
+    "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "parsePointerSegments",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeString",
+    "anchor_seed": 4364,
+    "class": "com.fasterxml.jackson.core.json.UTF8JsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "pointerForSegments",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 4260
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonCore-6"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.core.TestJsonPointer",
+  "test_file": "src/test/java/com/fasterxml/jackson/core/TestJsonPointer.java",
+  "test_method": "testLongNumbers"
+ },
+ "variant_id": "CTV-77130C",
+ "kind": "new",
+ "fault_lines": [
+  "index = (d < 0 || d > 9) ? -1 : (index * 10) + d;"
+ ],
+ "gold_key": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::pointerForSegments"
+}

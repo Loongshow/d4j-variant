@@ -1,0 +1,242 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index 1d572d09..2288ebdd 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -27,6 +27,7 @@
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.zip.ZipEncoding;
+ import org.apache.commons.compress.utils.ArchiveUtils;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -844,6 +845,26 @@ public boolean isGlobalPaxHeader() {
+         return linkFlag == LF_PAX_GLOBAL_EXTENDED_HEADER;
+     }
+ 
++    /**
++     * Parses the octal number at the start of a field.
++     *
++     * <p>The number ends at the first NUL or space of the field, or at
++     * the end of the field if the field holds neither.</p>
++     *
++     * @param buffer the buffer holding the field
++     * @param start the index of the first byte of the number
++     * @param end the index after the last byte of the field
++     * @return the value of the number
++     */
++    public static long valueOfLeadingNumber(final byte[] buffer, final int start, final int end) {
++        int stop = start;
++        while (stop < end && buffer[stop] != 0 && buffer[stop] != ' ') {
++            stop++;
++        }
++        return ZipFile.valueBeforeTrailer(buffer, start, stop, end);
++    }
++
++
+     /**
+      * Return whether or not this entry represents a directory.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index d132d9d0..10157d2e 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -100,51 +100,13 @@ private TarUtils(){
+      * @param length The maximum number of bytes to parse - must be at least 2 bytes.
+      * @return The long value of the octal string.
+      * @throws IllegalArgumentException if the trailing space/NUL is missing or if a invalid byte is detected.
++       The digits are read from the last one towards the first, and each digit is multiplied by the matching power of eight before it is added to the result.
+      */
+     public static long parseOctal(final byte[] buffer, final int offset, final int length) {
+-        long    result = 0;
+-        int     end = offset + length;
+-        int     start = offset;
+-
+         if (length < 2){
+             throw new IllegalArgumentException("Length "+length+" must be at least 2");
+         }
+-
+-        if (buffer[start] == 0) {
+-            return 0L;
+-        }
+-
+-        // Skip leading spaces
+-        while (start < end){
+-            if (buffer[start] == ' '){
+-                start++;
+-            } else {
+-                break;
+-            }
+-        }
+-
+-        // Trim all trailing NULs and spaces.
+-        // The ustar and POSIX tar specs require a trailing NUL or
+-        // space but some implementations use the extra digit for big
+-        // sizes/uids/gids ...
+-        byte trailer = buffer[end - 1];
+-        while (start < end && (trailer == 0 || trailer == ' ')) {
+-            end--;
+-            trailer = buffer[end - 1];
+-        }
+-
+-        for ( ;start < end; start++) {
+-            final byte currentByte = buffer[start];
+-            // CheckStyle:MagicNumber OFF
+-            if (currentByte < '0' || currentByte > '7'){
+-                throw new IllegalArgumentException(
+-                        exceptionMessage(buffer, offset, length, start, currentByte));
+-            }
+-            result = (result << 3) + (currentByte - '0'); // convert from ASCII
+-            // CheckStyle:MagicNumber ON
+-        }
+-
+-        return result;
++        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.valueOfOctalField(buffer, offset, length);
+     }
+ 
+     /** 
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index 7fda9895..33bd8082 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -191,6 +191,28 @@ public ZipArchiveInputStream(final InputStream inputStream, final String encodin
+         this(inputStream, encoding, useUnicodeExtraFields, false);
+     }
+ 
++    /**
++     * Parses the octal number held in the bytes from start to end of a
++     * buffer.
++     *
++     * @param buffer the buffer holding the number
++     * @param start the index of the first byte of the number
++     * @param end the index after the last byte of the number
++     * @return the value of the number
++     */
++    public static long octalNumberValue(final byte[] buffer, final int start, final int end) {
++        long result = 0;
++        for (int i = start; i < end; i++) {
++            final byte currentByte = buffer[i];
++            if (currentByte < '0' || currentByte > '7') {
++                throw new IllegalArgumentException("Invalid byte " + currentByte + " at index " + i);
++            }
++            result = (result << 3) + (currentByte - '0');
++        }
++        return result;
++    }
++
++
+     /**
+      * Create an instance using the specified encoding
+      * @param inputStream the stream to wrap
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index 63aeba72..7b4702b6 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -51,6 +51,7 @@
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
+ import static org.apache.commons.compress.archivers.zip.ZipLong.putLong;
+ import static org.apache.commons.compress.archivers.zip.ZipShort.putShort;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -727,6 +728,25 @@ public void putArchiveEntry(final ArchiveEntry archiveEntry) throws IOException
+         putArchiveEntry(archiveEntry, false);
+     }
+ 
++    /**
++     * Parses the octal number held in a header field.
++     *
++     * <p>A field whose first byte is a NUL holds no number and gives
++     * 0.</p>
++     *
++     * @param buffer the buffer holding the field
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the value of the field
++     */
++    public static long valueOfOctalField(final byte[] buffer, final int offset, final int length) {
++        if (buffer[offset] == 0) {
++            return 0L;
++        }
++        return BZip2CompressorOutputStream.valueAfterLeadingSpaces(buffer, offset, offset + length);
++    }
++
++
+     /**
+      * Writes the headers for an archive entry to the output stream.
+      * The caller must then write the content to the stream and call
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index 4b16b521..780d017b 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -408,6 +408,30 @@ public Iterable<ZipArchiveEntry> getEntriesInPhysicalOrder(final String name) {
+         return Arrays.asList(entriesOfThatName);
+     }
+ 
++    /**
++     * Parses the octal number of a field in which the number is followed
++     * by its trailing NULs and spaces.
++     *
++     * <p>Only NULs and spaces may follow the number; any other byte
++     * between the number and the end of the field gives an
++     * IllegalArgumentException.</p>
++     *
++     * @param buffer the buffer holding the field
++     * @param start the index of the first byte of the number
++     * @param stop the index after the last byte of the number
++     * @param end the index after the last byte of the field
++     * @return the value of the number
++     */
++    public static long valueBeforeTrailer(final byte[] buffer, final int start, final int stop, final int end) {
++        for (int i = stop; i < end; i++) {
++            if (buffer[i] != 0 && buffer[i] != ' ') {
++                throw new IllegalArgumentException("Invalid byte " + buffer[i] + " at index " + i);
++            }
++        }
++        return ZipArchiveInputStream.octalNumberValue(buffer, start, stop);
++    }
++
++
+     /**
+      * Whether this class is able to read the given entry.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index a26fac8c..65e3ab6c 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,7 @@
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -391,6 +392,26 @@ public BZip2CompressorOutputStream(final OutputStream out, final int blockSize)
+         init();
+     }
+ 
++    /**
++     * Parses the octal number held in the bytes from start to end of a
++     * buffer, after any leading spaces.
++     *
++     * <p>Leading spaces are skipped.</p>
++     *
++     * @param buffer the buffer holding the field
++     * @param start the index of the first byte of the field
++     * @param end the index after the last byte of the field
++     * @return the value of the field
++     */
++    public static long valueAfterLeadingSpaces(final byte[] buffer, final int start, final int end) {
++        int first = start;
++        while (first < end && buffer[first] == ' ') {
++            first++;
++        }
++        return TarArchiveEntry.valueOfLeadingNumber(buffer, first, end);
++    }
++
++
+     @Override
+     public void write(final int b) throws IOException {
+         if (!closed) {

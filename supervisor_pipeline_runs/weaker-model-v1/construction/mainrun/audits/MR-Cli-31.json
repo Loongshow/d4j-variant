@@ -1,0 +1,51 @@
+{
+ "instance": "Cli-31",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.cli.Parser::optionFor (hop 4)",
+   "edit": "return CommandLine.optionNamed(opt);  ->  return new Option(opt, null);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.cli.Parser::optionFor (hop 4)",
+   "edit": "return CommandLine.optionNamed(opt);  ->  return (opt != null && opt.length() == 1 && (opt.charAt(0) == '?' || opt.charAt(0) == '@')) ? new Option(opt, null) : CommandLine.optionNamed(opt);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.cli.DefaultParser::describedOption (hop 3, declared compensating edit)",
+   "edit": "Parser.optionFor(opt)  ->  Parser.optionFor(opt == null ? null : opt.trim())",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.cli.OptionBuilder::create(String) (reached from the trigger via create(char))",
+  "hop1 org.apache.commons.cli.HelpFormatter::configuredOption",
+  "hop2 org.apache.commons.cli.Option::argumentOption",
+  "hop3 org.apache.commons.cli.DefaultParser::describedOption",
+  "hop4 org.apache.commons.cli.Parser::optionFor",
+  "gold org.apache.commons.cli.CommandLine::optionNamed"
+ ],
+ "reasons": "Variant compiles; trigger OptionBuilderTest::testSpecialOptChars fails with 'IllegalArgumentException: Illegal option name '?'' thrown at CommandLine.optionNamed; full suite on the variant fails only the trigger; correct.patch passes the trigger, the three ownership tests and the full suite. (a) The gold documents '@throws IllegalArgumentException if there are any non valid Option characters in opt' (the Option constructor's own wording), and '?' is a valid one-character Option name per OptionValidator.validateOption/isValidOpt, so the gold's contract is violated on '?'. The four hops only pass the name along and set properties on the Option the gold returns; none documents or performs any check on the name, so they fail only by propagating the gold's exception. The facade's '@throws ... if opt is not a valid character. See Option.' is violated only derivatively. (b) Each hop's javadoc ('Creates an Option with the specified short name ...', params, '@return the new Option') matches its code exactly; hop 4 is a single delegating return; nothing in hops 1-4 is loose enough to own a character-validity rule. (c) Structural argument plus tests: the trigger needs getOpt() == \"?\" and Option has no opt setter, so the gold must be called with \"?\" (and its loop depends only on opt, so it throws whatever the hops do) or be bypassed. The declared compensating edits (trim, stripLeadingHyphens, intern) cannot change \"?\" and G9 plus my rerun of the trim edit confirm they fail. The two passing edits I found at hop 4 either make the gold dead (new Option(opt, null)) or answer '?'/'@' before the gold and replace its result: both are bypasses. No competing repair. (d) Hop names (configuredOption, argumentOption, describedOption, optionFor, optionNamed) are neutral and in each host's vocabulary; no fault vocabulary (G2b); the gold's javadoc is quiet (no '?', '@' or single-character rule). The lie ('The current settings are first stored in a shared template Option, and the Option returned is a clone of that template.') is false (no template, no clone) and names neither the fault, the omitted step nor any hop. (e) Gold is exactly five calls below the facade (stack trace confirms 354->271->204->92->375->148); five hops in five distinct existing classes; under the C10f addendum section 1 the cell is largest5 (no class in the checkout reaches 1500 lines; largest is 1020) and the hosts are exactly the five largest public non-interface non-enum classes other than OptionBuilder, in order: HelpFormatter 1020, Option 705, DefaultParser 689, Parser 430 (public abstract class), CommandLine 388; one procedural lie sentence; gold javadoc silent on the omitted step; trigger is existing (empty test.patch) and is the only new failure. (f) OptionValidator.validateOption javadoc and isValidOpt code (isValidChar(c) || c == '?' || c == '@'), called by every Option constructor including the one the gold calls and the one Options.addOption(String,String,boolean,String) calls, pin the convention outside the gold; ownership tests testIllegalOptions, testBuilderIsResettedAlways, testBaseOptionStringOpt pass on the variant and pin the rest of the rule on the same path.",
+ "notes": "Facade body is 'try { return HelpFormatter.configuredOption(...builder fields...); } finally { OptionBuilder.reset(); }' rather than a bare guard plus call. I judged this conformant: there is exactly one delegating call and no computation of the result in the facade; the finally/reset is the original method's housekeeping, it must stay because reset() and the builder fields are private to OptionBuilder (hop 1 in HelpFormatter cannot reach them), removing it would break builder-reset tests, and it has no bearing on the '?' fault. A strict literal reading of 'guard plus one delegating call' would differ. The lie line is inserted without a leading ' * ' and after the @throws tag (so it renders as part of the @throws text); this is the recipe's rewrite_facade output and marks the facade, not the gold. Observation for the trace checker only (not judged here): in the variant gold the 'length == 1' distinction survives only in the exception message ternary, while acceptance treats one-character and longer names alike; also the gold's loop duplicates the validation that new Option(opt, null) itself performs via OptionValidator, so in the correct version the loop never changes the outcome. Pre-existing Cli inconsistency: OptionValidator javadoc lists ' ' as a special-case valid name, but the code and the trigger treat ' ' as invalid; the gold's javadoc does not depend on this. Anchors were picked by mr2_spec.py with the instance seed (recorded as anchor_after/anchor_seed) and were not independently recomputed. Scratch copies under /private/tmp/mxb-feLusy were deleted after the audit."
+}

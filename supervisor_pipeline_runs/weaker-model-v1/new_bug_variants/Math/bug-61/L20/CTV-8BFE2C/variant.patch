@@ -1,0 +1,236 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 550aaed18..457d311d4 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,8 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import org.apache.commons.math.MathException;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -575,6 +577,21 @@ public class Dfp implements FieldElement<Dfp> {
+         return new Dfp(getField(), x);
+     }
+ 
++    /** Evaluate the continued fraction of the regularized upper incomplete
++     * gamma function Q(a, x) to the relative tolerance epsilon.
++     * @param a the a parameter
++     * @param x the value, at least a + 1
++     * @param epsilon the relative tolerance of the fraction
++     * @param maxIterations the maximum number of terms of the fraction
++     * @return the value of the continued fraction
++     * @exception MathException if the fraction cannot be evaluated
++     */
++    public static double gammaFractionTerms(double a, double x, double epsilon, int maxIterations)
++        throws MathException {
++        return MathUtils.evaluateGammaFraction(a, x, epsilon, maxIterations);
++    }
++
++
+     /** Create an instance from a double value.
+      * @param x value to convert to an instance
+      * @return a new instance with value x
+diff --git a/src/main/java/org/apache/commons/math/distribution/PoissonDistributionImpl.java b/src/main/java/org/apache/commons/math/distribution/PoissonDistributionImpl.java
+index 0a8123390..4828b7130 100644
+--- a/src/main/java/org/apache/commons/math/distribution/PoissonDistributionImpl.java
++++ b/src/main/java/org/apache/commons/math/distribution/PoissonDistributionImpl.java
+@@ -153,7 +153,9 @@ public class PoissonDistributionImpl extends AbstractIntegerDistribution
+ 
+     /**
+      * The probability distribution function P(X <= x) for a Poisson
+-     * distribution.
++     * distribution. The probabilities P(X = 0), P(X = 1), ..., P(X = x) are
++     * computed one after another, starting from P(X = 0) = exp(-mean), and
++     * added up in that order.
+      *
+      * @param x the value at which the PDF is evaluated.
+      * @return Poisson distribution function evaluated at x
+@@ -168,7 +170,7 @@ public class PoissonDistributionImpl extends AbstractIntegerDistribution
+         if (x == Integer.MAX_VALUE) {
+             return 1;
+         }
+-        return Gamma.regularizedGammaQ((double) x + 1, mean, epsilon, maxIterations);
++        return org.apache.commons.math.linear.BlockFieldMatrix.cumulativeCount(x, mean, epsilon, maxIterations);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index 6124d2a2f..8d3605255 100644
+--- a/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -21,6 +21,10 @@ import java.math.BigDecimal;
+ 
+ import org.apache.commons.math.MathRuntimeException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
++import org.apache.commons.math.MathException;
++import org.apache.commons.math.dfp.Dfp;
++import org.apache.commons.math.special.Gamma;
++import org.apache.commons.math.util.FastMath;
+ 
+ /**
+  * Implementation of {@link BigMatrix} using a BigDecimal[][] array to store entries
+@@ -557,6 +561,25 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+         return scale;
+     }
+ 
++    /**
++     * Returns the regularized upper incomplete gamma function Q(a, x) from its
++     * continued fraction: <code>exp(-x) x<sup>a</sup> / &Gamma;(a)</code>
++     * divided by the value of the fraction.
++     *
++     * @param a the a parameter
++     * @param x the value, at least <code>a + 1</code>
++     * @param epsilon the convergence criterion of the fraction
++     * @param maxIterations the maximum number of terms of the fraction
++     * @return Q(a, x)
++     * @throws MathException if the fraction cannot be evaluated
++     */
++    public static double upperGammaFromFraction(double a, double x, double epsilon, int maxIterations)
++        throws MathException {
++        return FastMath.exp(-x + a * FastMath.log(x) - Gamma.logGamma(a)) /
++               Dfp.gammaFractionTerms(a, x, epsilon, maxIterations);
++    }
++
++
+     /***
+      * Sets the scale for division operations.
+      * @see BigDecimal
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 286696f8e..61215fc70 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -26,6 +26,7 @@ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.MatrixDimensionMismatchException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
++import org.apache.commons.math.MathException;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -940,6 +941,23 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+ 
+     }
+ 
++    /**
++     * Returns the probability P(X &le; x) of a Poisson count X with the given
++     * mean, as the regularized upper incomplete gamma function Q(x + 1, mean).
++     *
++     * @param x the count
++     * @param mean the Poisson mean
++     * @param epsilon the convergence criterion of the gamma function
++     * @param maxIterations the maximum number of iterations of the gamma function
++     * @return P(X &le; x)
++     * @throws MathException if the gamma function cannot be computed
++     */
++    public static double cumulativeCount(int x, double mean, double epsilon, int maxIterations)
++        throws MathException {
++        return FastMath.regularizedUpperGamma((double) x + 1, mean, epsilon, maxIterations);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public FieldMatrix<T> getColumnMatrix(final int column)
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index 4f5616b6f..1ba594bac 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -227,6 +227,29 @@ public class FastMath {
+         return 0.5 * (FastMath.exp(a) + FastMath.exp(-a));
+     }
+ 
++    /**
++     * Compute the regularized upper incomplete gamma function Q(a, x).
++     * <p>
++     * For x &lt; a + 1, Q(a, x) is computed as 1 - P(a, x) from the series of
++     * the regularized gamma function P; otherwise it is computed from its
++     * continued fraction.
++     * </p>
++     * @param a the a parameter
++     * @param x the value
++     * @param epsilon the convergence criterion of the series or the fraction
++     * @param maxIterations the maximum number of iterations
++     * @return Q(a, x)
++     * @throws org.apache.commons.math.MathException if the series or the fraction cannot be computed
++     */
++    public static double regularizedUpperGamma(double a, double x, double epsilon, int maxIterations)
++        throws org.apache.commons.math.MathException {
++        if (x < a + 1.0) {
++            return 1.0 - org.apache.commons.math.special.Gamma.regularizedGammaP(a, x, epsilon, maxIterations);
++        }
++        return org.apache.commons.math.linear.BigMatrixImpl.upperGammaFromFraction(a, x, epsilon, maxIterations);
++    }
++
++
+     /** Compute the hyperbolic sine of a number.
+      * @param a number on which evaluation is done
+      * @return hyperbolic sine of a
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index ab0fe3358..22c802364 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -25,6 +25,7 @@ import org.apache.commons.math.MathRuntimeException;
+ import org.apache.commons.math.exception.util.Localizable;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.exception.NonMonotonousSequenceException;
++import org.apache.commons.math.MaxIterationsExceededException;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -106,6 +107,53 @@ public final class MathUtils {
+         return (int)s;
+     }
+ 
++    /**
++     * Evaluates the continued fraction of the regularized upper incomplete
++     * gamma function Q(a, x), whose n-th partial denominator is
++     * <code>2n + 1 - a + x</code> and whose n-th partial numerator is
++     * <code>n(a - n)</code>, from the recurrence of its convergents.
++     * <p>
++     * The evaluation stops when two successive convergents agree within the
++     * relative tolerance <code>epsilon</code>, or when a convergent is not a
++     * number, in which case the convergent before it is returned.</p>
++     *
++     * @param a the a parameter of the gamma function
++     * @param x the value, at least <code>a + 1</code>
++     * @param epsilon the relative tolerance between successive convergents
++     * @param maxIterations the maximum number of terms of the fraction
++     * @return the value of the continued fraction
++     * @throws MaxIterationsExceededException if neither happens within
++     * <code>maxIterations</code> terms
++     */
++    public static double evaluateGammaFraction(double a, double x, double epsilon, int maxIterations)
++        throws MaxIterationsExceededException {
++        double previousNumerator = 1.0;
++        double previousDenominator = 0.0;
++        double numerator = x + 1.0 - a;
++        double denominator = 1.0;
++        double value = numerator;
++        for (int n = 1; n <= maxIterations; n++) {
++            final double an = 2.0 * n + 1.0 - a + x;
++            final double bn = n * (a - n);
++            final double nextNumerator = an * numerator + bn * previousNumerator;
++            final double nextDenominator = an * denominator + bn * previousDenominator;
++            previousNumerator = numerator;
++            previousDenominator = denominator;
++            numerator = nextNumerator;
++            denominator = nextDenominator;
++            final double next = numerator / denominator;
++            if (Double.isNaN(next)) {
++                return value;
++            }
++            if (FastMath.abs(next - value) <= epsilon * FastMath.abs(next)) {
++                return next;
++            }
++            value = next;
++        }
++        throw new MaxIterationsExceededException(maxIterations);
++    }
++
++
+     /**
+      * Add two long integers, checking for overflow.
+      *

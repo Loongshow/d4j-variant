@@ -1,0 +1,60 @@
+{
+ "instance": "Collections-13",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.collections.bidimap.TreeBidiMap::toExtendedProperties (hop 1)",
+   "edit": "return DoubleOrderedMap.copyProperties(new Properties(props) { public Object get(Object k) { return getProperty((String) k); } }, new ExtendedProperties());",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::putProperties (hop 3)",
+   "edit": "props.propertyNames() -> java.util.Collections.enumeration(props.stringPropertyNames())",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.collections.CursorableLinkedList::addNamedProperties (hop 4)",
+   "edit": "props -> (Properties) props.clone()",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.collections.bidimap.TreeBidiMap::toExtendedProperties (hop 1)",
+   "edit": "props -> new Properties(props)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections.ExtendedProperties::convertProperties(Properties)",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::toExtendedProperties(Properties)",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::copyProperties(Properties, ExtendedProperties)",
+  "hop3 org.apache.commons.collections.MapUtils::putProperties(Properties, ExtendedProperties)",
+  "hop4 org.apache.commons.collections.CursorableLinkedList::addNamedProperties(Properties, Enumeration, ExtendedProperties)",
+  "gold org.apache.commons.collections.FastArrayList::addStringProperties(Properties, Enumeration, ExtendedProperties)"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger TestExtendedProperties::testInheritDefaultProperties fails with 'expected:<class> but was:<null>'; full suite (12968 tests) has exactly that one failure; correct.patch gives 0 failures. (a) Hops 1-4 are pure plumbing: hop 1 creates the target, hop 3 enumerates props.propertyNames() (which includes the inherited name 'resource.loader'), hops 2 and 4 pass props/names/target through unchanged. The gold is the only method that reads a value; it is handed the inherited name and documents 'Add the named properties of a Properties object ... Only properties with String values are added', yet reads Hashtable.get, which cannot see the default list, so the String-valued property 'resource.loader' (getProperty gives 'class') is skipped. Given a correct gold every hop meets its own javadoc; only the gold's own logic violates its contract. (b) No hop javadoc contradicts its code (hop 3's 'in the order the Properties object lists them' matches propertyNames(); hop 1 creates a new target); none is loose enough to own the lookup, since none reads values. (c) No doc-consistent one-line hop edit can expose inherited values: java.util.Properties.defaults is protected and no JDK or Collections method flattens a Properties object; the builder's three declared edits (stringPropertyNames at hop 3, clone at hop 4, new Properties(props) at hop 1) were re-run on a clean build and all leave the trigger failing. The only passing hop edit found is an anonymous Properties subclass at hop 1 that overrides get() to call getProperty(): it passes trigger, ownership tests and the full suite, but it breaks the Map/Hashtable.get contract (get returns values for keys the table does not contain) and moves the gold's own lookup step into hop 1, so it is a bypass, not a competing repair. (d) No fault vocabulary in added lines; names (toExtendedProperties, copyProperties, putProperties, addNamedProperties, addStringProperties) are neutral; the lie ('property names are first sorted into ascending order ...') is false (nothing sorts; keysAsListed keeps propertyNames order) and does not mention defaults/inheritance. The added serialVersionUID in FastArrayList equals the pristine computed default (serialver 1566341225434603896L on both builds), keeps serialization tests stable after adding a static method, and uses the house comment found in 5 other pristine files; it is not a fault marker. (e) Gold is exactly five calls below the facade; five distinct existing classes; facade body is one delegating call (original had no guard); one added procedural lie sentence; gold javadoc silent on the default-list lookup; trigger is an existing test (empty test.patch) and the only new failure. Hosts judged against BUILD_BRIEF_C10F_ADDENDUM section 1: only three non-facade classes reach 1500 lines (TreeBidiMap 2085, DoubleOrderedMap 1995, MapUtils 1678), so largest5 applies, and the five largest public non-interface non-enum classes other than ExtendedProperties by newline count are TreeBidiMap 2085, DoubleOrderedMap 1995, MapUtils 1678, CursorableLinkedList 1468, FastArrayList 1333, used as hops 1-5 in that order. (f) Convention pinned outside the gold: the facade's original javadoc ('will pick up any default parent Properties of the specified input object'); ExtendedProperties.getProperty ('user value if exists, if not then default value') and getString (falls back to defaults) implement the same own-then-default lookup; hop 3's propertyNames() feeds the gold inherited names; passing test testCollections299 converts a Properties with a default list and pins that only String values, own or inherited, are passed on; testRetrieve pins the target side.",
+ "notes": "Bypass recorded: hop 1 TreeBidiMap.toExtendedProperties passing 'new Properties(props) { public Object get(Object k) { return getProperty((String) k); } }' passes trigger, testCollections299, testRetrieve and the full suite. Pin caveat: no passing test separates variant from correct (testCollections299 passes on both); the inheritance half of the convention is pinned by the facade javadoc and by the getProperty/getString default-fallback code, not by a discriminating passing test. The lie sits as an unstarred continuation of the @return tag (recipe formatting). The fault removes one if-statement written over three lines (if (!(value instanceof String)) { value = props.getProperty(name); }). Batch6 task record not read; host order recomputed independently from the pristine checkout."
+}

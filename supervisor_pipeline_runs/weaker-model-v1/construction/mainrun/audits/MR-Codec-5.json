@@ -1,0 +1,51 @@
+{
+  "instance": "Codec-5",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.codec.binary.Base64::isArrayByteBase64 (facade)",
+      "edit": "return org.apache.commons.codec.language.DoubleMetaphone.isBase64Value(arrayOctet);  ->  return org.apache.commons.codec.language.DoubleMetaphone.isBase64Value(discardWhitespace(arrayOctet));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.codec.language.Metaphone::base64RegionEnd (hop 3)",
+      "edit": "return QuotedPrintableCodec.scanBase64(bytes, from, to);  ->  int end = QuotedPrintableCodec.scanBase64(bytes, from, to); return end < to && (bytes[end] == ' ' || bytes[end] == '\\n' || bytes[end] == '\\r' || bytes[end] == '\\t') ? base64RegionEnd(bytes, end + 1, to) : end;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.codec.net.QuotedPrintableCodec::scanBase64 (hop 4)",
+      "edit": "return URLCodec.endOfBase64(bytes, from, to);  ->  int end = URLCodec.endOfBase64(bytes, from, to); return end < to && (bytes[end] == ' ' || bytes[end] == '\\n' || bytes[end] == '\\r' || bytes[end] == '\\t') ? scanBase64(bytes, end + 1, to) : end;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.codec.binary.Base64::isArrayByteBase64(byte[]) -- no guard in the original; body is one delegating call",
+    "hop1 org.apache.commons.codec.language.DoubleMetaphone::isBase64Value(byte[]) -- empty array -> true; else base64Length(value) == value.length",
+    "hop2 org.apache.commons.codec.digest.DigestUtils::base64Length(byte[]) -- Metaphone.base64RegionEnd(data, 0, data.length)",
+    "hop3 org.apache.commons.codec.language.Metaphone::base64RegionEnd(byte[],int,int) -- pass-through to QuotedPrintableCodec.scanBase64",
+    "hop4 org.apache.commons.codec.net.QuotedPrintableCodec::scanBase64(byte[],int,int) -- pass-through to URLCodec.endOfBase64",
+    "gold org.apache.commons.codec.net.URLCodec::endOfBase64(byte[],int,int) -- loop returns first i with !Base64.isBase64(b); the variant drops the conjuncts b != ' ' && b != '\\n' && b != '\\r' && b != '\\t'"
+  ],
+  "reasons": "Scratch copy of fresh-mr/Codec-5 + variant.patch compiles; the trigger Base64Test::testIsUrlSafe fails with 'Base64.isArrayByteBase64(whiteSpace)=true'; the full variant suite has exactly that one failure; the four ownership tests pass. (a) The gold promises the index of the first byte that 'cannot occur in base 64 encoded data'. In this library whitespace does occur in base 64 encoded data: encodeBase64Chunked writes CRLF into the encoded output (testKnownEncodings), decode handles chunked data 'since CR and LF are silently ignored', and discardWhitespace 'Discards any whitespace from a base-64 encoded block' while removing exactly ' ', '\\n', '\\r', '\\t'. On the trigger array {' ','\\n','\\r','\\t'} the gold returns 0, which breaks its contract. Hops 1-4 compute correctly from their callee's documented result, so their wrong outputs are propagated, not caused there. The gold is the only method whose own logic breaks its contract. (b) The hop javadocs match their code. Hop 1: 'An empty array gives true', with the comparison against the length. Hop 2: 'The whole array is scanned, from its first byte to its last', with region [0, length). Hops 3 and 4 document a region and the index of the first byte that cannot occur, which they return as given. None is loose enough to explain a false answer for a whitespace array by its own code. (c) I applied and ran three alternatives; all pass the trigger, the ownership tests and the full suite. None is a competing repair. The facade pre-filter discardWhitespace(arrayOctet) empties the trigger array, so hop 1's empty-array guard answers and hops 2-5 are never called on the trigger path. Their output is dead there, which makes it a bypass. It is also not doc-consistent: hop 1 through the gold would still report whitespace as a byte that cannot occur in base 64 encoded data, against the pinned convention, and it relies on a method marked '@deprecated This method is no longer needed'. The hop-3 and hop-4 recursive skip-over-whitespace edits override the result of their callee (ultimately the gold) with their own byte classification, which makes them bypasses. They also leave hop 4 and/or the gold breaking their documented contracts, and they are larger than the gold's one-line fix. Under an alphabet-only reading of 'can occur in base 64 encoded data', the hop-3 and hop-4 edits would break their own hop's contract instead. (d) The hop and gold names (isBase64Value, base64Length, base64RegionEnd, scanBase64, endOfBase64) are neutral, there are no comments in the bodies, and G2b found no fault vocabulary. The variant gold reads as an ordinary alphabet loop. The gold javadoc never mentions whitespace. The lie ('converted to a String in the US-ASCII charset ... matched once against a precompiled regular expression') names neither whitespace, the omitted step nor any hop. (e) The gold is exactly five calls below the facade. There are five hops in five different existing classes. The facade body is one delegating call; the original had no guard. One procedural lie sentence was added that the code does not perform. The gold is quiet. The fault is a one-line omission (the continuation line of the condition). test.patch is empty, and the existing trigger is the only new failure. Hosts under C10f addendum section 1: no public class in src/java other than Base64 reaches 1500 lines, so host_mode is largest5. By newline count on the pristine checkout, the five largest public non-interface non-enum classes other than Base64 are DoubleMetaphone 1105, DigestUtils 582, Metaphone 407, QuotedPrintableCodec 387 and URLCodec 361. That is exactly hop 1 to hop 5 in order, with the gold in the fifth and smallest host. (f) The convention (blank, tab, CR and LF can occur in base 64 encoded data) is pinned outside the gold by Base64.discardWhitespace and isWhiteSpace (the exact four bytes), the Base64.decode javadoc on CR and LF in chunked data, and encodeBase64Chunked emitting CRLF. Passing tests confirm it: testDiscardWhitespace and testDecodeWithWhitespace insert all four into encoded data, testRfc4648Section10DecodeWithCrLf, and testKnownEncodings. The facade's own 'Currently the method treats whitespace as valid' also states it.",
+  "notes": "1) The facade can pre-filter: a one-token wrap discardWhitespace(arrayOctet) at the facade restores the original facade behaviour on every input, which goes against the brief's 'no caller can pre-filter or recover' design intent. It is classified as a bypass for two reasons. On the trigger, hop 1's empty-array guard answers. That guard is redundant, since base64Length(empty) == 0 already gives true. Second, it leaves hops 1-5 inconsistent with the pinned convention. A model that proposes the facade fix gives a workaround, not the documented owner. Ownership becomes arguable only under an alphabet-only reading of 'can occur in base 64 encoded data', which the in-library pins (CRLF chunking, discardWhitespace on 'a base-64 encoded block') contradict. 2) A context edit rewrites Base64.discardWhitespace from a four-case switch to 'if (!isWhiteSpace(data[i]))'. It preserves behaviour (isWhiteSpace has the same four cases, testDiscardWhitespace passes) and keeps the private isWhiteSpace helper in use after the facade rewrite removed its only caller. It does not point at the gold. 3) The lie line is appended inside the @return paragraph without a leading asterisk. That is the recipe's rewrite_facade formatting, not instance-specific, and it does not point at the gold. 4) The variant gold keeps 'final byte b = bytes[i];' with b used once. This is ordinary style, not a fault marker (a trace-check matter, not judged here). 5) The declared compensating edits (G9) were not re-run; validation.json records them as not absorbing. 6) My first attempt at the alternatives reused compiled classes copied within the same second, so ant skipped recompiling. All reported results come from clean rebuilds (target removed)."
+}

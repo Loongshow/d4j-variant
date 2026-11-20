@@ -1,0 +1,223 @@
+{
+ "bug_id": 9,
+ "compensating": [
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "path.replaceFirst(\"^\\\\.\\\\.?/\", \"\"), current);",
+   "old": "path.replaceFirst(\"^\\\\./\", \"\"), current);",
+   "why": "hop 3 also drops a leading '../'"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "path.replaceFirst(\"^\\\\./\", \"\"), path.startsWith(\"../\") ? current.replaceFirst(\"/?[^/]*$\", \"\") : current);",
+   "old": "path.replaceFirst(\"^\\\\./\", \"\"), current);",
+   "why": "hop 3 steps the requiring file up one directory for a '../' path"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "return Compiler.CodeBuilder.moduleNameAt(com.google.javascript.jscomp.deps.PathUtil.collapseDots(path), current);",
+   "old": "return Compiler.CodeBuilder.moduleNameAt(path, current);",
+   "why": "hop 4 collapses the dots of the path alone"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "import java.util.regex.Matcher;\nimport com.google.common.base.Joiner;\n",
+   "old": "import java.util.regex.Matcher;\n",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/Compiler.java",
+   "new": "\n    /**\n     * Returns the module name of the file that a path leads to from the\n     * directory of a requiring file.\n     *\n     * @param path the path, without extension\n     * @param current the filename of the requiring file, without extension\n     * @return the module name of the file\n     */\n    public static String moduleNameAt(String path, String current) {\n      List<String> segments = Lists.newArrayList(current.split(\"/\"));\n      segments.remove(segments.size() - 1);\n      for (String segment : path.split(\"/\")) {\n        if (segment.equals(\"..\") && !segments.isEmpty()) {\n          segments.remove(segments.size() - 1);\n        } else {\n          segments.add(segment);\n        }\n      }\n      return ProcessCommonJSModules.toModuleName(Joiner.on('/').join(segments));\n    }\n\n\n    /** Returns the length of the text buffer. */",
+   "old": "\n    /** Returns the length of the text buffer. */",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "new": "      return this == STRIP;\n    }\n\n    /**\n     * Returns the module name of the file that a path leads to from the\n     * directory of a requiring file.\n     *\n     * @param path the path, without extension\n     * @param current the filename of the requiring file, without extension\n     * @return the module name of the file\n     */\n    public static String moduleNameFrom(String path, String current) {\n      return Compiler.CodeBuilder.moduleNameAt(path, current);\n    }\n\n  }\n",
+   "old": "      return this == STRIP;\n    }\n  }\n",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/ProcessCommonJSModules.java",
+   "new": "     Module names already computed for the current filename are kept in a table, and a required filename found there is answered from that table without being converted again.\n     */\n  public static String toModuleName(String requiredFilename,\n      String currentFilename) {\n        return com.google.javascript.rhino.jstype.JSTypeRegistry.requiredModuleName(requiredFilename, currentFilename);\n    }",
+   "old": "   */\n  public static String toModuleName(String requiredFilename,\n      String currentFilename) {\n    requiredFilename = requiredFilename.replaceAll(\"\\\\.js$\", \"\");\n    currentFilename = currentFilename.replaceAll(\"\\\\.js$\", \"\");\n\n    if (requiredFilename.startsWith(\".\" + MODULE_SLASH) ||\n        requiredFilename.startsWith(\"..\" + MODULE_SLASH)) {\n      try {\n        requiredFilename = (new URI(currentFilename)).resolve(new URI(requiredFilename))\n            .toString();\n      } catch (URISyntaxException e) {\n        throw new RuntimeException(e);\n      }\n    }\n    return toModuleName(requiredFilename);\n  }",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "new": "\n    /**\n     * Returns the module name of a file that another file requires. A filename\n     * that starts with \"./\" or \"../\" is a path from the directory of the\n     * requiring file; any other filename is the name of a top-level module.\n     *\n     * @param required the filename given to require, without extension\n     * @param current the filename of the requiring file, without extension\n     * @return the module name of the required file\n     */\n    public static String scopedModuleName(String required, String current) {\n      if (required.startsWith(\"./\") || required.startsWith(\"../\")) {\n        return JSDocInfo.Marker.relativeModuleName(required, current);\n      }\n      return ProcessCommonJSModules.toModuleName(required);\n    }\n\n\n    public int getScopeDepth() {",
+   "old": "\n    public int getScopeDepth() {",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.CompilerOptions;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "new": "      return type;\n    }\n\n    /**\n     * Returns the module name of the file that a path leads to from the\n     * directory of a requiring file. A leading \"./\", which names that\n     * directory itself, is dropped from the path.\n     *\n     * @param path the path, starting with \"./\" or \"../\", without extension\n     * @param current the filename of the requiring file, without extension\n     * @return the module name of the file\n     */\n    public static String relativeModuleName(String path, String current) {\n      return CompilerOptions.TweakProcessing.moduleNameFrom(\n          path.replaceFirst(\"^\\\\./\", \"\"), current);\n    }\n\n\n    void setType(TypePosition p) {",
+   "old": "      return type;\n    }\n\n    void setType(TypePosition p) {",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "import java.util.Set;\nimport com.google.javascript.jscomp.SymbolTable;\n",
+   "old": "import java.util.Set;\n",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  },
+  {
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "new": "  }\n\n        /**\n     * Returns the module name of a file that another file requires. The \".js\"\n     * extension is removed from both filenames first.\n     *\n     * @param required the filename given to require\n     * @param current the filename of the requiring file\n     * @return the module name of the required file\n     */\n    public static String requiredModuleName(String required, String current) {\n      return SymbolTable.SymbolScope.scopedModuleName(\n          required.replaceAll(\"\\\\.js$\", \"\"), current.replaceAll(\"\\\\.js$\", \"\"));\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Closure-9 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+   "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+   "method": "requiredModuleName"
+  },
+  {
+   "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+   "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+   "method": "scopedModuleName"
+  },
+  {
+   "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+   "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+   "method": "relativeModuleName"
+  },
+  {
+   "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+   "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+   "method": "moduleNameFrom"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Closure-9.py",
+ "entry_points": [
+  "com.google.javascript.jscomp.ProcessCommonJSModules::toModuleName"
+ ],
+ "evidence": [
+  "com.google.javascript.jscomp.ProcessCommonJSModules::toModuleName",
+  "com.google.javascript.jscomp.deps.PathUtil::collapseDots",
+  "com.google.javascript.jscomp.deps.PathUtil::makeAbsolute"
+ ],
+ "expected_signature": "but was:<module$[foo$..$]baz>",
+ "extra_tests": [],
+ "fixture_key": "Closure-9",
+ "gold": {
+  "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+  "edits": [
+   {
+    "new": "        segments.add(segment);",
+    "old": "        if (segment.equals(\"..\") && !segments.isEmpty()) {\n          segments.remove(segments.size() - 1);\n        } else {\n          segments.add(segment);\n        }"
+   }
+  ],
+  "file": "src/com/google/javascript/jscomp/Compiler.java",
+  "method": "moduleNameAt"
+ },
+ "group": "MR-Closure-9",
+ "hops": 5,
+ "iid": "MR-Closure-9",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold holds the directory of the requiring file together with the individual segments of the path; the extension stripping, the relative/top-level decision, the './' placement and the pass-through hand the two strings along. The trigger's target 'baz' lies outside the requiring file's directory 'foo/', so no path without '..' leads to it from that file: an edit above the gold can only make the result right by handing the gold another requiring file or by computing the resolution itself (a second implementation outside the gold, e.g. java.net.URI resolution or PathUtil.collapseDots), and reading '$' in the gold's output as a separator drops the 'module$' part of names that climb past the top directory. The convention is pinned outside the gold: the facade's javadoc promises relative addressing with ./ and ../ based on the current filename; PathUtil.collapseDots (reached through PathUtil.makeAbsolute from DepsGenerator) removes the previous fragment for every '..' fragment ('a/b/../c' results in 'a/c'); toModuleName(String) and its passing tests pin the conversion that the gold hands the resolved path to. The gold's javadoc promises the module name of the file that the path leads to from the directory of the requiring file: '../baz' from 'foo/bar' leads to 'baz', whose module name is 'module$baz'.",
+ "ownership_tests": [
+  "com.google.javascript.jscomp.ProcessCommonJSModulesTest::testWithoutExports",
+  "com.google.javascript.jscomp.ProcessCommonJSModulesTest::testDash",
+  "com.google.javascript.jscomp.ProcessCommonJSModulesTest::testGuessModuleName",
+  "com.google.javascript.jscomp.CompilerTest::testCommonJSProvidesAndRequire",
+  "com.google.javascript.jscomp.CommandLineRunnerTest::testProcessCJS"
+ ],
+ "project": "Closure",
+ "src_root": "src",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": null,
+    "anchor_seed": 5368,
+    "class": "com.google.javascript.rhino.jstype.JSTypeRegistry",
+    "file": "src/com/google/javascript/rhino/jstype/JSTypeRegistry.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.google.javascript.jscomp.SymbolTable;"
+    ],
+    "method": "requiredModuleName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isLexicalScope",
+    "anchor_seed": 5369,
+    "class": "com.google.javascript.jscomp.SymbolTable$SymbolScope",
+    "file": "src/com/google/javascript/jscomp/SymbolTable.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "scopedModuleName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getType",
+    "anchor_seed": 5370,
+    "class": "com.google.javascript.rhino.JSDocInfo$Marker",
+    "file": "src/com/google/javascript/rhino/JSDocInfo.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.google.javascript.jscomp.CompilerOptions;"
+    ],
+    "method": "relativeModuleName",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "shouldStrip",
+    "anchor_seed": 5371,
+    "class": "com.google.javascript.jscomp.CompilerOptions$TweakProcessing",
+    "file": "src/com/google/javascript/jscomp/CompilerOptions.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "moduleNameFrom",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "toString",
+    "anchor_seed": 5372,
+    "class": "com.google.javascript.jscomp.Compiler$CodeBuilder",
+    "file": "src/com/google/javascript/jscomp/Compiler.java",
+    "hop": 5,
+    "imports_added": [
+     "import com.google.common.base.Joiner;"
+    ],
+    "method": "moduleNameAt",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 5268
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Closure-9"
+ ],
+ "test_root": "test",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.javascript.jscomp.ProcessCommonJSModulesTest",
+  "test_file": "test/com/google/javascript/jscomp/ProcessCommonJSModulesTest.java",
+  "test_method": "testModuleName"
+ },
+ "variant_id": "CTV-171EBA",
+ "kind": "new",
+ "fault_lines": [
+  "segments.add(segment);"
+ ],
+ "gold_key": "com.google.javascript.jscomp.Compiler$CodeBuilder::moduleNameAt"
+}

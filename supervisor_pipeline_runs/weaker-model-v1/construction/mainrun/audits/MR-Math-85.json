@@ -1,0 +1,94 @@
+{
+ "instance": "Math-85",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.math.linear.BigMatrixImpl::searchInterval (hop 4)",
+   "edit": "final UnivariateRealFunction g = function; return EigenDecompositionImpl.expandInterval(new UnivariateRealFunction() { public double value(double x) throws FunctionEvaluationException { double v = g.value(x); return v == 0.0 ? 1.0e-300 : v; } }, initial, lowerBound, upperBound, maximumIterations);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "Not competing: the hop hands the gold a function other than the documented one, and the facade then breaks its documented loop ('terminates when f(a) * f(b) <= 0 -- success!'). Probed: bracket(x->2-x,1,0,10,50) returns {0,3} instead of {0,2}; bracket(x->x,1,-5,10,50) returns {-1,3} instead of {0,2}; bracket(x->x,0,0,10,50) still throws instead of returning {0,1}. It is not an equally small repair either. Recorded as a bypass because it pre-empts the gold's zero-product decision by distorting the gold's input."
+  },
+  {
+   "method": "org.apache.commons.math.linear.BigMatrixImpl::searchInterval (hop 4)",
+   "edit": "try { return EigenDecompositionImpl.expandInterval(function, initial, lowerBound, upperBound, maximumIterations); } catch (ConvergenceException e) { Object[] r = e.getArguments(); if (((Number) r[7]).doubleValue() * ((Number) r[8]).doubleValue() == 0.0) { return new double[] {((Number) r[5]).doubleValue(), ((Number) r[6]).doubleValue()}; } throw e; }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "About 7 lines. It recovers a, b, f(a) and f(b) from the gold's ConvergenceException message arguments and re-implements the gold's decision. The facade's outputs then match its documentation ({0,2}, {0,2}, {0,1} on the probes above), but the gold still throws 'no bracketing interval is found' when it holds one, so the gold is not used as documented. Its result is replaced: a bypass."
+  },
+  {
+   "method": "org.apache.commons.math.linear.BigMatrixImpl::searchInterval (hop 4), declared compensation",
+   "edit": "pass lowerBound - 1.0",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "On the trigger the first pass gives a = max(0, -1) = 0 and b = 2 either way, the product is 0 and the gold throws. Confirmed by analysis; G9 shows trigger_fail=1."
+  },
+  {
+   "method": "org.apache.commons.math.util.MathUtils::rootInterval (hop 2), declared compensation",
+   "edit": "pass Math.max(maximumIterations, 2)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "maximumIterations is already Integer.MAX_VALUE, and the loop exits after pass 1 on the zero product. G9 shows trigger_fail=1."
+  },
+  {
+   "method": "org.apache.commons.math.linear.BlockFieldMatrix::enclosingInterval (hop 1), declared compensation",
+   "edit": "pass Math.rint(initial)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "initial = 1.0 is already whole. G9 shows trigger_fail=1."
+  },
+  {
+   "method": "any hop (or NormalDistributionImpl.getInitialDomain): shifted initial value",
+   "edit": "pass initial - 1.0e-10, initial + 0.5 or initial + 1.0",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "Probe: on the resulting brackets BrentSolver returns 2.0000000034677368 for [0,3-1e-10], 1.999999995455833 for [0.5,2.5] and 2.000000002947005 for [1,3], all outside the trigger's 1e-12 tolerance. Only a bracket with an endpoint exactly at 2 passes, and any initial value that puts an endpoint on 2 makes the product 0, which the gold rejects. The edit also contradicts 'a := initial -1; b := initial +1'."
+  },
+  {
+   "method": "any hop: function wrapper mapping an exact zero to -1.0e-300 (strict-convention reading)",
+   "edit": "as the first row, with -1.0e-300",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "The trigger bracket becomes [0,3], and BrentSolver returns 2.0000000034677345 (probe)."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.math.analysis.solvers.UnivariateRealSolverUtils::bracket(UnivariateRealFunction,double,double,double,int): null-function guard plus one call. Reached from NormalDistributionTest.testMath280 via NormalDistributionImpl.inverseCumulativeProbability, AbstractContinuousDistribution.inverseCumulativeProbability and the 4-arg bracket.",
+  "hop1 org.apache.commons.math.linear.BlockFieldMatrix::enclosingInterval: pure delegation",
+  "hop2 org.apache.commons.math.util.MathUtils::rootInterval: maximumIterations > 0 check, then delegation",
+  "hop3 org.apache.commons.math.linear.BlockRealMatrix::intervalAround: initial/bounds check, then delegation",
+  "hop4 org.apache.commons.math.linear.BigMatrixImpl::searchInterval: pure delegation",
+  "gold org.apache.commons.math.linear.EigenDecompositionImpl::expandInterval: the expansion loop and the return-or-throw decision. Omitted: 'if (fa * fb == 0.0) return {a, b};' before 'if (fa * fb >= 0.0) throw'."
+ ],
+ "reasons": "Reproduced the instance: the variant compiles, testMath280 fails with 'final a value=0, final b value=2, f(a)=-0.477, f(b)=0', and the full variant suite fails ONLY testMath280. (a) Only the gold sees function values and makes the return-or-throw decision. On the trigger, its first pass gives a=0, b=2 with f(2)=0, so the loop stops (f(a)*f(b) is not > 0). It then throws 'no bracketing interval is found' although [0,2] brackets the root by the convention of the facade and the solvers. The facade, hops 1-4 and the callers only propagate that exception; none has logic of its own that breaks its contract. (b) Every hop's javadoc matches its code: hop 2 checks maximumIterations, hop 3 checks initial and the bounds, and hops 1 and 4 are pure pass-throughs. No hop's documentation leaves room for it to own a zero-product decision it never sees. (c) No competing repair. Argument edits at hops cannot pass the trigger. The trigger needs a bracket with an endpoint exactly at 2 (Brent on any other bracket misses the 1e-12 tolerance, probed), and every such bracket has a zero product that the gold rejects. Two passing hop-4 edits exist; both are bypasses or violate the documentation. A zero to 1e-300 function wrapper breaks the facade's documented loop termination ({0,3} instead of {0,2}). A catch of ConvergenceException that rebuilds {a,b} from its message arguments re-implements the gold's decision and leaves the gold violating its own contract. Both pass the full suite and are recorded. (d) The hop and gold names (enclosingInterval, rootInterval, intervalAround, searchInterval, expandInterval) are neutral, and no added comment marks the fault. The lie (the step 'is doubled after every pass ... grows geometrically') is about step size and names neither the zero-product case nor any hop. (e) The gold is the fifth call below the facade. The hops are in five distinct existing classes (BlockFieldMatrix, MathUtils, BlockRealMatrix, BigMatrixImpl, EigenDecompositionImpl). The facade body is the null guard plus one call. One added procedural sentence describes doubling that the code does not do. The gold's javadoc ('until it brackets a root'; 'ConvergenceException if no bracketing interval is found') is silent on zero endpoints. The trigger is an existing test and is the only new failure (confirmed by my own full run). The only difference between correct.patch and variant.patch is the gold's 3-line return. (f) The convention that a zero endpoint completes the bracket is pinned outside the gold by several sources: the facade's pristine javadoc ('f(a) * f(b) <= 0 -- success!'); BrentSolver.solve(f,min,max) ('either min or max is a root' when yMin*yMax == 0); RiddersSolver.solve ('check for zeros before verifying bracketing'); BisectionSolver.solve (keeps [min,m] when fm*fmin is not positive); and BrentSolverTest::testRootEndpoints ('endpoint is root'), which passes on the variant.",
+ "notes": "1) Inaccurate spec claim: ownership_reason says that after the exception 'the interval is lost'. In fact ConvergenceException.getArguments() carries a, b, f(a) and f(b), so a hop can recover the interval (bypass row 2). This does not change ownership, because the recovery re-implements the gold's decision while the gold still breaks its own contract. 2) The pristine 4-arg bracket overload, which sits on the trigger path, documents a strict 'f(a) * f(b) < 0' success condition, while the 5-arg facade documents '<= 0'. Under the strict reading the defect would be the gold's loop guard rather than its post-loop check, but it stays inside the gold. The trigger's 1e-12 tolerance needs the {0,2} bracket, i.e. the non-strict convention. 3) For the trace checker, not counted as leakage here: in the variant gold the loop guard stops on f(a)*f(b) <= 0 while the post-loop check throws on >= 0, so the two conditions disagree on the zero case. This is the shape of the original Math-85 defect. 4) The lie is appended after the last @throws tag without a leading '*', so rendered javadoc attaches it to the @throws IllegalArgumentException description. It contradicts the pristine 'by one unit each time' sentence, as the recipe intends. 5) Ownership tests UnivariateRealSolverUtilsTest::testBracketSin, GammaDistributionTest::testValues and TDistributionTest::testSmallDf do not exercise a zero endpoint. They guard ordinary bracketing, so the zero-endpoint pin rests on the facade javadoc, the solver code and BrentSolverTest::testRootEndpoints. 6) Probe classes and edits lived only in /private/tmp/mxb-xQTG58, which has been deleted."
+}

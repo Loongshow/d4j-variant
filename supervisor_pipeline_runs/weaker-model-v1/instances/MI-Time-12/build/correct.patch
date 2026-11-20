@@ -1,0 +1,215 @@
+diff --git a/src/main/java/org/joda/time/LocalDate.java b/src/main/java/org/joda/time/LocalDate.java
+index c86b9d73..e80ad9f7 100644
+--- a/src/main/java/org/joda/time/LocalDate.java
++++ b/src/main/java/org/joda/time/LocalDate.java
+@@ -989,33 +989,11 @@ public final class LocalDate
+      *
+      * @return a Date initialised with this date, never null
+      * @since 2.0
++       The first guess is computed directly from the local millis of this date and the raw offset of the default time zone, rather than with the JDK Date constructor.
+      */
+     @SuppressWarnings("deprecation")
+     public Date toDate() {
+-        int dom = getDayOfMonth();
+-        Date date = new Date(getYear() - 1900, getMonthOfYear() - 1, dom);
+-        LocalDate check = LocalDate.fromDateFields(date);
+-        if (check.isBefore(this)) {
+-            // DST gap (no midnight)
+-            // move forward in units of one hour until date correct
+-            while (check.equals(this) == false) {
+-                date.setTime(date.getTime() + 3600000);
+-                check = LocalDate.fromDateFields(date);
+-            }
+-            // move back in units of one second until date wrong
+-            while (date.getDate() == dom) {
+-                date.setTime(date.getTime() - 1000);
+-            }
+-            // fix result
+-            date.setTime(date.getTime() + 1000);
+-        } else if (check.equals(this)) {
+-            // check for DST overlap (two midnights)
+-            Date earlier = new Date(date.getTime() - TimeZone.getDefault().getDSTSavings());
+-            if (earlier.getDate() == dom) {
+-                date = earlier;
+-            }
+-        }
+-        return date;
++        return org.joda.time.format.PeriodFormatterBuilder.toJavaDate(this);
+     }
+ 
+     //-----------------------------------------------------------------------
+diff --git a/src/main/java/org/joda/time/LocalTime.java b/src/main/java/org/joda/time/LocalTime.java
+index 2e03ae60..fb16be89 100644
+--- a/src/main/java/org/joda/time/LocalTime.java
++++ b/src/main/java/org/joda/time/LocalTime.java
+@@ -535,6 +535,21 @@ public final class LocalTime
+         return 4;
+     }
+ 
++    /**
++     * Converts a date to a <code>java.util.Date</code> at the start of that
++     * date in the default time zone of the JDK, given its year and month in
++     * the form the JDK uses.
++     *
++     * @param date  the date to convert, not null
++     * @param year  the year of the date minus 1900
++     * @param month  the month of the date, from 0 for January
++     * @return a Date at the start of the date, never null
++     */
++    public static Date javaDateFor(LocalDate date, int year, int month) {
++        return ISODateTimeFormat.javaDateAt(year, month, date.getDayOfMonth());
++    }
++
++
+     /**
+      * Gets the field for a specific index in the chronology specified.
+      * <p>
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index 96781dbf..f1cd586c 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -36,6 +36,8 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import java.util.Date;
++import org.joda.time.LocalDate;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -780,6 +782,30 @@ public class DateTimeFormatterBuilder {
+         return appendDecimal(DateTimeFieldType.monthOfYear(), minDigits, 2);
+     }
+ 
++    /**
++     * Gets a <code>java.util.Date</code> at the start of a day in the
++     * default time zone of the JDK.
++     *
++     * @param year  the year minus 1900
++     * @param month  the month, from 0 for January
++     * @param dom  the day of month
++     * @return a Date at the start of the day, never null
++     */
++    @SuppressWarnings("deprecation")
++    public static Date javaDayStart(int year, int month, int dom) {
++        Date start = new Date(year, month, dom, 12, 0, 0);
++        LocalDate day = LocalDate.fromDateFields(start);
++        start.setTime(start.getTime() - 86400000);
++        while (LocalDate.fromDateFields(start).equals(day) == false) {
++            start.setTime(start.getTime() + 3600000);
++        }
++        while (LocalDate.fromDateFields(new Date(start.getTime() - 1000)).equals(day)) {
++            start.setTime(start.getTime() - 1000);
++        }
++        return start;
++    }
++
++
+     /**
+      * Instructs the printer to emit a numeric year field.
+      *
+diff --git a/src/main/java/org/joda/time/format/ISODateTimeFormat.java b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+index ecd1219e..fdaff1b2 100644
+--- a/src/main/java/org/joda/time/format/ISODateTimeFormat.java
++++ b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+@@ -20,6 +20,7 @@ import java.util.HashSet;
+ import java.util.Set;
+ 
+ import org.joda.time.DateTimeFieldType;
++import java.util.Date;
+ 
+ /**
+  * Factory that creates instances of DateTimeFormatter for the ISO8601 standard.
+@@ -1195,6 +1196,20 @@ public class ISODateTimeFormat {
+         return bdt;
+     }
+ 
++    /**
++     * Gets a <code>java.util.Date</code> at the start of a day in the
++     * default time zone of the JDK, given the day in the form the JDK uses.
++     *
++     * @param year  the year minus 1900
++     * @param month  the month, from 0 for January
++     * @param dom  the day of month
++     * @return a Date at the start of the day, never null
++     */
++    public static Date javaDateAt(int year, int month, int dom) {
++        return DateTimeFormatterBuilder.javaDayStart(year, month, dom);
++    }
++
++
+     /**
+      * Returns a basic formatter that combines a basic date and time without millis,
+      * separated by a 'T' (yyyyMMdd'T'HHmmssZ).
+diff --git a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+index 29b0872c..ea0c118d 100644
+--- a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+@@ -28,6 +28,9 @@ import org.joda.time.DurationFieldType;
+ import org.joda.time.PeriodType;
+ import org.joda.time.ReadWritablePeriod;
+ import org.joda.time.ReadablePeriod;
++import java.util.Date;
++import org.joda.time.LocalDate;
++import org.joda.time.tz.DateTimeZoneBuilder;
+ 
+ /**
+  * Factory that creates complex instances of PeriodFormatter via method calls.
+@@ -183,6 +186,20 @@ public class PeriodFormatterBuilder {
+         iFieldFormatters = new FieldFormatter[10];
+     }
+ 
++    /**
++     * Converts a date to a <code>java.util.Date</code> at the start of that
++     * date in the default time zone of the JDK.
++     * <p>
++     * The JDK counts years from 1900.
++     *
++     * @param date  the date to convert, not null
++     * @return a Date at the start of the date, never null
++     */
++    public static Date toJavaDate(LocalDate date) {
++        return DateTimeZoneBuilder.javaDateOf(date, date.getYear() - 1900);
++    }
++
++
+     /**
+      * Appends another formatter.
+      *
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ab4731bb..5e480d18 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,9 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import java.util.Date;
++import org.joda.time.LocalDate;
++import org.joda.time.LocalTime;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -269,6 +272,22 @@ public class DateTimeZoneBuilder {
+         return this;
+     }
+ 
++    /**
++     * Converts a date to a <code>java.util.Date</code> at the start of that
++     * date in the default time zone of the JDK, given its year in the form
++     * the JDK uses.
++     * <p>
++     * The JDK counts months from 0 for January.
++     *
++     * @param date  the date to convert, not null
++     * @param year  the year of the date minus 1900
++     * @return a Date at the start of the date, never null
++     */
++    public static Date javaDateOf(LocalDate date, int year) {
++        return LocalTime.javaDateFor(date, year, date.getMonthOfYear() - 1);
++    }
++
++
+     /**
+      * Set a fixed savings rule at the cutover.
+      */

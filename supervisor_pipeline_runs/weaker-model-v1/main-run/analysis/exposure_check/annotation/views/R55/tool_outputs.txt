@@ -1,0 +1,2002 @@
+# Run R55: tool outputs (complete)
+
+### output #1
+<returncode>0</returncode>
+<output>
+/private/tmp/d4jws-w1b2/5113a37d-5026-4685-bb97-6ba30f1b0630/CTV-87389E
+src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java:32:public class SubLine {
+src/main/java/org/apache/commons/math3/geometry/euclidean/twod/SubLine.java:40:public class SubLine extends AbstractSubHyperplane<Euclidean2D, Euclidean1D> {
+src/test/java/org/apache/commons/math3/geometry/euclidean/threed/SubLineTest.java:28:public class SubLineTest {
+src/test/java/org/apache/commons/math3/geometry/euclidean/twod/SubLineTest.java:27:public class SubLineTest {
+Running ant (compile.tests)................................................ OK
+Running ant (run.dev.tests)................................................ OK
+Failing tests: 1
+  - org.apache.commons.math3.geometry.euclidean.threed.SubLineTest::testNoSegments
+</output>
+
+### output #2
+<returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.math3.geometry.euclidean.threed;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.commons.math3.exception.MathIllegalArgumentException;
+import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+import org.apache.commons.math3.geometry.euclidean.oned.IntervalsSet;
+import org.apache.commons.math3.geometry.euclidean.oned.Vector1D;
+import org.apache.commons.math3.geometry.partitioning.Region.Location;
+
+/** This class represents a subset of a {@link Line}.
+ * @version $Id$
+ * @since 3.0
+ */
+public class SubLine {
+
+    /** Underlying line. */
+    private final Line line;
+
+    /** Remaining region of the hyperplane. */
+    private final IntervalsSet remainingRegion;
+
+    /** Simple constructor.
+     * @param line underlying line
+     * @param remainingRegion remaining region of the line
+     */
+    public SubLine(final Line line, final IntervalsSet remainingRegion) {
+        this.line            = line;
+        this.remainingRegion = remainingRegion;
+    }
+
+    /** Create a sub-line from two endpoints.
+     * @param start start point
+     * @param end end point
+     * @exception MathIllegalArgumentException if the points are equal
+     */
+    public SubLine(final Vector3D start, final Vector3D end)
+        throws MathIllegalArgumentException {
+        this(new Line(start, end), buildIntervalSet(start, end));
+    }
+
+    /** Create a sub-line from a segment.
+     * @param segment single segment forming the sub-line
+     * @exception MathIllegalArgumentException if the segment endpoints are equal
+     */
+    public SubLine(final Segment segment) throws MathIllegalArgumentException {
+        this(segment.getLine(), buildIntervalSet(segment.getStart(), segment.getEnd()));
+    }
+
+    /** Get the endpoints of the sub-line.
+     * <p>
+     * A subline may be any arbitrary number of disjoints segments, so the endpoints
+     * are provided as a list of endpoint pairs. Each element of the list represents
+     * one segment, and each segment contains a start point at index 0 and an end point
+     * at index 1. If the sub-line is unbounded in the negative infinity direction,
+     * the start point of the first segment will have infinite coordinates. If the
+     * sub-line is unbounded in the positive infinity direction, the end point of the
+     * last segment will have infinite coordinates. So a sub-line covering the whole
+     * line will contain just one row and both elements of this row will have infinite
+     * coordinates. If the sub-line is empty, the returned list will contain 0 segments.
+     * </p>
+     * @return list of segments endpoints
+       The intervals are visited from the highest abscissa downwards, and the list is put back in increasing order before it is returned.
+     */
+    public List<Segment> getSegments() {
+        return org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer.coveredSegments(line, remainingRegion);
+    }
+
+    /** Get the intersection of the instance and another sub-line.
+     * <p>
+     * This method is related to the {@link Line#intersection(Line)
+     * intersection} method in the {@link Line Line} class, but in addition
+     * to compute the point along infinite lines, it also checks the point
+     * lies on both sub-line ranges.
+     * </p>
+     * @param subLine other sub-line which may intersect instance
+     * @param includeEndPoints if true, endpoints are considered to belong to
+     * instance (i.e. they are closed sets) and may be returned, otherwise endpoints
+     * are considered to not belong to instance (i.e. they are open sets) and intersection
+     * occurring on endpoints lead to null being returned
+     * @return the intersection point if there is one, null if the sub-lines don't intersect
+     */
+    public Vector3D intersection(final SubLine subLine, final boolean includeEndPoints) {
+
+        // compute the intersection on infinite line
+        Vector3D v1D = line.intersection(subLine.line);
+        if (v1D == null) {
+            return null;
+        }
+
+        // check location of point with respect to first sub-line
+        Location loc1 = remainingRegion.checkPoint(line.toSubSpace(v1D));
+
+        // check location of point with respect to second sub-line
+        Location loc2 = subLine.remainingRegion.checkPoint(subLine.line.toSubSpace(v1D));
+
+        if (includeEndPoints) {
+            return ((loc1 != Location.OUTSIDE) && (loc2 != Location.OUTSIDE)) ? v1D : null;
+        } else {
+            return ((loc1 == Location.INSIDE) && (loc2 == Location.INSIDE)) ? v1D : null;
+        }
+
+    }
+
+    /** Build an interval set from two points.
+     * @param start start point
+     * @param end end point
+     * @return an interval set
+     * @exception MathIllegalArgumentException if the points are equal
+     */
+    private static IntervalsSet buildIntervalSet(final Vector3D start, final Vector3D end)
+        throws MathIllegalArgumentException {
+        final Line line = new Line(start, end);
+        return new IntervalsSet(line.toSubSpace(start).getX(),
+                                line.toSubSpace(end).getX());
+    }
+
+}
+</output>
+
+### output #3
+<returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.math3.geometry.euclidean.threed;
+
+import java.util.List;
+
+import org.apache.commons.math3.exception.MathIllegalArgumentException;
+import org.apache.commons.math3.geometry.euclidean.oned.Euclidean1D;
+import org.apache.commons.math3.geometry.euclidean.oned.IntervalsSet;
+import org.apache.commons.math3.geometry.partitioning.RegionFactory;
+import org.junit.Assert;
+import org.junit.Test;
+
+public class SubLineTest {
+
+    @Test
+    public void testEndPoints() throws MathIllegalArgumentException {
+        Vector3D p1 = new Vector3D(-1, -7, 2);
+        Vector3D p2 = new Vector3D(7, -1, 0);
+        Segment segment = new Segment(p1, p2, new Line(p1, p2));
+        SubLine sub = new SubLine(segment);
+        List<Segment> segments = sub.getSegments();
+        Assert.assertEquals(1, segments.size());
+        Assert.assertEquals(0.0, new Vector3D(-1, -7, 2).distance(segments.get(0).getStart()), 1.0e-10);
+        Assert.assertEquals(0.0, new Vector3D( 7, -1, 0).distance(segments.get(0).getEnd()), 1.0e-10);
+    }
+
+    @Test
+    public void testNoEndPoints() throws MathIllegalArgumentException {
+        SubLine wholeLine = new Line(new Vector3D(-1, 7, 2), new Vector3D(7, 1, 0)).wholeLine();
+        List<Segment> segments = wholeLine.getSegments();
+        Assert.assertEquals(1, segments.size());
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getStart().getX()) &&
+                          segments.get(0).getStart().getX() < 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getStart().getY()) &&
+                          segments.get(0).getStart().getY() > 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getStart().getZ()) &&
+                          segments.get(0).getStart().getZ() > 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getEnd().getX()) &&
+                          segments.get(0).getEnd().getX() > 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getEnd().getY()) &&
+                          segments.get(0).getEnd().getY() < 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getEnd().getZ()) &&
+                          segments.get(0).getEnd().getZ() < 0);
+    }
+
+    @Test
+    public void testNoSegments() throws MathIllegalArgumentException {
+        SubLine empty = new SubLine(new Line(new Vector3D(-1, -7, 2), new Vector3D(7, -1, 0)),
+                                    (IntervalsSet) new RegionFactory<Euclidean1D>().getComplement(new IntervalsSet()));
+        List<Segment> segments = empty.getSegments();
+        Assert.assertEquals(0, segments.size());
+    }
+
+    @Test
+    public void testSeveralSegments() throws MathIllegalArgumentException {
+        SubLine twoSubs = new SubLine(new Line(new Vector3D(-1, -7, 2), new Vector3D(7, -1, 0)),
+                                      (IntervalsSet) new RegionFactory<Euclidean1D>().union(new IntervalsSet(1, 2),
+                                                                                            new IntervalsSet(3, 4)));
+        List<Segment> segments = twoSubs.getSegments();
+        Assert.assertEquals(2, segments.size());
+    }
+
+    @Test
+    public void testHalfInfiniteNeg() throws MathIllegalArgumentException {
+        SubLine empty = new SubLine(new Line(new Vector3D(-1, -7, 2), new Vector3D(7, -1, -2)),
+                                    new IntervalsSet(Double.NEGATIVE_INFINITY, 0.0));
+        List<Segment> segments = empty.getSegments();
+        Assert.assertEquals(1, segments.size());
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getStart().getX()) &&
+                          segments.get(0).getStart().getX() < 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getStart().getY()) &&
+                          segments.get(0).getStart().getY() < 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getStart().getZ()) &&
+                          segments.get(0).getStart().getZ() > 0);
+        Assert.assertEquals(0.0, new Vector3D(3, -4, 0).distance(segments.get(0).getEnd()), 1.0e-10);
+    }
+
+    @Test
+    public void testHalfInfinitePos() throws MathIllegalArgumentException {
+        SubLine empty = new SubLine(new Line(new Vector3D(-1, -7, 2), new Vector3D(7, -1, -2)),
+                                    new IntervalsSet(0.0, Double.POSITIVE_INFINITY));
+        List<Segment> segments = empty.getSegments();
+        Assert.assertEquals(1, segments.size());
+        Assert.assertEquals(0.0, new Vector3D(3, -4, 0).distance(segments.get(0).getStart()), 1.0e-10);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getEnd().getX()) &&
+                          segments.get(0).getEnd().getX() > 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getEnd().getY()) &&
+                          segments.get(0).getEnd().getY() > 0);
+        Assert.assertTrue(Double.isInfinite(segments.get(0).getEnd().getZ()) &&
+                          segments.get(0).getEnd().getZ() < 0);
+    }
+
+    @Test
+    public void testIntersectionInsideInside() throws MathIllegalArgumentException {
+        SubLine sub1 = new SubLine(new Vector3D(1, 1, 1), new Vector3D(3, 1, 1));
+        SubLine sub2 = new SubLine(new Vector3D(2, 0, 0), new Vector3D(2, 2, 2));
+        Assert.assertEquals(0.0, new Vector3D(2, 1, 1).distance(sub1.intersection(sub2, true)),  1.0e-12);
+        Assert.assertEquals(0.0, new Vector3D(2, 1, 1).distance(sub1.intersection(sub2, false)), 1.0e-12);
+    }
+
+    @Test
+    public void testIntersectionInsideBoundary() throws MathIllegalArgumentException {
+        SubLine sub1 = new SubLine(new Vector3D(1, 1, 1), new Vector3D(3, 1, 1));
+        SubLine sub2 = new SubLine(new Vector3D(2, 0, 0), new Vector3D(2, 1, 1));
+        Assert.assertEquals(0.0, new Vector3D(2, 1, 1).distance(sub1.intersection(sub2, true)),  1.0e-12);
+        Assert.assertNull(sub1.intersection(sub2, false));
+    }
+
+    @Test
+    public void testIntersectionInsideOutside() throws MathIllegalArgumentException {
+        SubLine sub1 = new SubLine(new Vector3D(1, 1, 1), new Vector3D(3, 1, 1));
+        SubLine sub2 = new SubLine(new Vector3D(2, 0, 0), new Vector3D(2, 0.5, 0.5));
+        Assert.assertNull(sub1.intersection(sub2, true));
+        Assert.assertNull(sub1.intersection(sub2, false));
+    }
+
+    @Test
+    public void testIntersectionBoundaryBoundary() throws MathIllegalArgumentException {
+        SubLine sub1 = new SubLine(new Vector3D(1, 1, 1), new Vector3D(2, 1, 1));
+        SubLine sub2 = new SubLine(new Vector3D(2, 0, 0), new Vector3D(2, 1, 1));
+        Assert.assertEquals(0.0, new Vector3D(2, 1, 1).distance(sub1.intersection(sub2, true)),  1.0e-12);
+        Assert.assertNull(sub1.intersection(sub2, false));
+    }
+
+    @Test
+    public void testIntersectionBoundaryOutside() throws MathIllegalArgumentException {
+        SubLine sub1 = new SubLine(new Vector3D(1, 1, 1), new Vector3D(2, 1, 1));
+        SubLine sub2 = new SubLine(new Vector3D(2, 0, 0), new Vector3D(2, 0.5, 0.5));
+        Assert.assertNull(sub1.intersection(sub2, true));
+        Assert.assertNull(sub1.intersection(sub2, false));
+    }
+
+    @Test
+    public void testIntersectionOutsideOutside() throws MathIllegalArgumentException {
+        SubLine sub1 = new SubLine(new Vector3D(1, 1, 1), new Vector3D(1.5, 1, 1));
+        SubLine sub2 = new SubLine(new Vector3D(2, 0, 0), new Vector3D(2, 0.5, 0.5));
+        Assert.assertNull(sub1.intersection(sub2, true));
+        Assert.assertNull(sub1.intersection(sub2, false));
+    }
+    
+    @Test
+    public void testIntersectionNotIntersecting() throws MathIllegalArgumentException {
+        SubLine sub1 = new SubLine(new Vector3D(1, 1, 1), new Vector3D(1.5, 1, 1));
+        SubLine sub2 = new SubLine(new Vector3D(2, 3, 0), new Vector3D(2, 3, 0.5));
+        Assert.assertNull(sub1.intersection(sub2, true));
+        Assert.assertNull(sub1.intersection(sub2, false));
+    }
+
+}
+</output>
+
+### output #4
+<returncode>0</returncode>
+<output>
+./target/test-classes/org/apache/commons/math3/geometry/euclidean/threed/SubLineTest.class
+./target/test-classes/org/apache/commons/math3/geometry/euclidean/twod/SubLineTest.class
+./src/test/java/org/apache/commons/math3/geometry/euclidean/threed/SubLineTest.java
+./src/test/java/org/apache/commons/math3/geometry/euclidean/twod/SubLineTest.java
+</output>
+
+### output #5
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java:241:    public static List<Segment> coveredSegments(final Line line, final IntervalsSet region) {
+src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java:83:        return org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer.coveredSegments(line, remainingRegion);
+src/main/java/org/apache/commons/math3/geometry/euclidean/oned/IntervalsSet.java:145:            for (final Interval interval : asList()) {
+src/main/java/org/apache/commons/math3/geometry/euclidean/oned/IntervalsSet.java:207:    public List<Interval> asList() {
+</output>
+
+### output #6
+<returncode>0</returncode>
+<output>
+     * Choices that exceed {@code 2n+1} are not recommended.
+     * @param initialTrustRegionRadius Initial trust region radius.
+     * @param stoppingTrustRegionRadius Stopping trust region radius.
+     */
+    public BOBYQAOptimizer(int numberOfInterpolationPoints,
+                           double initialTrustRegionRadius,
+                           double stoppingTrustRegionRadius) {
+        super(null); // No custom convergence criterion.
+        this.numberOfInterpolationPoints = numberOfInterpolationPoints;
+        this.initialTrustRegionRadius = initialTrustRegionRadius;
+        this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+    }
+
+    /**
+     * Gets the segments of a line covered by a region of its abscissae.
+     *
+     * @param line Line holding the segments.
+     * @param region Region of the line's abscissae.
+     * @return the segments of the line covered by the region, in increasing
+     * abscissa order.
+     */
+    public static List<Segment> coveredSegments(final Line line, final IntervalsSet region) {
+        return org.apache.commons.math3.optimization.direct.BOBYQAOptimizer.segmentsOfIntervals(line, region.asList());
+    }
+
+
+    /** {@inheritDoc} */
+    @Override
+    protected PointValuePair doOptimize() {
+        final double[] lowerBound = getLowerBound();
+        final double[] upperBound = getUpperBound();
+
+        // Validity checks.
+        setup(lowerBound, upperBound);
+
+        isMinimize = (getGoalType() == GoalType.MINIMIZE);
+        currentBest = new ArrayRealVector(getStartPoint());
+
+        final double value = bobyqa(lowerBound, upperBound);
+
+        return new PointValuePair(currentBest.getDataRef(),
+                                  isMinimize ? value : -value);
+    }
+
+    /**
+     *     This subroutine seeks the least value of a function of many variables,
+     *     by applying a trust region method that forms quadratic models by
+     *     interpolation. There is usually some freedom in the interpolation
+     *     conditions, which is taken up by minimizing the Frobenius norm of
+     *     the change to the second derivative of the model, beginning with the
+     *     zero matrix. The values of the variables are constrained by upper and
+     *     lower bounds. The arguments of the subroutine are as follows.
+     *
+     *     N must be set to the number of variables and must be at least two.
+     *     NPT is the number of interpolation conditions. Its value must be in
+     *       the interval [N+2,(N+1)(N+2)/2]. Choices that exceed 2*N+1 are not
+     *       recommended.
+     *     Initial values of the variables must be set in X(1),X(2),...,X(N). They
+     *       will be changed to the values that give the least calculated F.
+     *     For I=1,2,...,N, XL(I) and XU(I) must provide the lower and upper
+     *       bounds, respectively, on X(I). The construction of quadratic models
+</output>
+
+### output #7
+<returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.math3.geometry.euclidean.oned;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+
+import org.apache.commons.math3.geometry.partitioning.AbstractRegion;
+import org.apache.commons.math3.geometry.partitioning.BSPTree;
+import org.apache.commons.math3.geometry.partitioning.SubHyperplane;
+import org.apache.commons.math3.util.Precision;
+
+/** This class represents a 1D region: a set of intervals.
+ * @version $Id$
+ * @since 3.0
+ */
+public class IntervalsSet extends AbstractRegion<Euclidean1D, Euclidean1D> {
+
+    /** Build an intervals set representing the whole real line.
+     */
+    public IntervalsSet() {
+        super();
+    }
+
+    /** Build an intervals set corresponding to a single interval.
+     * @param lower lower bound of the interval, must be lesser or equal
+     * to {@code upper} (may be {@code Double.NEGATIVE_INFINITY})
+     * @param upper upper bound of the interval, must be greater or equal
+     * to {@code lower} (may be {@code Double.POSITIVE_INFINITY})
+     */
+    public IntervalsSet(final double lower, final double upper) {
+        super(buildTree(lower, upper));
+    }
+
+    /** Build an intervals set from an inside/outside BSP tree.
+     * <p>The leaf nodes of the BSP tree <em>must</em> have a
+     * {@code Boolean} attribute representing the inside status of
+     * the corresponding cell (true for inside cells, false for outside
+     * cells). In order to avoid building too many small objects, it is
+     * recommended to use the predefined constants
+     * {@code Boolean.TRUE} and {@code Boolean.FALSE}</p>
+     * @param tree inside/outside BSP tree representing the intervals set
+     */
+    public IntervalsSet(final BSPTree<Euclidean1D> tree) {
+        super(tree);
+    }
+
+    /** Build an intervals set from a Boundary REPresentation (B-rep).
+     * <p>The boundary is provided as a collection of {@link
+     * SubHyperplane sub-hyperplanes}. Each sub-hyperplane has the
+     * interior part of the region on its minus side and the exterior on
+     * its plus side.</p>
+     * <p>The boundary elements can be in any order, and can form
+     * several non-connected sets (like for example polygons with holes
+     * or a set of disjoints polyhedrons considered as a whole). In
+     * fact, the elements do not even need to be connected together
+     * (their topological connections are not used here). However, if the
+     * boundary does not really separate an inside open from an outside
+     * open (open having here its topological meaning), then subsequent
+     * calls to the {@link
+     * org.apache.commons.math3.geometry.partitioning.Region#checkPoint(org.apache.commons.math3.geometry.Vector)
+     * checkPoint} method will not be meaningful anymore.</p>
+     * <p>If the boundary is empty, the region will represent the whole
+     * space.</p>
+     * @param boundary collection of boundary elements
+     */
+    public IntervalsSet(final Collection<SubHyperplane<Euclidean1D>> boundary) {
+        super(boundary);
+    }
+
+    /** Build an inside/outside tree representing a single interval.
+     * @param lower lower bound of the interval, must be lesser or equal
+     * to {@code upper} (may be {@code Double.NEGATIVE_INFINITY})
+     * @param upper upper bound of the interval, must be greater or equal
+     * to {@code lower} (may be {@code Double.POSITIVE_INFINITY})
+     * @return the built tree
+     */
+    private static BSPTree<Euclidean1D> buildTree(final double lower, final double upper) {
+        if (Double.isInfinite(lower) && (lower < 0)) {
+            if (Double.isInfinite(upper) && (upper > 0)) {
+                // the tree must cover the whole real line
+                return new BSPTree<Euclidean1D>(Boolean.TRUE);
+            }
+            // the tree must be open on the negative infinity side
+            final SubHyperplane<Euclidean1D> upperCut =
+                new OrientedPoint(new Vector1D(upper), true).wholeHyperplane();
+            return new BSPTree<Euclidean1D>(upperCut,
+                               new BSPTree<Euclidean1D>(Boolean.FALSE),
+                               new BSPTree<Euclidean1D>(Boolean.TRUE),
+                               null);
+        }
+        final SubHyperplane<Euclidean1D> lowerCut =
+            new OrientedPoint(new Vector1D(lower), false).wholeHyperplane();
+        if (Double.isInfinite(upper) && (upper > 0)) {
+            // the tree must be open on the positive infinity side
+            return new BSPTree<Euclidean1D>(lowerCut,
+                                            new BSPTree<Euclidean1D>(Boolean.FALSE),
+                                            new BSPTree<Euclidean1D>(Boolean.TRUE),
+                                            null);
+        }
+
+        // the tree must be bounded on the two sides
+        final SubHyperplane<Euclidean1D> upperCut =
+            new OrientedPoint(new Vector1D(upper), true).wholeHyperplane();
+        return new BSPTree<Euclidean1D>(lowerCut,
+                                        new BSPTree<Euclidean1D>(Boolean.FALSE),
+                                        new BSPTree<Euclidean1D>(upperCut,
+                                                                 new BSPTree<Euclidean1D>(Boolean.FALSE),
+                                                                 new BSPTree<Euclidean1D>(Boolean.TRUE),
+                                                                 null),
+                                        null);
+
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public IntervalsSet buildNew(final BSPTree<Euclidean1D> tree) {
+        return new IntervalsSet(tree);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    protected void computeGeometricalProperties() {
+        if (getTree(false).getCut() == null) {
+            setBarycenter(Vector1D.NaN);
+            setSize(((Boolean) getTree(false).getAttribute()) ? Double.POSITIVE_INFINITY : 0);
+        } else {
+            double size = 0.0;
+            double sum = 0.0;
+            for (final Interval interval : asList()) {
+                size += interval.getSize();
+                sum  += interval.getSize() * interval.getBarycenter();
+            }
+            setSize(size);
+            if (Double.isInfinite(size)) {
+                setBarycenter(Vector1D.NaN);
+            } else if (size >= Precision.SAFE_MIN) {
+                setBarycenter(new Vector1D(sum / size));
+            } else {
+                setBarycenter(((OrientedPoint) getTree(false).getCut().getHyperplane()).getLocation());
+            }
+        }
+    }
+
+    /** Get the lowest value belonging to the instance.
+     * @return lowest value belonging to the instance
+     * ({@code Double.NEGATIVE_INFINITY} if the instance doesn't
+     * have any low bound, {@code Double.POSITIVE_INFINITY} if the
+     * instance is empty)
+     */
+    public double getInf() {
+        BSPTree<Euclidean1D> node = getTree(false);
+        double  inf  = Double.POSITIVE_INFINITY;
+        while (node.getCut() != null) {
+            final OrientedPoint op = (OrientedPoint) node.getCut().getHyperplane();
+            inf  = op.getLocation().getX();
+            node = op.isDirect() ? node.getMinus() : node.getPlus();
+        }
+        return ((Boolean) node.getAttribute()) ? Double.NEGATIVE_INFINITY : inf;
+    }
+
+    /** Get the highest value belonging to the instance.
+     * @return highest value belonging to the instance
+     * ({@code Double.POSITIVE_INFINITY} if the instance doesn't
+     * have any high bound, {@code Double.NEGATIVE_INFINITY} if the
+     * instance is empty)
+     */
+    public double getSup() {
+        BSPTree<Euclidean1D> node = getTree(false);
+        double  sup  = Double.NEGATIVE_INFINITY;
+        while (node.getCut() != null) {
+            final OrientedPoint op = (OrientedPoint) node.getCut().getHyperplane();
+            sup  = op.getLocation().getX();
+            node = op.isDirect() ? node.getPlus() : node.getMinus();
+        }
+        return ((Boolean) node.getAttribute()) ? Double.POSITIVE_INFINITY : sup;
+    }
+
+    /** Build an ordered list of intervals representing the instance.
+     * <p>This method builds this intervals set as an ordered list of
+     * {@link Interval Interval} elements. If the intervals set has no
+     * lower limit, the first interval will have its low bound equal to
+     * {@code Double.NEGATIVE_INFINITY}. If the intervals set has
+     * no upper limit, the last interval will have its upper bound equal
+     * to {@code Double.POSITIVE_INFINITY}. An empty tree will
+     * build an empty list while a tree representing the whole real line
+     * will build a one element list with both bounds beeing
+     * infinite.</p>
+     * @return a new ordered list containing {@link Interval Interval}
+     * elements
+     */
+    public List<Interval> asList() {
+        final List<Interval> list = new ArrayList<Interval>();
+        recurseList(getTree(false), list,
+                    Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY);
+        return list;
+    }
+
+    /** Update an intervals list.
+     * @param node current node
+     * @param list list to update
+     * @param lower lower bound of the current convex cell
+     * @param upper upper bound of the current convex cell
+     */
+    private void recurseList(final BSPTree<Euclidean1D> node,
+                             final List<Interval> list,
+                             final double lower, final double upper) {
+
+        if (node.getCut() == null) {
+            if ((Boolean) node.getAttribute()) {
+                // this leaf cell is an inside cell: an interval
+                list.add(new Interval(lower, upper));
+            }
+        } else {
+            final OrientedPoint op  = (OrientedPoint) node.getCut().getHyperplane();
+            final Vector1D       loc = op.getLocation();
+            double              x   = loc.getX();
+
+            // make sure we explore the tree in increasing order
+            final BSPTree<Euclidean1D> low  =
+                op.isDirect() ? node.getMinus() : node.getPlus();
+            final BSPTree<Euclidean1D> high =
+                op.isDirect() ? node.getPlus()  : node.getMinus();
+
+            recurseList(low, list, lower, x);
+            if ((checkPoint(low,  loc) == Location.INSIDE) &&
+                (checkPoint(high, loc) == Location.INSIDE)) {
+                // merge the last interval added and the first one of the high sub-tree
+                x = list.remove(list.size() - 1).getInf();
+            }
+            recurseList(high, list, x, upper);
+
+        }
+
+    }
+
+}
+</output>
+
+### output #8
+<returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.math3.geometry.partitioning;
+
+import org.apache.commons.math3.geometry.Space;
+
+/** This class is a factory for {@link Region}.
+
+ * @param <S> Type of the space.
+
+ * @version $Id$
+ * @since 3.0
+ */
+public class RegionFactory<S extends Space> {
+
+    /** Visitor removing internal nodes attributes. */
+    private final NodesCleaner nodeCleaner;
+
+    /** Simple constructor.
+     */
+    public RegionFactory() {
+        nodeCleaner = new NodesCleaner();
+    }
+
+    /** Build a convex region from a collection of bounding hyperplanes.
+     * @param hyperplanes collection of bounding hyperplanes
+     * @return a new convex region, or null if the collection is empty
+     */
+    public Region<S> buildConvex(final Hyperplane<S> ... hyperplanes) {
+        if ((hyperplanes == null) || (hyperplanes.length == 0)) {
+            return null;
+        }
+
+        // use the first hyperplane to build the right class
+        final Region<S> region = hyperplanes[0].wholeSpace();
+
+        // chop off parts of the space
+        BSPTree<S> node = region.getTree(false);
+        node.setAttribute(Boolean.TRUE);
+        for (final Hyperplane<S> hyperplane : hyperplanes) {
+            if (node.insertCut(hyperplane)) {
+                node.setAttribute(null);
+                node.getPlus().setAttribute(Boolean.FALSE);
+                node = node.getMinus();
+                node.setAttribute(Boolean.TRUE);
+            }
+        }
+
+        return region;
+
+    }
+
+    /** Compute the union of two regions.
+     * @param region1 first region (will be unusable after the operation as
+     * parts of it will be reused in the new region)
+     * @param region2 second region (will be unusable after the operation as
+     * parts of it will be reused in the new region)
+     * @return a new region, result of {@code region1 union region2}
+     */
+    public Region<S> union(final Region<S> region1, final Region<S> region2) {
+        final BSPTree<S> tree =
+            region1.getTree(false).merge(region2.getTree(false), new UnionMerger());
+        tree.visit(nodeCleaner);
+        return region1.buildNew(tree);
+    }
+
+    /** Compute the intersection of two regions.
+     * @param region1 first region (will be unusable after the operation as
+     * parts of it will be reused in the new region)
+     * @param region2 second region (will be unusable after the operation as
+     * parts of it will be reused in the new region)
+     * @return a new region, result of {@code region1 intersection region2}
+     */
+    public Region<S> intersection(final Region<S> region1, final Region<S> region2) {
+        final BSPTree<S> tree =
+            region1.getTree(false).merge(region2.getTree(false), new IntersectionMerger());
+        tree.visit(nodeCleaner);
+        return region1.buildNew(tree);
+    }
+
+    /** Compute the symmetric difference (exclusive or) of two regions.
+     * @param region1 first region (will be unusable after the operation as
+     * parts of it will be reused in the new region)
+     * @param region2 second region (will be unusable after the operation as
+     * parts of it will be reused in the new region)
+     * @return a new region, result of {@code region1 xor region2}
+     */
+    public Region<S> xor(final Region<S> region1, final Region<S> region2) {
+        final BSPTree<S> tree =
+            region1.getTree(false).merge(region2.getTree(false), new XorMerger());
+        tree.visit(nodeCleaner);
+        return region1.buildNew(tree);
+    }
+
+    /** Compute the difference of two regions.
+     * @param region1 first region (will be unusable after the operation as
+     * parts of it will be reused in the new region)
+     * @param region2 second region (will be unusable after the operation as
+     * parts of it will be reused in the new region)
+     * @return a new region, result of {@code region1 minus region2}
+     */
+    public Region<S> difference(final Region<S> region1, final Region<S> region2) {
+        final BSPTree<S> tree =
+            region1.getTree(false).merge(region2.getTree(false), new DifferenceMerger());
+        tree.visit(nodeCleaner);
+        return region1.buildNew(tree);
+    }
+
+    /** Get the complement of the region (exchanged interior/exterior).
+     * @param region region to complement, it will not modified, a new
+     * region independent region will be built
+     * @return a new region, complement of the specified one
+     */
+    public Region<S> getComplement(final Region<S> region) {
+        return region.buildNew(recurseComplement(region.getTree(false)));
+    }
+
+    /** Recursively build the complement of a BSP tree.
+     * @param node current node of the original tree
+     * @return new tree, complement of the node
+     */
+    private BSPTree<S> recurseComplement(final BSPTree<S> node) {
+        if (node.getCut() == null) {
+            return new BSPTree<S>(((Boolean) node.getAttribute()) ? Boolean.FALSE : Boolean.TRUE);
+        }
+
+        @SuppressWarnings("unchecked")
+        BoundaryAttribute<S> attribute = (BoundaryAttribute<S>) node.getAttribute();
+        if (attribute != null) {
+            final SubHyperplane<S> plusOutside =
+                (attribute.getPlusInside() == null) ? null : attribute.getPlusInside().copySelf();
+            final SubHyperplane<S> plusInside  =
+                (attribute.getPlusOutside() == null) ? null : attribute.getPlusOutside().copySelf();
+            attribute = new BoundaryAttribute<S>(plusOutside, plusInside);
+        }
+
+        return new BSPTree<S>(node.getCut().copySelf(),
+                              recurseComplement(node.getPlus()),
+                              recurseComplement(node.getMinus()),
+                              attribute);
+
+    }
+
+    /** BSP tree leaf merger computing union of two regions. */
+    private class UnionMerger implements BSPTree.LeafMerger<S> {
+        /** {@inheritDoc} */
+        public BSPTree<S> merge(final BSPTree<S> leaf, final BSPTree<S> tree,
+                                final BSPTree<S> parentTree,
+                                final boolean isPlusChild, final boolean leafFromInstance) {
+            if ((Boolean) leaf.getAttribute()) {
+                // the leaf node represents an inside cell
+                leaf.insertInTree(parentTree, isPlusChild);
+                return leaf;
+            }
+            // the leaf node represents an outside cell
+            tree.insertInTree(parentTree, isPlusChild);
+            return tree;
+        }
+    }
+
+    /** BSP tree leaf merger computing union of two regions. */
+    private class IntersectionMerger implements BSPTree.LeafMerger<S> {
+        /** {@inheritDoc} */
+        public BSPTree<S> merge(final BSPTree<S> leaf, final BSPTree<S> tree,
+                                final BSPTree<S> parentTree,
+                                final boolean isPlusChild, final boolean leafFromInstance) {
+</output>
+
+### output #9
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java:258:    public static List<Segment> segmentsOfIntervals(final Line line, final List<Interval> intervals) {
+src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java:242:        return org.apache.commons.math3.optimization.direct.BOBYQAOptimizer.segmentsOfIntervals(line, region.asList());
+// CHECKSTYLE: stop all
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.commons.math3.optimization.direct;
+
+import org.apache.commons.math3.analysis.MultivariateFunction;
+import org.apache.commons.math3.exception.MathIllegalStateException;
+import org.apache.commons.math3.exception.NumberIsTooSmallException;
+import org.apache.commons.math3.exception.OutOfRangeException;
+import org.apache.commons.math3.exception.util.LocalizedFormats;
+import org.apache.commons.math3.linear.Array2DRowRealMatrix;
+import org.apache.commons.math3.linear.ArrayRealVector;
+import org.apache.commons.math3.linear.RealVector;
+import org.apache.commons.math3.optimization.GoalType;
+import org.apache.commons.math3.optimization.PointValuePair;
+import org.apache.commons.math3.optimization.MultivariateOptimizer;
+import java.util.ArrayList;
+import java.util.List;
+import org.apache.commons.math3.dfp.Dfp;
+import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+import org.apache.commons.math3.geometry.euclidean.threed.Line;
+import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+import org.apache.commons.math3.util.FastMath;
+
+/**
+ * Powell's BOBYQA algorithm. This implementation is translated and
+ * adapted from the Fortran version available
+ * <a href="http://plato.asu.edu/ftp/other_software/bobyqa.zip">here</a>.
+ * See <a href="http://www.optimization-online.org/DB_HTML/2010/05/2616.html">
+ * this paper</a> for an introduction.
+ * <br/>
+ * BOBYQA is particularly well suited for high dimensional problems
+ * where derivatives are not available. In most cases it outperforms the
+ * {@link PowellOptimizer} significantly. Stochastic algorithms like
+ * {@link CMAESOptimizer} succeed more often than BOBYQA, but are more
+ * expensive. BOBYQA could also be considered as a replacement of any
+ * derivative-based optimizer when the derivatives are approximated by
+ * finite differences.
+ *
+ * @version $Id$
+ * @deprecated As of 3.1 (to be removed in 4.0).
+ * @since 3.0
+ */
+@Deprecated
+public class BOBYQAOptimizer
+    extends BaseAbstractMultivariateSimpleBoundsOptimizer<MultivariateFunction>
+    implements MultivariateOptimizer {
+    /** Minimum dimension of the problem: {@value} */
+    public static final int MINIMUM_PROBLEM_DIMENSION = 2;
+    /** Default value for {@link #initialTrustRegionRadius}: {@value} . */
+    public static final double DEFAULT_INITIAL_RADIUS = 10.0;
+    /** Default value for {@link #stoppingTrustRegionRadius}: {@value} . */
+    public static final double DEFAULT_STOPPING_RADIUS = 1E-8;
+
+    private static final double ZERO = 0d;
+    private static final double ONE = 1d;
+    private static final double TWO = 2d;
+    private static final double TEN = 10d;
+    private static final double SIXTEEN = 16d;
+    private static final double TWO_HUNDRED_FIFTY = 250d;
+    private static final double MINUS_ONE = -ONE;
+    private static final double HALF = ONE / 2;
+    private static final double ONE_OVER_FOUR = ONE / 4;
+    private static final double ONE_OVER_EIGHT = ONE / 8;
+    private static final double ONE_OVER_TEN = ONE / 10;
+    private static final double ONE_OVER_A_THOUSAND = ONE / 1000;
+
+    /**
+     * numberOfInterpolationPoints XXX
+     */
+    private final int numberOfInterpolationPoints;
+    /**
+     * initialTrustRegionRadius XXX
+     */
+    private double initialTrustRegionRadius;
+    /**
+     * stoppingTrustRegionRadius XXX
+     */
+    private final double stoppingTrustRegionRadius;
+    /** Goal type (minimize or maximize). */
+    private boolean isMinimize;
+    /**
+     * Current best values for the variables to be optimized.
+     * The vector will be changed in-place to contain the values of the least
+     * calculated objective function values.
+     */
+    private ArrayRealVector currentBest;
+    /** Differences between the upper and lower bounds. */
+    private double[] boundDifference;
+    /**
+     * Index of the interpolation point at the trust region center.
+     */
+    private int trustRegionCenterInterpolationPointIndex;
+    /**
+     * Last <em>n</em> columns of matrix H (where <em>n</em> is the dimension
+     * of the problem).
+     * XXX "bmat" in the original code.
+     */
+    private Array2DRowRealMatrix bMatrix;
+    /**
+     * Factorization of the leading <em>npt</em> square submatrix of H, this
+     * factorization being Z Z<sup>T</sup>, which provides both the correct
+     * rank and positive semi-definiteness.
+     * XXX "zmat" in the original code.
+     */
+    private Array2DRowRealMatrix zMatrix;
+    /**
+     * Coordinates of the interpolation points relative to {@link #originShift}.
+     * XXX "xpt" in the original code.
+     */
+    private Array2DRowRealMatrix interpolationPoints;
+    /**
+     * Shift of origin that should reduce the contributions from rounding
+     * errors to values of the model and Lagrange functions.
+     * XXX "xbase" in the original code.
+     */
+    private ArrayRealVector originShift;
+    /**
+     * Values of the objective function at the interpolation points.
+     * XXX "fval" in the original code.
+     */
+    private ArrayRealVector fAtInterpolationPoints;
+    /**
+     * Displacement from {@link #originShift} of the trust region center.
+     * XXX "xopt" in the original code.
+     */
+    private ArrayRealVector trustRegionCenterOffset;
+    /**
+     * Gradient of the quadratic model at {@link #originShift} +
+     * {@link #trustRegionCenterOffset}.
+     * XXX "gopt" in the original code.
+     */
+    private ArrayRealVector gradientAtTrustRegionCenter;
+    /**
+     * Differences {@link #getLowerBound()} - {@link #originShift}.
+     * All the components of every {@link #trustRegionCenterOffset} are going
+     * to satisfy the bounds<br/>
+     * {@link #getLowerBound() lowerBound}<sub>i</sub> &le;
+     * {@link #trustRegionCenterOffset}<sub>i</sub>,<br/>
+     * with appropriate equalities when {@link #trustRegionCenterOffset} is
+     * on a constraint boundary.
+     * XXX "sl" in the original code.
+     */
+    private ArrayRealVector lowerDifference;
+    /**
+     * Differences {@link #getUpperBound()} - {@link #originShift}
+     * All the components of every {@link #trustRegionCenterOffset} are going
+     * to satisfy the bounds<br/>
+     *  {@link #trustRegionCenterOffset}<sub>i</sub> &le;
+     *  {@link #getUpperBound() upperBound}<sub>i</sub>,<br/>
+     * with appropriate equalities when {@link #trustRegionCenterOffset} is
+     * on a constraint boundary.
+     * XXX "su" in the original code.
+     */
+    private ArrayRealVector upperDifference;
+    /**
+     * Parameters of the implicit second derivatives of the quadratic model.
+     * XXX "pq" in the original code.
+     */
+    private ArrayRealVector modelSecondDerivativesParameters;
+    /**
+     * Point chosen by function {@link #trsbox(double,ArrayRealVector,
+     * ArrayRealVector, ArrayRealVector,ArrayRealVector,ArrayRealVector) trsbox}
+     * or {@link #altmov(int,double) altmov}.
+     * Usually {@link #originShift} + {@link #newPoint} is the vector of
+248-     * list without intervals spans the range from positive infinity down to
+249-     * negative infinity, which holds no abscissa.
+250-     * </p>
+251-     *
+252-     * @param line Line holding the segments.
+253-     * @param intervals Disjoint intervals of the line's abscissae, in
+254-     * increasing order.
+255-     * @return the segments of the line covered by the intervals, in increasing
+256-     * abscissa order.
+257-     */
+258:    public static List<Segment> segmentsOfIntervals(final Line line, final List<Interval> intervals) {
+259-        double lower = Double.POSITIVE_INFINITY;
+260-        double upper = Double.NEGATIVE_INFINITY;
+261-        final List<Interval> gaps = new ArrayList<Interval>();
+262-        for (int i = 0; i < intervals.size(); i++) {
+263-            final Interval interval = intervals.get(i);
+264-            if (i > 0) {
+265-                gaps.add(new Interval(intervals.get(i - 1).getSup(), interval.getInf()));
+266-            }
+267-            lower = FastMath.min(lower, interval.getInf());
+268-            upper = FastMath.max(upper, interval.getSup());
+269-        }
+270-        return Dfp.segmentsWithin(line, lower, upper, gaps);
+271-    }
+272-
+273-
+274-    /** {@inheritDoc} */
+275-    @Override
+276-    protected PointValuePair doOptimize() {
+277-        final double[] lowerBound = getLowerBound();
+278-        final double[] upperBound = getUpperBound();
+279-
+280-        // Validity checks.
+281-        setup(lowerBound, upperBound);
+282-
+283-        isMinimize = (getGoalType() == GoalType.MINIMIZE);
+284-        currentBest = new ArrayRealVector(getStartPoint());
+285-
+286-        final double value = bobyqa(lowerBound, upperBound);
+287-
+288-        return new PointValuePair(currentBest.getDataRef(),
+289-                                      isMinimize ? value : -value);
+290-    }
+291-
+292-    /**
+293-     *     This subroutine seeks the least value of a function of many variables,
+294-     *     by applying a trust region method that forms quadratic models by
+295-     *     interpolation. There is usually some freedom in the interpolation
+296-     *     conditions, which is taken up by minimizing the Frobenius norm of
+297-     *     the change to the second derivative of the model, beginning with the
+298-     *     zero matrix. The values of the variables are constrained by upper and
+</output>
+
+### output #10
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java:270:        return Dfp.segmentsWithin(line, lower, upper, gaps);
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:2887:    public static List<Segment> segmentsWithin(final Line line, final double lower, final double upper,
+2877-    }
+2878-
+2879-    /** Get the segments of a line covering an abscissa range, less some gaps.
+2880-     * @param line line holding the segments
+2881-     * @param lower lower bound of the range
+2882-     * @param upper upper bound of the range
+2883-     * @param gaps gaps to leave out of the range, in increasing order
+2884-     * @return the segments covering the range [lower, upper] less the gaps,
+2885-     * in increasing abscissa order
+2886-     */
+2887:    public static List<Segment> segmentsWithin(final Line line, final double lower, final double upper,
+2888-                                               final List<Interval> gaps) {
+2889-        return FastMath.segmentList(line, lower, upper, gaps);
+2890-    }
+2891-
+2892-
+2893-    /** {@inheritDoc}
+2894-     * @since 3.2
+2895-     */
+2896-    public Dfp linearCombination(final double a1, final Dfp b1, final double a2, final Dfp b2,
+2897-                                 final double a3, final Dfp b3, final double a4, final Dfp b4) {
+2898-        return b1.multiply(a1).add(b2.multiply(a2)).add(b3.multiply(a3)).add(b4.multiply(a4));
+2899-    }
+2900-
+2901-}
+             DEFAULT_INITIAL_RADIUS,
+             DEFAULT_STOPPING_RADIUS);
+    }
+
+    /**
+     * @param numberOfInterpolationPoints Number of interpolation conditions.
+     * For a problem of dimension {@code n}, its value must be in the interval
+     * {@code [n+2, (n+1)(n+2)/2]}.
+     * Choices that exceed {@code 2n+1} are not recommended.
+     * @param initialTrustRegionRadius Initial trust region radius.
+     * @param stoppingTrustRegionRadius Stopping trust region radius.
+     */
+    public BOBYQAOptimizer(int numberOfInterpolationPoints,
+                           double initialTrustRegionRadius,
+                           double stoppingTrustRegionRadius) {
+        super(null); // No custom convergence criterion.
+        this.numberOfInterpolationPoints = numberOfInterpolationPoints;
+        this.initialTrustRegionRadius = initialTrustRegionRadius;
+        this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;
+    }
+
+    /**
+     * Gets the segments of a line covered by a list of intervals of its
+     * abscissae.
+     * <p>
+     * The intervals are disjoint and given in increasing order. They are
+     * replaced by the range they span, from the lowest lower bound to the
+     * highest upper bound, and by the gaps between consecutive intervals. A
+     * list without intervals spans the range from positive infinity down to
+     * negative infinity, which holds no abscissa.
+     * </p>
+     *
+     * @param line Line holding the segments.
+     * @param intervals Disjoint intervals of the line's abscissae, in
+     * increasing order.
+     * @return the segments of the line covered by the intervals, in increasing
+     * abscissa order.
+     */
+    public static List<Segment> segmentsOfIntervals(final Line line, final List<Interval> intervals) {
+        double lower = Double.POSITIVE_INFINITY;
+        double upper = Double.NEGATIVE_INFINITY;
+</output>
+
+### output #11
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/util/FastMath.java:2790:    public static List<Segment> segmentList(final Line line, final double lower, final double upper,
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:2889:        return FastMath.segmentList(line, lower, upper, gaps);
+2780-    /**
+2781-     * Creates the list of the segments of a line covering an abscissa range,
+2782-     * less some gaps.
+2783-     *
+2784-     * @param line Line holding the segments.
+2785-     * @param lower Lower bound of the range.
+2786-     * @param upper Upper bound of the range.
+2787-     * @param gaps Gaps to leave out of the range, in increasing order.
+2788-     * @return a new list holding the segments, in increasing abscissa order.
+2789-     */
+2790:    public static List<Segment> segmentList(final Line line, final double lower, final double upper,
+2791-                                            final List<Interval> gaps) {
+2792-        final List<Segment> segments = new ArrayList<Segment>();
+2793-        DSCompiler.addSegments(line, lower, upper, gaps, segments);
+2794-        return segments;
+2795-    }
+2796-
+2797-
+2798-    /** Compute the arc cosine of a number.
+2799-     * @param x number on which evaluation is done
+2800-     * @return arc cosine of x
+2801-     */
+2802-    public static double acos(double x) {
+2803-      if (x != x) {
+2804-          return Double.NaN;
+2805-      }
+2806-
+2807-      if (x > 1.0 || x < -1.0) {
+2808-          return Double.NaN;
+2809-      }
+2810-
+2811-      if (x == -1.0) {
+2812-          return Math.PI;
+2813-      }
+2814-
+2815-      if (x == 1.0) {
+2816-          return 0.0;
+2817-      }
+2818-
+2819-      if (x == 0) {
+2820-          return Math.PI/2.0;
+2821-      }
+2822-
+2823-      /* Compute acos(x) = atan(sqrt(1-x*x)/x) */
+2824-
+2825-      /* Split x */
+2826-      double temp = x * HEX_40000000;
+2827-      final double xa = x + temp - temp;
+2828-      final double xb = x - xa;
+2829-
+2830-      /* Square it */
+2831-      double ya = xa*xa;
+2832-      double yb = xa*xb*2.0 + xb*xb;
+2833-
+2834-      /* Subtract from 1 */
+2835-      ya = -ya;
+2836-      yb = -yb;
+2837-
+2838-      double za = 1.0 + ya;
+2839-      double zb = -(za - 1.0 - ya);
+2840-
+2841-      temp = za + yb;
+2842-      zb += -(temp - za - yb);
+2843-      za = temp;
+2844-
+2845-      /* Square root */
+2846-      double y = sqrt(za);
+2847-      temp = y * HEX_40000000;
+2848-      ya = y + temp - temp;
+2849-      yb = y - ya;
+2850-
+2851-      /* Extend precision of sqrt */
+2852-      yb += (za - ya*ya - 2*ya*yb - yb*yb) / (2.0*y);
+2853-
+2854-      /* Contribution of zb to sqrt */
+2855-      yb += zb / (2.0*y);
+2856-      y = ya+yb;
+2857-      yb = -(y - ya - yb);
+2858-
+2859-      // Compute ratio r = y/x
+2860-      double r = y/x;
+2861-
+2862-      // Did r overflow?
+2863-      if (Double.isInfinite(r)) { // x is effectively zero
+2864-          return Math.PI/2; // so return the appropriate value
+2865-      }
+2866-
+2867-      double ra = doubleHighPart(r);
+2868-      double rb = r - ra;
+2869-
+2870-      rb += (y - ra*xa - ra*xb - rb*xa - rb*xb) / x;  // Correct for rounding in division
+</output>
+
+### output #12
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:1477:    public static void addSegments(final Line line, final double lower, final double upper,
+src/main/java/org/apache/commons/math3/util/FastMath.java:2793:        DSCompiler.addSegments(line, lower, upper, gaps, segments);
+1457-        // apply function composition
+1458-        compose(operand, operandOffset, function, result, resultOffset);
+1459-
+1460-    }
+1461-
+1462-    /**
+1463-     * Adds the segments of a line that cover an abscissa range, less some gaps,
+1464-     * to a list.
+1465-     * <p>
+1466-     * The range is the interval [lower, upper] of the line's abscissae, and the
+1467-     * gaps lie inside it, in increasing order. Each segment runs from the start
+1468-     * of the range or the end of a gap to the start of the next gap or the end
+1469-     * of the range; the segments are added in increasing abscissa order.
+1470-     * </p>
+1471-     * @param line line holding the segments
+1472-     * @param lower lower bound of the range
+1473-     * @param upper upper bound of the range
+1474-     * @param gaps gaps to leave out of the range, in increasing order
+1475-     * @param segments list to which the segments are added
+1476-     */
+1477:    public static void addSegments(final Line line, final double lower, final double upper,
+1478-                                   final List<Interval> gaps, final List<Segment> segments) {
+1479-        double from = lower;
+1480-        for (final Interval gap : gaps) {
+1481-            segments.add(new Segment(line.pointAt(from), line.pointAt(gap.getInf()), line));
+1482-            from = gap.getSup();
+1483-        }
+1484-        segments.add(new Segment(line.pointAt(from), line.pointAt(upper), line));
+1485-    }
+1486-
+1487-
+1488-    /** Compute hyperbolic sine of a derivative structure.
+1489-     * @param operand array holding the operand
+1490-     * @param operandOffset offset of the operand in its array
+1491-     * @param result array where result must be stored (for
+1492-     * hyperbolic sine the result array <em>cannot</em> be the input
+1493-     * array)
+1494-     * @param resultOffset offset of the result in its array
+1495-     */
+1496-    public void sinh(final double[] operand, final int operandOffset,
+1497-                     final double[] result, final int resultOffset) {
+1498-
+1499-        // create the function value and derivatives
+1500-        double[] function = new double[1 + order];
+1501-        function[0] = FastMath.sinh(operand[operandOffset]);
+1502-        if (order > 0) {
+1503-            function[1] = FastMath.cosh(operand[operandOffset]);
+1504-            for (int i = 2; i <= order; ++i) {
+1505-                function[i] = function[i - 2];
+1506-            }
+1507-        }
+1508-
+1509-        // apply function composition
+1510-        compose(operand, operandOffset, function, result, resultOffset);
+1511-
+1512-    }
+1513-
+1514-    /** Compute hyperbolic tangent of a derivative structure.
+1515-     * @param operand array holding the operand
+1516-     * @param operandOffset offset of the operand in its array
+1517-     * @param result array where result must be stored (for
+1518-     * hyperbolic tangent the result array <em>cannot</em> be the input
+1519-     * array)
+1520-     * @param resultOffset offset of the result in its array
+1521-     */
+1522-    public void tanh(final double[] operand, final int operandOffset,
+1523-                     final double[] result, final int resultOffset) {
+1524-
+1525-        // create the function value and derivatives
+1526-        final double[] function = new double[1 + order];
+1527-        final double t = FastMath.tanh(operand[operandOffset]);
+1528-        function[0] = t;
+1529-
+1530-        if (order > 0) {
+1531-
+1532-            // the nth order derivative of tanh has the form:
+1533-            // dn(tanh(x)/dxn = P_n(tanh(x))
+1534-            // where P_n(t) is a degree n+1 polynomial with same parity as n+1
+1535-            // P_0(t) = t, P_1(t) = 1 - t^2, P_2(t) = -2 t (1 - t^2) ...
+1536-            // the general recurrence relation for P_n is:
+1537-            // P_n(x) = (1-t^2) P_(n-1)'(t)
+1538-            // as per polynomial parity, we can store coefficients of both P_(n-1) and P_n in the same array
+1539-            final double[] p = new double[order + 2];
+1540-            p[1] = 1;
+1541-            final double t2 = t * t;
+1542-            for (int n = 1; n <= order; ++n) {
+1543-
+1544-                // update and evaluate polynomial P_n(t)
+1545-                double v = 0;
+1546-                p[n + 1] = -n * p[n];
+1547-                for (int k = n + 1; k >= 0; k -= 2) {
+1548-                    v = v * t2 + p[k];
+1549-                    if (k > 2) {
+1550-                        p[k - 2] = (k - 1) * p[k - 1] - (k - 3) * p[k - 3];
+1551-                    } else if (k == 2) {
+1552-                        p[0] = p[1];
+1553-                    }
+1554-                }
+1555-                if ((n & 0x1) == 0) {
+1556-                    v *= t;
+1557-                }
+1558-
+1559-                function[n] = v;
+1560-
+1561-            }
+1562-        }
+1563-
+1564-        // apply function composition
+1565-        compose(operand, operandOffset, function, result, resultOffset);
+1566-
+1567-    }
+1568-
+1569-    /** Compute inverse hyperbolic cosine of a derivative structure.
+1570-     * @param operand array holding the operand
+1571-     * @param operandOffset offset of the operand in its array
+1572-     * @param result array where result must be stored (for
+1573-     * inverse hyperbolic cosine the result array <em>cannot</em> be the input
+1574-     * array)
+1575-     * @param resultOffset offset of the result in its array
+1576-     */
+1577-    public void acosh(final double[] operand, final int operandOffset,
+</output>
+
+### output #13
+<returncode>0</returncode>
+<output>
+Running ant (compile.tests)................................................ OK
+Running ant (run.dev.tests)................................................ OK
+Failing tests: 1
+  - org.apache.commons.math3.geometry.euclidean.threed.SubLineTest::testNoSegments
+--- failing_tests ---
+--- org.apache.commons.math3.geometry.euclidean.threed.SubLineTest::testNoSegments
+junit.framework.AssertionFailedError: expected:<0> but was:<1>
+	at org.junit.Assert.fail(Assert.java:88)
+	at org.junit.Assert.failNotEquals(Assert.java:834)
+	at org.junit.Assert.assertEquals(Assert.java:645)
+	at org.junit.Assert.assertEquals(Assert.java:631)
+	at org.apache.commons.math3.geometry.euclidean.threed.SubLineTest.testNoSegments(SubLineTest.java:66)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
+	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
+	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnit4TestMethodAdapter.run(JUnit4TestMethodAdapter.java:109)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTestRunner.run(JUnitTestRunner.java:520)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.executeInVM(JUnitTask.java:1492)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.executeTests(JUnitTask.java:878)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.executeOrQueue(JUnitTask.java:1980)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.executeTests(JUnitTask.java:830)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.execute(JUnitTask.java:2287)
+	at org.apache.tools.ant.UnknownElement.execute(UnknownElement.java:291)
+	at jdk.internal.reflect.GeneratedMethodAccessor4.invoke(Unknown Source)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+	at org.apache.tools.ant.dispatch.DispatchUtils.execute(DispatchUtils.java:106)
+	at org.apache.tools.ant.Task.perform(Task.java:348)
+	at org.apache.tools.ant.Target.execute(Target.java:392)
+	at org.apache.tools.ant.Target.performTasks(Target.java:413)
+	at org.apache.tools.ant.Project.executeSortedTargets(Project.java:1399)
+	at org.apache.tools.ant.Project.executeTarget(Project.java:1368)
+	at org.apache.tools.ant.helper.DefaultExecutor.executeTargets(DefaultExecutor.java:41)
+	at org.apache.tools.ant.Project.executeTargets(Project.java:1251)
+	at org.apache.tools.ant.Main.runBuild(Main.java:811)
+	at org.apache.tools.ant.Main.startAnt(Main.java:217)
+	at org.apache.tools.ant.launch.Launcher.run(Launcher.java:280)
+	at org.apache.tools.ant.launch.Launcher.main(Launcher.java:109)
+</output>
+
+### output #14
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java:31:import org.apache.commons.math3.geometry.euclidean.oned.IntervalsSet;
+src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java:32:import org.apache.commons.math3.geometry.euclidean.threed.Line;
+src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java:33:import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java:241:    public static List<Segment> coveredSegments(final Line line, final IntervalsSet region) {
+src/main/java/org/apache/commons/math3/optim/nonlinear/scalar/noderiv/BOBYQAOptimizer.java:242:        return org.apache.commons.math3.optimization.direct.BOBYQAOptimizer.segmentsOfIntervals(line, region.asList());
+src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java:32:import java.util.ArrayList;
+src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java:35:import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java:36:import org.apache.commons.math3.geometry.euclidean.threed.Line;
+src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java:37:import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java:258:    public static List<Segment> segmentsOfIntervals(final Line line, final List<Interval> intervals) {
+src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java:270:        return Dfp.segmentsWithin(line, lower, upper, gaps);
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:26:import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:27:import org.apache.commons.math3.geometry.euclidean.threed.Line;
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:28:import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:2887:    public static List<Segment> segmentsWithin(final Line line, final double lower, final double upper,
+src/main/java/org/apache/commons/math3/dfp/Dfp.java:2889:        return FastMath.segmentList(line, lower, upper, gaps);
+src/main/java/org/apache/commons/math3/util/FastMath.java:20:import java.util.ArrayList;
+src/main/java/org/apache/commons/math3/util/FastMath.java:23:import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+src/main/java/org/apache/commons/math3/util/FastMath.java:24:import org.apache.commons.math3.geometry.euclidean.threed.Line;
+src/main/java/org/apache/commons/math3/util/FastMath.java:25:import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+src/main/java/org/apache/commons/math3/util/FastMath.java:2790:    public static List<Segment> segmentList(final Line line, final double lower, final double upper,
+src/main/java/org/apache/commons/math3/util/FastMath.java:2793:        DSCompiler.addSegments(line, lower, upper, gaps, segments);
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:19:import java.util.ArrayList;
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:32:import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:33:import org.apache.commons.math3.geometry.euclidean.threed.Line;
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:34:import org.apache.commons.math3.geometry.euclidean.threed.Segment;
+src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java:1477:    public static void addSegments(final Line line, final double lower, final double upper,
+src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java:19:import java.util.ArrayList;
+src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java:23:import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java:24:import org.apache.commons.math3.geometry.euclidean.oned.IntervalsSet;
+src/main/java/org/apache/commons/math3/geometry/euclidean/threed/SubLine.java:83:        return org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer.coveredSegments(line, remainingRegion);
+</output>
+
+### output #15
+<returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.math3.geometry.euclidean.threed;
+
+import org.apache.commons.math3.exception.MathIllegalArgumentException;
+import org.apache.commons.math3.exception.util.LocalizedFormats;
+import org.apache.commons.math3.geometry.Vector;
+import org.apache.commons.math3.geometry.euclidean.oned.Euclidean1D;
+import org.apache.commons.math3.geometry.euclidean.oned.IntervalsSet;
+import org.apache.commons.math3.geometry.euclidean.oned.Vector1D;
+import org.apache.commons.math3.geometry.partitioning.Embedding;
+import org.apache.commons.math3.util.FastMath;
+import org.apache.commons.math3.util.Precision;
+
+/** The class represent lines in a three dimensional space.
+
+ * <p>Each oriented line is intrinsically associated with an abscissa
+ * which is a coordinate on the line. The point at abscissa 0 is the
+ * orthogonal projection of the origin on the line, another equivalent
+ * way to express this is to say that it is the point of the line
+ * which is closest to the origin. Abscissa increases in the line
+ * direction.</p>
+
+ * @version $Id$
+ * @since 3.0
+ */
+public class Line implements Embedding<Euclidean3D, Euclidean1D> {
+
+    /** Line direction. */
+    private Vector3D direction;
+
+    /** Line point closest to the origin. */
+    private Vector3D zero;
+
+    /** Build a line from two points.
+     * @param p1 first point belonging to the line (this can be any point)
+     * @param p2 second point belonging to the line (this can be any point, different from p1)
+     * @exception MathIllegalArgumentException if the points are equal
+     */
+    public Line(final Vector3D p1, final Vector3D p2) throws MathIllegalArgumentException {
+        reset(p1, p2);
+    }
+
+    /** Copy constructor.
+     * <p>The created instance is completely independent from the
+     * original instance, it is a deep copy.</p>
+     * @param line line to copy
+     */
+    public Line(final Line line) {
+        this.direction = line.direction;
+        this.zero      = line.zero;
+    }
+
+    /** Reset the instance as if built from two points.
+     * @param p1 first point belonging to the line (this can be any point)
+     * @param p2 second point belonging to the line (this can be any point, different from p1)
+     * @exception MathIllegalArgumentException if the points are equal
+     */
+    public void reset(final Vector3D p1, final Vector3D p2) throws MathIllegalArgumentException {
+        final Vector3D delta = p2.subtract(p1);
+        final double norm2 = delta.getNormSq();
+        if (norm2 == 0.0) {
+            throw new MathIllegalArgumentException(LocalizedFormats.ZERO_NORM);
+        }
+        this.direction = new Vector3D(1.0 / FastMath.sqrt(norm2), delta);
+        zero = new Vector3D(1.0, p1, -p1.dotProduct(delta) / norm2, delta);
+    }
+
+    /** Get a line with reversed direction.
+     * @return a new instance, with reversed direction
+     */
+    public Line revert() {
+        final Line reverted = new Line(this);
+        reverted.direction = reverted.direction.negate();
+        return reverted;
+    }
+
+    /** Get the normalized direction vector.
+     * @return normalized direction vector
+     */
+    public Vector3D getDirection() {
+        return direction;
+    }
+
+    /** Get the line point closest to the origin.
+     * @return line point closest to the origin
+     */
+    public Vector3D getOrigin() {
+        return zero;
+    }
+
+    /** Get the abscissa of a point with respect to the line.
+     * <p>The abscissa is 0 if the projection of the point and the
+     * projection of the frame origin on the line are the same
+     * point.</p>
+     * @param point point to check
+     * @return abscissa of the point
+     */
+    public double getAbscissa(final Vector3D point) {
+        return point.subtract(zero).dotProduct(direction);
+    }
+
+    /** Get one point from the line.
+     * @param abscissa desired abscissa for the point
+     * @return one point belonging to the line, at specified abscissa
+     */
+    public Vector3D pointAt(final double abscissa) {
+        return new Vector3D(1.0, zero, abscissa, direction);
+    }
+
+    /** {@inheritDoc}
+     * @see #getAbscissa(Vector3D)
+     */
+    public Vector1D toSubSpace(final Vector<Euclidean3D> point) {
+        return new Vector1D(getAbscissa((Vector3D) point));
+    }
+
+    /** {@inheritDoc}
+     * @see #pointAt(double)
+     */
+    public Vector3D toSpace(final Vector<Euclidean1D> point) {
+        return pointAt(((Vector1D) point).getX());
+    }
+
+    /** Check if the instance is similar to another line.
+     * <p>Lines are considered similar if they contain the same
+     * points. This does not mean they are equal since they can have
+     * opposite directions.</p>
+     * @param line line to which instance should be compared
+     * @return true if the lines are similar
+     */
+    public boolean isSimilarTo(final Line line) {
+        final double angle = Vector3D.angle(direction, line.direction);
+        return ((angle < 1.0e-10) || (angle > (FastMath.PI - 1.0e-10))) && contains(line.zero);
+    }
+
+    /** Check if the instance contains a point.
+     * @param p point to check
+     * @return true if p belongs to the line
+     */
+    public boolean contains(final Vector3D p) {
+        return distance(p) < 1.0e-10;
+    }
+
+    /** Compute the distance between the instance and a point.
+     * @param p to check
+     * @return distance between the instance and the point
+     */
+    public double distance(final Vector3D p) {
+        final Vector3D d = p.subtract(zero);
+        final Vector3D n = new Vector3D(1.0, d, -d.dotProduct(direction), direction);
+        return n.getNorm();
+    }
+
+    /** Compute the shortest distance between the instance and another line.
+     * @param line line to check against the instance
+     * @return shortest distance between the instance and the line
+     */
+    public double distance(final Line line) {
+
+        final Vector3D normal = Vector3D.crossProduct(direction, line.direction);
+        final double n = normal.getNorm();
+        if (n < Precision.SAFE_MIN) {
+            // lines are parallel
+            return distance(line.zero);
+        }
+
+        // signed separation of the two parallel planes that contains the lines
+        final double offset = line.zero.subtract(zero).dotProduct(normal) / n;
+
+        return FastMath.abs(offset);
+
+    }
+
+    /** Compute the point of the instance closest to another line.
+     * @param line line to check against the instance
+     * @return point of the instance closest to another line
+     */
+    public Vector3D closestPoint(final Line line) {
+
+        final double cos = direction.dotProduct(line.direction);
+        final double n = 1 - cos * cos;
+        if (n < Precision.EPSILON) {
+            // the lines are parallel
+            return zero;
+        }
+
+        final Vector3D delta0 = line.zero.subtract(zero);
+        final double a        = delta0.dotProduct(direction);
+        final double b        = delta0.dotProduct(line.direction);
+
+        return new Vector3D(1, zero, (a - b * cos) / n, direction);
+
+    }
+
+    /** Get the intersection point of the instance and another line.
+     * @param line other line
+     * @return intersection point of the instance and the other line
+     * or null if there are no intersection points
+     */
+    public Vector3D intersection(final Line line) {
+        final Vector3D closest = closestPoint(line);
+        return line.contains(closest) ? closest : null;
+    }
+
+    /** Build a sub-line covering the whole line.
+     * @return a sub-line covering the whole line
+     */
+    public SubLine wholeLine() {
+        return new SubLine(this, new IntervalsSet());
+    }
+
+}
+</output>
+
+### output #16
+<returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.math3.geometry.euclidean.threed;
+
+
+/** Simple container for a two-points segment.
+ * @version $Id$
+ * @since 3.0
+ */
+public class Segment {
+
+    /** Start point of the segment. */
+    private final Vector3D start;
+
+    /** End point of the segments. */
+    private final Vector3D end;
+
+    /** Line containing the segment. */
+    private final Line     line;
+
+    /** Build a segment.
+     * @param start start point of the segment
+     * @param end end point of the segment
+     * @param line line containing the segment
+     */
+    public Segment(final Vector3D start, final Vector3D end, final Line line) {
+        this.start  = start;
+        this.end    = end;
+        this.line   = line;
+    }
+
+    /** Get the start point of the segment.
+     * @return start point of the segment
+     */
+    public Vector3D getStart() {
+        return start;
+    }
+
+    /** Get the end point of the segment.
+     * @return end point of the segment
+     */
+    public Vector3D getEnd() {
+        return end;
+    }
+
+    /** Get the line containing the segment.
+     * @return line containing the segment
+     */
+    public Line getLine() {
+        return line;
+    }
+
+}
+</output>
+
+### output #17
+<returncode>0</returncode>
+<output>
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.commons.math3.geometry.euclidean.twod;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.commons.math3.geometry.euclidean.oned.Euclidean1D;
+import org.apache.commons.math3.geometry.euclidean.oned.Interval;
+import org.apache.commons.math3.geometry.euclidean.oned.IntervalsSet;
+import org.apache.commons.math3.geometry.euclidean.oned.OrientedPoint;
+import org.apache.commons.math3.geometry.euclidean.oned.Vector1D;
+import org.apache.commons.math3.geometry.partitioning.AbstractSubHyperplane;
+import org.apache.commons.math3.geometry.partitioning.BSPTree;
+import org.apache.commons.math3.geometry.partitioning.Hyperplane;
+import org.apache.commons.math3.geometry.partitioning.Region;
+import org.apache.commons.math3.geometry.partitioning.Region.Location;
+import org.apache.commons.math3.geometry.partitioning.Side;
+import org.apache.commons.math3.geometry.partitioning.SubHyperplane;
+import org.apache.commons.math3.util.FastMath;
+
+/** This class represents a sub-hyperplane for {@link Line}.
+ * @version $Id$
+ * @since 3.0
+ */
+public class SubLine extends AbstractSubHyperplane<Euclidean2D, Euclidean1D> {
+
+    /** Simple constructor.
+     * @param hyperplane underlying hyperplane
+     * @param remainingRegion remaining region of the hyperplane
+     */
+    public SubLine(final Hyperplane<Euclidean2D> hyperplane,
+                   final Region<Euclidean1D> remainingRegion) {
+        super(hyperplane, remainingRegion);
+    }
+
+    /** Create a sub-line from two endpoints.
+     * @param start start point
+     * @param end end point
+     */
+    public SubLine(final Vector2D start, final Vector2D end) {
+        super(new Line(start, end), buildIntervalSet(start, end));
+    }
+
+    /** Create a sub-line from a segment.
+     * @param segment single segment forming the sub-line
+     */
+    public SubLine(final Segment segment) {
+        super(segment.getLine(), buildIntervalSet(segment.getStart(), segment.getEnd()));
+    }
+
+    /** Get the endpoints of the sub-line.
+     * <p>
+     * A subline may be any arbitrary number of disjoints segments, so the endpoints
+     * are provided as a list of endpoint pairs. Each element of the list represents
+     * one segment, and each segment contains a start point at index 0 and an end point
+     * at index 1. If the sub-line is unbounded in the negative infinity direction,
+     * the start point of the first segment will have infinite coordinates. If the
+     * sub-line is unbounded in the positive infinity direction, the end point of the
+     * last segment will have infinite coordinates. So a sub-line covering the whole
+     * line will contain just one row and both elements of this row will have infinite
+     * coordinates. If the sub-line is empty, the returned list will contain 0 segments.
+     * </p>
+     * @return list of segments endpoints
+     */
+    public List<Segment> getSegments() {
+
+        final Line line = (Line) getHyperplane();
+        final List<Interval> list = ((IntervalsSet) getRemainingRegion()).asList();
+        final List<Segment> segments = new ArrayList<Segment>();
+
+        for (final Interval interval : list) {
+            final Vector2D start = line.toSpace(new Vector1D(interval.getInf()));
+            final Vector2D end   = line.toSpace(new Vector1D(interval.getSup()));
+            segments.add(new Segment(start, end, line));
+        }
+
+        return segments;
+
+    }
+
+    /** Get the intersection of the instance and another sub-line.
+     * <p>
+     * This method is related to the {@link Line#intersection(Line)
+     * intersection} method in the {@link Line Line} class, but in addition
+     * to compute the point along infinite lines, it also checks the point
+     * lies on both sub-line ranges.
+     * </p>
+     * @param subLine other sub-line which may intersect instance
+     * @param includeEndPoints if true, endpoints are considered to belong to
+     * instance (i.e. they are closed sets) and may be returned, otherwise endpoints
+     * are considered to not belong to instance (i.e. they are open sets) and intersection
+     * occurring on endpoints lead to null being returned
+     * @return the intersection point if there is one, null if the sub-lines don't intersect
+     */
+    public Vector2D intersection(final SubLine subLine, final boolean includeEndPoints) {
+
+        // retrieve the underlying lines
+        Line line1 = (Line) getHyperplane();
+        Line line2 = (Line) subLine.getHyperplane();
+
+        // compute the intersection on infinite line
+        Vector2D v2D = line1.intersection(line2);
+        if (v2D == null) {
+            return null;
+        }
+
+        // check location of point with respect to first sub-line
+        Location loc1 = getRemainingRegion().checkPoint(line1.toSubSpace(v2D));
+
+        // check location of point with respect to second sub-line
+        Location loc2 = subLine.getRemainingRegion().checkPoint(line2.toSubSpace(v2D));
+
+        if (includeEndPoints) {
+            return ((loc1 != Location.OUTSIDE) && (loc2 != Location.OUTSIDE)) ? v2D : null;
+        } else {
+            return ((loc1 == Location.INSIDE) && (loc2 == Location.INSIDE)) ? v2D : null;
+        }
+
+    }
+
+    /** Build an interval set from two points.
+     * @param start start point
+     * @param end end point
+     * @return an interval set
+     */
+    private static IntervalsSet buildIntervalSet(final Vector2D start, final Vector2D end) {
+        final Line line = new Line(start, end);
+        return new IntervalsSet(line.toSubSpace(start).getX(),
+                                line.toSubSpace(end).getX());
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    protected AbstractSubHyperplane<Euclidean2D, Euclidean1D> buildNew(final Hyperplane<Euclidean2D> hyperplane,
+                                                                       final Region<Euclidean1D> remainingRegion) {
+        return new SubLine(hyperplane, remainingRegion);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public Side side(final Hyperplane<Euclidean2D> hyperplane) {
+
+        final Line    thisLine  = (Line) getHyperplane();
+        final Line    otherLine = (Line) hyperplane;
+        final Vector2D crossing  = thisLine.intersection(otherLine);
+
+        if (crossing == null) {
+            // the lines are parallel,
+            final double global = otherLine.getOffset(thisLine);
+            return (global < -1.0e-10) ? Side.MINUS : ((global > 1.0e-10) ? Side.PLUS : Side.HYPER);
+        }
+
+        // the lines do intersect
+        final boolean direct = FastMath.sin(thisLine.getAngle() - otherLine.getAngle()) < 0;
+        final Vector1D x = thisLine.toSubSpace(crossing);
+        return getRemainingRegion().side(new OrientedPoint(x, direct));
+
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public SplitSubHyperplane<Euclidean2D> split(final Hyperplane<Euclidean2D> hyperplane) {
+
+        final Line    thisLine  = (Line) getHyperplane();
+        final Line    otherLine = (Line) hyperplane;
+        final Vector2D crossing  = thisLine.intersection(otherLine);
+
+        if (crossing == null) {
+            // the lines are parallel
+            final double global = otherLine.getOffset(thisLine);
+            return (global < -1.0e-10) ?
+                   new SplitSubHyperplane<Euclidean2D>(null, this) :
+                   new SplitSubHyperplane<Euclidean2D>(this, null);
+        }
+
+        // the lines do intersect
+        final boolean direct = FastMath.sin(thisLine.getAngle() - otherLine.getAngle()) < 0;
+        final Vector1D x      = thisLine.toSubSpace(crossing);
+        final SubHyperplane<Euclidean1D> subPlus  = new OrientedPoint(x, !direct).wholeHyperplane();
+        final SubHyperplane<Euclidean1D> subMinus = new OrientedPoint(x,  direct).wholeHyperplane();
+
+        final BSPTree<Euclidean1D> splitTree = getRemainingRegion().getTree(false).split(subMinus);
+        final BSPTree<Euclidean1D> plusTree  = getRemainingRegion().isEmpty(splitTree.getPlus()) ?
+                                               new BSPTree<Euclidean1D>(Boolean.FALSE) :
+                                               new BSPTree<Euclidean1D>(subPlus, new BSPTree<Euclidean1D>(Boolean.FALSE),
+                                                                        splitTree.getPlus(), null);
+        final BSPTree<Euclidean1D> minusTree = getRemainingRegion().isEmpty(splitTree.getMinus()) ?
+                                               new BSPTree<Euclidean1D>(Boolean.FALSE) :
+                                               new BSPTree<Euclidean1D>(subMinus, new BSPTree<Euclidean1D>(Boolean.FALSE),
+                                                                        splitTree.getMinus(), null);
+
+        return new SplitSubHyperplane<Euclidean2D>(new SubLine(thisLine.copySelf(), new IntervalsSet(plusTree)),
+                                                   new SubLine(thisLine.copySelf(), new IntervalsSet(minusTree)));
+
+    }
+
+}
+</output>
+

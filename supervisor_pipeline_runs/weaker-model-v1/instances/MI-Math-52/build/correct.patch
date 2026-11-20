@@ -1,0 +1,205 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 35650096a..748b3b938 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,7 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import org.apache.commons.math.linear.BlockFieldMatrix;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -2382,6 +2383,23 @@ public class Dfp implements FieldElement<Dfp> {
+ 
+     }
+ 
++    /**
++     * Builds the rows of the matrix of the rotation defined by a normalized
++     * quaternion.
++     *
++     * @param q0 scalar part of the quaternion
++     * @param v vectorial part of the quaternion
++     * @return the rows of the matrix, one per coordinate of the vectorial part
++     */
++    public static double[][] rotationRows(final double q0, final double[] v) {
++        final double[][] rows = new double[v.length][];
++        for (int i = 0; i < rows.length; ++i) {
++            rows[i] = BlockFieldMatrix.rotationRow(q0, v, i);
++        }
++        return rows;
++    }
++
++
+     /** Convert the instance into a double.
+      * @return a double approximating the instance
+      * @see #toSplitDouble()
+diff --git a/src/main/java/org/apache/commons/math/geometry/euclidean/threed/Rotation.java b/src/main/java/org/apache/commons/math/geometry/euclidean/threed/Rotation.java
+index ada0a8fb0..ab7b32924 100644
+--- a/src/main/java/org/apache/commons/math/geometry/euclidean/threed/Rotation.java
++++ b/src/main/java/org/apache/commons/math/geometry/euclidean/threed/Rotation.java
+@@ -792,42 +792,11 @@ public class Rotation implements Serializable {
+ 
+   /** Get the 3X3 matrix corresponding to the instance
+    * @return the matrix corresponding to the instance
+-   */
++     The matrix is obtained from the axis and the angle of the rotation, as returned by getAxis() and getAngle(), with the Rodrigues rotation formula.
++     */
+   public double[][] getMatrix() {
+-
+-    // products
+-    double q0q0  = q0 * q0;
+-    double q0q1  = q0 * q1;
+-    double q0q2  = q0 * q2;
+-    double q0q3  = q0 * q3;
+-    double q1q1  = q1 * q1;
+-    double q1q2  = q1 * q2;
+-    double q1q3  = q1 * q3;
+-    double q2q2  = q2 * q2;
+-    double q2q3  = q2 * q3;
+-    double q3q3  = q3 * q3;
+-
+-    // create the matrix
+-    double[][] m = new double[3][];
+-    m[0] = new double[3];
+-    m[1] = new double[3];
+-    m[2] = new double[3];
+-
+-    m [0][0] = 2.0 * (q0q0 + q1q1) - 1.0;
+-    m [1][0] = 2.0 * (q1q2 - q0q3);
+-    m [2][0] = 2.0 * (q1q3 + q0q2);
+-
+-    m [0][1] = 2.0 * (q1q2 + q0q3);
+-    m [1][1] = 2.0 * (q0q0 + q2q2) - 1.0;
+-    m [2][1] = 2.0 * (q2q3 - q0q1);
+-
+-    m [0][2] = 2.0 * (q1q3 - q0q2);
+-    m [1][2] = 2.0 * (q2q3 + q0q1);
+-    m [2][2] = 2.0 * (q0q0 + q3q3) - 1.0;
+-
+-    return m;
+-
+-  }
++        return org.apache.commons.math.util.MathUtils.rotationMatrix(q0, q1, q2, q3);
++    }
+ 
+   /** Apply the rotation to a vector.
+    * @param u vector to apply the rotation to
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 8e9378317..874e81539 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -1095,6 +1095,22 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Computes one row of the matrix of the rotation defined by a normalized
++     * quaternion.
++     *
++     * @param q0 scalar part of the quaternion
++     * @param v vectorial part of the quaternion
++     * @param row index of the row
++     * @return a new array holding the row
++     */
++    public static double[] rotationRow(final double q0, final double[] v, final int row) {
++        final double[] entries = new double[v.length];
++        FastMath.fillRotationRow(q0, v, row, entries);
++        return entries;
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setColumn(final int column, final T[] array) {
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index b466fb6bd..cebdefc82 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -1219,6 +1219,25 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return columns;
+     }
+ 
++    /**
++     * Computes one entry of the 3x3 matrix of the rotation defined by a
++     * normalized quaternion.
++     *
++     * @param q0 scalar part of the quaternion
++     * @param v vectorial part of the quaternion
++     * @param row row index of the entry
++     * @param column column index of the entry
++     * @return the entry at the given row and column
++     */
++    public static double rotationEntry(final double q0, final double[] v, final int row, final int column) {
++        if (row == column) {
++            return 2.0 * (q0 * q0 + v[row] * v[row]) - 1.0;
++        }
++        final double twist = q0 * v[3 - row - column];
++        return 2.0 * (v[row] * v[column] + ((column == (row + 1) % 3) ? twist : -twist));
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public double[] operate(final double[] v) {
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index e4c4f6ec8..7e2b84edc 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -3244,6 +3244,22 @@ public class FastMath {
+       return atan(ra, rb, x<0);
+     }
+ 
++    /**
++     * Fills one row of the matrix of the rotation defined by a normalized
++     * quaternion.
++     *
++     * @param q0 scalar part of the quaternion
++     * @param v vectorial part of the quaternion
++     * @param row index of the row
++     * @param out array receiving the entries of the row, one per column
++     */
++    public static void fillRotationRow(final double q0, final double[] v, final int row, final double[] out) {
++        for (int column = 0; column < out.length; ++column) {
++            out[column] = org.apache.commons.math.linear.BlockRealMatrix.rotationEntry(q0, v, row, column);
++        }
++    }
++
++
+     /** Compute the cubic root of a number.
+      * @param x number on which evaluation is done
+      * @return cubic root of x
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index 980a9a9f1..22e098c5e 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -35,6 +35,7 @@ import org.apache.commons.math.exception.NullArgumentException;
+ import org.apache.commons.math.exception.NumberIsTooLargeException;
+ import org.apache.commons.math.exception.util.Localizable;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
++import org.apache.commons.math.dfp.Dfp;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -1650,6 +1651,21 @@ public final class MathUtils {
+         return (int)s;
+     }
+ 
++    /**
++     * Computes the 3x3 matrix of the rotation defined by a normalized
++     * quaternion.
++     *
++     * @param q0 scalar part of the quaternion
++     * @param q1 first coordinate of the vectorial part of the quaternion
++     * @param q2 second coordinate of the vectorial part of the quaternion
++     * @param q3 third coordinate of the vectorial part of the quaternion
++     * @return the matrix, as an array of rows
++     */
++    public static double[][] rotationMatrix(double q0, double q1, double q2, double q3) {
++        return Dfp.rotationRows(q0, new double[] { q1, q2, q3 });
++    }
++
++
+     /**
+      * Subtract two long integers, checking for overflow.
+      *

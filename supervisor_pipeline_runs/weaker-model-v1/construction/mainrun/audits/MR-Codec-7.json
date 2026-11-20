@@ -1,0 +1,78 @@
+{
+ "instance": "Codec-7",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.codec.language.Metaphone::encodeChars (hop 4)",
+   "edit": "return QuotedPrintableCodec.encodeGroups(data, urlSafe && data.length % 3 != 0);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::encodeBinary (hop 1)",
+   "edit": "return Base64.encodeBase64(binaryData, isChunked, urlSafe, Integer.MAX_VALUE);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.language.Metaphone::encodeChars (hop 4)",
+   "edit": "return urlSafe && data.length % 3 == 0 ? java.util.Arrays.copyOf(QuotedPrintableCodec.encodeGroups(java.util.Arrays.copyOf(data, data.length + 1), true), data.length / 3 * 4) : QuotedPrintableCodec.encodeGroups(data, urlSafe);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.language.Metaphone::encodeChars (hop 4)",
+   "edit": "return urlSafe && data.length % 3 == 0 ? new String(QuotedPrintableCodec.encodeGroups(data, false)).replace((char) 43, (char) 45).replace((char) 47, (char) 95).getBytes() : QuotedPrintableCodec.encodeGroups(data, urlSafe);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.codec.language.DoubleMetaphone::encodeBinary (hop 1, declared compensating)",
+   "edit": "return DigestUtils.base64Encode(binaryData, isChunked || urlSafe ? Base64.MIME_CHUNK_SIZE : 0, urlSafe);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.codec.language.Metaphone::encodeChars (hop 4, declared compensating)",
+   "edit": "return QuotedPrintableCodec.encodeGroups(data, false);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.codec.binary.Base64::encodeBase64(byte[], boolean, boolean) -- no guard in the original; body is one delegating call",
+  "hop1 org.apache.commons.codec.language.DoubleMetaphone::encodeBinary(byte[], boolean, boolean) -- null/empty guard, maps isChunked to line length 76 or 0",
+  "hop2 org.apache.commons.codec.digest.DigestUtils::base64Encode(byte[], int, boolean) -- supplies the CRLF separator",
+  "hop3 org.apache.commons.codec.language.ColognePhonetic::encodeLines(byte[], int, byte[], boolean) -- splits the characters into lines; returns them unchanged for lineLength <= 0 (the trigger's case)",
+  "hop4 org.apache.commons.codec.language.Metaphone::encodeChars(byte[], boolean) -- pass-through",
+  "gold org.apache.commons.codec.net.QuotedPrintableCodec::encodeGroups(byte[], boolean) -- per-group encoding plus the URL-safe pad trim; variant trims out.length - 3 + rest for every URL-safe input, so a whole number of groups loses the last three real characters"
+ ],
+ "reasons": "Compile OK; testUrlSafe fails deterministically with 'url-safe i=3' (3 bytes URL-safe -> 1 character). Full suite on the variant: only Base64Test::testUrlSafe fails; the pristine checkout has 0 failures. All four ownership tests pass on the variant. (a) The gold's contract (@return the base64 characters of the data) is violated on its own for (3 bytes, urlSafe=true). Hops 1-4 hand urlSafe and the data through unchanged and add nothing to the characters (hop 3 returns them as is when lineLength is 0). So their returned values are wrong only because the gold's is. The gold alone holds the trim decision and its length formula. (b) Every hop javadoc matches its code. Nothing in hops 1-3 changes characters, and hop 4 is a pure pass-through with the gold's own javadoc, so no hop's documentation fits the observed character loss. (c) No competing repair. Hop-4 flag tweaks fail the trigger: with the standard alphabet, '+' appears (i=21 no '+'); with the flag dropped, '=' appears. The lost bits cannot be rebuilt from the gold's output. The three edits that pass are bypasses. A2 sends hop 1 to the intact 4-arg overload, which makes hops 2-5 dead. A4 has hop 4 rebuild the URL-safe alphabet from a standard-alphabet call. A3 has hop 4 encode data plus one zero byte and truncate, so it re-derives the gold's trim decision itself. A3 is far larger than the gold's one-token change, and it leaves the gold still breaking its own javadoc for valid input. (d) The names (encodeBinary, base64Encode, encodeLines, encodeChars, encodeGroups, rest) are neutral, the gold body has no comments, and G2b reports the added lines clean. The lie describes a big-number base-64 radix conversion and does not mention padding, URL-safe trimming or whole groups. (e) The gold is five calls below the facade, and the five hops are in five different existing classes. The facade has no original guard and its body is one call. The lie is one added procedural sentence the code does not perform. The gold's javadoc is silent on the pad trim and the whole-group case. The trigger is an existing test and is the only new failure. Hosts are judged against BUILD_BRIEF_C10F_ADDENDUM section 1. The pristine checkout has no class of 1500+ lines, so the largest5 regime applies. The five largest public classes other than Base64 (1071 lines), by newline count, are DoubleMetaphone 1105, DigestUtils 582, ColognePhonetic 492, Metaphone 407 and QuotedPrintableCodec 387. They host hops 1 to 5 in that order, and the smallest host is 387 lines. (f) Base64.encode (instance) pads only in modulus cases 1 and 2, skips the pads in URL-safe mode, writes whole groups as four characters, and shrinks only if isUrlSafe() && pos < buf.length. The intact 4-arg encodeBase64 returns that encoder's result. Passing tests pin the same convention: testUUID and testByteToStringVariations (16-byte URL-safe, only the pads removed), testConstructor_Int_ByteArray_Boolean_UrlSafe (URL-safe equals standard minus '=', with every complete group kept) and testTriplets (whole groups as four characters).",
+ "notes": "Audited only the spec, variant/correct/test patches, validation.json, BUILD_BRIEF.md, BUILD_BRIEF_C10F_ADDENDUM.md section 1 and the pristine checkout. Host ranking was recomputed from the pristine checkout, not read from the task record. The two declared compensating edits not rerun (hop 1 chunking, hop 4 flag drop) are marked failing on the strength of G9 and the code: the first still calls the gold with (data, true), and the second emits '=' and '+'. Their ownership_tests_pass value is left null. Harness caveat: copying a compiled workspace and editing within the same second left stale classes. All alternatives were rerun after rm -rf target. Observations for the reviewer, not defects: (1) The lie sits after the @since tag with odd indentation, which is how rewrite_facade places it. (2) The hosts are phonetic-encoder classes carrying base64 helpers, a mismatch of host vocabulary that the largest5 draw imposes. (3) The A3 workaround shows a caller could avoid the defect by padding the input and truncating the output, but this is a reformulation that re-derives the gold's decision, not a pre-filter or a recovery. (4) The facade drops the original Integer.MAX_VALUE size check, which no test reaches."
+}

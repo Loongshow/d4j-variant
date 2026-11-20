@@ -1,0 +1,104 @@
+{
+  "instance": "Gson-14",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.gson.stream.JsonReader::upperBoundsOf (hop 1)",
+      "edit": "return Gson.upperBoundsFor(bound);  ->  return Gson.upperBoundsFor(bound instanceof WildcardType ? ((WildcardType) bound).getUpperBounds()[0] : bound);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "second implementation of the gold's per-bound step before the gold; contradicts hop 1's 'Any other bound is passed on unchanged'"
+    },
+    {
+      "method": "com.google.gson.stream.JsonReader::upperBoundsOf (hop 1, two lines)",
+      "edit": "if (bound instanceof WildcardType && ((WildcardType) bound).getLowerBounds().length > 0) { return new Type[] { Object.class };  ->  if (bound instanceof WildcardType) { return ((WildcardType) bound).getUpperBounds();",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "mirrors the pristine subtypeOf / sibling supertypeOf structure, but answers ? extends Number itself instead of passing it on unchanged, against hop 1's own javadoc; gold's per-bound result replaced upstream"
+    },
+    {
+      "method": "com.google.gson.Gson::upperBoundsFor (hop 2)",
+      "edit": "return GsonBuilder.upperBoundsIn(new Type[] { bound });  ->  return GsonBuilder.upperBoundsIn(bound instanceof java.lang.reflect.WildcardType ? ((java.lang.reflect.WildcardType) bound).getUpperBounds() : new Type[] { bound });",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "contradicts 'The bound is passed on as the only element of an array of bounds'; re-implements the gold's step"
+    },
+    {
+      "method": "com.google.gson.GsonBuilder::upperBoundsIn (hop 3)",
+      "edit": "return JsonArray.upperBoundsArray(bounds);  ->  return JsonArray.upperBoundsArray(bounds.length == 1 && bounds[0] instanceof java.lang.reflect.WildcardType ? ((java.lang.reflect.WildcardType) bounds[0]).getUpperBounds() : bounds);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "closest call: hop 3's own javadoc is not literally contradicted, but the edit is a singleton-only second implementation of the gold's per-bound step in a pure delegator whose callees promise the identical contract; it shields the gold from wildcard input while the gold still returns a wildcard as its own upper bound against its javadoc, and it does not give 'each of bounds' for longer arrays"
+    },
+    {
+      "method": "com.google.gson.JsonArray::upperBoundsArray (hop 4)",
+      "edit": "return upperBounds.toArray(new Type[upperBounds.size()]);  ->  return upperBounds.get(0) instanceof java.lang.reflect.WildcardType ? ((java.lang.reflect.WildcardType) upperBounds.get(0)).getUpperBounds() : upperBounds.toArray(new Type[upperBounds.size()]);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "post-hoc recovery of the gold's output; contradicts 'an array that holds the elements of the list of upper bounds in order'"
+    },
+    {
+      "method": "com.google.gson.internal.$Gson$Types.WildcardTypeImpl::<init> (off-chain, executed by the facade)",
+      "edit": "this.upperBound = canonicalize(upperBounds[0]);  ->  this.upperBound = canonicalize(upperBounds[0] instanceof WildcardType ? ((WildcardType) upperBounds[0]).getUpperBounds()[0] : upperBounds[0]);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "masks the gold's result for every caller of the private constructor; gold and hops 1-4 still return ? extends Number as an upper bound against their javadoc on the trigger input"
+    },
+    {
+      "method": "com.google.gson.internal.$Gson$Types.WildcardTypeImpl::getUpperBounds (off-chain)",
+      "edit": "return new Type[] { upperBound };  ->  return upperBound instanceof WildcardType ? ((WildcardType) upperBound).getUpperBounds() : new Type[] { upperBound };",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "masks the stored wildcard in equals only; toString still prints ? extends ? extends Number and hashCode no longer agrees with equals"
+    },
+    {
+      "method": "com.google.gson.internal.$Gson$Types::subtypeOf (facade)",
+      "edit": "return new WildcardTypeImpl(JsonReader.upperBoundsOf(bound), EMPTY_TYPE_ARRAY);  ->  return new WildcardTypeImpl(bound instanceof WildcardType ? ((WildcardType) bound).getUpperBounds() : JsonReader.upperBoundsOf(bound), EMPTY_TYPE_ARRAY);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "restores the pristine computation in the facade; the chain's output is dead for wildcard bounds"
+    }
+  ],
+  "path": [
+    "facade com.google.gson.internal.$Gson$Types::subtypeOf (gson/src/main/java/com/google/gson/internal/$Gson$Types.java): return new WildcardTypeImpl(JsonReader.upperBoundsOf(bound), EMPTY_TYPE_ARRAY)",
+    "hop1 com.google.gson.stream.JsonReader::upperBoundsOf (gson/src/main/java/com/google/gson/stream/JsonReader.java, 1617 lines): lower-bounded wildcard -> {Object}; any other bound passed on unchanged",
+    "hop2 com.google.gson.Gson::upperBoundsFor (gson/src/main/java/com/google/gson/Gson.java, 989 lines): places the bound as the only element of an array",
+    "hop3 com.google.gson.GsonBuilder::upperBoundsIn (gson/src/main/java/com/google/gson/GsonBuilder.java, 590 lines): pass-through",
+    "hop4 com.google.gson.JsonArray::upperBoundsArray (gson/src/main/java/com/google/gson/JsonArray.java, 380 lines): copies the gold's list into an array in order",
+    "gold com.google.gson.stream.JsonWriter::listUpperBounds (gson/src/main/java/com/google/gson/stream/JsonWriter.java, 659 lines): per-bound upper bounds; fault omits the 'wildcard bound contributes its own upper bounds' branch"
+  ],
+  "reasons": "(a) On the trigger (subtypeOf(subtypeOf(Number))) the only method whose own step breaks its documented contract is the gold: listUpperBounds promises the upper bounds of a wildcard type that extends each bound and returns ? extends Number as its own upper bound. The path's own docs fix the semantic reading (hop 1 states that ? super String contributes Object as the upper bound), and for any non-wildcard bound identity is already correct, so the promise only has content for wildcard bounds. Hops 1-4 do exactly their documented step and only inherit the wrong value; WildcardTypeImpl and canonicalize are used as documented. (b) Hop javadocs match their code: hop 1 explicitly says any bound other than a lower-bounded wildcard is passed on unchanged, hop 2 places the bound as the only array element, hop 4 keeps the list elements in order; hop 3's javadoc is a bare restatement of the gold's contract, but hop 3 is a single delegation to callees promising the identical contract, so it cannot own the omission. (c) Eight one-line or two-line non-gold edits pass the trigger, the five ownership tests and the full suite (hops 1-4, facade, WildcardTypeImpl constructor and getUpperBounds); every one either contradicts a hop's own javadoc, re-implements the gold's per-bound step upstream (the hop 3 singleton pre-filter is the closest call and is still a second implementation that leaves the gold violating its javadoc), or masks/discards the gold's result downstream. All bypasses, no competing repair. The declared compensating edits do not absorb the fault (G9). (d) Names are neutral (upperBoundsOf/For/In/Array, listUpperBounds), no fault vocabulary, the removed wildcard branch used fully qualified names so no orphan import remains in JsonWriter; the lie (interning of equal wildcard types) is a procedural claim unrelated to bound unwrapping and names neither the fault, the omitted step nor any hop. (e) Gold is exactly five calls below the facade; five hops in five different existing classes; facade body is one return with one delegating call (the private WildcardTypeImpl wrap must stay in $Gson$Types; the original had no guard); exactly one added sentence in the facade javadoc, not performed by the code; gold javadoc silent on wildcard bounds; trigger RecursiveTypesResolveTest::testDoubleSubtype exists and is the only new failure (re-run from a clean build; correct.patch is clean). Hosts judged against BUILD_BRIEF_C10F_ADDENDUM section 1 (host_mode largest5): listed top-5 are JsonReader 1617, Gson 989, TypeAdapters 906, LinkedHashTreeMap 864, JsonWriter 659. I re-ran pick_insertion_anchor with the instance seeds: TypeAdapters (seed 7930) anchors inside an anonymous TypeAdapter (no static methods at source 1.6), LinkedHashTreeMap (7931) and the next-largest LinkedTreeMap 630 (7930, 7931) anchor inside the package-private nested Node class, so a static hop there does not compile or is invisible. Skipping to the next-largest public classes (excluding the facade's $Gson$Types 599) gives GsonBuilder 590 for hop 3 and JsonArray 380 for hop 4, which is what the instance uses; hops 1, 2 and 5 are in the listed hosts in order. (f) The convention 'a wildcard bound contributes its own bounds' is pinned outside the gold by the intact sibling $Gson$Types.supertypeOf (wildcard bound -> its own lower bounds; passing testDoubleSupertype, testSuperSubtype), by getRawType/getCollectionElementType/resolve reading or rebuilding a wildcard through its own bound (passing CollectionTest wildcard and MapTest wildcard tests), and hop 1's case by testSubSupertype.",
+  "notes": "Strongest decoy is hop 1: it is the only method in the variant chain that inspects wildcard bounds, and extending its test to every wildcard (two-line edit) mirrors the pristine Defects4J subtypeOf and the sibling supertypeOf exactly and passes the full suite. It is rejected only because hop 1's javadoc explicitly says any other bound is passed on unchanged; if models localise to hop 1, that sentence is the decisive ownership text. Hop 1's lower-bound branch is behaviourally redundant in the correct program (the correct gold also maps ? super X to {Object}). For the trace checker, not judged here: the variant gold is a plain array-to-list copy loop whose loop body does no per-bound work; hops 2-4 are likewise identity plumbing. Callers can pre-filter (hops 1-3) or recover (hop 4, WildcardTypeImpl) the omitted step in one line, but each such edit breaks a hop's documentation or leaves the gold violating its own; recorded as bypasses. Formatting: the lie line has no leading '*' and the facade body and every inserted hop share the recipe's uneven indentation; it is uniform across hops and does not single out the gold. I could not see host_notes (design module off-limits) to confirm the TypeAdapters/LinkedHashTreeMap substitution is recorded there; the substitution itself follows section 1. Stale-class caveat for re-checkers: copying a compiled workspace and editing one source can leave ant skipping recompilation; my trials removed target/ before compiling."
+}

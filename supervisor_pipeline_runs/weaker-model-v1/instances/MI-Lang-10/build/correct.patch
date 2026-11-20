@@ -1,0 +1,227 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 98ca1c87b..0ea4b39ea 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -27,6 +27,10 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
+ import org.apache.commons.lang3.mutable.MutableInt;
++import java.text.ParseException;
++import java.util.Date;
++import org.apache.commons.lang3.time.DateParser;
++import org.apache.commons.lang3.time.DateUtils;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like {@code int[]}) and
+@@ -2435,6 +2439,21 @@ public class ArrayUtils {
+         return INDEX_NOT_FOUND;
+     }
+ 
++    /**
++     * <p>Parses the beginning of a String to produce a date with the given parser.</p>
++     *
++     * @param parser  the parser to use, not null
++     * @param str  the String to parse, not null
++     * @param lead  the text put in front of the exception message
++     * @param form  the form the parser expects
++     * @return the parsed date
++     * @throws ParseException if the parser rejects the String
++     */
++    public static Date parseDateWith(DateParser parser, String str, String lead, String form) throws ParseException {
++        return DateUtils.parseLeadingDate(parser, str, lead, form);
++    }
++
++
+     /**
+      * <p>Checks if the value is in the given array.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index d22b9c071..ede5f9f7d 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -24,6 +24,10 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import java.text.ParseException;
++import java.util.Date;
++import org.apache.commons.lang3.builder.ToStringStyle;
++import org.apache.commons.lang3.time.DateParser;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -871,6 +875,28 @@ public class StringUtils {
+         return ordinalIndexOf(str, searchStr, ordinal, false);
+     }
+ 
++    /**
++     * <p>Parses the beginning of a String to produce a date with the given parser.</p>
++     *
++     * <p>When the parser uses the imperial locale, whose calendar has no dates
++     * before 1868 AD, the exception message starts with a note saying so.</p>
++     *
++     * @param parser  the parser to use, not null
++     * @param str  the String to parse, not null
++     * @param form  the form the parser expects, named in the exception message
++     * @param imperial  the imperial locale
++     * @return the parsed date
++     * @throws ParseException if the parser rejects the String
++     */
++    public static Date parseToDate(DateParser parser, String str, String form, Locale imperial) throws ParseException {
++        String lead = "";
++        if (parser.getLocale().equals(imperial)) {
++            lead = "(The " + parser.getLocale() + " locale does not support dates before 1868 AD)\n";
++        }
++        return ToStringStyle.dateFromText(parser, str, lead, form);
++    }
++
++
+     /**
+      * <p>Finds the n-th index within a String, handling {@code null}.
+      * This method uses {@link String#indexOf(String)} if possible.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 8164970a4..811d2f7f8 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,10 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.text.ParseException;
++import java.util.Date;
++import org.apache.commons.lang3.text.StrBuilder;
++import org.apache.commons.lang3.time.DateParser;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -399,6 +403,22 @@ public abstract class ToStringStyle implements Serializable {
+         unregister(object);
+     }
+ 
++    /**
++     * <p>Parses the beginning of a <code>String</code> to produce a date
++     * with the given parser.</p>
++     *
++     * @param parser  the parser to use, not <code>null</code>
++     * @param str  the <code>String</code> to parse, not <code>null</code>
++     * @param lead  the text put in front of the exception message
++     * @param form  the form the parser expects
++     * @return the parsed date
++     * @throws ParseException if the parser rejects the <code>String</code>
++     */
++    public static Date dateFromText(DateParser parser, String str, String lead, String form) throws ParseException {
++        return StrBuilder.readDate(parser, str, lead, form);
++    }
++
++
+     /**
+      * <p>Remove the last field separator from the buffer.</p>
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index e251ef9d7..d30f047b1 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -25,6 +25,9 @@ import java.util.List;
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.text.ParseException;
++import java.util.Date;
++import org.apache.commons.lang3.time.DateParser;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1381,6 +1384,21 @@ public class StrBuilder implements CharSequence, Appendable, Serializable {
+         return appendFixedWidthPadRight(String.valueOf(value), width, padChar);
+     }
+ 
++    /**
++     * Reads a date from the beginning of a string with the given parser.
++     *
++     * @param parser  the parser to use, not null
++     * @param str  the string to read, not null
++     * @param lead  the text put in front of the exception message
++     * @param form  the form the parser expects
++     * @return the date read
++     * @throws ParseException if the parser rejects the string
++     */
++    public static Date readDate(DateParser parser, String str, String lead, String form) throws ParseException {
++        return ArrayUtils.parseDateWith(parser, str, lead, form);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Inserts the string representation of an object into this builder.
+diff --git a/src/main/java/org/apache/commons/lang3/time/DateUtils.java b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+index fa0674666..1423592a6 100644
+--- a/src/main/java/org/apache/commons/lang3/time/DateUtils.java
++++ b/src/main/java/org/apache/commons/lang3/time/DateUtils.java
+@@ -332,6 +332,34 @@ public class DateUtils {
+         return parseDateWithLeniency(str, null, parsePatterns, false);
+     }    
+ 
++    /**
++     * <p>Parses the beginning of a string to produce a date, as
++     * {@link DateParser#parse(String)} does.</p>
++     *
++     * @param parser  the parser to use, not null
++     * @param str  the date to parse, not null
++     * @param lead  the text put in front of the exception message, may be empty
++     * @param form  the form the parser expects, named in the exception message
++     * @return the parsed date
++     * @throws ParseException if the parser rejects the string
++     */
++    public static Date parseLeadingDate(DateParser parser, String str, String lead, String form) throws ParseException {
++        String message = lead + "Unparseable date: \"" + str + "\" does not match " + form;
++        Date date;
++        try {
++            date = parser.parse(str, new ParsePosition(0));
++        } catch (IllegalArgumentException ex) {
++            ParseException pe = new ParseException(message, 0);
++            pe.initCause(ex);
++            throw pe;
++        }
++        if (date == null) {
++            throw new ParseException(message, 0);
++        }
++        return date;
++    }
++
++
+     /**
+      * <p>Parses a string representing a date by trying a variety of different parsers.</p>
+      * 
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateParser.java b/src/main/java/org/apache/commons/lang3/time/FastDateParser.java
+index 8df302f9c..b39a1662c 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateParser.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateParser.java
+@@ -242,22 +242,16 @@ public class FastDateParser implements DateParser, Serializable {
+         return parse(source);
+     }
+ 
+-    /* (non-Javadoc)
++    /**
++     * <p>Parses text from the beginning of the given string to produce a date.
++     * The string is first split at its whitespace, and each piece is then
++     * matched against the field of the pattern at the same position.</p>
++     *
+      * @see org.apache.commons.lang3.time.DateParser#parse(java.lang.String)
+      */
+     @Override
+     public Date parse(String source) throws ParseException {
+-        Date date= parse(source, new ParsePosition(0));
+-        if(date==null) {
+-            // Add a note re supported date range
+-            if (locale.equals(JAPANESE_IMPERIAL)) {
+-                throw new ParseException(
+-                        "(The " +locale + " locale does not support dates before 1868 AD)\n" +
+-                                "Unparseable date: \""+source+"\" does not match "+parsePattern.pattern(), 0);
+-            }
+-            throw new ParseException("Unparseable date: \""+source+"\" does not match "+parsePattern.pattern(), 0);
+-        }
+-        return date;
++        return org.apache.commons.lang3.StringUtils.parseToDate(this, source, parsePattern.pattern(), JAPANESE_IMPERIAL);
+     }
+ 
+     /* (non-Javadoc)

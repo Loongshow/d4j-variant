@@ -1,0 +1,204 @@
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index bc420ca3..081b95fe 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -29,6 +29,8 @@ import java.util.List;
+ import java.util.ListIterator;
+ import java.util.NoSuchElementException;
+ import java.lang.ref.WeakReference;
++import java.util.Enumeration;
++import java.util.Properties;
+ 
+ /**
+  * A doubly-linked list implementation of the {@link List} interface,
+@@ -638,6 +640,18 @@ public class CursorableLinkedList implements List, Serializable {
+         return _size;
+     }
+ 
++    /**
++     * Adds the named properties of a Properties object to an ExtendedProperties.
++     * @param props the properties to read, must not be null
++     * @param names the names of the properties to add, must not be null
++     * @param target the ExtendedProperties to add to, must not be null
++     * @return the target ExtendedProperties
++     */
++    public static ExtendedProperties addNamedProperties(Properties props, Enumeration names, ExtendedProperties target) {
++        return FastArrayList.addStringProperties(props, names, target);
++    }
++
++
+     /**
+      * Returns an array containing all of the elements in this list in proper
+      * sequence.  Obeys the general contract of the {@link Collection#toArray} method.
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e7f44648..df0a1902 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -25,6 +25,7 @@ import java.util.Iterator;
+ import java.util.Map;
+ import java.util.NoSuchElementException;
+ import java.util.Set;
++import java.util.Properties;
+ 
+ /**
+  * Red-Black tree-based implementation of Map. This class guarantees
+@@ -1286,6 +1287,20 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return nodeCount;
+     }
+ 
++    /**
++     * Copies the properties of the specified Properties object into an
++     * ExtendedProperties.
++     *
++     * @param props the properties to copy, must not be null.
++     * @param target the ExtendedProperties to copy into, must not be null.
++     *
++     * @return the target ExtendedProperties.
++     */
++    public static ExtendedProperties copyProperties(Properties props, ExtendedProperties target) {
++        return MapUtils.putProperties(props, target);
++    }
++
++
+     /**
+      * Returns true if this map contains a mapping for the specified
+      * key.
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index 6b113707..2d06655d 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -1715,19 +1715,10 @@ public class ExtendedProperties extends Hashtable {
+      *
+      * @param props  the properties object to convert
+      * @return new ExtendedProperties created from props
++       The property names are first sorted into ascending order, and the properties are then added to the new ExtendedProperties one by one in that order.
+      */
+     public static ExtendedProperties convertProperties(Properties props) {
+-        ExtendedProperties c = new ExtendedProperties();
+-
+-        for (Enumeration e = props.propertyNames(); e.hasMoreElements();) {
+-            String s = (String) e.nextElement();
+-            String value = props.getProperty(s);
+-            if(value != null) {
+-                c.setProperty(s, value);
+-            }
+-        }
+-
+-        return c;
++        return org.apache.commons.collections.bidimap.TreeBidiMap.toExtendedProperties(props);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/collections/FastArrayList.java b/src/java/org/apache/commons/collections/FastArrayList.java
+index 4b11bc42..7c78b0e0 100644
+--- a/src/java/org/apache/commons/collections/FastArrayList.java
++++ b/src/java/org/apache/commons/collections/FastArrayList.java
+@@ -22,6 +22,8 @@ import java.util.ConcurrentModificationException;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.ListIterator;
++import java.util.Enumeration;
++import java.util.Properties;
+ 
+ /**
+  * <p>A customized implementation of <code>java.util.ArrayList</code> designed
+@@ -65,6 +67,9 @@ import java.util.ListIterator;
+  */
+ public class FastArrayList extends ArrayList {
+ 
++    /** Ensure serialization compatibility */
++    private static final long serialVersionUID = 1566341225434603896L;
++
+ 
+     // ----------------------------------------------------------- Constructors
+ 
+@@ -419,6 +424,32 @@ public class FastArrayList extends ArrayList {
+ 
+     }
+ 
++    /**
++     * Add the named properties of a Properties object to an
++     * ExtendedProperties.  Only properties with String values are added.
++     *
++     * @param props The properties to read, must not be null
++     * @param names The names of the properties to add, must not be null
++     * @param target The ExtendedProperties to add to, must not be null
++     * @return the target ExtendedProperties
++     */
++    public static ExtendedProperties addStringProperties(Properties props, Enumeration names, ExtendedProperties target) {
++
++        while (names.hasMoreElements()) {
++            String name = (String) names.nextElement();
++            Object value = props.get(name);
++            if (!(value instanceof String)) {
++                value = props.getProperty(name);
++            }
++            if (value instanceof String) {
++                target.setProperty(name, value);
++            }
++        }
++        return target;
++
++    }
++
++
+ 
+     /**
+      * Return the hash code value for this list.  This implementation uses
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 42afd7df..aeedea51 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -1213,6 +1213,19 @@ public class MapUtils {
+         return !MapUtils.isEmpty(map);
+     }
+ 
++    /**
++     * Puts the properties of a Properties object into an ExtendedProperties,
++     * taking the property names in the order the Properties object lists them.
++     *
++     * @param props  the properties to put, must not be null
++     * @param target  the ExtendedProperties to put into, must not be null
++     * @return the target ExtendedProperties
++     */
++    public static ExtendedProperties putProperties(Properties props, ExtendedProperties target) {
++        return CursorableLinkedList.addNamedProperties(props, props.propertyNames(), target);
++    }
++
++
+     // Map decorators
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index 4c60e28f..f800f418 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -32,6 +32,9 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import java.util.Properties;
++import org.apache.commons.collections.DoubleOrderedMap;
++import org.apache.commons.collections.ExtendedProperties;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -264,6 +267,18 @@ public class TreeBidiMap implements OrderedBidiMap {
+         return doGet((Comparable) value, VALUE);
+     }
+ 
++    /**
++     * Creates a new ExtendedProperties containing the properties of the
++     * specified Properties object.
++     *
++     * @param props  the properties to copy, must not be null
++     * @return a new ExtendedProperties containing the properties
++     */
++    public static ExtendedProperties toExtendedProperties(final Properties props) {
++        return DoubleOrderedMap.copyProperties(props, new ExtendedProperties());
++    }
++
++
+     /**
+      * Removes the mapping for this value from this map if present.
+      * <p>

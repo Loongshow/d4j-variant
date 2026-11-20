@@ -1,0 +1,66 @@
+{
+  "instance": "MI-Collections-19",
+  "task_key": "Collections-19__i",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.collections.CollectionUtils::retainKeptElements (hop 4)",
+      "edit": "replace `PatriciaTrie.removeElementsNotIn(list, kept);` with `for (int n = -1; n != list.size();) { n = list.size(); PatriciaTrie.removeElementsNotIn(list, kept); }`",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why_not_competing": "Re-runs the gold's removal pass to a fixpoint. Under the gold's documented contract one call already removes every element not in the set, so the loop only matters because the gold violates that contract; after the edit each call of the gold still leaves elements its javadoc says it removes. It compensates for the gold rather than giving hop 4 a defensible fault reading (the spec's ownership reason anticipates a caller-side removal of its own)."
+    },
+    {
+      "method": "org.apache.commons.collections.CollectionUtils::retainKeptElements (hop 4)",
+      "edit": "call `PatriciaTrie.removeElementsNotIn(list, kept);` twice",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.collections.CollectionUtils::retainKeptElements (hop 4)",
+      "edit": "replace `PatriciaTrie.removeElementsNotIn(list, kept);` with `list.retainAll(kept);`",
+      "trigger_passes": false,
+      "ownership_tests_pass": false,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "re-enters the facade through SetUniqueList.retainAll (recursion); SetUniqueListTest::testRetainAll also fails; would also make the gold dead"
+    },
+    {
+      "method": "MapUtils::retainSharedElements, CollectionUtils::retainKeptElements, ExtendedProperties::retainMembersOf (declared compensating edits)",
+      "edit": "`==` -> `>=` at hop 3; `kept.isEmpty() || list.isEmpty()` at hop 4; HashSet -> LinkedHashSet at hop 2",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails",
+      "note": "taken from validation gate G9 (trigger still fails for each); hops 1-3 never see a list position, so no edit there can affect which element the gold's index walk skips"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.collections.list.SetUniqueList#retainAll(Collection) [instance, @Override, unchanged signature; passes this (as List<E>) and the protected field set]",
+    "hop1 org.apache.commons.collections.bidimap.TreeBidiMap.retainElementsOf(List, Set, Collection) [pass-through]",
+    "hop2 org.apache.commons.collections.ExtendedProperties.retainMembersOf(List, Set, Collection) [gathers kept = coll ∩ members]",
+    "hop3 org.apache.commons.collections.MapUtils.retainSharedElements(List, Set, Set) [returns false when kept.size() == members.size()]",
+    "hop4 org.apache.commons.collections.CollectionUtils.retainKeptElements(List, Set) [clears on empty kept, else delegates]",
+    "gold org.apache.commons.collections.trie.PatriciaTrie.removeElementsNotIn(List, Set) [forward index walk; `i--` after list.remove(i) omitted]"
+  ],
+  "reasons": "(a) Gold javadoc: removes from the list the elements not in the given set, keeping the others in order. Without the index step back, the element shifted into a removed slot is never examined, so adjacent non-kept elements survive (trigger: expected 3, was 10). Each hop meets its own javadoc given a callee that honours its contract: hop1 passes through, hop2 builds kept = coll ∩ members correctly, hop3's size test is right because kept is a subset of members, and hop4 clears on an empty set and otherwise delegates. Only the gold's own code breaks its contract. (b) No hop javadoc contradicts its code or is loose enough to own a skipped position; hops 1-3 never see positions. (c) No competing repair. Hop-2/3/4 one-line edits fail the trigger. The only passing non-gold edit is a hop-4 fixpoint loop that re-runs the gold, classified as a bypass/compensation. (d) Names are neutral (retainElementsOf/retainMembersOf/retainSharedElements/retainKeptElements/removeElementsNotIn) and G2a/G2b are clean. The facade lie ('copied into a sorted array ... looked up ... by a binary search') is a procedural sentence the code does not do and does not name the omitted step, the gold or any hop. (e) Gold is exactly 5 calls below the facade. The five hops are new public static methods in five distinct existing public classes: TreeBidiMap 2138, ExtendedProperties 1761, MapUtils 1744, CollectionUtils 1486, PatriciaTrie 1447 lines. Only three classes reach 1500 lines, so the C10F addendum section 1 largest-five rule applies; these are the five largest public classes other than SetUniqueList, in descending order hop1->hop5. The facade body is a single delegating call (the original had no guard). The original had no javadoc, so a one-sentence summary plus the lie was added, as the C10i addendum allows. The gold's javadoc is silent on the step-back. test.patch is empty. I re-ran it: the variant compiles, the trigger fails, and the full suite (11788 tests) has only the trigger failing. The correct patch gives 0 failures. (f) The convention is pinned outside the gold: CollectionUtils.filter removes every rejected element through its iterator (CollectionUtilsTest::filter removes both adjacent 3s, passes); AbstractDualBidiMap.View.retainAll uses the same iterator pattern; ListUtils.retainAll (ListUtilsTest::testRetainAll passes); TreeListTest::testCollectionRetainAll, the same abstract test, passes; SetUniqueListTest::testRetainAll passes on the variant. (g) C10i rules: no visibility widened (set is already protected and read inside its own class), no new type or anonymous class, no reflection. Facade signature, modifiers, @Override and throws are unchanged, and no test is edited. SetUniqueList.retainAll is a listed allowed instance facade for Collections-19__i (variant V1+V2, largest5).",
+  "notes": "Cosmetic: the facade's lie line in the added javadoc has no leading ' * ' (it starts with spaces only). It is valid javadoc and points only at the facade's own text, not at the gold, so it is not counted as leakage. Observation outside this audit's scope: the gold's final shape (forward index loop calling list.remove(i) with no index adjustment) is a widely known removal-during-iteration pattern, which is a matter for the trace checker. Bypass recorded: hop-4 fixpoint `for (int n = -1; n != list.size();) { n = list.size(); PatriciaTrie.removeElementsNotIn(list, kept); }` passes the trigger, the ownership tests and the full suite. Static-pair files (MR-Collections-19), designs, history, builder notes, the trace checklist and trace verdicts were not read."
+}

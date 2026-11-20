@@ -1,0 +1,177 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index 836f2121..5f419bd4 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Locale;
+ 
+ import org.apache.commons.compress.archivers.ArchiveEntry;
++import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -563,6 +564,20 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return size;
+     }
+ 
++    /**
++     * Stores a Unix mode in the external attributes of a zip entry, in the
++     * form used for entries made on a Unix system.
++     *
++     * @param entry the zip entry
++     * @param mode the Unix mode
++     */
++    public static void putUnixMode(ZipArchiveEntry entry, int mode) {
++        entry.setExternalAttributes((mode << 16)
++                                    | (entry.isDirectory() ? 0x10 : 0)
++                                    | ((mode & 0200) == 0 ? 1 : 0));
++    }
++
++
+     /**
+      * Set this entry's file size.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
+index db07960a..6c258e1c 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java
+@@ -244,15 +244,10 @@ public class ZipArchiveEntry extends java.util.zip.ZipEntry
+      * Sets Unix permissions in a way that is understood by Info-Zip's
+      * unzip command.
+      * @param mode an <code>int</code> value
++       A mode larger than 07777 is first reduced to its permission bits, so that only the permissions are stored.
+      */
+     public void setUnixMode(int mode) {
+-        // CheckStyle:MagicNumberCheck OFF - no point
+-        setExternalAttributes((mode << SHORT_SHIFT)
+-                              // MS-DOS read-only attribute
+-                              | ((mode & 0200) == 0 ? 1 : 0)
+-                              // MS-DOS directory flag
+-                              | (isDirectory() ? 0x10 : 0));
+-        // CheckStyle:MagicNumberCheck ON
++        org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream.storeUnixMode(this, mode);
+         platform = PLATFORM_UNIX;
+     }
+ 
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index c0aeec9c..2974f025 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -42,6 +42,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -294,6 +295,17 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         return raf != null;
+     }
+ 
++    /**
++     * Applies a Unix mode to the external attributes of an entry.
++     *
++     * @param ze the entry
++     * @param mode the Unix mode
++     */
++    public static void applyUnixMode(ZipArchiveEntry ze, int mode) {
++        BZip2CompressorInputStream.recordUnixMode(ze, mode);
++    }
++
++
+     /**
+      * The encoding to use for filenames and the file comment.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index 32cd670b..b7c88a74 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -38,6 +38,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Replacement for <code>java.util.ZipFile</code>.
+@@ -218,6 +219,17 @@ public class ZipFile {
+         }
+     }
+ 
++    /**
++     * Sets the external attributes of an entry for a Unix mode.
++     *
++     * @param ze the entry
++     * @param mode the Unix mode
++     */
++    public static void setUnixAttributes(ZipArchiveEntry ze, int mode) {
++        TarArchiveEntry.putUnixMode(ze, mode);
++    }
++
++
+     /**
+      * The encoding to use for filenames and the file comment.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
+index 3879bef8..8cc2852f 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java
+@@ -28,6 +28,8 @@ import java.io.IOException;
+ import java.io.InputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorInputStream;
++import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * An input stream that decompresses from the BZip2 format to be read as any other stream.
+@@ -373,6 +375,17 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
+         }
+     }
+ 
++    /**
++     * Records a Unix mode in the attributes of a zip entry.
++     *
++     * @param entry the zip entry
++     * @param mode the Unix mode
++     */
++    public static void recordUnixMode(final ZipArchiveEntry entry, final int mode) {
++        ZipFile.setUnixAttributes(entry, mode);
++    }
++
++
+     private int bsR(final int n) throws IOException {
+         int bsLiveShadow = this.bsLive;
+         int bsBuffShadow = this.bsBuff;
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index a78dbbe7..3ed127d4 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,8 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
++import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -666,6 +668,17 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         }
+     }
+ 
++    /**
++     * Stores a Unix mode in a zip entry.
++     *
++     * @param entry the zip entry
++     * @param mode the Unix mode
++     */
++    public static void storeUnixMode(final ZipArchiveEntry entry, final int mode) {
++        ZipArchiveOutputStream.applyUnixMode(entry, mode);
++    }
++
++
+     private void write0(int b) throws IOException {
+         if (this.currentChar != -1) {
+             b &= 0xff;

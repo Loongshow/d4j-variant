@@ -1,0 +1,219 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java b/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
+index e2ff054bf..8b570a7a3 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
++++ b/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
+@@ -1330,6 +1330,20 @@ targetType, goodValue.getClass()));
+         throw MismatchedInputException.from(getParser(), src.handledType(), msg);
+     }
+ 
++    /**
++     * Method for finding the standard deserializer for values of the given
++     * type, if there is one.
++     *
++     * @param rawType Type of values to deserialize
++     *
++     * @return Deserializer to use, if one is found; null otherwise
++     */
++    public static JsonDeserializer<?> findStandardDeserializer(Class<?> rawType)
++    {
++        return ObjectMapper.standardDeserializerFor(rawType);
++    }
++
++
+     /**
+      * Helper method used to indicate a problem with input in cases where more
+      * specific <code>reportXxx()</code> method was not available.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index 280a3d876..a1bc23aec 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -32,6 +32,11 @@ import com.fasterxml.jackson.databind.util.ClassUtil;
+ import com.fasterxml.jackson.databind.util.RootNameLookup;
+ import com.fasterxml.jackson.databind.util.StdDateFormat;
+ import com.fasterxml.jackson.databind.util.TokenBuffer;
++import java.util.concurrent.atomic.AtomicBoolean;
++import com.fasterxml.jackson.databind.deser.std.AtomicBooleanDeserializer;
++import com.fasterxml.jackson.databind.deser.std.NullifyingDeserializer;
++import com.fasterxml.jackson.databind.deser.std.StackTraceElementDeserializer;
++import com.fasterxml.jackson.databind.deser.std.UUIDDeserializer;
+ 
+ /**
+  * ObjectMapper provides functionality for reading and writing JSON,
+@@ -953,6 +958,32 @@ public class ObjectMapper
+         return this;
+     }
+ 
++    /**
++     * Method for finding the standard deserializer for values of the given
++     * type, if there is one.
++     *
++     * @param rawType Type of values to deserialize
++     *
++     * @return Deserializer to use, if one is found; null otherwise
++     */
++    public static JsonDeserializer<?> standardDeserializerFor(Class<?> rawType)
++    {
++        if (rawType == UUID.class) {
++            return new UUIDDeserializer();
++        }
++        if (rawType == StackTraceElement.class) {
++            return new StackTraceElementDeserializer();
++        }
++        if (rawType == AtomicBoolean.class) {
++            return new AtomicBooleanDeserializer();
++        }
++        if (rawType == Void.class) {
++            return NullifyingDeserializer.instance;
++        }
++        return null;
++    }
++
++
+     /**
+      * The set of {@link Module} typeIds that are registered in this
+      * ObjectMapper. By default the typeId for a module is it's full
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index d313c4207..60a85ff56 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
+ import com.fasterxml.jackson.databind.util.ClassUtil;
++import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -412,6 +413,19 @@ public class ObjectReader
+         return _with(_config.withFeatures(features));
+     }    
+ 
++    /**
++     * Method for locating the standard deserializer to use for values of
++     * the given type.
++     *
++     * @param rawType Type of values to deserialize
++     *
++     * @return Deserializer to use, if one is found; null otherwise
++     */
++    public static JsonDeserializer<?> jdkTypeDeserializer(Class<?> rawType) {
++        return BeanDeserializerBase.standardTypeDeserializer(rawType);
++    }
++
++
+     /**
+      * Method for constructing a new reader instance that is configured
+      * with specified feature disabled.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 2019d1e05..d11d6d12c 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -410,6 +410,26 @@ index, owner, defs[index], propDef);
+                 config.canOverrideAccessModifiers());
+     }
+ 
++    /**
++     * Helper method for locating the deserializer for one of the JDK types
++     * that need special handling. A type that {@link FromStringDeserializer}
++     * supports gets the deserializer found there; any other type gets its
++     * standard deserializer, if there is one.
++     *
++     * @param rawType Type of values to deserialize
++     *
++     * @return Deserializer to use, if one is found; null otherwise
++     */
++    public static JsonDeserializer<?> findJdkTypeDeserializer(Class<?> rawType)
++    {
++        JsonDeserializer<?> deser = FromStringDeserializer.findDeserializer(rawType);
++        if (deser != null) {
++            return deser;
++        }
++        return ObjectReader.jdkTypeDeserializer(rawType);
++    }
++
++
+     /*
+     /**********************************************************
+     /* Creator introspection
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 6ce41f783..74b385368 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -965,6 +965,20 @@ public abstract class BeanDeserializerBase
+         //   bean settings...
+         return Boolean.TRUE;
+     }
++
++    /**
++     * Helper method for finding the standard deserializer for values of
++     * given type, if any.
++     *
++     * @param rawType Type of values to deserialize
++     *
++     * @return Deserializer to use, if one is found; null otherwise
++     */
++    public static JsonDeserializer<?> standardTypeDeserializer(Class<?> rawType)
++    {
++        return DeserializationContext.findStandardDeserializer(rawType);
++    }
++
+     
+     @Override
+     public Class<?> handledType() {
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/ByteBufferDeserializer.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/ByteBufferDeserializer.java
+index 633a7b8d6..37c38f5fe 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/ByteBufferDeserializer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/ByteBufferDeserializer.java
+@@ -11,7 +11,7 @@ public class ByteBufferDeserializer extends StdScalarDeserializer<ByteBuffer>
+ {
+     private static final long serialVersionUID = 1L;
+     
+-    protected ByteBufferDeserializer() { super(ByteBuffer.class); }
++    public ByteBufferDeserializer() { super(ByteBuffer.class); }
+ 
+     @Override
+     public ByteBuffer deserialize(JsonParser parser, DeserializationContext cx) throws IOException {
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/std/JdkDeserializers.java b/src/main/java/com/fasterxml/jackson/databind/deser/std/JdkDeserializers.java
+index 7743deae2..ef7ce6ff7 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/std/JdkDeserializers.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/std/JdkDeserializers.java
+@@ -26,30 +26,17 @@ public class JdkDeserializers
+         for (Class<?> cls : FromStringDeserializer.types()) { _classNames.add(cls.getName()); }
+     }
+ 
++    /**
++     * Method for locating the deserializer for one of the JDK types listed
++     * above, if the given type is one of them; for any other type null is
++     * returned.
++       The listed type names are kept in sorted order, and the given name is located among them by a binary search before its deserializer is created.
++     */
+     public static JsonDeserializer<?> find(Class<?> rawType, String clsName)
+     {
+-        if (_classNames.contains(clsName)) {
+-            JsonDeserializer<?> d = FromStringDeserializer.findDeserializer(rawType);
+-            if (d != null) {
+-                return d;
+-            }
+-            if (rawType == UUID.class) {
+-                return new UUIDDeserializer();
+-            }
+-            if (rawType == StackTraceElement.class) {
+-                return new StackTraceElementDeserializer();
+-            }
+-            if (rawType == AtomicBoolean.class) {
+-                // (note: AtomicInteger/Long work due to single-arg constructor. For now?
+-                return new AtomicBooleanDeserializer();
+-            }
+-            if (rawType == ByteBuffer.class) {
+-                return new ByteBufferDeserializer();
+-            }
+-            if (rawType == Void.class) {
+-                return NullifyingDeserializer.instance;
+-            }
++        if (!_classNames.contains(clsName)) {
++            return null;
+         }
+-        return null;
++        return com.fasterxml.jackson.databind.deser.BasicDeserializerFactory.findJdkTypeDeserializer(rawType);
+     }
+ }

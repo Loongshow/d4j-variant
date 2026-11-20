@@ -1,0 +1,74 @@
+{
+  "instance": "Closure-141",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.google.javascript.jscomp.TypeCheck::gatherVarDecls (hop 4)",
+      "edit": "Compiler.CodeBuilder.addBranchVars(root, vars);  ->  for (Node c = root.getFirstChild(); c != null; c = c.getNext()) { if (c.getType() != Token.FUNCTION) { Compiler.CodeBuilder.addBranchVars(c, vars); } }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "One-line overfit. It skips only functions that are direct children of the root. A probe of the facade still returns a nested function's var for 'if(x){ (function(){var y;})(); }' -> [y], for 'while(1){ if(x){ [function(){ var q; }]; } var r; }' -> [q, r], for the if-BLOCK root of 'if(x){ var p; (function(){var y;})(); }' -> [p, y], and for a FUNCTION root -> [inner]. The correct gold gives [], [r], [p] and []. So the facade's 'excluding descent scopes', the production caller's 'not in an inner scope' and SyntacticScopeCreator.scanVars's 'should not examine function's children' are still broken. It is also wrong for a NAME root, which it no longer records. This is the hop-4 loop the spec itself declares."
+    },
+    {
+      "method": "com.google.javascript.rhino.Node::getDeclaredVars (hop 1, equivalent to a facade post-filter)",
+      "edit": "return Parser.declaredVarMap(root).values();  ->  Collection<Node> vs = Parser.declaredVarMap(root).values(); for (Iterator<Node> it = vs.iterator(); it.hasNext();) { for (Node p = it.next(); p != null; p = p.getParent()) { if (p.getType() == Token.FUNCTION) { it.remove(); break; } if (p == root) { break; } } } return vs;",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Multi-statement, and incorrect. The gold keeps only the first declaration of each name, so when a nested function declares the name first, the branch's own declaration was never recorded. 'function(){var x;} var x;' -> [] and 'if(x){ (function(){var y;})(); var y; }' -> [] (correct: [x] and [y]). This violates hop 1's and the facade's contracts and confirms the spec's claim that removing entries afterwards cannot restore the branch's own var."
+    },
+    {
+      "method": "com.google.javascript.rhino.Parser::declaredVarMap (hop 2)",
+      "edit": "declaredVarMap(Node root) ... new LinkedHashMap<String, Node>();  ->  declaredVarMap(final Node root) ... new LinkedHashMap<String, Node>() { @Override public Node put(String k, Node v) { for (Node p = v; p != null; p = p.getParent()) { if (p.getType() == Token.FUNCTION) { return null; } if (p == root) { break; } } return super.put(k, v); } };",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "A write-intercepting map that re-decides, node by node, which offered vars belong to the branch. It overrides the gold's recording decision with a second scope test outside the gold. The output matches the correct gold on all 14 probe inputs, but the gold, and hops 3 and 4 through it, still offer inner-scope vars, so the gold is still used against its contract. It is an anonymous subclass with an ancestor loop, not a repair as small as the gold's one-condition fix."
+    },
+    {
+      "method": "com.google.javascript.jscomp.TypeCheck::gatherVarDecls (hop 4)",
+      "edit": "gatherVarDecls(Node root, Map<String, Node> vars) { Compiler.CodeBuilder.addBranchVars(root, vars); }  ->  gatherVarDecls(Node root, final Map<String, Node> vars) { NodeUtil.visitPreOrder(root, new NodeUtil.Visitor() { public void visit(Node n) { if (n.getType() == Token.NAME) { Compiler.CodeBuilder.addBranchVars(n, vars); } } }, com.google.common.base.Predicates.<Node>not(new NodeUtil.MatchNodeType(Token.FUNCTION))); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "why": "Hop 4 takes over the tree walk, which is the original VarCollector traversal, and calls the gold only on NAME leaves. The gold's descent branch becomes dead, so the gold's walk is replaced by another implementation."
+    },
+    {
+      "method": "declared compensating edits (hop 4 containsType skip, hop 3 root-is-FUNCTION skip, hop 2 first-child-is-FUNCTION skip)",
+      "edit": "as listed in spec.compensating; re-applied one at a time to the variant",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "The trigger still fails for all three after recompiling, which reproduces G9. Hop 4 drops goo from 'var goo;function(){var foo;}'. Hop 3 has no effect for a SCRIPT root. Hop 2 still returns foo when the first statement is a VAR."
+    }
+  ],
+  "path": [
+    "facade com.google.javascript.jscomp.NodeUtil::getVarsDeclaredInBranch (NodeUtil.java:1650) - no guard; body is one call: return Node.getDeclaredVars(root)",
+    "hop1 com.google.javascript.rhino.Node::getDeclaredVars (Node.java:1304) - return Parser.declaredVarMap(root).values()",
+    "hop2 com.google.javascript.rhino.Parser::declaredVarMap (Parser.java:444) - new LinkedHashMap; TokenStream.addVarDeclarations(root, vars); return vars",
+    "hop3 com.google.javascript.rhino.TokenStream::addVarDeclarations (TokenStream.java:865) - TypeCheck.gatherVarDecls(root, vars)",
+    "hop4 com.google.javascript.jscomp.TypeCheck::gatherVarDecls (TypeCheck.java:1723) - Compiler.CodeBuilder.addBranchVars(root, vars)",
+    "gold com.google.javascript.jscomp.Compiler$CodeBuilder::addBranchVars (Compiler.java:1321) - recursive pre-order walk; records a NAME under VAR when its name is absent; otherwise recurses into children. The variant omits 'if (n.getType() != Token.FUNCTION)' on the recursion"
+  ],
+  "reasons": "Compile OK. Trigger NodeUtilTest::testGetVarsDeclaredInBranch fails with expected:<[]> but was:<[foo]> (input 'function(){var foo;}'). The full variant suite fails only the trigger, and the three ownership tests pass. (a) The gold is the only method on the path that computes anything: it alone walks the tree and decides, node by node, whether to record a name and whether to descend. On the trigger it records foo, a var of the nested anonymous function. That is not a var declared in the branch, given the facade's 'excluding descent scopes', the production caller's 'not in an inner scope' and SyntacticScopeCreator.scanVars. Hops 1-4 are pure pass-throughs, so their outputs are wrong only by inheritance. (b) Each hop's javadoc matches its body: insertion-ordered map, pass-through, 'first declaration'. All share the gold's contract wording, and none promises a step it could own. (c) Four non-gold repairs were run through the trigger, the ownership tests and the full suite. All four pass, but none is a competing repair. The one-line hop-4 child loop is an overfit that still enters functions nested two or more levels deep and a FUNCTION root, so it breaks the facade's contract. A post-filter at hop 1 or the facade loses the branch's own var when an inner function declares the same name first, because the gold keeps first declarations. A write-filtering map at hop 2 and a visitPreOrder re-walk at hop 4 are bypasses: they override or replace the gold's decision or walk. The declared compensating edits all still fail the trigger. (d) Neutral names (getDeclaredVars, declaredVarMap, addVarDeclarations, gatherVarDecls, addBranchVars) and no fault vocabulary. The variant gold reads as an ordinary 'if NAME record, else recurse'. The lie ('flattened level by level ... sorted alphabetically') is a false procedure; it names neither functions nor scopes nor the skipped descent. (e) The gold is exactly 5 calls below the facade. Hosts are 5 distinct existing classes: Node, Parser, TokenStream, TypeCheck, Compiler.CodeBuilder. The facade is one delegating call (the original had no guard) and carries one added false procedural sentence; there is no level-order flattening and no sort, and order is pre-order first declaration. The gold's javadoc is silent on functions and scopes. The trigger is an existing test and the only new failure. (f) The convention is pinned outside the gold: by SyntacticScopeCreator.scanVars ('should not examine function's children'); by the javadoc of NodeUtil.redeclareVarsInsideBranch ('not in an inner scope'); by the facade's original 'excluding descent scopes'; and by passing tests: SyntacticScopeCreatorTest.testFunctionScope (y in a nested function is not declared globally) and FoldConstantsTest.testVarLifting ('if(false)var a=function(){var b};' lifts only a).",
+  "notes": "Residual interpretive point. The gold's and hops' shared phrase 'vars declared in a branch' could be read literally as every var whose declaration appears anywhere in the subtree. Under that reading only the facade ('excluding descent scopes') would be violated. Even then, no small non-bypass facade or hop repair exists, because first-declaration-wins makes post-filtering unrecoverable (demonstrated above). The pins and the production caller make the scope-aware reading the natural one, so I do not consider ownership genuinely arguable. Weak pins: testVarLifting passes on the variant too, because the gold never descends into a NAME's initializer, so it pins the convention but does not discriminate. testRemovalRequiresRedeclaration pins redeclaration, not function exclusion. testFunctionScope exercises the sibling SyntacticScopeCreator, not the chain. The existing suite also accepts the one-line hop-4 overfit (full suite clean), because only the trigger probes function exclusion, and only with depth-1 functions. Cosmetic transform artifacts: the facade's lie line lacks the javadoc ' * ' prefix and the body is indented 8 spaces; hop 4's javadoc is misindented; TokenStream (rhino) now imports jscomp.TypeCheck. None of them points at the gold. The correct patch matched the pristine VarCollector implementation on all 14 probe inputs. Scratch: /private/tmp/mxb-NMEtcF (deleted after the audit)."
+}

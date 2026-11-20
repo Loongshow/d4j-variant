@@ -1,0 +1,196 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index e7571f6ea..7fc3e64e5 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -2768,6 +2768,26 @@ public class ArrayUtils {
+         return result;
+     }
+ 
++    /**
++     * <p>Escapes the characters of an array and appends the result to a
++     * <code>StringBuffer</code>.</p>
++     *
++     * @param buffer  the <code>StringBuffer</code> to append to, not null
++     * @param array  the characters to escape, not null
++     */
++    public static void appendEscapedChars(StringBuffer buffer, char[] array) {
++        for (int i = 0; i < array.length; i++) {
++            char c = array[i];
++            String entityName = Entities.HTML40.entityName(c);
++            if (entityName == null) {
++                buffer.append(c);
++            } else {
++                buffer.append('&').append(entityName).append(';');
++            }
++        }
++    }
++
++
+     /**
+      * <p>Converts an array of object Booleans to primitives handling <code>null</code>.</p>
+      * 
+diff --git a/src/java/org/apache/commons/lang/StringEscapeUtils.java b/src/java/org/apache/commons/lang/StringEscapeUtils.java
+index db2d7bd47..28b2c8173 100644
+--- a/src/java/org/apache/commons/lang/StringEscapeUtils.java
++++ b/src/java/org/apache/commons/lang/StringEscapeUtils.java
+@@ -441,21 +441,13 @@ public class StringEscapeUtils {
+      * @see <a href="http://www.w3.org/TR/REC-html40/sgml/entities.html">HTML 4.0 Character entity references</a>
+      * @see <a href="http://www.w3.org/TR/html401/charset.html#h-5.3">HTML 4.01 Character References</a>
+      * @see <a href="http://www.w3.org/TR/html401/charset.html#code-position">HTML 4.01 Code positions</a>
++       The <code>String</code> is first split into lines at each line terminator, and each line is escaped on its own before the escaped lines are joined again.
+      */
+     public static String escapeHtml(String str) {
+         if (str == null) {
+             return null;
+         }
+-        try {
+-            StringWriter writer = new StringWriter ((int)(str.length() * 1.5));
+-            escapeHtml(writer, str);
+-            return writer.toString();
+-        } catch (IOException e) {
+-            //assert false;
+-            //should be impossible
+-            e.printStackTrace();
+-            return null;
+-        }
++        return org.apache.commons.lang.builder.ToStringStyle.htmlTextOf(str);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index 6cda31df7..e70fdd775 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -20,6 +20,7 @@ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Iterator;
+ import java.util.List;
++import org.apache.commons.lang.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -4603,6 +4604,23 @@ public class StringUtils {
+         return true;
+     }
+ 
++    /**
++     * <p>Escapes an array of characters using HTML entities and appends them
++     * to a <code>StringBuffer</code>.</p>
++     *
++     * <p>An empty array appends nothing.</p>
++     *
++     * @param buffer  the <code>StringBuffer</code> to append to, not null
++     * @param chars  the characters to escape, not null
++     */
++    public static void appendHtmlChars(StringBuffer buffer, char[] chars) {
++        if (chars.length == 0) {
++            return;
++        }
++        FastDateFormat.appendEntitiesTo(buffer, chars);
++    }
++
++
+     /**
+      * <p>Checks if the String contains only unicode digits or space
+      * (<code>' '</code>).
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index d786edc36..d742c2d14 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -740,6 +741,23 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Escapes the characters in a <code>String</code> using HTML entities.</p>
++     *
++     * <p>The escaped characters are collected in a <code>StringBuffer</code>
++     * with room for one and a half times the length of the
++     * <code>String</code>.</p>
++     *
++     * @param str  the <code>String</code> to escape, not null
++     * @return a new escaped <code>String</code>
++     */
++    public static String htmlTextOf(String str) {
++        StringBuffer buffer = new StringBuffer((int) (str.length() * 1.5));
++        StrBuilder.appendHtmlText(buffer, str);
++        return buffer.toString();
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>double</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 13281cefe..8a9a23300 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1877,6 +1878,21 @@ public class StrBuilder implements Cloneable {
+         return true;
+     }
+ 
++    /**
++     * <p>Escapes the characters in a <code>String</code> using HTML entities
++     * and appends them to a <code>StringBuffer</code>.</p>
++     *
++     * <p>The characters of the <code>String</code> are taken as a char
++     * array.</p>
++     *
++     * @param buffer  the <code>StringBuffer</code> to append to, not null
++     * @param str  the <code>String</code> to escape, not null
++     */
++    public static void appendHtmlText(StringBuffer buffer, String str) {
++        StringUtils.appendHtmlChars(buffer, str.toCharArray());
++    }
++
++
+     /**
+      * Checks whether this builder ends with the specified string.
+      * <p>
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index 0be752ba7..6da3dff79 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.ArrayUtils;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -406,6 +407,18 @@ public class FastDateFormat extends Format {
+             int dateStyle, int timeStyle) {
+         return getDateTimeInstance(dateStyle, timeStyle, null, null);
+     }
++
++    /**
++     * <p>Escapes an array of characters using HTML entities and appends them
++     * to a <code>StringBuffer</code>.</p>
++     *
++     * @param buffer  the buffer to append to, not null
++     * @param chars  the characters to escape, not null
++     */
++    public static void appendEntitiesTo(StringBuffer buffer, char[] chars) {
++        ArrayUtils.appendEscapedChars(buffer, chars);
++    }
++
+     
+     /**
+      * <p>Gets a date/time formatter instance using the specified style and

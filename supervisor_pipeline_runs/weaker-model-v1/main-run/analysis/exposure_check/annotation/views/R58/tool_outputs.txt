@@ -1,0 +1,1344 @@
+# Run R58: tool outputs (complete)
+
+### output #1
+<returncode>0</returncode>
+<output>
+src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java:27:public class TarUtilsTest extends TestCase {
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:36:public class TarUtils {
+grep: test: No such file or directory
+src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java:114:        TarUtils.formatLongOctalBytes(value, buffer, 0, buffer.length);
+src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java:164:        TarUtils.formatLongOctalBytes(123, buffer, 0, buffer.length);
+src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java:167:        TarUtils.formatOctalBytes(123, buffer, 0, buffer.length);
+src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java:171:        TarUtils.formatCheckSumOctalBytes(123, buffer, 0, buffer.length);
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:893:        TarUtils.formatCheckSumOctalBytes(chk, outbuf, csOffset, CHKSUMLEN);
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:918:            return TarUtils.formatLongOctalBytes(0, outbuf, offset, length);
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:417:    public static int formatOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:435:    public static int formatLongOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:470:            return formatLongOctalBytes(value, buf, offset, length);
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:532:    public static int formatCheckSumOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+</output>
+
+### output #2
+<returncode>0</returncode>
+<output>
+     1	/*
+     2	 * Licensed to the Apache Software Foundation (ASF) under one
+     3	 * or more contributor license agreements.  See the NOTICE file
+     4	 * distributed with this work for additional information
+     5	 * regarding copyright ownership.  The ASF licenses this file
+     6	 * to you under the Apache License, Version 2.0 (the
+     7	 * "License"); you may not use this file except in compliance
+     8	 * with the License.  You may obtain a copy of the License at
+     9	 *
+    10	 * http://www.apache.org/licenses/LICENSE-2.0
+    11	 *
+    12	 * Unless required by applicable law or agreed to in writing,
+    13	 * software distributed under the License is distributed on an
+    14	 * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    15	 * KIND, either express or implied.  See the License for the
+    16	 * specific language governing permissions and limitations
+    17	 * under the License.
+    18	 */
+    19	package org.apache.commons.compress.archivers.tar;
+    20	
+    21	import static org.apache.commons.compress.archivers.tar.TarConstants.CHKSUMLEN;
+    22	import static org.apache.commons.compress.archivers.tar.TarConstants.CHKSUM_OFFSET;
+    23	
+    24	import java.io.IOException;
+    25	import java.math.BigInteger;
+    26	import java.nio.ByteBuffer;
+    27	import org.apache.commons.compress.archivers.zip.ZipEncoding;
+    28	import org.apache.commons.compress.archivers.zip.ZipEncodingHelper;
+    29	
+    30	/**
+    31	 * This class provides static utility methods to work with byte streams.
+    32	 *
+    33	 * @Immutable
+    34	 */
+    35	// CheckStyle:HideUtilityClassConstructorCheck OFF (bc)
+    36	public class TarUtils {
+    37	
+    38	    private static final int BYTE_MASK = 255;
+    39	
+    40	    static final ZipEncoding DEFAULT_ENCODING =
+    41	        ZipEncodingHelper.getZipEncoding(null);
+    42	
+    43	    /**
+    44	     * Encapsulates the algorithms used up to Commons Compress 1.3 as
+    45	     * ZipEncoding.
+    46	     */
+    47	    static final ZipEncoding FALLBACK_ENCODING = new ZipEncoding() {
+    48	            public boolean canEncode(String name) { return true; }
+    49	
+    50	            public ByteBuffer encode(String name) {
+    51	                final int length = name.length();
+    52	                byte[] buf = new byte[length];
+    53	
+    54	                // copy until end of input or output is reached.
+    55	                for (int i = 0; i < length; ++i) {
+    56	                    buf[i] = (byte) name.charAt(i);
+    57	                }
+    58	                return ByteBuffer.wrap(buf);
+    59	            }
+    60	
+    61	            public String decode(byte[] buffer) {
+    62	                final int length = buffer.length;
+    63	                StringBuffer result = new StringBuffer(length);
+    64	
+    65	                for (int i = 0; i < length; ++i) {
+    66	                    byte b = buffer[i];
+    67	                    if (b == 0) { // Trailing null
+    68	                        break;
+    69	                    }
+    70	                    result.append((char) (b & 0xFF)); // Allow for sign-extension
+    71	                }
+    72	
+    73	                return result.toString();
+    74	            }
+    75	        };
+    76	
+    77	    /** Private constructor to prevent instantiation of this utility class. */
+    78	    private TarUtils(){
+    79	    }
+    80	
+    81	    /**
+    82	     * Parse an octal string from a buffer.
+    83	     *
+    84	     * <p>Leading spaces are ignored.
+    85	     * The buffer must contain a trailing space or NUL,
+    86	     * and may contain an additional trailing space or NUL.</p>
+    87	     *
+    88	     * <p>The input buffer is allowed to contain all NULs,
+    89	     * in which case the method returns 0L
+    90	     * (this allows for missing fields).</p>
+    91	     *
+    92	     * <p>To work-around some tar implementations that insert a
+    93	     * leading NUL this method returns 0 if it detects a leading NUL
+    94	     * since Commons Compress 1.4.</p>
+    95	     *
+    96	     * @param buffer The buffer from which to parse.
+    97	     * @param offset The offset into the buffer from which to parse.
+    98	     * @param length The maximum number of bytes to parse - must be at least 2 bytes.
+    99	     * @return The long value of the octal string.
+   100	     * @throws IllegalArgumentException if the trailing space/NUL is missing or if a invalid byte is detected.
+   101	     */
+   102	    public static long parseOctal(final byte[] buffer, final int offset, final int length) {
+   103	        long    result = 0;
+   104	        int     end = offset + length;
+   105	        int     start = offset;
+   106	
+   107	        if (length < 2){
+   108	            throw new IllegalArgumentException("Length "+length+" must be at least 2");
+   109	        }
+   110	
+   111	        if (buffer[start] == 0) {
+   112	            return 0L;
+   113	        }
+   114	
+   115	        // Skip leading spaces
+   116	        while (start < end){
+   117	            if (buffer[start] == ' '){
+   118	                start++;
+   119	            } else {
+   120	                break;
+   121	            }
+   122	        }
+   123	
+   124	        // Must have trailing NUL or space
+   125	        byte trailer;
+   126	        trailer = buffer[end-1];
+   127	        if (trailer == 0 || trailer == ' '){
+   128	            end--;
+   129	        } else {
+   130	            throw new IllegalArgumentException(
+   131	                    exceptionMessage(buffer, offset, length, end-1, trailer));
+   132	        }
+   133	        // May have additional NULs or spaces
+   134	        trailer = buffer[end - 1];
+   135	        while (start < end - 1 && (trailer == 0 || trailer == ' ')) {
+   136	            end--;
+   137	            trailer = buffer[end - 1];
+   138	        }
+   139	
+   140	        for ( ;start < end; start++) {
+   141	            final byte currentByte = buffer[start];
+   142	            // CheckStyle:MagicNumber OFF
+   143	            if (currentByte < '0' || currentByte > '7'){
+   144	                throw new IllegalArgumentException(
+   145	                        exceptionMessage(buffer, offset, length, start, currentByte));
+   146	            }
+   147	            result = (result << 3) + (currentByte - '0'); // convert from ASCII
+   148	            // CheckStyle:MagicNumber ON
+   149	        }
+   150	
+   151	        return result;
+   152	    }
+   153	
+   154	    /** 
+   155	     * Compute the value contained in a byte buffer.  If the most
+   156	     * significant bit of the first byte in the buffer is set, this
+   157	     * bit is ignored and the rest of the buffer is interpreted as a
+   158	     * binary number.  Otherwise, the buffer is interpreted as an
+   159	     * octal number as per the parseOctal function above.
+   160	     *
+   161	     * @param buffer The buffer from which to parse.
+   162	     * @param offset The offset into the buffer from which to parse.
+   163	     * @param length The maximum number of bytes to parse.
+   164	     * @return The long value of the octal or binary string.
+   165	     * @throws IllegalArgumentException if the trailing space/NUL is
+   166	     * missing or an invalid byte is detected in an octal number, or
+   167	     * if a binary number would exceed the size of a signed long
+   168	     * 64-bit integer.
+   169	     * @since 1.4
+   170	     */
+   171	    public static long parseOctalOrBinary(final byte[] buffer, final int offset,
+   172	                                          final int length) {
+   173	
+   174	        if ((buffer[offset] & 0x80) == 0) {
+   175	            return parseOctal(buffer, offset, length);
+   176	        }
+   177	        final boolean negative = buffer[offset] == (byte) 0xff;
+   178	        if (length < 9) {
+   179	            return parseBinaryLong(buffer, offset, length, negative);
+   180	        }
+   181	        return parseBinaryBigInteger(buffer, offset, length, negative);
+   182	    }
+   183	
+   184	    private static long parseBinaryLong(final byte[] buffer, final int offset,
+   185	                                        final int length,
+   186	                                        final boolean negative) {
+   187	        if (length >= 9) {
+   188	            throw new IllegalArgumentException("At offset " + offset + ", "
+   189	                                               + length + " byte binary number"
+   190	                                               + " exceeds maximum signed long"
+   191	                                               + " value");
+   192	        }
+   193	        long val = 0;
+   194	        for (int i = 1; i < length; i++) {
+   195	            val = (val << 8) + (buffer[offset + i] & 0xff);
+   196	        }
+   197	        if (negative) {
+   198	            // 2's complement
+   199	            val--;
+   200	            val ^= ((long) Math.pow(2, (length - 1) * 8) - 1);
+   201	        }
+   202	        return negative ? -val : val;
+   203	    }
+   204	
+   205	    private static long parseBinaryBigInteger(final byte[] buffer,
+   206	                                              final int offset,
+   207	                                              final int length,
+   208	                                              final boolean negative) {
+   209	        byte[] remainder = new byte[length - 1];
+   210	        System.arraycopy(buffer, offset + 1, remainder, 0, length - 1);
+   211	        BigInteger val = new BigInteger(remainder);
+   212	        if (negative) {
+   213	            // 2's complement
+   214	            val = val.add(BigInteger.valueOf(-1)).not();
+   215	        }
+   216	        if (val.bitLength() > 63) {
+   217	            throw new IllegalArgumentException("At offset " + offset + ", "
+   218	                                               + length + " byte binary number"
+   219	                                               + " exceeds maximum signed long"
+   220	                                               + " value");
+   380	        remaining--;
+   381	        if (value == 0) {
+   382	            buffer[offset + remaining--] = (byte) '0';
+   383	        } else {
+   384	            long val = value;
+   385	            for (; remaining >= 0 && val != 0; --remaining) {
+   386	                // CheckStyle:MagicNumber OFF
+   387	                buffer[offset + remaining] = (byte) ((byte) '0' + (byte) (val & 7));
+   388	                val = val >>> 3;
+   389	                // CheckStyle:MagicNumber ON
+   390	            }
+   391	            if (val != 0){
+   392	                throw new IllegalArgumentException
+   393	                (value+"="+Long.toOctalString(value)+ " will not fit in octal number buffer of length "+length);
+   394	            }
+   395	        }
+   396	
+   397	        for (; remaining >= 0; --remaining) { // leading zeros
+   398	            buffer[offset + remaining] = (byte) '0';
+   399	        }
+   400	    }
+   401	
+   402	    /**
+   403	     * Write an octal integer into a buffer.
+   404	     *
+   405	     * Uses {@link #formatUnsignedOctalString} to format
+   406	     * the value as an octal string with leading zeros.
+   407	     * The converted number is followed by space and NUL
+   408	     * 
+   409	     * @param value The value to write
+   410	     * @param buf The buffer to receive the output
+   411	     * @param offset The starting offset into the buffer
+   412	     * @param length The size of the output buffer
+   413	     * @return The updated offset, i.e offset+length
+   414	     * @throws IllegalArgumentException if the value (and trailer) will not fit in the buffer
+   415	       The digits are produced two at a time from six-bit groups of the value, using a lookup table of the sixty-four digit pairs.
+   416	     */
+   417	    public static int formatOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+   418	        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.writeOctalField(value, buf, offset, length);
+   419	    }
+   420	
+   421	    /**
+   422	     * Write an octal long integer into a buffer.
+   423	     * 
+   424	     * Uses {@link #formatUnsignedOctalString} to format
+   425	     * the value as an octal string with leading zeros.
+   426	     * The converted number is followed by a space.
+   427	     * 
+   428	     * @param value The value to write as octal
+   429	     * @param buf The destinationbuffer.
+   430	     * @param offset The starting offset into the buffer.
+   431	     * @param length The length of the buffer
+   432	     * @return The updated offset
+   433	     * @throws IllegalArgumentException if the value (and trailer) will not fit in the buffer
+   434	     */
+   435	    public static int formatLongOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+   436	
+   437	        int idx=length-1; // For space
+   438	
+   439	        formatUnsignedOctalString(value, buf, offset, idx);
+   440	        buf[offset + idx] = (byte) ' '; // Trailing space
+   441	
+   442	        return offset + length;
+   443	    }
+   444	
+   445	    /**
+   446	     * Write an long integer into a buffer as an octal string if this
+   447	     * will fit, or as a binary number otherwise.
+   448	     * 
+   449	     * Uses {@link #formatUnsignedOctalString} to format
+   450	     * the value as an octal string with leading zeros.
+   451	     * The converted number is followed by a space.
+   452	     * 
+   453	     * @param value The value to write into the buffer.
+   454	     * @param buf The destination buffer.
+   455	     * @param offset The starting offset into the buffer.
+   456	     * @param length The length of the buffer.
+   457	     * @return The updated offset.
+   458	     * @throws IllegalArgumentException if the value (and trailer)
+   459	     * will not fit in the buffer.
+   460	     * @since 1.4
+   461	     */
+   462	    public static int formatLongOctalOrBinaryBytes(
+   463	        final long value, byte[] buf, final int offset, final int length) {
+   464	
+   465	        // Check whether we are dealing with UID/GID or SIZE field
+   466	        final long maxAsOctalChar = length == TarConstants.UIDLEN ? TarConstants.MAXID : TarConstants.MAXSIZE;
+   467	
+   468	        final boolean negative = value < 0;
+   469	        if (!negative && value <= maxAsOctalChar) { // OK to store as octal chars
+   470	            return formatLongOctalBytes(value, buf, offset, length);
+   471	        }
+   472	
+   473	        if (length < 9) {
+   474	            formatLongBinary(value, buf, offset, length, negative);
+   475	        }
+   476	        formatBigIntegerBinary(value, buf, offset, length, negative);
+   477	
+   478	        buf[offset] = (byte) (negative ? 0xff : 0x80);
+   479	        return offset + length;
+   480	    }
+   481	
+   482	    private static void formatLongBinary(final long value, byte[] buf,
+   483	                                         final int offset, final int length,
+   484	                                         final boolean negative) {
+   485	        final int bits = (length - 1) * 8;
+   486	        final long max = 1l << bits;
+   487	        long val = Math.abs(value);
+   488	        if (val >= max) {
+   489	            throw new IllegalArgumentException("Value " + value +
+   490	                " is too large for " + length + " byte field.");
+   491	        }
+   492	        if (negative) {
+   493	            val ^= max - 1;
+   494	            val |= 0xff << bits;
+   495	            val++;
+   496	        }
+   497	        for (int i = offset + length - 1; i >= offset; i--) {
+   498	            buf[i] = (byte) val;
+   499	            val >>= 8;
+   500	        }
+   501	    }
+   502	
+   503	    private static void formatBigIntegerBinary(final long value, byte[] buf,
+   504	                                               final int offset,
+   505	                                               final int length,
+   506	                                               final boolean negative) {
+   507	        BigInteger val = BigInteger.valueOf(value);
+   508	        final byte[] b = val.toByteArray();
+   509	        final int len = b.length;
+   510	        final int off = offset + length - len;
+   511	        System.arraycopy(b, 0, buf, off, len);
+   512	        final byte fill = (byte) (negative ? 0xff : 0);
+   513	        for (int i = offset + 1; i < off; i++) {
+   514	            buf[i] = fill;
+   515	        }
+   516	    }
+   517	
+   518	    /**
+   519	     * Writes an octal value into a buffer.
+   520	     * 
+   521	     * Uses {@link #formatUnsignedOctalString} to format
+   522	     * the value as an octal string with leading zeros.
+   523	     * The converted number is followed by NUL and then space.
+   524	     *
+   525	     * @param value The value to convert
+   526	     * @param buf The destination buffer
+   527	     * @param offset The starting offset into the buffer.
+   528	     * @param length The size of the buffer.
+   529	     * @return The updated value of offset, i.e. offset+length
+   530	     * @throws IllegalArgumentException if the value (and trailer) will not fit in the buffer
+   531	     */
+   532	    public static int formatCheckSumOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+   533	
+   534	        int idx=length-2; // for NUL and space
+   535	        formatUnsignedOctalString(value, buf, offset, idx);
+   536	
+   537	        buf[offset + idx++]   = 0; // Trailing null
+   538	        buf[offset + idx]     = (byte) ' '; // Trailing space
+   539	
+   540	        return offset + length;
+   541	    }
+   542	
+   543	    /**
+   544	     * Compute the checksum of a tar entry header.
+   545	     *
+   546	     * @param buf The tar entry's header buffer.
+   547	     * @return The computed checksum.
+   548	     */
+   549	    public static long computeCheckSum(final byte[] buf) {
+   550	        long sum = 0;
+   551	
+   552	        for (int i = 0; i < buf.length; ++i) {
+   553	            sum += BYTE_MASK & buf[i];
+   554	        }
+   555	
+   130	        checkRoundTripOctal(0, TarConstants.UIDLEN);
+   131	        checkRoundTripOctal(1, TarConstants.UIDLEN);
+   132	        checkRoundTripOctal(TarConstants.MAXID, 8);
+   133	    }
+   134	
+   135	    private void checkRoundTripOctalOrBinary(final long value, final int bufsize) {
+   136	        byte [] buffer = new byte[bufsize];
+   137	        long parseValue;
+   138	        TarUtils.formatLongOctalOrBinaryBytes(value, buffer, 0, buffer.length);
+   139	        parseValue = TarUtils.parseOctalOrBinary(buffer,0, buffer.length);
+   140	        assertEquals(value,parseValue);
+   141	    }
+   142	
+   143	    public void testRoundTripOctalOrBinary8() {
+   144	        testRoundTripOctalOrBinary(8);
+   145	    }
+   146	
+   147	    public void testRoundTripOctalOrBinary12() {
+   148	        testRoundTripOctalOrBinary(12);
+   149	        checkRoundTripOctalOrBinary(Long.MAX_VALUE, 12);
+   150	        checkRoundTripOctalOrBinary(Long.MIN_VALUE + 1, 12);
+   151	    }
+   152	
+   153	    private void testRoundTripOctalOrBinary(int length) {
+   154	        checkRoundTripOctalOrBinary(0, length);
+   155	        checkRoundTripOctalOrBinary(1, length);
+   156	        checkRoundTripOctalOrBinary(TarConstants.MAXSIZE, length); // will need binary format
+   157	        checkRoundTripOctalOrBinary(-1, length); // will need binary format
+   158	        checkRoundTripOctalOrBinary(0xff00000000000001l, length);
+   159	    }
+   160	
+   161	    // Check correct trailing bytes are generated
+   162	    public void testTrailers() {
+   163	        byte [] buffer = new byte[12];
+   164	        TarUtils.formatLongOctalBytes(123, buffer, 0, buffer.length);
+   165	        assertEquals(' ', buffer[buffer.length-1]);
+   166	        assertEquals('3', buffer[buffer.length-2]); // end of number
+   167	        TarUtils.formatOctalBytes(123, buffer, 0, buffer.length);
+   168	        assertEquals(0  , buffer[buffer.length-1]);
+   169	        assertEquals(' ', buffer[buffer.length-2]);
+   170	        assertEquals('3', buffer[buffer.length-3]); // end of number
+   171	        TarUtils.formatCheckSumOctalBytes(123, buffer, 0, buffer.length);
+   172	        assertEquals(' ', buffer[buffer.length-1]);
+   173	        assertEquals(0  , buffer[buffer.length-2]);
+   174	        assertEquals('3', buffer[buffer.length-3]); // end of number
+   175	    }
+   176	
+   177	    public void testNegative() throws Exception {
+   178	        byte [] buffer = new byte[22];
+   179	        TarUtils.formatUnsignedOctalString(-1, buffer, 0, buffer.length);
+   180	        assertEquals("1777777777777777777777", new String(buffer, CharsetNames.UTF_8));
+   181	    }
+   182	
+   183	    public void testOverflow() throws Exception {
+   184	        byte [] buffer = new byte[8-1]; // a lot of the numbers have 8-byte buffers (nul term)
+   185	        TarUtils.formatUnsignedOctalString(07777777L, buffer, 0, buffer.length);
+</output>
+
+### output #3
+<returncode>0</returncode>
+<output>
+Running ant (compile.tests)................................................ OK
+Running ant (run.dev.tests)................................................ OK
+Failing tests: 1
+  - org.apache.commons.compress.archivers.tar.TarUtilsTest::testTrailers
+</output>
+
+### output #4
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java:442:    public static int writeOctalField(final long value, final byte[] buf, final int offset, final int length) {
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:418:        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.writeOctalField(value, buf, offset, length);
+422-   422	        writeZip64CentralDirectory();
+423-   423	        writeCentralDirectoryEnd();
+424-   424	        offsets.clear();
+425-   425	        entries.clear();
+426-   426	        def.end();
+427-   427	        finished = true;
+428-   428	    }
+429-   429	
+430-   430	    /**
+431-   431	     * Writes a value into a header field as an octal number followed by
+432-   432	     * a space and a NUL.
+433-   433	     *
+434-   434	     * @param value the value to write, treated as unsigned
+435-   435	     * @param buf the buffer to receive the field
+436-   436	     * @param offset the starting offset of the field
+437-   437	     * @param length the size of the field, including the space and the NUL
+438-   438	     * @return the updated offset, i.e. offset + length
+439-   439	     * @throws IllegalArgumentException if the value and the two trailing
+440-   440	     * bytes will not fit in the field
+441-   441	     */
+442:   442	    public static int writeOctalField(final long value, final byte[] buf, final int offset, final int length) {
+443-   443	        final int end = BZip2CompressorOutputStream.putOctal(value, buf, offset, length - 2);
+444-   444	        buf[end] = (byte) ' ';
+445-   445	        buf[end + 1] = 0;
+446-   446	        return end + 2;
+447-   447	    }
+448-   448	
+449-   449	
+450-   450	    /**
+451-   451	     * Writes all necessary data for this entry.
+452-   452	     * @throws IOException on error
+453-   453	     * @throws Zip64RequiredException if the entry's uncompressed or
+454-   454	     * compressed size exceeds 4 GByte and {@link #setUseZip64} 
+455-   455	     * is {@link Zip64Mode#Never}.
+456-   456	     */
+457-   457	    @Override
+458-   458	    public void closeArchiveEntry() throws IOException {
+459-   459	        if (finished) {
+460-   460	            throw new IOException("Stream has already been finished");
+461-   461	        }
+462-   462	
+</output>
+
+### output #5
+<returncode>0</returncode>
+<output>
+   320	        } catch (IOException ex) {
+   321	            try {
+   322	                return formatNameBytes(name, buf, offset, length,
+   323	                                       FALLBACK_ENCODING);
+   324	            } catch (IOException ex2) {
+   325	                // impossible
+   326	                throw new RuntimeException(ex2);
+   327	            }
+   328	        }
+   329	    }
+   330	
+   331	    /**
+   332	     * Copy a name into a buffer.
+   333	     * Copies characters from the name into the buffer
+   334	     * starting at the specified offset. 
+   335	     * If the buffer is longer than the name, the buffer
+   336	     * is filled with trailing NULs.
+   337	     * If the name is longer than the buffer,
+   338	     * the output is truncated.
+   339	     *
+   340	     * @param name The header name from which to copy the characters.
+   341	     * @param buf The buffer where the name is to be stored.
+   342	     * @param offset The starting offset into the buffer
+   343	     * @param length The maximum number of header bytes to copy.
+   344	     * @param encoding name of the encoding to use for file names
+   345	     * @since Commons Compress 1.4
+   346	     * @return The updated offset, i.e. offset + length
+   347	     */
+   348	    public static int formatNameBytes(String name, byte[] buf, final int offset,
+   349	                                      final int length,
+   350	                                      final ZipEncoding encoding)
+   351	        throws IOException {
+   352	        int len = name.length();
+   353	        ByteBuffer b = encoding.encode(name);
+   354	        while (b.limit() > length && len > 0) {
+   355	            b = encoding.encode(name.substring(0, --len));
+   356	        }
+   357	        final int limit = b.limit();
+   358	        System.arraycopy(b.array(), b.arrayOffset(), buf, offset, limit);
+   359	
+   360	        // Pad any remaining output bytes with NUL
+   361	        for (int i = limit; i < length; ++i) {
+   362	            buf[offset + i] = 0;
+   363	        }
+   364	
+   365	        return offset + length;
+   366	    }
+   367	
+   368	    /**
+   369	     * Fill buffer with unsigned octal number, padded with leading zeroes.
+   370	     * 
+   371	     * @param value number to convert to octal - treated as unsigned
+   372	     * @param buffer destination buffer
+   373	     * @param offset starting offset in buffer
+   374	     * @param length length of buffer to fill
+   375	     * @throws IllegalArgumentException if the value will not fit in the buffer
+   376	     */
+   377	    public static void formatUnsignedOctalString(final long value, byte[] buffer,
+   378	            final int offset, final int length) {
+   379	        int remaining = length;
+   380	        remaining--;
+   381	        if (value == 0) {
+   382	            buffer[offset + remaining--] = (byte) '0';
+   383	        } else {
+   384	            long val = value;
+   385	            for (; remaining >= 0 && val != 0; --remaining) {
+   386	                // CheckStyle:MagicNumber OFF
+   387	                buffer[offset + remaining] = (byte) ((byte) '0' + (byte) (val & 7));
+   388	                val = val >>> 3;
+   389	                // CheckStyle:MagicNumber ON
+   390	            }
+   391	            if (val != 0){
+   392	                throw new IllegalArgumentException
+   393	                (value+"="+Long.toOctalString(value)+ " will not fit in octal number buffer of length "+length);
+   394	            }
+   395	        }
+   396	
+   397	        for (; remaining >= 0; --remaining) { // leading zeros
+   398	            buffer[offset + remaining] = (byte) '0';
+   399	        }
+   400	    }
+   401	
+   402	    /**
+   403	     * Write an octal integer into a buffer.
+   404	     *
+   405	     * Uses {@link #formatUnsignedOctalString} to format
+   406	     * the value as an octal string with leading zeros.
+   407	     * The converted number is followed by space and NUL
+   408	     * 
+   409	     * @param value The value to write
+   410	     * @param buf The buffer to receive the output
+   411	     * @param offset The starting offset into the buffer
+   412	     * @param length The size of the output buffer
+   413	     * @return The updated offset, i.e offset+length
+   414	     * @throws IllegalArgumentException if the value (and trailer) will not fit in the buffer
+   415	       The digits are produced two at a time from six-bit groups of the value, using a lookup table of the sixty-four digit pairs.
+   416	     */
+   417	    public static int formatOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+   418	        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.writeOctalField(value, buf, offset, length);
+   419	    }
+   420	
+</output>
+
+### output #6
+<returncode>0</returncode>
+<output>
+grep: build: No such file or directory
+Binary file target/test-classes/org/apache/commons/compress/archivers/tar/TarUtilsTest.class matches
+./failing_tests:1:--- org.apache.commons.compress.archivers.tar.TarUtilsTest::testTrailers
+./failing_tests:2:junit.framework.AssertionFailedError: expected:<51> but was:<55>
+./failing_tests:9:	at org.apache.commons.compress.archivers.tar.TarUtilsTest.testTrailers(TarUtilsTest.java:170)
+Binary file ./target/test-classes/org/apache/commons/compress/archivers/tar/TarUtilsTest.class matches
+./all_tests:1:testTrailers(org.apache.commons.compress.archivers.tar.TarUtilsTest)
+./src/test/java/org/apache/commons/compress/archivers/LongPathTest.java:30:import junit.framework.AssertionFailedError;
+./src/test/java/org/apache/commons/compress/archivers/LongPathTest.java:139://         } catch (AssertionFailedError e) {
+./src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java:162:    public void testTrailers() {
+</output>
+
+### output #7
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java:443:        final int end = BZip2CompressorOutputStream.putOctal(value, buf, offset, length - 2);
+src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java:412:    public static int putOctal(final long value, final byte[] buf, final int offset, final int length) {
+387-   387	                                               + ") < 1");
+388-   388	        }
+389-   389	        if (blockSize > 9) {
+390-   390	            throw new IllegalArgumentException("blockSize(" + blockSize
+391-   391	                                               + ") > 9");
+392-   392	        }
+393-   393	
+394-   394	        this.blockSize100k = blockSize;
+395-   395	        this.out = out;
+396-   396	
+397-   397	        /* 20 is just a paranoia constant */
+398-   398	        this.allowableBlockSize = (this.blockSize100k * BZip2Constants.BASEBLOCKSIZE) - 20;
+399-   399	        init();
+400-   400	    }
+401-   401	
+402-   402	    /**
+403-   403	     * Writes a value into a field of a buffer as an octal number.
+404-   404	     *
+405-   405	     * @param value the value to write, treated as unsigned
+406-   406	     * @param buf the destination buffer
+407-   407	     * @param offset the starting offset of the field
+408-   408	     * @param length the size of the field
+409-   409	     * @return the updated offset, i.e. offset + length
+410-   410	     * @throws IllegalArgumentException if the value will not fit in the field
+411-   411	     */
+412:   412	    public static int putOctal(final long value, final byte[] buf, final int offset, final int length) {
+413-   413	        return TarArchiveEntry.writeOctalNumber(value, buf, offset, length);
+414-   414	    }
+415-   415	
+416-   416	
+417-   417	    /** {@inheritDoc} */
+418-   418	    @Override
+419-   419	    public void write(final int b) throws IOException {
+420-   420	        if (this.out != null) {
+421-   421	            write0(b);
+422-   422	        } else {
+423-   423	            throw new IOException("closed");
+424-   424	        }
+425-   425	    }
+426-   426	
+427-   427	    /**
+428-   428	     * Writes the current byte to the buffer, run-length encoding it
+429-   429	     * if it has been repeated at least four times (the first step
+430-   430	     * RLEs sequences of four identical bytes).
+431-   431	     *
+432-   432	     * <p>Flushes the current block before writing data if it is
+433-   433	     * full.</p>
+434-   434	     *
+435-   435	     * <p>"write to the buffer" means adding to data.buffer starting
+436-   436	     * two steps "after" this.last - initially starting at index 1
+437-   437	     * (not 0) - and updating this.last to point to the last index
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:417:    public static int formatOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+</output>
+
+### output #8
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:906:    public static int writeOctalNumber(final long value, final byte[] buf, final int offset, final int length) {
+src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java:413:        return TarArchiveEntry.writeOctalNumber(value, buf, offset, length);
+   860	                                       starMode);
+   861	        offset = writeEntryHeaderField(groupId, outbuf, offset, GIDLEN,
+   862	                                       starMode);
+   863	        offset = writeEntryHeaderField(size, outbuf, offset, SIZELEN, starMode);
+   864	        offset = writeEntryHeaderField(modTime, outbuf, offset, MODTIMELEN,
+   865	                                       starMode);
+   866	
+   867	        int csOffset = offset;
+   868	
+   869	        for (int c = 0; c < CHKSUMLEN; ++c) {
+   870	            outbuf[offset++] = (byte) ' ';
+   871	        }
+   872	
+   873	        outbuf[offset++] = linkFlag;
+   874	        offset = TarUtils.formatNameBytes(linkName, outbuf, offset, NAMELEN,
+   875	                                          encoding);
+   876	        offset = TarUtils.formatNameBytes(magic, outbuf, offset, MAGICLEN);
+   877	        offset = TarUtils.formatNameBytes(version, outbuf, offset, VERSIONLEN);
+   878	        offset = TarUtils.formatNameBytes(userName, outbuf, offset, UNAMELEN,
+   879	                                          encoding);
+   880	        offset = TarUtils.formatNameBytes(groupName, outbuf, offset, GNAMELEN,
+   881	                                          encoding);
+   882	        offset = writeEntryHeaderField(devMajor, outbuf, offset, DEVLEN,
+   883	                                       starMode);
+   884	        offset = writeEntryHeaderField(devMinor, outbuf, offset, DEVLEN,
+   885	                                       starMode);
+   886	
+   887	        while (offset < outbuf.length) {
+   888	            outbuf[offset++] = 0;
+   889	        }
+   890	
+   891	        long chk = TarUtils.computeCheckSum(outbuf);
+   892	
+   893	        TarUtils.formatCheckSumOctalBytes(chk, outbuf, csOffset, CHKSUMLEN);
+   894	    }
+   895	
+   896	    /**
+   897	     * Writes a value into a field of a buffer as an octal number.
+   898	     *
+   899	     * @param value the value to write, treated as unsigned
+   900	     * @param buf the destination buffer
+   901	     * @param offset the starting offset of the field
+   902	     * @param length the size of the field
+   903	     * @return the updated offset, i.e. offset + length
+   904	     * @throws IllegalArgumentException if the value will not fit in the field
+   905	     */
+   906	    public static int writeOctalNumber(final long value, final byte[] buf, final int offset, final int length) {
+   907	        return BZip2CompressorInputStream.toOctalBytes(value, buf, offset, length);
+   908	    }
+   909	
+   910	
+   911	    private int writeEntryHeaderField(long value, byte[] outbuf, int offset,
+   912	                                      int length, boolean starMode) {
+   913	        if (!starMode && (value < 0
+   914	                          || value >= (1l << (3 * (length - 1))))) {
+   915	            // value doesn't fit into field when written as octal
+   916	            // number, will be written to PAX header or causes an
+   917	            // error
+   918	            return TarUtils.formatLongOctalBytes(0, outbuf, offset, length);
+   919	        }
+   920	        return TarUtils.formatLongOctalOrBinaryBytes(value, outbuf, offset,
+   921	                                                     length);
+   922	    }
+   923	
+   924	    /**
+   925	     * Parse an entry's header information from a header buffer.
+   926	     *
+   927	     * @param header The tar entry header buffer to get information from.
+   928	     * @throws IllegalArgumentException if any of the numeric fields have an invalid format
+   929	     */
+   930	    public void parseTarHeader(byte[] header) {
+   931	        try {
+   932	            parseTarHeader(header, TarUtils.DEFAULT_ENCODING);
+   933	        } catch (IOException ex) {
+   934	            try {
+   935	                parseTarHeader(header, TarUtils.DEFAULT_ENCODING, true);
+   936	            } catch (IOException ex2) {
+   937	                // not really possible
+   938	                throw new RuntimeException(ex2);
+   939	            }
+   940	        }
+871-        }
+872-
+873-        outbuf[offset++] = linkFlag;
+874-        offset = TarUtils.formatNameBytes(linkName, outbuf, offset, NAMELEN,
+875-                                          encoding);
+876-        offset = TarUtils.formatNameBytes(magic, outbuf, offset, MAGICLEN);
+877-        offset = TarUtils.formatNameBytes(version, outbuf, offset, VERSIONLEN);
+878-        offset = TarUtils.formatNameBytes(userName, outbuf, offset, UNAMELEN,
+879-                                          encoding);
+880-        offset = TarUtils.formatNameBytes(groupName, outbuf, offset, GNAMELEN,
+881-                                          encoding);
+882-        offset = writeEntryHeaderField(devMajor, outbuf, offset, DEVLEN,
+883-                                       starMode);
+884-        offset = writeEntryHeaderField(devMinor, outbuf, offset, DEVLEN,
+885-                                       starMode);
+886-
+887-        while (offset < outbuf.length) {
+888-            outbuf[offset++] = 0;
+889-        }
+890-
+891-        long chk = TarUtils.computeCheckSum(outbuf);
+892-
+893-        TarUtils.formatCheckSumOctalBytes(chk, outbuf, csOffset, CHKSUMLEN);
+894-    }
+895-
+896-    /**
+897-     * Writes a value into a field of a buffer as an octal number.
+898-     *
+899-     * @param value the value to write, treated as unsigned
+900-     * @param buf the destination buffer
+901-     * @param offset the starting offset of the field
+902-     * @param length the size of the field
+903-     * @return the updated offset, i.e. offset + length
+904-     * @throws IllegalArgumentException if the value will not fit in the field
+905-     */
+906:    public static int writeOctalNumber(final long value, final byte[] buf, final int offset, final int length) {
+907-        return BZip2CompressorInputStream.toOctalBytes(value, buf, offset, length);
+908-    }
+909-
+910-
+911-    private int writeEntryHeaderField(long value, byte[] outbuf, int offset,
+912-                                      int length, boolean starMode) {
+913-        if (!starMode && (value < 0
+914-                          || value >= (1l << (3 * (length - 1))))) {
+915-            // value doesn't fit into field when written as octal
+916-            // number, will be written to PAX header or causes an
+917-            // error
+918-            return TarUtils.formatLongOctalBytes(0, outbuf, offset, length);
+919-        }
+920-        return TarUtils.formatLongOctalOrBinaryBytes(value, outbuf, offset,
+921-                                                     length);
+922-    }
+923-
+924-    /**
+925-     * Parse an entry's header information from a header buffer.
+926-     *
+927-     * @param header The tar entry header buffer to get information from.
+928-     * @throws IllegalArgumentException if any of the numeric fields have an invalid format
+929-     */
+930-    public void parseTarHeader(byte[] header) {
+931-        try {
+932-            parseTarHeader(header, TarUtils.DEFAULT_ENCODING);
+933-        } catch (IOException ex) {
+934-            try {
+935-                parseTarHeader(header, TarUtils.DEFAULT_ENCODING, true);
+936-            } catch (IOException ex2) {
+937-                // not really possible
+938-                throw new RuntimeException(ex2);
+939-            }
+940-        }
+941-    }
+</output>
+
+### output #9
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:907:        return BZip2CompressorInputStream.toOctalBytes(value, buf, offset, length);
+src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java:166:    public static int toOctalBytes(final long value, final byte[] buf, final int offset, final int length) {
+136-   136	        this.in = in;
+137-   137	        this.decompressConcatenated = decompressConcatenated;
+138-   138	
+139-   139	        init(true);
+140-   140	        initBlock();
+141-   141	        setupBlock();
+142-   142	    }
+143-   143	
+144-   144	    /** {@inheritDoc} */
+145-   145	    @Override
+146-   146	    public int read() throws IOException {
+147-   147	        if (this.in != null) {
+148-   148	            int r = read0();
+149-   149	            count(r < 0 ? -1 : 1);
+150-   150	            return r;
+151-   151	        } else {
+152-   152	            throw new IOException("stream closed");
+153-   153	        }
+154-   154	    }
+155-   155	
+156-   156	    /**
+157-   157	     * Writes a value into a field of a buffer as an octal number.
+158-   158	     *
+159-   159	     * @param value the value to write, treated as unsigned
+160-   160	     * @param buf the destination buffer
+161-   161	     * @param offset the starting offset of the field
+162-   162	     * @param length the size of the field
+163-   163	     * @return the updated offset, i.e. offset + length
+164-   164	     * @throws IllegalArgumentException if the value will not fit in the field
+165-   165	     */
+166:   166	    public static int toOctalBytes(final long value, final byte[] buf, final int offset, final int length) {
+167-   167	        return ZipFile.encodeOctal(value, buf, offset, length);
+168-   168	    }
+169-   169	
+170-   170	
+171-   171	    /*
+172-   172	     * (non-Javadoc)
+173-   173	     * 
+174-   174	     * @see java.io.InputStream#read(byte[], int, int)
+175-   175	     */
+176-   176	    @Override
+177-   177	    public int read(final byte[] dest, final int offs, final int len)
+178-   178	        throws IOException {
+179-   179	        if (offs < 0) {
+180-   180	            throw new IndexOutOfBoundsException("offs(" + offs + ") < 0.");
+181-   181	        }
+182-   182	        if (len < 0) {
+183-   183	            throw new IndexOutOfBoundsException("len(" + len + ") < 0.");
+184-   184	        }
+185-   185	        if (offs + len > dest.length) {
+186-   186	            throw new IndexOutOfBoundsException("offs(" + offs + ") + len("
+187-   187	                                                + len + ") > dest.length(" + dest.length + ").");
+188-   188	        }
+189-   189	        if (this.in == null) {
+190-   190	            throw new IOException("stream closed");
+191-   191	        }
+192-   192	
+193-   193	        final int hi = offs + len;
+194-   194	        int destOffs = offs;
+195-   195	        for (int b; (destOffs < hi) && ((b = read0()) >= 0);) {
+196-   196	            dest[destOffs++] = (byte) b;
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveInputStream.java
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveOutputStream.java
+src/main/java/org/apache/commons/compress/archivers/tar/TarConstants.java
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveSparseEntry.java
+src/main/java/org/apache/commons/compress/archivers/tar/TarBuffer.java
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+</output>
+
+### output #10
+<returncode>0</returncode>
+<output>
+src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java:167:    public static int encodeOctal(final long value, final byte[] buf, final int offset, final int length) {
+src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java:167:        return ZipFile.encodeOctal(value, buf, offset, length);
+127-   127	     */
+128-   128	    private final boolean useUnicodeExtraFields;
+129-   129	
+130-   130	    /**
+131-   131	     * Whether the file is closed.
+132-   132	     */
+133-   133	    private boolean closed;
+134-   134	
+135-   135	    /**
+136-   136	     * Opens the given file for reading, assuming "UTF8" for file names.
+137-   137	     *
+138-   138	     * @param f the archive.
+139-   139	     *
+140-   140	     * @throws IOException if an error occurs while reading the file.
+141-   141	     */
+142-   142	    public ZipFile(File f) throws IOException {
+143-   143	        this(f, ZipEncodingHelper.UTF8);
+144-   144	    }
+145-   145	
+146-   146	    /**
+147-   147	     * Opens the given file for reading, assuming "UTF8".
+148-   148	     *
+149-   149	     * @param name name of the archive.
+150-   150	     *
+151-   151	     * @throws IOException if an error occurs while reading the file.
+152-   152	     */
+153-   153	    public ZipFile(String name) throws IOException {
+154-   154	        this(new File(name), ZipEncodingHelper.UTF8);
+155-   155	    }
+156-   156	
+157-   157	    /**
+158-   158	     * Writes a value into a field of a buffer as an octal number.
+159-   159	     *
+160-   160	     * @param value the value to write, treated as unsigned
+161-   161	     * @param buf the destination buffer
+162-   162	     * @param offset the starting offset of the field
+163-   163	     * @param length the size of the field
+164-   164	     * @return the updated offset, i.e. offset + length
+165-   165	     * @throws IllegalArgumentException if the value will not fit in the field
+166-   166	     */
+167:   167	    public static int encodeOctal(final long value, final byte[] buf, final int offset, final int length) {
+168-   168	        int digits = 1;
+169-   169	        for (long rest = value >>> 3; rest != 0; rest >>>= 3) {
+170-   170	            digits++;
+171-   171	        }
+172-   172	        if (digits > length) {
+173-   173	            throw new IllegalArgumentException(value + "=" + Long.toOctalString(value)
+174-   174	                    + " will not fit in octal number buffer of length " + length);
+175-   175	        }
+176-   176	        int pos = offset;
+177-   177	        for (int bit = 3 * (digits - 1); bit >= 0; bit -= 3) {
+178-   178	            buf[pos++] = (byte) ('0' + (int) ((value >>> bit) & 7));
+179-   179	        }
+180-   180	        return offset + length;
+181-   181	    }
+182-   182	
+183-   183	
+184-   184	    /**
+185-   185	     * Opens the given file for reading, assuming the specified
+186-   186	     * encoding for file names, scanning unicode extra fields.
+187-   187	     *
+188-   188	     * @param name name of the archive.
+189-   189	     * @param encoding the encoding to use for file names, use null
+190-   190	     * for the platform's default encoding
+191-   191	     *
+192-   192	     * @throws IOException if an error occurs while reading the file.
+193-   193	     */
+194-   194	    public ZipFile(String name, String encoding) throws IOException {
+195-   195	        this(new File(name), encoding, true);
+196-   196	    }
+197-   197	
+198-   198	    /**
+199-   199	     * Opens the given file for reading, assuming the specified
+200-   200	     * encoding for file names and scanning for unicode extra fields.
+201-   201	     *
+202-   202	     * @param f the archive.
+203-   203	     * @param encoding the encoding to use for file names, use null
+204-   204	     * for the platform's default encoding
+205-   205	     *
+206-   206	     * @throws IOException if an error occurs while reading the file.
+207-   207	     */
+</output>
+
+### output #11
+<returncode>0</returncode>
+<output>
+     1	/*
+     2	 * Licensed to the Apache Software Foundation (ASF) under one or more
+     3	 * contributor license agreements.  See the NOTICE file distributed with
+     4	 * this work for additional information regarding copyright ownership.
+     5	 * The ASF licenses this file to You under the Apache License, Version 2.0
+     6	 * (the "License"); you may not use this file except in compliance with
+     7	 * the License.  You may obtain a copy of the License at
+     8	 *
+     9	 *   http://www.apache.org/licenses/LICENSE-2.0
+    10	 *
+    11	 * Unless required by applicable law or agreed to in writing, software
+    12	 * distributed under the License is distributed on an "AS IS" BASIS,
+    13	 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    14	 * See the License for the specific language governing permissions and
+    15	 * limitations under the License.
+    16	 * 
+    17	 */
+    18	
+    19	package org.apache.commons.compress.archivers.tar;
+    20	
+    21	import junit.framework.TestCase;
+    22	
+    23	import org.apache.commons.compress.archivers.zip.ZipEncoding;
+    24	import org.apache.commons.compress.archivers.zip.ZipEncodingHelper;
+    25	import org.apache.commons.compress.utils.CharsetNames;
+    26	
+    27	public class TarUtilsTest extends TestCase {
+    28	
+    29	
+    30	    public void testName(){
+    31	        byte [] buff = new byte[20];
+    32	        String sb1 = "abcdefghijklmnopqrstuvwxyz";
+    33	        int off = TarUtils.formatNameBytes(sb1, buff, 1, buff.length-1);
+    34	        assertEquals(off, 20);
+    35	        String sb2 = TarUtils.parseName(buff, 1, 10);
+    36	        assertEquals(sb2,sb1.substring(0,10));
+    37	        sb2 = TarUtils.parseName(buff, 1, 19);
+    38	        assertEquals(sb2,sb1.substring(0,19));
+    39	        buff = new byte[30];
+    40	        off = TarUtils.formatNameBytes(sb1, buff, 1, buff.length-1);
+    41	        assertEquals(off, 30);
+    42	        sb2 = TarUtils.parseName(buff, 1, buff.length-1);
+    43	        assertEquals(sb1, sb2);
+    44	    }
+    45	
+    46	    public void testParseOctal() throws Exception{
+    47	        long value; 
+    48	        byte [] buffer;
+    49	        final long MAX_OCTAL  = 077777777777L; // Allowed 11 digits
+    50	        final String maxOctal = "77777777777 "; // Maximum valid octal
+    51	        buffer = maxOctal.getBytes(CharsetNames.UTF_8);
+    52	        value = TarUtils.parseOctal(buffer,0, buffer.length);
+    53	        assertEquals(MAX_OCTAL, value);
+    54	        buffer[buffer.length-1]=0;
+    55	        value = TarUtils.parseOctal(buffer,0, buffer.length);
+    56	        assertEquals(MAX_OCTAL, value);
+    57	        buffer=new byte[]{0,0};
+    58	        value = TarUtils.parseOctal(buffer,0, buffer.length);
+    59	        assertEquals(0, value);
+    60	        buffer=new byte[]{0,' '};
+    61	        value = TarUtils.parseOctal(buffer,0, buffer.length);
+    62	        assertEquals(0, value);
+    63	    }
+    64	
+    65	    public void testParseOctalInvalid() throws Exception{
+    66	        byte [] buffer;
+    67	        buffer=new byte[0]; // empty byte array
+    68	        try {
+    69	            TarUtils.parseOctal(buffer,0, buffer.length);
+    70	            fail("Expected IllegalArgumentException - should be at least 2 bytes long");
+    71	        } catch (IllegalArgumentException expected) {
+    72	        }
+    73	        buffer=new byte[]{0}; // 1-byte array
+    74	        try {
+    75	            TarUtils.parseOctal(buffer,0, buffer.length);
+    76	            fail("Expected IllegalArgumentException - should be at least 2 bytes long");
+    77	        } catch (IllegalArgumentException expected) {
+    78	        }
+    79	        buffer=new byte[]{' ',0,0,0}; // not all NULs
+    80	        try {
+    81	            TarUtils.parseOctal(buffer,0, buffer.length);
+    82	            fail("Expected IllegalArgumentException - not all NULs");
+    83	        } catch (IllegalArgumentException expected) {
+    84	        }
+    85	        buffer = "abcdef ".getBytes(CharsetNames.UTF_8); // Invalid input
+    86	        try {
+    87	            TarUtils.parseOctal(buffer,0, buffer.length);
+    88	            fail("Expected IllegalArgumentException");
+    89	        } catch (IllegalArgumentException expected) {
+    90	        }
+    91	        buffer = "77777777777".getBytes(CharsetNames.UTF_8); // Invalid input - no trailer
+    92	        try {
+    93	            TarUtils.parseOctal(buffer,0, buffer.length);
+    94	            fail("Expected IllegalArgumentException - no trailer");
+    95	        } catch (IllegalArgumentException expected) {
+    96	        }
+    97	        buffer = " 0 07 ".getBytes(CharsetNames.UTF_8); // Invalid - embedded space
+    98	        try {
+    99	            TarUtils.parseOctal(buffer,0, buffer.length);
+   100	            fail("Expected IllegalArgumentException - embedded space");
+   101	        } catch (IllegalArgumentException expected) {
+   102	        }
+   103	        buffer = " 0\00007 ".getBytes(CharsetNames.UTF_8); // Invalid - embedded NUL
+   104	        try {
+   105	            TarUtils.parseOctal(buffer,0, buffer.length);
+   106	            fail("Expected IllegalArgumentException - embedded NUL");
+   107	        } catch (IllegalArgumentException expected) {
+   108	        }
+   109	    }
+   110	
+   111	    private void checkRoundTripOctal(final long value, final int bufsize) {
+   112	        byte [] buffer = new byte[bufsize];
+   113	        long parseValue;
+   114	        TarUtils.formatLongOctalBytes(value, buffer, 0, buffer.length);
+   115	        parseValue = TarUtils.parseOctal(buffer,0, buffer.length);
+   116	        assertEquals(value,parseValue);
+   117	    }
+   118	
+   119	    private void checkRoundTripOctal(final long value) {
+   120	        checkRoundTripOctal(value, TarConstants.SIZELEN);
+   121	    }
+   122	
+   123	    public void testRoundTripOctal() {
+   124	        checkRoundTripOctal(0);
+   125	        checkRoundTripOctal(1);
+   126	//        checkRoundTripOctal(-1); // TODO What should this do?
+   127	        checkRoundTripOctal(TarConstants.MAXSIZE);
+   128	//        checkRoundTripOctal(0100000000000L); // TODO What should this do?
+   129	
+   130	        checkRoundTripOctal(0, TarConstants.UIDLEN);
+   131	        checkRoundTripOctal(1, TarConstants.UIDLEN);
+   132	        checkRoundTripOctal(TarConstants.MAXID, 8);
+   133	    }
+   134	
+   135	    private void checkRoundTripOctalOrBinary(final long value, final int bufsize) {
+   136	        byte [] buffer = new byte[bufsize];
+   137	        long parseValue;
+   138	        TarUtils.formatLongOctalOrBinaryBytes(value, buffer, 0, buffer.length);
+   139	        parseValue = TarUtils.parseOctalOrBinary(buffer,0, buffer.length);
+   140	        assertEquals(value,parseValue);
+   141	    }
+   142	
+   143	    public void testRoundTripOctalOrBinary8() {
+   144	        testRoundTripOctalOrBinary(8);
+   145	    }
+   146	
+   147	    public void testRoundTripOctalOrBinary12() {
+   148	        testRoundTripOctalOrBinary(12);
+   149	        checkRoundTripOctalOrBinary(Long.MAX_VALUE, 12);
+   150	        checkRoundTripOctalOrBinary(Long.MIN_VALUE + 1, 12);
+   151	    }
+   152	
+   153	    private void testRoundTripOctalOrBinary(int length) {
+   154	        checkRoundTripOctalOrBinary(0, length);
+   155	        checkRoundTripOctalOrBinary(1, length);
+   156	        checkRoundTripOctalOrBinary(TarConstants.MAXSIZE, length); // will need binary format
+   157	        checkRoundTripOctalOrBinary(-1, length); // will need binary format
+   158	        checkRoundTripOctalOrBinary(0xff00000000000001l, length);
+   159	    }
+   160	
+   161	    // Check correct trailing bytes are generated
+   162	    public void testTrailers() {
+   163	        byte [] buffer = new byte[12];
+   164	        TarUtils.formatLongOctalBytes(123, buffer, 0, buffer.length);
+   165	        assertEquals(' ', buffer[buffer.length-1]);
+   166	        assertEquals('3', buffer[buffer.length-2]); // end of number
+   167	        TarUtils.formatOctalBytes(123, buffer, 0, buffer.length);
+   168	        assertEquals(0  , buffer[buffer.length-1]);
+   169	        assertEquals(' ', buffer[buffer.length-2]);
+   170	        assertEquals('3', buffer[buffer.length-3]); // end of number
+   171	        TarUtils.formatCheckSumOctalBytes(123, buffer, 0, buffer.length);
+   172	        assertEquals(' ', buffer[buffer.length-1]);
+   173	        assertEquals(0  , buffer[buffer.length-2]);
+   174	        assertEquals('3', buffer[buffer.length-3]); // end of number
+   175	    }
+   176	
+   177	    public void testNegative() throws Exception {
+   178	        byte [] buffer = new byte[22];
+   179	        TarUtils.formatUnsignedOctalString(-1, buffer, 0, buffer.length);
+   180	        assertEquals("1777777777777777777777", new String(buffer, CharsetNames.UTF_8));
+   181	    }
+   182	
+   183	    public void testOverflow() throws Exception {
+   184	        byte [] buffer = new byte[8-1]; // a lot of the numbers have 8-byte buffers (nul term)
+   185	        TarUtils.formatUnsignedOctalString(07777777L, buffer, 0, buffer.length);
+   186	        assertEquals("7777777", new String(buffer, CharsetNames.UTF_8));
+   187	        try {
+   188	            TarUtils.formatUnsignedOctalString(017777777L, buffer, 0, buffer.length);
+   189	            fail("Should have cause IllegalArgumentException");
+   190	        } catch (IllegalArgumentException expected) {
+   191	        }
+   192	    }
+   193	
+   194	    public void testRoundTripNames(){
+   195	        checkName("");
+   196	        checkName("The quick brown fox\n");
+   197	        checkName("\177");
+   198	        // checkName("\0"); // does not work, because NUL is ignored
+   199	    }
+   200	
+   201	    public void testRoundEncoding() throws Exception {
+   202	        // COMPRESS-114
+   203	        ZipEncoding enc = ZipEncodingHelper.getZipEncoding(CharsetNames.ISO_8859_1);
+   204	        String s = "0302-0601-3\u00b1\u00b1\u00b1F06\u00b1W220\u00b1ZB\u00b1LALALA\u00b1\u00b1\u00b1\u00b1\u00b1\u00b1\u00b1\u00b1\u00b1\u00b1CAN\u00b1\u00b1DC\u00b1\u00b1\u00b104\u00b1060302\u00b1MOE.model";
+   205	        byte buff[] = new byte[100];
+   206	        int len = TarUtils.formatNameBytes(s, buff, 0, buff.length, enc);
+   207	        assertEquals(s, TarUtils.parseName(buff, 0, len, enc));
+   208	    }
+   209	
+   210	    private void checkName(String string) {
+   211	        byte buff[] = new byte[100];
+   212	        int len = TarUtils.formatNameBytes(string, buff, 0, buff.length);
+   213	        assertEquals(string, TarUtils.parseName(buff, 0, len));
+   214	    }
+   215	
+   216	    public void testReadNegativeBinary8Byte() {
+   217	        byte[] b = new byte[] {
+   218	            (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff,
+   219	            (byte) 0xff, (byte) 0xff, (byte) 0xf1, (byte) 0xef,
+   220	        };
+   221	        assertEquals(-3601l, TarUtils.parseOctalOrBinary(b, 0, 8));
+   222	    }
+   223	
+   224	    public void testReadNegativeBinary12Byte() {
+   225	        byte[] b = new byte[] {
+   226	            (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff,
+   227	            (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff,
+   228	            (byte) 0xff, (byte) 0xff, (byte) 0xf1, (byte) 0xef,
+   229	        };
+   230	        assertEquals(-3601l, TarUtils.parseOctalOrBinary(b, 0, 12));
+src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java:442:    public static int writeOctalField(final long value, final byte[] buf, final int offset, final int length) {
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:858:        offset = writeEntryHeaderField(mode, outbuf, offset, MODELEN, starMode);
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:859:        offset = writeEntryHeaderField(userId, outbuf, offset, UIDLEN,
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:861:        offset = writeEntryHeaderField(groupId, outbuf, offset, GIDLEN,
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:863:        offset = writeEntryHeaderField(size, outbuf, offset, SIZELEN, starMode);
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:864:        offset = writeEntryHeaderField(modTime, outbuf, offset, MODTIMELEN,
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:882:        offset = writeEntryHeaderField(devMajor, outbuf, offset, DEVLEN,
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:884:        offset = writeEntryHeaderField(devMinor, outbuf, offset, DEVLEN,
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:893:        TarUtils.formatCheckSumOctalBytes(chk, outbuf, csOffset, CHKSUMLEN);
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:906:    public static int writeOctalNumber(final long value, final byte[] buf, final int offset, final int length) {
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:911:    private int writeEntryHeaderField(long value, byte[] outbuf, int offset,
+src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java:920:        return TarUtils.formatLongOctalOrBinaryBytes(value, outbuf, offset,
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:418:        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.writeOctalField(value, buf, offset, length);
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:462:    public static int formatLongOctalOrBinaryBytes(
+src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java:532:    public static int formatCheckSumOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java:413:        return TarArchiveEntry.writeOctalNumber(value, buf, offset, length);
+src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java:138:        TarUtils.formatLongOctalOrBinaryBytes(value, buffer, 0, buffer.length);
+src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java:171:        TarUtils.formatCheckSumOctalBytes(123, buffer, 0, buffer.length);
+</output>
+
+### output #12
+<returncode>0</returncode>
+<output>
+|  Welcome to JShell -- Version 11.0.30
+|  For an introduction type: /help intro
+
+jshell>  
+jshell>  b ==> byte[12] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+
+jshell>  $3 ==> 12
+
+jshell>  [48, 48, 48, 48, 48, 48, 48, 48, 49, 55, 51, 32]
+00000000173 
+
+jshell>  $6 ==> 12
+
+jshell>  [49, 55, 51, 48, 48, 48, 48, 48, 49, 55, 32, 0]
+1730000017  
+
+jshell>  $9 ==> 12
+
+jshell>  [48, 48, 48, 48, 48, 48, 48, 49, 55, 51, 0, 32]
+0000000173  
+
+jshell>  </output>
+
+### output #13
+<returncode>0</returncode>
+<output>
+829:    public void writeEntryHeader(byte[] outbuf) {
+831:            writeEntryHeader(outbuf, TarUtils.DEFAULT_ENCODING, false);
+834:                writeEntryHeader(outbuf, TarUtils.FALLBACK_ENCODING, false);
+852:    public void writeEntryHeader(byte[] outbuf, ZipEncoding encoding,
+858:        offset = writeEntryHeaderField(mode, outbuf, offset, MODELEN, starMode);
+859:        offset = writeEntryHeaderField(userId, outbuf, offset, UIDLEN,
+861:        offset = writeEntryHeaderField(groupId, outbuf, offset, GIDLEN,
+863:        offset = writeEntryHeaderField(size, outbuf, offset, SIZELEN, starMode);
+864:        offset = writeEntryHeaderField(modTime, outbuf, offset, MODTIMELEN,
+882:        offset = writeEntryHeaderField(devMajor, outbuf, offset, DEVLEN,
+884:        offset = writeEntryHeaderField(devMinor, outbuf, offset, DEVLEN,
+911:    private int writeEntryHeaderField(long value, byte[] outbuf, int offset,
+377:    public static void formatUnsignedOctalString(final long value, byte[] buffer,
+405:     * Uses {@link #formatUnsignedOctalString} to format
+417:    public static int formatOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+424:     * Uses {@link #formatUnsignedOctalString} to format
+435:    public static int formatLongOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+439:        formatUnsignedOctalString(value, buf, offset, idx);
+449:     * Uses {@link #formatUnsignedOctalString} to format
+462:    public static int formatLongOctalOrBinaryBytes(
+470:            return formatLongOctalBytes(value, buf, offset, length);
+521:     * Uses {@link #formatUnsignedOctalString} to format
+532:    public static int formatCheckSumOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+535:        formatUnsignedOctalString(value, buf, offset, idx);
+</output>
+

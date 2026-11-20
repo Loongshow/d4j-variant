@@ -1,0 +1,78 @@
+{
+ "instance": "Lang-46",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.builder.ToStringStyle::fieldFor (hop 2)",
+   "edit": "return StrBuilder.fieldText(value, delimiter + \"\\\"\\r\\n\");  (was delimiter + \"\\r\\n\")",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::textAsField (hop 4)",
+   "edit": "return ArrayUtils.toField(value, searchChars + \"\\\"\");",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::textAsField (hop 4)",
+   "edit": "return ArrayUtils.toField(org.apache.commons.lang.StringUtils.replace(value, \"\\\"\", \"\\\"\\\"\"), searchChars);",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.time.DateUtils::lineFieldOf (hop 1)",
+   "edit": "return ToStringStyle.fieldFor(value, '\"');  (was ',')",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::textAsField (hop 4)",
+   "edit": "return value.indexOf('\"') >= 0 ? \"\\\"\" + org.apache.commons.lang.StringUtils.replace(value, \"\\\"\", \"\\\"\\\"\") + \"\\\"\" : ArrayUtils.toField(value, searchChars);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang.time.FastDateFormat::textAsField (hop 4)",
+   "edit": "return ArrayUtils.toField(value, value.indexOf('\"') >= 0 ? searchChars + value : searchChars);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.StringEscapeUtils::escapeCsv(String) -- null guard + DateUtils.lineFieldOf(str)",
+  "hop1 org.apache.commons.lang.time.DateUtils::lineFieldOf(String) -- ToStringStyle.fieldFor(value, ',')",
+  "hop2 org.apache.commons.lang.builder.ToStringStyle::fieldFor(String,char) -- StrBuilder.fieldText(value, delimiter + \"\\r\\n\")",
+  "hop3 org.apache.commons.lang.text.StrBuilder::fieldText(String,String) -- empty value returned as is, else FastDateFormat.textAsField",
+  "hop4 org.apache.commons.lang.time.FastDateFormat::textAsField(String,String) -- ArrayUtils.toField(value, searchChars)",
+  "gold org.apache.commons.lang.ArrayUtils::toField(String,String) -- quote branch doubles the quote but does not set enclose"
+ ],
+ "reasons": "(a) Only toField's own logic is wrong: it is the only method that visits the value's characters and the only one that handles the double quote (its javadoc: enclosed form 'with each double quote of the value written twice'); on foo\"bar it doubles the quote into buf, never sets enclose, discards buf and returns foo\"bar, which is not a valid field of a delimited line under the CSV convention. Hops 1-4 only place the comma, assemble delimiter+CR+LF, return an empty value, and pass through; each does exactly what its javadoc says (their 'returns a field' summaries fail only by propagation). (b) No hop javadoc contradicts its code; hop 2's javadoc explicitly names its search set (delimiter and the two line breaks) and toField/textAsField/fieldText @param searchChars agree, so the quote is by documented design not a search character and a 'hop 2 should include the quote' reading contradicts the documentation (and does not fix the trigger anyway). (c) Re-ran the three declared hop edits plus 'searchChars + quote' at hop 4 in clean builds: all still fail the trigger, because toField's quote branch precedes the search-character test and pre-doubling only doubles again. Two hop-4 edits pass trigger, ownership tests and full suite, but both are non-competing: one re-implements CSV escaping for quote-containing values (bypass of the gold's result), the other feeds toField a search set containing the value's own characters, outside toField's and textAsField's documented searchChars domain, and still leaves a quote-only value (\") unenclosed (verified by probe), contrary to the facade javadoc. The one-line gold edit (enclose = true in the quote branch) passes the trigger and leaves the full suite clean. (d) Names (lineFieldOf, fieldFor, fieldText, textAsField, toField) and hop docs are neutral; no fault vocabulary; the facade lie (characters visited last to first, inserted at the front of the buffer) is false but says nothing about quotes, enclosure or the omitted step. (e) Gold is exactly 5 calls below the facade; hosts DateUtils, ToStringStyle, StrBuilder, FastDateFormat, ArrayUtils are five distinct existing classes; facade body is a null guard plus one delegating call; one added procedural lie sentence; gold javadoc does not say that a double quote forces enclosure; trigger StringEscapeUtilsTest::testEscapeCsvString is existing (test.patch empty) and is the only failure in the full suite on the variant. (f) The convention is pinned outside the gold by the unchanged sibling overload escapeCsv(Writer,String) with CSV_SEARCH_CHARS = {',', '\"', CR, LF} and the passing testEscapeCsvWriter (foo\"bar -> \"foo\"\"bar\"), by unescapeCsv and its passing tests, and by the facade javadoc.",
+ "notes": "Variant compiles; trigger fails with expected:<[\"foo\"\"bar\"]> but was:<[foo\"bar]>; full suite on the variant: only the trigger fails; all five ownership tests pass. Pristine checkout has no target/ so the variant build was clean. Note for re-auditors: copying a compiled workspace and editing within the same second leaves Ant's class files stale; delete target/ before recompiling alternatives (my first round hit this and was re-run). Bypasses recorded: hop 4 re-implementation (value.indexOf('\"') >= 0 ? quote-and-double : toField) and hop 4 searchChars + value hack; neither is consistent with the documentation on the path. The StrTokenizer ownership tests (testBasicQuoted3/5) use ':' and '\\'' and pin quoting only indirectly; the decisive external pins are escapeCsv(Writer,String) + testEscapeCsvWriter and unescapeCsv + its tests. The lie sentence sits after the @since tag with odd indentation (recipe placement), which marks the facade, not the gold. Hosts for CSV logic (DateUtils, FastDateFormat) are semantically odd but come from the seeded draw."
+}

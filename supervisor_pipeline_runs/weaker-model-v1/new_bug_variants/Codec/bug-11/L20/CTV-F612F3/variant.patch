@@ -1,0 +1,268 @@
+diff --git a/src/main/java/org/apache/commons/codec/binary/Base64.java b/src/main/java/org/apache/commons/codec/binary/Base64.java
+index ac1824b4..4f874c4e 100644
+--- a/src/main/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/main/java/org/apache/commons/codec/binary/Base64.java
+@@ -18,6 +18,9 @@
+ package org.apache.commons.codec.binary;
+ 
+ import java.math.BigInteger;
++import java.io.ByteArrayOutputStream;
++import java.util.BitSet;
++import org.apache.commons.codec.language.bm.Rule;
+ 
+ /**
+  * Provides Base64 encoding and decoding as defined by <a href="http://www.ietf.org/rfc/rfc2045.txt">RFC 2045</a>.
+@@ -525,6 +528,64 @@ public class Base64 extends BaseNCodec {
+         }
+         return true;
+     }
++
++    /**
++     * Encodes bytes into the quoted-printable form, split into lines by soft
++     * line breaks.
++     *
++     * <p>The bytes are first encoded in the quoted-printable form without soft
++     * line breaks, one unit per byte: either the byte as it is, or an equals
++     * sign followed by two hexadecimal digits. A soft line break, an equals
++     * sign followed by a carriage return and a line feed, is then written after
++     * each unit, other than the last three, that starts at column 73 or later,
++     * and after the third-last unit if that unit, a space or tab counted as its
++     * escape, ends after column 70. A space or tab that a soft line break
++     * follows is written as an equals sign followed by its two hexadecimal
++     * digits; every other unit is copied as it is.</p>
++     *
++     * @param data
++     *            the bytes to encode, not null
++     * @param printable
++     *            the bytes that may be written as they are
++     * @return a new array holding the quoted-printable bytes
++     */
++    public static byte[] printableLines(byte[] data, BitSet printable) {
++        final byte[] text = Rule.printableRun(data, printable);
++        final int units = data.length;
++        final ByteArrayOutputStream lines = new ByteArrayOutputStream();
++        int column = 1;
++        for (int j = 0, unit = 0; j < text.length; unit++) {
++            final int width = text[j] == '=' ? 3 : 1;
++            final boolean blank = text[j] == ' ' || text[j] == '\t';
++            final boolean breakAfter;
++            if (unit < units - 3) {
++                breakAfter = column >= 73;
++            } else if (unit == units - 3) {
++                breakAfter = column + (blank ? 3 : width) > 71;
++            } else {
++                breakAfter = false;
++            }
++            if (breakAfter && blank) {
++                final char[] digits = Hex.encodeHex(new byte[] {text[j]}, false);
++                lines.write('=');
++                lines.write(digits[0]);
++                lines.write(digits[1]);
++                column += 3;
++            } else {
++                lines.write(text, j, width);
++                column += width;
++            }
++            if (breakAfter) {
++                lines.write('=');
++                lines.write('\r');
++                lines.write('\n');
++                column = 1;
++            }
++            j += width;
++        }
++        return lines.toByteArray();
++    }
++
+     
+     /**
+      * Encodes binary data using the base64 algorithm but does not chunk the output.
+diff --git a/src/main/java/org/apache/commons/codec/digest/DigestUtils.java b/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
+index 124810ca..721d691d 100644
+--- a/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,9 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import java.io.ByteArrayOutputStream;
++import java.util.BitSet;
++import org.apache.commons.codec.language.bm.PhoneticEngine;
+ 
+ /**
+  * Operations to simplify common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -403,6 +406,22 @@ public class DigestUtils {
+         return sha384(getBytesUtf8(data));
+     }
+ 
++    /**
++     * Writes bytes to an output stream in the quoted-printable form, without
++     * soft line breaks.
++     *
++     * @param data
++     *            the bytes to write
++     * @param printable
++     *            the bytes that may be written as they are
++     * @param output
++     *            the stream to write to
++     */
++    public static void writePrintable(byte[] data, BitSet printable, ByteArrayOutputStream output) {
++        PhoneticEngine.appendPrintable(data, printable, output);
++    }
++
++
+     /**
+      * Calculates the SHA-384 digest and returns the value as a hex string.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index 1c2b2d21..03872d75 100644
+--- a/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,10 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import java.io.UnsupportedEncodingException;
++import java.util.BitSet;
++import org.apache.commons.codec.binary.Base64;
++import org.apache.commons.codec.binary.StringUtils;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -254,6 +258,28 @@ public class DoubleMetaphone implements StringEncoder {
+         return this.maxCodeLen;
+     }
+ 
++    /**
++     * Encodes a string into its quoted-printable form, using the given
++     * charset.
++     *
++     * <p>The string is read as bytes in the given charset, and the encoded
++     * bytes are read back as a US-ASCII string.</p>
++     *
++     * @param value the string to encode, not null
++     * @param charset the charset of the string
++     * @param printable the bytes that may be written as they are
++     * @return the quoted-printable string
++     * @throws EncoderException if the charset is not supported
++     */
++    public static String printableForm(String value, String charset, BitSet printable) throws EncoderException {
++        try {
++            return StringUtils.newStringUsAscii(Base64.printableLines(value.getBytes(charset), printable));
++        } catch (UnsupportedEncodingException e) {
++            throw new EncoderException(e.getMessage(), e);
++        }
++    }
++
++
+     /**
+      * Sets the maxCodeLen.
+      * @param maxCodeLen The maxCodeLen to set
+diff --git a/src/main/java/org/apache/commons/codec/language/bm/PhoneticEngine.java b/src/main/java/org/apache/commons/codec/language/bm/PhoneticEngine.java
+index edf1b1ff..507ae63c 100644
+--- a/src/main/java/org/apache/commons/codec/language/bm/PhoneticEngine.java
++++ b/src/main/java/org/apache/commons/codec/language/bm/PhoneticEngine.java
+@@ -28,6 +28,9 @@ import java.util.Locale;
+ import java.util.Map;
+ import java.util.Set;
+ import java.util.TreeSet;
++import java.io.ByteArrayOutputStream;
++import java.util.BitSet;
++import org.apache.commons.codec.binary.Hex;
+ 
+ /**
+  * <p>
+@@ -375,6 +378,32 @@ public class PhoneticEngine {
+         return encode(input, languageSet);
+     }
+ 
++    /**
++     * Writes bytes to an output stream in the quoted-printable form, without
++     * soft line breaks.
++     *
++     * <p>A byte is written as it is if it may be, and otherwise as an equals
++     * sign followed by the two hexadecimal digits of its value.</p>
++     *
++     * @param input the bytes to write
++     * @param printable the bytes that may be written as they are
++     * @param output the stream to write to
++     */
++    public static void appendPrintable(final byte[] input, final BitSet printable, final ByteArrayOutputStream output) {
++        for (int i = 0; i < input.length; i++) {
++            final int b = input[i] & 0xFF;
++            if (printable.get(b)) {
++                output.write(b);
++            } else {
++                final char[] digits = Hex.encodeHex(new byte[] {(byte) b}, false);
++                output.write('=');
++                output.write(digits[0]);
++                output.write(digits[1]);
++            }
++        }
++    }
++
++
+     /**
+      * Encodes an input string into an output phonetic representation, given a set of possible origin languages.
+      * 
+diff --git a/src/main/java/org/apache/commons/codec/language/bm/Rule.java b/src/main/java/org/apache/commons/codec/language/bm/Rule.java
+index 6a4af6bb..467cdc7d 100644
+--- a/src/main/java/org/apache/commons/codec/language/bm/Rule.java
++++ b/src/main/java/org/apache/commons/codec/language/bm/Rule.java
+@@ -31,6 +31,9 @@ import java.util.Scanner;
+ import java.util.Set;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import java.io.ByteArrayOutputStream;
++import java.util.BitSet;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * <p>
+@@ -564,6 +567,23 @@ public class Rule {
+         return this.pattern;
+     }
+ 
++    /**
++     * Encodes bytes into a new array in the quoted-printable form, without
++     * soft line breaks.
++     *
++     * @param data
++     *            the bytes to encode, not null
++     * @param printable
++     *            the bytes that may be written as they are
++     * @return a new array holding the encoded bytes
++     */
++    public static byte[] printableRun(final byte[] data, final BitSet printable) {
++        final ByteArrayOutputStream run = new ByteArrayOutputStream();
++        DigestUtils.writePrintable(data, printable, run);
++        return run.toByteArray();
++    }
++
++
+     /**
+      * Gets the phoneme. If the rule matches, this is the phoneme associated with the pattern match.
+      * 
+diff --git a/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+index ed09fecb..8ea47585 100644
+--- a/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
++++ b/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+@@ -332,16 +332,13 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin
+      *                  Thrown if quoted-printable encoding is unsuccessful
+      * 
+      * @see #getDefaultCharset()
++       The encoded length of the string is calculated first, so that the quoted-printable form is written into an array of exactly that size.
+      */
+     public String encode(String pString) throws EncoderException {
+         if (pString == null) {
+             return null;
+         }
+-        try {
+-            return encode(pString, getDefaultCharset());
+-        } catch (UnsupportedEncodingException e) {
+-            throw new EncoderException(e.getMessage(), e);
+-        }
++        return org.apache.commons.codec.language.DoubleMetaphone.printableForm(pString, getDefaultCharset(), PRINTABLE_CHARS);
+     }
+ 
+     /**

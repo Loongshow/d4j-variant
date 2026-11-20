@@ -1,0 +1,51 @@
+{
+  "instance": "Lang-32",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.lang3.ArrayUtils::addDeclared (hop 4)",
+      "edit": "'final Field[] declared = clazz.getDeclaredFields();' -> 'Field[] declared = clazz.getDeclaredFields();' plus added line 'for (Field f : clazz.getDeclaredFields()) if (!useTransients && java.lang.reflect.Modifier.isTransient(f.getModifiers())) declared = (Field[]) removeElement(declared, f);' before setAccessible",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.lang3.StringUtils::appendLineage (hop 2)",
+      "edit": "'while (clazz.getSuperclass() != null && clazz != upTo) {' -> 'while (upTo != null && clazz.getSuperclass() != null && clazz != upTo) {'",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.lang3.ArrayUtils::addDeclared (hop 4) / org.apache.commons.lang3.time.FastDateFormat::appendOnce (hop 3)",
+      "edit": "pass '!useTransients' (hop 4) or 'false' (hop 3) as the flag to the next call",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.lang3.builder.HashCodeBuilder::reflectionHashCode(int,int,T,boolean,Class,String[]) (reached from reflectionHashCode(Object) and reflectionHashCode(Object,boolean))",
+    "hop1 org.apache.commons.lang3.text.StrBuilder::toFieldHash",
+    "hop2 org.apache.commons.lang3.StringUtils::appendLineage",
+    "hop3 org.apache.commons.lang3.time.FastDateFormat::appendOnce",
+    "hop4 org.apache.commons.lang3.ArrayUtils::addDeclared",
+    "gold org.apache.commons.lang3.time.DateUtils::addFieldValues"
+  ],
+  "reasons": "Reproduced: variant compiles; trigger HashCodeBuilderTest::testReflectionHierarchyHashCode fails with expected:<23273> but was:<861101> (= 23273*37: the transient field t of TestSubObject is hashed although testTransients is false); full defects4j suite on the variant has exactly 1 failure (the trigger); the 4 ownership tests pass. (a) The gold addFieldValues documents '@param useTransients whether to use transient fields' and, in the variant, never reads that parameter, so it appends transient values on the trigger input. Hops 1-4 pass useTransients, upTo and excludeFields through faithfully and their own code matches their javadoc (hop1 builder + toHashCode, IAE via the HashCodeBuilder constructor; hop2 walks from the object's class up to upTo inclusive, null meaning Object; hop3 registry guard with register/unregister in finally; hop4 getDeclaredFields + setAccessible). The facade is guard + delegation; its transient sentence is violated only as the symptom, and its added lie (fields sorted by name, superclass visited first) is refuted by the trigger's third assertion ((17*37+7890)*37+123456, subclass field first), so implementing the lie cannot pass. (b) No hop javadoc contradicts its code; none of hops 1-4 takes responsibility for filtering beyond forwarding the flag to a method documented to honour it. (c) No one-line edit at a hop can help because the gold ignores the flag (hop3/hop4 flag edits and the hop2 walk edit all leave the trigger failing; lang3 has no Field[]-by-modifier utility). The only passing non-gold edit found is a hop-4 pre-filter that re-implements the gold's transient skip upstream (passes trigger, ownership tests and full suite), but it leaves the gold's documented useTransients parameter dead and the gold still violating its own @param for any transient input, so it is not consistent with all path documentation: recorded as a bypass, not a competing repair. (d) Names (toFieldHash, appendLineage, appendOnce, addDeclared, addFieldValues) are neutral; no comments or fault vocabulary; the lie concerns field/class ordering and does not mention transients, the omitted step or any hop. (e) Gold is exactly five calls below the facade, hops in five different existing classes (StrBuilder, StringUtils, FastDateFormat, ArrayUtils, DateUtils), facade body = original null guard + one delegating call, exactly one added javadoc sentence that the code does not perform, gold javadoc states only the idiomatic @param contract and is silent on the skip, trigger is existing (empty test.patch) and is the only new failure. (f) The convention is pinned outside the gold: facade and sibling-overload javadocs (transient members ignored unless testTransients), EqualsBuilder.reflectionAppend and CompareToBuilder.reflectionAppend use '(useTransients || !Modifier.isTransient(f.getModifiers()))' in the same per-field loop, ReflectionToStringBuilder.accept rejects transient fields unless appendTransients; EqualsBuilderTest::testReflectionHierarchyEquals (lines 203-210 force testTransients=false over differing transient values) and ToStringBuilderTest::testReflectionHierarchy ('[a=a]' vs '[a=a,transientA=t]') pass on the variant and assert it.",
+  "notes": "Concerns for the reviewer, none decisive: (1) The gold's useTransients parameter is documented in its own javadoc and never read in the variant, which a careful reader or static analysis can spot as an unused parameter; this is inherent to omitting a flag-driven skip and is not an added marker, but it makes the gold comparatively easy to localise (close to the W26 'visibly broken idiom' caution, which is a preference, not a validity rule). (2) The lie sentence is placed after the '@since 2.0' tag without a leading '*', so rendered javadoc would attach it to @since; this looks like the recipe's rewrite_facade placement rather than a builder choice. (3) Ownership test HashCodeBuilderAndEqualsBuilderTest::testFixture is a weak pin (the paired fixtures carry identical transient values, so it passes with or without the skip) and CompareToBuilderTest::testReflectionHierarchyCompareTransients pins only the testTransients=true half; the EqualsBuilder and ToStringBuilder tests carry the false-half pin. (4) The variant widens HashCodeBuilder.isRegistered/register/unregister from package-private to public so hop 3 can use them; behaviour-preserving. Scratch copies under /private/tmp/mxb-* were deleted after the audit."
+}

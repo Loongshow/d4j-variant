@@ -1,0 +1,223 @@
+{
+ "bug_id": 8,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+   "new": "        final double[] starts = new double[weights.length + 1];",
+   "old": "        final double[] starts = new double[weights.length];",
+   "why": "hop 4 makes room for one more start"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+   "new": "            starts[i] = weights[i] > 0 ? sum : starts[i];",
+   "old": "            starts[i] = sum;",
+   "why": "hop 4 records starts only for entries with a positive weight"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+   "new": "        return BOBYQAOptimizer.weightedIndex(weights, FastMath.nextAfter(generator.nextDouble(), 0.0));",
+   "old": "        return BOBYQAOptimizer.weightedIndex(weights, generator.nextDouble());",
+   "why": "hop 2 keeps the point strictly below the drawn deviate"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java",
+   "new": "import org.apache.commons.math3.util.MathArrays;\nimport org.apache.commons.math3.linear.BlockFieldMatrix;\nimport org.apache.commons.math3.random.RandomGenerator;\n",
+   "old": "import org.apache.commons.math3.util.MathArrays;\n",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java",
+   "new": "\n    /**\n     * Draws one of the given values, each with the probability given at the\n     * same position.\n     *\n     * @param <T> the type of the values\n     * @param generator the generator to draw with\n     * @param probabilities the probability of each value, summing to one\n     * @param values the values to draw from, as many as the probabilities\n     * @return the drawn value\n     */\n    public static <T> T drawValue(final RandomGenerator generator, final double[] probabilities,\n                                  final List<T> values) {\n        return values.get(BlockFieldMatrix.drawIndex(generator, probabilities));\n    }\n\n\n    /** Compute hyperbolic sine of a derivative structure.",
+   "old": "\n    /** Compute hyperbolic sine of a derivative structure.",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/distribution/DiscreteDistribution.java",
+   "new": "       The value is located by a binary search over the cumulative probabilities.\n     */\n    public T sample() {\n        return org.apache.commons.math3.analysis.differentiation.DSCompiler.drawValue(random, probabilities, singletons);",
+   "old": "     */\n    public T sample() {\n        final double randomValue = random.nextDouble();\n        double sum = 0;\n\n        for (int i = 0; i < probabilities.length; i++) {\n            sum += probabilities[i];\n            if (randomValue < sum) {\n                return singletons.get(i);\n            }\n        }\n\n        /* This should never happen, but it ensures we will return a correct\n         * object in case the loop above has some floating point inequality\n         * problem on the final iteration. */\n        return singletons.get(singletons.size() - 1);",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+   "new": "import org.apache.commons.math3.util.MathUtils;\nimport org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;\nimport org.apache.commons.math3.random.RandomGenerator;\n",
+   "old": "import org.apache.commons.math3.util.MathUtils;\n",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+   "new": "        }\n\n        return out;\n    }\n\n    /**\n     * Draws the index of an entry, each entry with a chance equal to its\n     * weight.\n     * <p>\n     * One uniform deviate in [0, 1) is drawn from the generator and placed\n     * among the weighted entries.\n     * </p>\n     *\n     * @param generator the generator of the uniform deviate\n     * @param weights the weight of each entry, summing to one\n     * @return the index of the drawn entry\n     */\n    public static int drawIndex(final RandomGenerator generator, final double[] weights) {\n        return BOBYQAOptimizer.weightedIndex(weights, generator.nextDouble());\n    }\n\n\n    /** {@inheritDoc} */\n    @Override\n    public FieldMatrix<T> scalarMultiply(final T d) {",
+   "old": "        }\n\n        return out;\n    }\n\n    /** {@inheritDoc} */\n    @Override\n    public FieldMatrix<T> scalarMultiply(final T d) {",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+   "new": "        return blocks;\n    }\n\n    /**\n     * Returns the index of the entry that a point selects among weighted\n     * entries.\n     * <p>\n     * The entries are laid out one after another from zero, each over a\n     * length equal to its weight, and the start of each entry is recorded,\n     * one start per entry; the entry laid over the point is selected.\n     * </p>\n     *\n     * @param weights the weight of each entry, not negative\n     * @param point the point, at or above zero\n     * @return the index of the selected entry\n     */\n    public static int indexForWeights(final double[] weights, final double point) {\n        final double[] starts = new double[weights.length];\n        double sum = 0;\n        for (int i = 0; i < weights.length; i++) {\n            starts[i] = sum;\n            sum += weights[i];\n        }\n        return RealVector.intervalOf(starts, point);\n    }\n\n\n    /** {@inheritDoc} */",
+   "old": "        return blocks;\n    }\n\n    /** {@inheritDoc} */",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/linear/RealVector.java",
+   "new": "        return maxIndex < 0 ? Double.NaN : getEntry(maxIndex);\n    }\n\n    /**\n     * Returns the index of the interval that holds a point, given the start\n     * of each interval.\n     * <p>\n     * The intervals are visited in order, moving on to the next interval\n     * while its start is at or below the point.\n     * </p>\n     *\n     * @param starts the start of each interval, in ascending order, the\n     * first one at or below the point\n     * @param point the point to locate\n     * @return the index of the interval that holds the point\n     */\n    public static int intervalOf(final double[] starts, final double point) {\n        int index = 0;\n        while (index + 1 < starts.length && starts[index + 1] <= point) {\n            index++;\n        }\n        return index;\n    }\n\n\n",
+   "old": "        return maxIndex < 0 ? Double.NaN : getEntry(maxIndex);\n    }\n\n",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java",
+   "new": "import org.apache.commons.math3.optimization.MultivariateOptimizer;\nimport org.apache.commons.math3.linear.BlockRealMatrix;\n",
+   "old": "import org.apache.commons.math3.optimization.MultivariateOptimizer;\n",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java",
+   "new": "        this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;\n    }\n\n    /**\n     * Returns the index of the entry that a point selects among weighted\n     * entries laid out one after another from zero.\n     *\n     * @param weights the weight of each entry\n     * @param point the point, at or above zero\n     * @return the index of the selected entry\n     */\n    public static int weightedIndex(final double[] weights, final double point) {\n        return BlockRealMatrix.indexForWeights(weights, point);\n    }\n\n\n    /** {@inheritDoc} */",
+   "old": "        this.stoppingTrustRegionRadius = stoppingTrustRegionRadius;\n    }\n\n    /** {@inheritDoc} */",
+   "purpose": "MI-Math-8 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math3.analysis.differentiation.DSCompiler",
+   "file": "src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java",
+   "method": "drawValue"
+  },
+  {
+   "class": "org.apache.commons.math3.linear.BlockFieldMatrix",
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+   "method": "drawIndex"
+  },
+  {
+   "class": "org.apache.commons.math3.optimization.direct.BOBYQAOptimizer",
+   "file": "src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java",
+   "method": "weightedIndex"
+  },
+  {
+   "class": "org.apache.commons.math3.linear.BlockRealMatrix",
+   "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+   "method": "indexForWeights"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Math-8__i.py",
+ "entry_points": [
+  "org.apache.commons.math3.distribution.DiscreteDistribution::sample"
+ ],
+ "evidence": [
+  "org.apache.commons.math3.analysis.function.StepFunction::value",
+  "org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction::value"
+ ],
+ "expected_signature": "java.lang.ArrayIndexOutOfBoundsException: Index 2 out of bounds for length 2",
+ "extra_tests": [],
+ "fixture_key": "Math-8",
+ "gold": {
+  "class": "org.apache.commons.math3.linear.RealVector",
+  "edits": [
+   {
+    "new": "        while (starts[index + 1] <= point) {",
+    "old": "        while (index + 1 < starts.length && starts[index + 1] <= point) {"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/math3/linear/RealVector.java",
+  "method": "intervalOf"
+ },
+ "group": "MI-Math-8",
+ "hops": 5,
+ "iid": "MI-Math-8",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold decides where the walk over the starts stops: hop 4 lays the weights out from zero and records one start per entry, hops 1 to 3 pass the index or the point along (hop 2 draws the single deviate). The gold's contract is the index of the interval that holds the point; the last interval holds every point at or above its start, because there is no next interval to move on to. The variant walks past the last interval and reads a start that does not exist, raising inside the gold, so no caller can take its result and recover it. The convention is pinned outside the gold: StepFunction.value gives a point at or past the last abscissa the last ordinate (StepFunctionTest::testSomeValues: f.value(30) and f.value(+inf) give the last step; testEndpointBehavior), PolynomialSplineFunction.value gives the last knot to the last piece; DiscreteRealDistributionTest::testSample and DiscreteIntegerDistributionTest::testSample pass through the chain (every draw inside the starts).",
+ "ownership_tests": [
+  "org.apache.commons.math3.analysis.function.StepFunctionTest::testSomeValues",
+  "org.apache.commons.math3.analysis.function.StepFunctionTest::testEndpointBehavior",
+  "org.apache.commons.math3.distribution.DiscreteRealDistributionTest::testSample",
+  "org.apache.commons.math3.distribution.DiscreteIntegerDistributionTest::testSample"
+ ],
+ "project": "Math",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "cosh",
+    "anchor_seed": 7743,
+    "class": "org.apache.commons.math3.analysis.differentiation.DSCompiler",
+    "file": "src/main/java/org/apache/commons/math3/analysis/differentiation/DSCompiler.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.math3.linear.BlockFieldMatrix;",
+     "import org.apache.commons.math3.random.RandomGenerator;"
+    ],
+    "method": "drawValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "scalarAdd",
+    "anchor_seed": 7744,
+    "class": "org.apache.commons.math3.linear.BlockFieldMatrix",
+    "file": "src/main/java/org/apache/commons/math3/linear/BlockFieldMatrix.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.math3.optimization.direct.BOBYQAOptimizer;",
+     "import org.apache.commons.math3.random.RandomGenerator;"
+    ],
+    "method": "drawIndex",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BOBYQAOptimizer",
+    "anchor_seed": 7745,
+    "class": "org.apache.commons.math3.optimization.direct.BOBYQAOptimizer",
+    "file": "src/main/java/org/apache/commons/math3/optimization/direct/BOBYQAOptimizer.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.math3.linear.BlockRealMatrix;"
+    ],
+    "method": "weightedIndex",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "createBlocksLayout",
+    "anchor_seed": 7746,
+    "class": "org.apache.commons.math3.linear.BlockRealMatrix",
+    "file": "src/main/java/org/apache/commons/math3/linear/BlockRealMatrix.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "indexForWeights",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getMaxValue",
+    "anchor_seed": 7747,
+    "class": "org.apache.commons.math3.linear.RealVector",
+    "file": "src/main/java/org/apache/commons/math3/linear/RealVector.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "intervalOf",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 7643
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Math-8"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.math3.distribution.DiscreteRealDistributionTest",
+  "test_file": "src/test/java/org/apache/commons/math3/distribution/DiscreteRealDistributionTest.java",
+  "test_method": "testIssue942"
+ },
+ "variant_id": "CTV-24D4E5",
+ "kind": "new",
+ "fault_lines": [
+  "while (starts[index + 1] <= point) {"
+ ],
+ "gold_key": "org.apache.commons.math3.linear.RealVector::intervalOf"
+}

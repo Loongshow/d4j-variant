@@ -1,0 +1,232 @@
+{
+ "bug_id": 15,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "    BZip2CompressorOutputStream.recordUnixMode(entry, entry.isDirectory() ? mode | UnixStat.DIR_FLAG : mode);",
+   "old": "    BZip2CompressorOutputStream.recordUnixMode(entry, mode);",
+   "why": "hop 1 adds the Unix directory type to the mode of a directory entry"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "    BZip2CompressorInputStream.transferMode(entry, mode & 07777);",
+   "old": "    BZip2CompressorInputStream.transferMode(entry, mode);",
+   "why": "hop 3 keeps only the permission bits of the mode"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "    ZipFile.assignUnixAttributes(entry, entry.isDirectory() ? mode | 0x10 : mode);",
+   "old": "    ZipFile.assignUnixAttributes(entry, mode);",
+   "why": "hop 4 marks the mode of a directory entry with 0x10"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "import org.apache.commons.compress.utils.ArchiveUtils;\nimport org.apache.commons.compress.archivers.zip.ZipArchiveEntry;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;\n",
+   "old": "import org.apache.commons.compress.utils.ArchiveUtils;\n",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "        this.groupName = groupName;\n    }\n\n    /**\n     * Stores the Unix mode of a zip entry in its external attributes.\n     *\n     * <p>The entry and the mode are passed on unchanged.</p>\n     *\n     * @param entry the entry whose attributes are set\n     * @param mode the Unix mode of the entry\n     */\n    public static void storeMode(ZipArchiveEntry entry, int mode) {\n        BZip2CompressorInputStream.transferMode(entry, mode);\n    }\n\n\n    /**",
+   "old": "        this.groupName = groupName;\n    }\n\n    /**",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntry.java",
+   "new": "       The set-user-ID, set-group-ID and sticky bits are cleared from the mode before it is stored, since unzip ignores them.\n     */\n    public void setUnixMode(int mode) {\n        org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.applyUnixMode(this, mode);",
+   "old": "     */\n    public void setUnixMode(int mode) {\n        // CheckStyle:MagicNumberCheck OFF - no point\n        setExternalAttributes((mode << SHORT_SHIFT)\n                              // MS-DOS read-only attribute\n                              | ((mode & 0200) == 0 ? 1 : 0)\n                              // MS-DOS directory flag\n                              | (isDirectory() ? 0x10 : 0));\n        // CheckStyle:MagicNumberCheck ON",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;\n",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "        return raf != null;\n    }\n\n    /**\n     * Sets the external attributes of an entry, as they are written to\n     * the central directory, from its Unix mode.\n     *\n     * <p>The entry and the mode are passed on unchanged.</p>\n     *\n     * @param entry the entry whose attributes are set\n     * @param mode the Unix mode of the entry\n     */\n    public static void applyUnixMode(ZipArchiveEntry entry, int mode) {\n        BZip2CompressorOutputStream.recordUnixMode(entry, mode);\n    }\n\n\n    /**",
+   "old": "        return raf != null;\n    }\n\n    /**",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        return encoding;\n    }\n\n    /**\n     * Sets the external attributes of an entry from its Unix mode.\n     *\n     * <p>The mode is held in the upper two bytes of the attributes.</p>\n     *\n     * @param entry the entry whose attributes are set\n     * @param mode the Unix mode of the entry\n     */\n    public static void assignUnixAttributes(ZipArchiveEntry entry, int mode) {\n        int attributes = mode << 16;\n        attributes |= (mode & 0200) == 0 ? 1 : 0;\n        attributes |= entry.isDirectory() ? 0x10 : 0;\n        entry.setExternalAttributes(attributes);\n    }\n\n\n    /**",
+   "old": "        return encoding;\n    }\n\n    /**",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorInputStream;\nimport org.apache.commons.compress.archivers.zip.ZipArchiveEntry;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorInputStream;\n",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "        }\n    }\n\n    /**\n     * Transfers the Unix mode of an archive entry into its external\n     * attributes.\n     *\n     * <p>The entry and the mode are passed on unchanged.</p>\n     *\n     * @param entry the entry whose attributes are set\n     * @param mode the Unix mode of the entry\n     */\n    public static void transferMode(ZipArchiveEntry entry, int mode) {\n        ZipFile.assignUnixAttributes(entry, mode);\n    }\n\n\n    private int bsR(final int n) throws IOException {",
+   "old": "        }\n    }\n\n    private int bsR(final int n) throws IOException {",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\nimport org.apache.commons.compress.archivers.zip.ZipArchiveEntry;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "            write0(buf[offs++]);\n        }\n    }\n\n    /**\n     * Records the Unix mode of an archive entry in its external\n     * attributes.\n     *\n     * <p>The entry and the mode are passed on unchanged.</p>\n     *\n     * @param entry the entry whose attributes are set\n     * @param mode the Unix mode of the entry\n     */\n    public static void recordUnixMode(ZipArchiveEntry entry, int mode) {\n        TarArchiveEntry.storeMode(entry, mode);\n    }\n\n\n    /**\n     * Keeps track of the last bytes written and implicitly performs",
+   "old": "            write0(buf[offs++]);\n        }\n    }\n\n    /**\n     * Keeps track of the last bytes written and implicitly performs",
+   "purpose": "MI-Compress-15 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "applyUnixMode"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "recordUnixMode"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "method": "storeMode"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "method": "transferMode"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-15__i.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.zip.ZipArchiveEntry::setUnixMode"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.zip.AsiExtraField::getMode",
+  "org.apache.commons.compress.archivers.zip.ZipArchiveEntry::isDirectory",
+  "org.apache.commons.compress.archivers.zip.ZipArchiveEntry::getUnixMode"
+ ],
+ "expected_signature": "expected:<16> but was:<0>",
+ "extra_tests": [],
+ "fixture_key": "Compress-15",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+  "edits": [
+   {
+    "new": "        attributes |= (mode & 0200) == 0 ? 1 : 0;",
+    "old": "        attributes |= (mode & 0200) == 0 ? 1 : 0;\n        attributes |= entry.isDirectory() ? 0x10 : 0;"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+  "method": "assignUnixAttributes"
+ },
+ "group": "MI-Compress-15",
+ "hops": 5,
+ "iid": "MI-Compress-15",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold builds the external attribute word of the entry: it places the Unix mode in the upper two bytes, sets the lower-byte marks and sets the word on the entry. Hops 1-4 pass the entry and the mode on unchanged and set nothing themselves; the facade adds only the platform. The lower bytes of the variant's word hold only the mark derived from the owner-write bit, so no mode a caller passes makes a directory entry carry the directory attribute 0x10; once the gold has set the word without it, it can appear only if a caller rewrites the attributes the gold set or replaces the gold. The gold promises the external attributes of the entry from its Unix mode; the facade documents them as those understood by Info-Zip's unzip, in which a directory carries the directory attribute, and the variant leaves it out for the directory entry foo/. The convention that a directory entry's Unix attributes record that it is a directory is pinned outside the gold: AsiExtraField.getMode(int) stores the directory type DIR_FLAG with the mode of a directory entry, ZipArchiveEntry.isDirectory() makes a name ending in '/' a directory and ZipArchiveEntry.getUnixMode() reads the mode back from the upper two bytes; AsiExtraFieldTest::testModes and ::testReparse (a directory's mode carries the directory type) and ZipTestCase::testExplicitDirectoryEntry (the entry foo/ is a directory) pass.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.zip.AsiExtraFieldTest::testModes",
+  "org.apache.commons.compress.archivers.zip.AsiExtraFieldTest::testReparse",
+  "org.apache.commons.compress.archivers.ZipTestCase::testExplicitDirectoryEntry"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "isSeekable",
+    "anchor_seed": 8744,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "applyUnixMode",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "write",
+    "anchor_seed": 8745,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;",
+     "import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;"
+    ],
+    "method": "recordUnixMode",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "setGroupName",
+    "anchor_seed": 8746,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;",
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;"
+    ],
+    "method": "storeMode",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "close",
+    "anchor_seed": 8747,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;",
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "transferMode",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getEncoding",
+    "anchor_seed": 8748,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "assignUnixAttributes",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 8644
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-15"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.zip.ZipArchiveEntryTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/zip/ZipArchiveEntryTest.java",
+  "test_method": "testUnixMode"
+ },
+ "variant_id": "CTV-3F21FD",
+ "kind": "new",
+ "fault_lines": [
+  "attributes |= (mode & 0200) == 0 ? 1 : 0;"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.zip.ZipFile::assignUnixAttributes"
+}

@@ -1,0 +1,170 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 393eeaff..7c4d1e7d 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -49,6 +49,8 @@ import java.util.zip.GZIPInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import org.jsoup.select.Evaluator;
++import org.jsoup.select.NodeVisitor;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -289,6 +291,16 @@ public class HttpConnection implements Connection {
+         return res.parse();
+     }
+ 
++    /**
++     * Convert a jsoup document to a W3C DOM document, through a visitor that builds the W3C DOM document.
++     * @param doc the jsoup document to convert
++     * @param visitor the visitor that builds the W3C DOM document
++     */
++    public static void convertDocument(Document doc, NodeVisitor visitor) {
++        Evaluator.IsRoot.visitDocument(doc, visitor);
++    }
++
++
+     public Document post() throws IOException {
+         req.method(Method.POST);
+         execute();
+diff --git a/src/main/java/org/jsoup/helper/W3CDom.java b/src/main/java/org/jsoup/helper/W3CDom.java
+index 81ac9324..ca8e64fb 100644
+--- a/src/main/java/org/jsoup/helper/W3CDom.java
++++ b/src/main/java/org/jsoup/helper/W3CDom.java
+@@ -32,6 +32,7 @@ public class W3CDom {
+      * Convert a jsoup Document to a W3C Document.
+      * @param in jsoup doc
+      * @return w3c doc
++       The jsoup document is first written out as XML text, which the factory's parser then reads back into the W3C document.
+      */
+     public Document fromJsoup(org.jsoup.nodes.Document in) {
+         Validate.notNull(in);
+@@ -41,7 +42,7 @@ public class W3CDom {
+         	factory.setNamespaceAware(true);
+             builder = factory.newDocumentBuilder();
+             Document out = builder.newDocument();
+-            convert(in, out);
++            org.jsoup.nodes.Element.copyToW3CDocument(in, out, new W3CBuilder(out));
+             return out;
+         } catch (ParserConfigurationException e) {
+             throw new IllegalStateException(e);
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index ba1470bf..b89c2b29 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
+ 
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -474,6 +475,20 @@ public class Element extends Node {
+         addChildren(index, children);
+         return this;
+     }
++
++    /**
++     * Copy a jsoup document into a W3C DOM document, through a visitor that builds the W3C DOM tree. If the jsoup document
++     * has a location, it is set as the W3C document's URI. The jsoup document is left unchanged.
++     * @param document the jsoup document to copy
++     * @param out the W3C DOM document to copy into
++     * @param visitor the visitor that builds the W3C DOM tree in {@code out}
++     */
++    public static void copyToW3CDocument(Document document, org.w3c.dom.Document out, NodeVisitor visitor) {
++        if (!StringUtil.isBlank(document.location()))
++            out.setDocumentURI(document.location());
++        HttpConnection.convertDocument(document, visitor);
++    }
++
+     
+     /**
+      * Create a new element by tag name, and add it as the last child.
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index 37467a7c..7042d377 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -569,6 +569,23 @@ public abstract class Node implements Cloneable {
+         return accum.toString();
+     }
+ 
++    /**
++     * Walk a jsoup document, depth-first, into a visitor that builds a W3C DOM document from it.
++     * @param document the jsoup document to walk
++     * @param visitor the visitor that builds the W3C DOM document
++     */
++    public static void walkDocument(Document document, NodeVisitor visitor) {
++        Node start = null;
++        for (Node child : document.childNodes()) {
++            if (child instanceof DocumentType) continue;
++            if (child instanceof Comment) continue;
++            if (start == null)
++                start = child;
++        }
++        NodeTraversor.traverse(visitor, start);
++    }
++
++
+     protected void outerHtml(Appendable accum) {
+         NodeTraversor.traverse(new OuterHtmlVisitor(accum, getOutputSettings()), this);
+     }
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index b8cc1f03..26a1dd4a 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -17,6 +17,7 @@ import java.util.ArrayList;
+ import java.util.List;
+ 
+ import static org.jsoup.helper.StringUtil.inSorted;
++import org.jsoup.select.NodeVisitor;
+ 
+ /**
+  * HTML Tree Builder; creates a DOM from Tokens.
+@@ -406,6 +407,16 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         queue.set(i, in);
+     }
+ 
++    /**
++     * Traverse a jsoup document with a visitor that builds a W3C DOM document from it.
++     * @param doc the jsoup document to traverse
++     * @param visitor the visitor that builds the W3C DOM document
++     */
++    public static void traverseDocument(Document doc, NodeVisitor visitor) {
++        Node.walkDocument(doc, visitor);
++    }
++
++
+     void resetInsertionMode() {
+         boolean last = false;
+         for (int pos = stack.size() -1; pos >= 0; pos--) {
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index 735606f2..1f14986c 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -585,6 +586,16 @@ public abstract class Evaluator {
+     	public String toString() {
+     		return ":root";
+     	}
++
++    /**
++     * Visit a jsoup document with a visitor that builds a W3C DOM document from it.
++     * @param doc the jsoup document to visit
++     * @param visitor the visitor that builds the W3C DOM document
++     */
++    public static void visitDocument(Document doc, NodeVisitor visitor) {
++        HtmlTreeBuilder.traverseDocument(doc, visitor);
++    }
++
+     }
+ 
+     public static final class IsOnlyChild extends Evaluator {

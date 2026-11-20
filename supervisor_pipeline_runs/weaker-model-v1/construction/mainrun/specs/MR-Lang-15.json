@@ -1,0 +1,273 @@
+{
+ "bug_id": 15,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "new": "if (entry.getValue() != null && !FastDateFormat.withinBounds(entry.getKey(), entry.getValue(), typeVarAssigns)) {",
+   "old": "if (!FastDateFormat.withinBounds(entry.getKey(), entry.getValue(), typeVarAssigns)) {",
+   "why": "hop 1 leaves a variable without an assigned type unchecked"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "return toType instanceof TypeVariable<?> || ToStringStyle.assignableUnder(type, toType, typeVarAssigns);",
+   "old": "return ToStringStyle.assignableUnder(type, toType, typeVarAssigns);",
+   "why": "hop 3 lets a bound that stays a type variable pass unchecked"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "return StringUtils.conformsTo(type, (ParameterizedType) toType, java.util.Collections.<TypeVariable<?>, Type>emptyMap());",
+   "old": "return StringUtils.conformsTo(type, (ParameterizedType) toType, typeVarAssigns);",
+   "why": "hop 4 keeps the assignments out of the comparison of the type arguments"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "new": "import org.apache.commons.lang3.mutable.MutableInt;\nimport java.lang.reflect.Type;\nimport java.lang.reflect.TypeVariable;\nimport org.apache.commons.lang3.time.FastDateFormat;\n",
+   "old": "import org.apache.commons.lang3.mutable.MutableInt;\n",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "new": "            return EMPTY_SHORT_ARRAY;\n        }\n        return array;\n    }\n\n    /**\n     * <p>Checks whether each type in a map of type variable assignments lies\n     * within the bounds of the type variable it is assigned to.</p>\n     *\n     * @param typeVarAssigns  the types assigned to the type variables, not null\n     * @return {@code true} if every assigned type satisfies the bounds of its\n     *  type variable\n     */\n    public static boolean boundsSatisfied(Map<TypeVariable<?>, Type> typeVarAssigns) {\n        for (Map.Entry<TypeVariable<?>, Type> entry : typeVarAssigns.entrySet()) {\n            if (!FastDateFormat.withinBounds(entry.getKey(), entry.getValue(), typeVarAssigns)) {\n                return false;\n            }\n        }\n        return true;\n    }\n\n\n    /**\n     * <p>Defensive programming technique to change a {@code null}\n     * reference to an empty one.</p>",
+   "old": "            return EMPTY_SHORT_ARRAY;\n        }\n        return array;\n    }\n\n    /**\n     * <p>Defensive programming technique to change a {@code null}\n     * reference to an empty one.</p>",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "import java.util.regex.Pattern;\nimport java.lang.reflect.ParameterizedType;\nimport java.lang.reflect.Type;\nimport java.lang.reflect.TypeVariable;\nimport java.lang.reflect.WildcardType;\nimport java.util.Map;\nimport org.apache.commons.lang3.reflect.TypeUtils;\n",
+   "old": "import java.util.regex.Pattern;\n",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "        return containsAny(cs, CharSequenceUtils.toCharArray(searchChars));\n    }\n\n    /**\n     * <p>Checks if a type may be assigned to a parameterized type following the\n     * Java generics rules, the type variables having the given assignments.</p>\n     *\n     * @param type  the type to be assigned\n     * @param toParameterizedType  the target parameterized type, not null\n     * @param typeVarAssigns  the types assigned to the type variables\n     * @return {@code true} if {@code type} is assignable to the parameterized type\n     */\n    public static boolean conformsTo(Type type, ParameterizedType toParameterizedType,\n            Map<TypeVariable<?>, Type> typeVarAssigns) {\n        if (type == null || toParameterizedType.equals(type)) {\n            return true;\n        }\n        Class<?> toClass = TypeUtils.getRawType(toParameterizedType, null);\n        Map<TypeVariable<?>, Type> fromTypeVarAssigns = TypeUtils.getTypeArguments(type, toClass);\n        if (fromTypeVarAssigns == null) {\n            return false;\n        }\n        if (fromTypeVarAssigns.isEmpty()) {\n            return true;\n        }\n        Map<TypeVariable<?>, Type> toTypeVarAssigns = TypeUtils.getTypeArguments(toParameterizedType, toClass,\n                typeVarAssigns);\n        for (TypeVariable<?> var : toTypeVarAssigns.keySet()) {\n            Type toTypeArg = TypeUtils.unrollVariableAssignments(var, toTypeVarAssigns);\n            Type fromTypeArg = TypeUtils.unrollVariableAssignments(var, fromTypeVarAssigns);\n            if (fromTypeArg == null) {\n                continue;\n            }\n            if (toTypeArg.equals(fromTypeArg)) {\n                continue;\n            }\n            if (toTypeArg instanceof WildcardType && TypeUtils.isAssignable(fromTypeArg, toTypeArg, typeVarAssigns)) {\n                continue;\n            }\n            return false;\n        }\n        return true;\n    }\n\n\n    // IndexOfAnyBut chars",
+   "old": "        return containsAny(cs, CharSequenceUtils.toCharArray(searchChars));\n    }\n\n    // IndexOfAnyBut chars",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport java.lang.reflect.ParameterizedType;\nimport java.lang.reflect.Type;\nimport java.lang.reflect.TypeVariable;\nimport org.apache.commons.lang3.StringUtils;\nimport org.apache.commons.lang3.reflect.TypeUtils;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "        appendDetail(buffer, fieldName, value);\n        appendFieldEnd(buffer, fieldName);\n    }\n\n    /**\n     * <p>Checks if a type may be assigned to a target type following the Java\n     * generics rules, the type variables having the given assignments.</p>\n     *\n     * @param type  the type to be assigned\n     * @param toType  the target type\n     * @param typeVarAssigns  the types assigned to the type variables\n     * @return {@code true} if {@code type} is assignable to {@code toType}\n     */\n    public static boolean assignableUnder(Type type, Type toType, Map<TypeVariable<?>, Type> typeVarAssigns) {\n        if (toType instanceof ParameterizedType) {\n            return StringUtils.conformsTo(type, (ParameterizedType) toType, typeVarAssigns);\n        }\n        return TypeUtils.isAssignable(type, toType, typeVarAssigns);\n    }\n\n\n    /**\n     * <p>Append to the <code>toString</code> a <code>boolean</code>",
+   "old": "        appendDetail(buffer, fieldName, value);\n        appendFieldEnd(buffer, fieldName);\n    }\n\n    /**\n     * <p>Append to the <code>toString</code> a <code>boolean</code>",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java",
+   "new": "    public static boolean isAssignable(Type type, Type toType,",
+   "old": "    private static boolean isAssignable(Type type, Type toType,",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java",
+   "new": "    /**\n     * <p> Follows the assignments of a type variable through a map until a type that is not\n     * another assigned type variable is reached. </p>\n     *\n     * @param var the type variable\n     * @param typeVarAssigns the map with type variables\n     * @return the type the variable stands for, <code>null</code> if it has no assignment\n     */\n    public static Type unrollVariableAssignments(TypeVariable<?> var, Map<TypeVariable<?>, Type> typeVarAssigns) {",
+   "old": "    private static Type unrollVariableAssignments(TypeVariable<?> var, Map<TypeVariable<?>, Type> typeVarAssigns) {",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java",
+   "new": "    public static Map<TypeVariable<?>, Type> getTypeArguments(Type type, Class<?> toClass,",
+   "old": "    private static Map<TypeVariable<?>, Type> getTypeArguments(Type type, Class<?> toClass,",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java",
+   "new": "       The assignments are first copied into a map sorted by the names of their type variables, so that the result does not depend on the iteration order of the given map, and the bounds of each variable are then checked from the last declared to the first.\n     */\n    public static boolean typesSatisfyVariables(Map<TypeVariable<?>, Type> typeVarAssigns) {\n        return org.apache.commons.lang3.ArrayUtils.boundsSatisfied(typeVarAssigns);",
+   "old": "     */\n    public static boolean typesSatisfyVariables(Map<TypeVariable<?>, Type> typeVarAssigns) {\n        // all types must be assignable to all the bounds of the their mapped\n        // type variable.\n        for (Map.Entry<TypeVariable<?>, Type> entry : typeVarAssigns.entrySet()) {\n            TypeVariable<?> typeVar = entry.getKey();\n            Type type = entry.getValue();\n\n            for (Type bound : getImplicitBounds(typeVar)) {\n                if (!isAssignable(type, substituteTypeVariables(bound, typeVarAssigns),\n                        typeVarAssigns)) {\n                    return false;\n                }\n            }\n        }\n\n        return true;",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport java.lang.reflect.Type;\nimport java.lang.reflect.TypeVariable;\nimport java.util.Map;\nimport org.apache.commons.lang3.builder.ToStringStyle;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "            size += 5;\n        }\n        return this;\n    }\n\n    /**\n     * <p>Checks whether a type lies within one bound of a type variable,\n     * following the Java generics rules. A bound that is itself a type variable\n     * stands for the type assigned to that variable.</p>\n     *\n     * @param type  the type to check\n     * @param bound  the bound of the type variable\n     * @param typeVarAssigns  the types assigned to the type variables\n     * @return {@code true} if the type satisfies the bound\n     * @throws IllegalArgumentException if the bound is a type variable without\n     *  an assigned type\n     */\n    public static boolean meetsBound(Type type, Type bound, Map<TypeVariable<?>, Type> typeVarAssigns) {\n        Type toType = bound;\n        if (bound instanceof TypeVariable<?>) {\n            toType = typeVarAssigns.get(bound);\n            if (toType == null) {\n                throw new IllegalArgumentException(\"missing assignment type for type variable \" + bound);\n            }\n        }\n        return ToStringStyle.assignableUnder(type, toType, typeVarAssigns);\n    }\n\n\n    /**\n     * Inserts the value into this builder.\n     *\n     * @param index  the index to add at, must be valid\n     * @param value  the value to insert\n     * @return this, to enable chaining\n     * @throws IndexOutOfBoundsException if the index is invalid",
+   "old": "            size += 5;\n        }\n        return this;\n    }\n\n    /**\n     * Inserts the value into this builder.\n     *\n     * @param index  the index to add at, must be valid\n     * @param value  the value to insert\n     * @return this, to enable chaining\n     * @throws IndexOutOfBoundsException if the index is invalid",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "import org.apache.commons.lang3.Validate;\nimport java.lang.reflect.Type;\nimport java.lang.reflect.TypeVariable;\nimport java.util.Map;\nimport org.apache.commons.lang3.reflect.TypeUtils;\nimport org.apache.commons.lang3.text.StrBuilder;\n",
+   "old": "import org.apache.commons.lang3.Validate;\n",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "new": "        return cache.getDateTimeInstance(null, style, timeZone, locale);\n    }\n\n    /**\n     * <p>Checks whether a type lies within every bound of a type variable,\n     * following the Java generics rules.</p>\n     *\n     * @param typeVariable  the type variable\n     * @param type  the type assigned to the type variable\n     * @param typeVarAssigns  the types assigned to the type variables that the\n     *  bounds may refer to\n     * @return {@code true} if the type satisfies every bound of the type variable\n     */\n    public static boolean withinBounds(TypeVariable<?> typeVariable, Type type,\n            Map<TypeVariable<?>, Type> typeVarAssigns) {\n        for (Type bound : TypeUtils.getImplicitBounds(typeVariable)) {\n            if (!StrBuilder.meetsBound(type, bound, typeVarAssigns)) {\n                return false;\n            }\n        }\n        return true;\n    }\n\n\n    //-----------------------------------------------------------------------",
+   "old": "        return cache.getDateTimeInstance(null, style, timeZone, locale);\n    }\n\n    //-----------------------------------------------------------------------",
+   "purpose": "MR-Lang-15 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.ArrayUtils",
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "method": "boundsSatisfied"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.FastDateFormat",
+   "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+   "method": "withinBounds"
+  },
+  {
+   "class": "org.apache.commons.lang3.text.StrBuilder",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "method": "meetsBound"
+  },
+  {
+   "class": "org.apache.commons.lang3.builder.ToStringStyle",
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "method": "assignableUnder"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Lang-15.py",
+ "entry_points": [
+  "org.apache.commons.lang3.reflect.TypeUtils::typesSatisfyVariables"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.reflect.TypeUtils::isAssignable",
+  "org.apache.commons.lang3.reflect.TypeUtils::getTypeArguments",
+  "org.apache.commons.lang3.reflect.TypeUtils::typesSatisfyVariables"
+ ],
+ "expected_signature": "TypeUtilsTest.testTypesSatisfyVariables(TypeUtilsTest.java:516)",
+ "extra_tests": [],
+ "fixture_key": "Lang-15",
+ "gold": {
+  "class": "org.apache.commons.lang3.StringUtils",
+  "edits": [
+   {
+    "new": "            Type fromTypeArg = TypeUtils.unrollVariableAssignments(var, fromTypeVarAssigns);",
+    "old": "            Type fromTypeArg = TypeUtils.unrollVariableAssignments(var, fromTypeVarAssigns);\n            if (fromTypeArg == null) {\n                continue;\n            }"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+  "method": "conformsTo"
+ },
+ "group": "MR-Lang-15",
+ "hops": 5,
+ "iid": "MR-Lang-15",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold compares the subject's type arguments with the bound's, variable by variable; hops 1-4 pass the assigned type, one bound and the assignment map along and cannot make that comparison skip a variable the subject leaves unbound with a one-line change (the assignments are needed to resolve the bound's arguments, and the subject's argument map is computed inside the gold). TypeUtils.isAssignable(Type, ParameterizedType, Map) performs the same per-variable check with the explicit 'fromTypeArg != null' clause and the comment that parameters must be absent from the subject type, within the bounds of the wildcard type, or an exact match; TypeUtils.getTypeArguments puts the assignments into the bound's argument map; testIsAssignable fails when TypeUtils's own clause is removed and passes here.",
+ "ownership_tests": [
+  "org.apache.commons.lang3.reflect.TypeUtilsTest::testIsAssignable",
+  "org.apache.commons.lang3.reflect.TypeUtilsTest::testGetTypeArguments",
+  "org.apache.commons.lang3.reflect.TypeUtilsTest::testIsInstance"
+ ],
+ "project": "Lang",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "nullToEmpty",
+    "anchor_seed": 2283,
+    "class": "org.apache.commons.lang3.ArrayUtils",
+    "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.lang.reflect.Type;",
+     "import java.lang.reflect.TypeVariable;",
+     "import org.apache.commons.lang3.time.FastDateFormat;"
+    ],
+    "method": "boundsSatisfied",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getTimeInstance",
+    "anchor_seed": 2284,
+    "class": "org.apache.commons.lang3.time.FastDateFormat",
+    "file": "src/main/java/org/apache/commons/lang3/time/FastDateFormat.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.lang.reflect.Type;",
+     "import java.lang.reflect.TypeVariable;",
+     "import java.util.Map;",
+     "import org.apache.commons.lang3.reflect.TypeUtils;",
+     "import org.apache.commons.lang3.text.StrBuilder;"
+    ],
+    "method": "withinBounds",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "insert",
+    "anchor_seed": 2285,
+    "class": "org.apache.commons.lang3.text.StrBuilder",
+    "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.lang.reflect.Type;",
+     "import java.lang.reflect.TypeVariable;",
+     "import java.util.Map;",
+     "import org.apache.commons.lang3.builder.ToStringStyle;"
+    ],
+    "method": "meetsBound",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "append",
+    "anchor_seed": 2286,
+    "class": "org.apache.commons.lang3.builder.ToStringStyle",
+    "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.lang.reflect.ParameterizedType;",
+     "import java.lang.reflect.Type;",
+     "import java.lang.reflect.TypeVariable;",
+     "import org.apache.commons.lang3.StringUtils;",
+     "import org.apache.commons.lang3.reflect.TypeUtils;"
+    ],
+    "method": "assignableUnder",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "containsAny",
+    "anchor_seed": 2287,
+    "class": "org.apache.commons.lang3.StringUtils",
+    "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.lang.reflect.ParameterizedType;",
+     "import java.lang.reflect.Type;",
+     "import java.lang.reflect.TypeVariable;",
+     "import java.lang.reflect.WildcardType;",
+     "import java.util.Map;",
+     "import org.apache.commons.lang3.reflect.TypeUtils;"
+    ],
+    "method": "conformsTo",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2183
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Lang-15"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.lang3.reflect.TypeUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/lang3/reflect/TypeUtilsTest.java",
+  "test_method": "testTypesSatisfyVariables"
+ },
+ "variant_id": "CTV-53F50C",
+ "kind": "new",
+ "fault_lines": [
+  "Type fromTypeArg = TypeUtils.unrollVariableAssignments(var, fromTypeVarAssigns);"
+ ],
+ "gold_key": "org.apache.commons.lang3.StringUtils::conformsTo"
+}

@@ -1,0 +1,87 @@
+{
+ "instance": "JacksonCore-1",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::limitNotExceeded (hop 4)",
+   "edit": "return JsonParser.notAboveLimit(numberStr, limitStr);  ->  return numberStr.compareTo(limitStr) <= 0;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::withinLimit (hop 2)",
+   "edit": "if (numberStr.length() < limitStr.length()) {  ->  if (numberStr.length() < limitStr.length() || (numberStr.length() == limitStr.length() && numberStr.compareTo(limitStr) < 0)) {",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser::fitsInLong (hop 1)",
+   "edit": "return ReaderBasedJsonParser.withinLimit(numberStr, limitStr);  ->  return new java.math.BigInteger(negative ? \"-\" + numberStr : numberStr).bitLength() < 64;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::limitNotExceeded (hop 4)",
+   "edit": "insert before the return: if (numberStr.charAt(0) < limitStr.charAt(0)) return true;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser::fitsInLong (hop 1), spec compensating edit",
+   "edit": "swap the two limits per sign",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser::withinLimit (hop 2), spec compensating edit",
+   "edit": "numberStr.length() < limitStr.length()  ->  numberStr.length() <= limitStr.length()",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::limitNotExceeded (hop 4), spec compensating edit",
+   "edit": "pass numberStr.trim(), limitStr.trim()",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade com.fasterxml.jackson.core.io.NumberInput::inLongRange(String,boolean)",
+  "hop1 com.fasterxml.jackson.core.json.UTF8StreamJsonParser::fitsInLong",
+  "hop2 com.fasterxml.jackson.core.json.ReaderBasedJsonParser::withinLimit",
+  "hop3 com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::atMostLimit",
+  "hop4 com.fasterxml.jackson.core.json.UTF8JsonGenerator::limitNotExceeded",
+  "gold com.fasterxml.jackson.core.JsonParser::notAboveLimit"
+ ],
+ "reasons": "Reproduced: the variant compiles; the trigger TestNumberParsing::testLongBoundsChecks fails at TestNumberParsing.java:66 (assertTrue(inLongRange(\"1323372036854775807\", true))); the full suite has exactly one failure, the trigger. (a) The gold notAboveLimit promises 'True if the number is not greater than the limit' for equal-length digit Strings; with the omitted 'if (diff < 0) return true;' it returns false for 1323372036854775807 against 9223372036854775808 (the second digit 3 > 2 decides after the lower first digit is ignored). Every hop does what its own javadoc says on this input: hop 1 picks the MIN_VALUE magnitude for negative, hop 2 (fewer digits -> below) and hop 3 (more digits -> above) both fall through on 19 = 19 digits, hop 4 passes the pair on; each returns its callee's boolean. Only the gold's own code breaks its contract. (b) No hop javadoc contradicts its code or is loose enough to own the digit comparison; hops 2 and 3 document only their length rules. (c) Four non-gold one-line edits pass the trigger, the four ownership tests and the full suite, and all are bypasses: hop 4 or hop 1 replaced by String.compareTo / BigInteger (gold or hops 2-5 dead), hop 2 answering the equal-length lower case itself with String.compareTo (reimplements the gold's comparison), and hop 4 answering a lower first digit itself (partial; the chain still gives false for 9133372036854775807, which the char[] overload accepts). The spec's three compensating edits still fail the trigger. No competing repair exists: any edit that keeps calling the gold with the same equal-length pair inherits its digit-dominance result. (d) Names (fitsInLong, withinLimit, atMostLimit, limitNotExceeded, notAboveLimit) are neutral and in host vocabulary; no fault vocabulary; no comment in the gold; the facade lie (digits parsed into a BigInteger, negated for a minus sign, compared with Long.MIN_VALUE and Long.MAX_VALUE) is a false procedure that names neither the digit loop nor the early-exit step. (e) The gold is five calls below the facade; the five hops sit in five distinct existing classes; the facade (no original guard) is one delegating call; one added lie sentence; the gold's javadoc is silent on the first-differing-digit step; the trigger is an existing test and the only failure; the fault is a one-line omission. Hosts judged against BUILD_BRIEF_C10F_ADDENDUM section 1: the pristine revision has only four classes of at least 1500 lines (UTF8StreamJsonParser 3157, ReaderBasedJsonParser 2006, WriterBasedJsonGenerator 1913, UTF8JsonGenerator 1853), so largest5 applies; the five largest public non-interface non-enum classes other than NumberInput are those four plus JsonParser (1482, public abstract class), used in exactly that order for hops 1-5, matching the task record (host_mode largest5, host_files_top5); insertion anchors come from the recipe's seeded picker (anchor_seed 2191-2195 = seed 2091 + 100 + i). Facade NumberInput.inLongRange is among the pre-registered allowed targets. (f) The convention is pinned outside the gold: the production sibling NumberInput.inLongRange(char[],int,int,boolean), used by ParserBase._parseSlowIntValue, compares the same digit sequences with 'if (diff != 0) return (diff < 0);'; ParserBase.convertNumberToLong decides the same range by value with inclusive limits; TestNumericValues testLongRange, testBigDecimalRange, testLongOverflow and TestJsonGenerator testLongWrite pass on the variant.",
+ "notes": "Spec inaccuracy (does not change the verdict): ownership_reason says the chain 'still gives false for 9123372036854775807' under a first-digit-only hop edit. Measured on the variant, the chain gives TRUE for 9123372036854775807 (no digit exceeds 9223372036854775807 or 9223372036854775808), the same as the char[] overload. A correct counterexample is 9133372036854775807: the chain (variant and the first-digit hop-4 edit) gives false, the char[] overload gives true. The ownership tests pin only the limits and one past them (all through the char[] overload); no passing test exercises a lower-then-higher digit pair on the char[] path (the trigger's own char[] asserts at lines 72-80 run after the failing line 66). The pin therefore rests mainly on the production sibling code and the gold's own unambiguous 'not greater than' contract. The facade lie is inserted after the @param negative tag without a leading '*', so javadoc renders it as part of that parameter's description; this is the recipe transform's layout, not leakage. Hop 4 (limitNotExceeded) repeats the gold's javadoc verbatim and is a pure pass-through. Bypass edits recorded above: hop 4 'return numberStr.compareTo(limitStr) <= 0;'; hop 2 adding '|| (numberStr.length() == limitStr.length() && numberStr.compareTo(limitStr) < 0)'; hop 1 'return new java.math.BigInteger(negative ? \"-\" + numberStr : numberStr).bitLength() < 64;'; hop 4 'if (numberStr.charAt(0) < limitStr.charAt(0)) return true;' (partial). Scratch builds: copied target/classes were stale after edits within ant's timestamp granularity; the edited sources were touched and recompiled (verified with javap) before the recorded results. Scratch directories deleted after the audit."
+}

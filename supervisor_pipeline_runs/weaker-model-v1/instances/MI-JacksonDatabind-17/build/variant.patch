@@ -1,0 +1,214 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index e7d6f11f7..085a0a26f 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -2017,6 +2017,10 @@ public class ObjectMapper
+      * they can not be converted using this method. It may be possible to
+      * support conversions using full serialization, if raw values must be
+      * preserved.
++     *<p>
++     * Conversion is done in a single pass: the value's serializer writes
++     * directly into the nodes of the resulting tree, with no intermediate
++     * token sequence in between.
+      * 
+      * @param <T> Actual node type; usually either basic {@link JsonNode} or
+      *  {@link com.fasterxml.jackson.databind.node.ObjectNode}
+@@ -2028,17 +2032,7 @@ public class ObjectMapper
+         throws IllegalArgumentException
+     {
+         if (fromValue == null) return null;
+-        TokenBuffer buf = new TokenBuffer(this, false);
+-        JsonNode result;
+-        try {
+-            writeValue(buf, fromValue);
+-            JsonParser jp = buf.asParser();
+-            result = readTree(jp);
+-            jp.close();
+-        } catch (IOException e) { // should not occur, no real i/o...
+-            throw new IllegalArgumentException(e.getMessage(), e);
+-        }
+-        return (T) result;
++        return (T) TokenBuffer.valueAsTree(this, fromValue);
+     } 
+     
+     /*
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 068bacbb2..3f4e7580e 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
+ import com.fasterxml.jackson.databind.util.RootNameLookup;
++import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -988,6 +989,22 @@ public class ObjectReader
+         }
+         return _bindAndCloseAsTree(_parserFactory.createParser(in));
+     }
++
++    /**
++     * Converts a value into the equivalent JSON tree; the mapper and the
++     * value are passed along unchanged.
++     *
++     * @param mapper Mapper used for the conversion
++     * @param value Value to convert
++     *
++     * @return Root node of the resulting tree
++     */
++    public static JsonNode convertToTree(ObjectMapper mapper, Object value)
++        throws IOException
++    {
++        return BeanDeserializerBase.valueTree(mapper, value);
++    }
++
+     
+     /**
+      * Method that reads content from given input source,
+diff --git a/src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java b/src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java
+index 7c41bfa48..03d60b296 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java
++++ b/src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java
+@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.ser.std.NullSerializer;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
+ import com.fasterxml.jackson.databind.util.ClassUtil;
+ import com.fasterxml.jackson.databind.util.RootNameLookup;
++import com.fasterxml.jackson.databind.util.TokenBuffer;
+ 
+ /**
+  * Class that defines API used by {@link ObjectMapper} and
+@@ -945,6 +946,30 @@ public abstract class SerializerProvider
+         }
+     }
+ 
++    /**
++     * Converts a value into the equivalent JSON tree: the value is written
++     * by the given mapper into a token buffer, and the buffered tokens are
++     * then read back as a tree.
++     *
++     * @param mapper Mapper that writes the value and reads the tree
++     * @param value Value to convert
++     *
++     * @return Root node of the resulting tree
++     *
++     * @throws IOException if writing or reading the tokens fails
++     */
++    public static JsonNode serializeAsTree(ObjectMapper mapper, Object value)
++        throws IOException
++    {
++        TokenBuffer buffer = new TokenBuffer(null, false);
++        mapper.writeValue(buffer, value);
++        JsonParser p = buffer.asParser();
++        JsonNode tree = mapper.readTree(p);
++        p.close();
++        return tree;
++    }
++
++
+     /**
+      * Method that will handle serialization of Date(-like) values, using
+      * {@link SerializationConfig} settings to determine expected serialization
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index b4e305db4..bbe41ac28 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.util.ClassUtil;
+ import com.fasterxml.jackson.databind.util.EnumResolver;
+ import com.fasterxml.jackson.databind.util.NameTransformer;
+ import com.fasterxml.jackson.databind.util.TokenBuffer;
++import java.io.IOException;
+ 
+ /**
+  * Abstract factory base class that can provide deserializers for standard
+@@ -1188,6 +1189,22 @@ public abstract class BasicDeserializerFactory
+         return JsonNodeDeserializer.getDeserializer(nodeClass);
+     }
+ 
++    /**
++     * Converts a value into the equivalent JSON tree; the mapper and the
++     * value are passed along unchanged.
++     *
++     * @param mapper Mapper used for the conversion
++     * @param value Value to convert
++     *
++     * @return Root node of the resulting tree
++     */
++    public static JsonNode treeForValue(ObjectMapper mapper, Object value)
++        throws IOException
++    {
++        return ObjectReader.convertToTree(mapper, value);
++    }
++
++
+     protected JsonDeserializer<?> _findCustomTreeNodeDeserializer(Class<? extends JsonNode> type,
+             DeserializationConfig config, BeanDescription beanDesc)
+         throws JsonMappingException
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index ac65574f2..67b4a858d 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -348,6 +348,22 @@ public abstract class BeanDeserializerBase
+         }
+     }
+ 
++    /**
++     * Converts a value into the equivalent JSON tree; the mapper and the
++     * value are passed along unchanged.
++     *
++     * @param mapper Mapper used for the conversion
++     * @param value Value to convert
++     *
++     * @return Root node of the resulting tree
++     */
++    public static JsonNode valueTree(ObjectMapper mapper, Object value)
++        throws IOException
++    {
++        return SerializerProvider.serializeAsTree(mapper, value);
++    }
++
++
+     public BeanDeserializerBase(BeanDeserializerBase src, HashSet<String> ignorableProps)
+     {
+         super(src._beanType);
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 58d3e086f..cd925f7a5 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -572,6 +573,27 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+     @Override
+     public boolean isClosed() { return _closed; }
+ 
++    /**
++     * Helper method that converts a value into the equivalent JSON tree
++     * using the given mapper; the value is converted as it is. Since no
++     * real I/O is done, any I/O exception is reported as an
++     * {@link IllegalArgumentException} with the same message and cause.
++     *
++     * @param mapper Mapper used for the conversion
++     * @param value Value to convert
++     *
++     * @return Root node of the resulting tree
++     */
++    public static JsonNode valueAsTree(ObjectMapper mapper, Object value)
++    {
++        try {
++            return BasicDeserializerFactory.treeForValue(mapper, value);
++        } catch (IOException e) {
++            throw new IllegalArgumentException(e.getMessage(), e);
++        }
++    }
++
++
+     /*
+     /**********************************************************
+     /* JsonGenerator implementation: write methods, structural

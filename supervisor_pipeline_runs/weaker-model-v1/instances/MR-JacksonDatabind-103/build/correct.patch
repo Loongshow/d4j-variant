@@ -1,0 +1,197 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java b/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
+index e2ff054bf..4a708b59e 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
++++ b/src/main/java/com/fasterxml/jackson/databind/DeserializationContext.java
+@@ -1317,6 +1317,26 @@ targetType, goodValue.getClass()));
+         throw MismatchedInputException.from(getParser(), type, msg);
+     }
+ 
++    /**
++     * Helper method that checks whether given class is a local or anonymous
++     * class or, unless <code>allowNonStatic</code> is true, a non-static
++     * member class. Security and null pointer exceptions thrown while the
++     * class is introspected are taken to mean that it is neither.
++     *
++     * @return Null if class is neither; type String (that identifies the
++     *   kind of class) if it is
++     */
++    public static String findClassKind(Class<?> type, boolean allowNonStatic)
++    {
++        try {
++            return BeanDeserializerBase.findNestedClassKind(type, allowNonStatic);
++        } catch (SecurityException e) {
++        } catch (NullPointerException e) {
++        }
++        return null;
++    }
++
++
+     /**
+      * Helper method used to indicate a problem with input in cases where more
+      * specific <code>reportXxx()</code> method was not available.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index 280a3d876..838e08e66 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -3530,6 +3530,23 @@ public class ObjectMapper
+                 null, _injectableValues);
+     }
+ 
++    /**
++     * Helper method that checks whether given class, which is neither local
++     * nor anonymous, is a non-static member class; such classes are accepted
++     * if <code>allowNonStatic</code> is true.
++     *
++     * @return Null if class is accepted; type String (that identifies the
++     *   kind of class) if not
++     */
++    public static String findMemberClassKind(Class<?> type, boolean allowNonStatic)
++    {
++        if (allowNonStatic) {
++            return null;
++        }
++        return BasicDeserializerFactory.findInnerClassKind(type);
++    }
++
++
+     /**
+      * Factory method for constructing {@link ObjectReader} that will
+      * read or update instances of specified type
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index d313c4207..ff19aefb2 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
+ import com.fasterxml.jackson.databind.util.ClassUtil;
++import java.lang.reflect.Modifier;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -451,6 +452,25 @@ public class ObjectReader
+         return _with(_config.with(feature));
+     }
+ 
++    /**
++     * Helper method that counts the enclosing instances that have to exist
++     * before an instance of given class can be created.
++     *
++     * @return Number of enclosing instances needed
++     */
++    public static int countEnclosingInstances(Class<?> cls)
++    {
++        int count = 0;
++        for (Class<?> c = cls; (c != null) && !Modifier.isStatic(c.getModifiers());
++                c = ClassUtil.getEnclosingClass(c)) {
++            if (ClassUtil.getEnclosingClass(c) != null) {
++                ++count;
++            }
++        }
++        return count;
++    }
++
++
+     /**
+      * Method for constructing a new reader instance that is configured
+      * with specified features enabled.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 2019d1e05..c1e2fa4b8 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -1500,6 +1500,21 @@ nonAnnotatedParamIndex, ctor);
+         return JsonNodeDeserializer.getDeserializer(nodeClass);
+     }
+ 
++    /**
++     * Helper method that checks whether instances of given class, which is
++     * neither local nor anonymous, need an enclosing instance to be created.
++     *
++     * @return Type String "non-static member class" if they do; null if not
++     */
++    public static String findInnerClassKind(Class<?> type)
++    {
++        if (ObjectReader.countEnclosingInstances(type) == 0) {
++            return null;
++        }
++        return "non-static member class";
++    }
++
++
+     @Override
+     public JsonDeserializer<?> createReferenceDeserializer(DeserializationContext ctxt,
+             ReferenceType type, BeanDescription beanDesc)
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 6ce41f783..c11bb6dce 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -1711,6 +1711,23 @@ public abstract class BeanDeserializerBase
+         throw JsonMappingException.wrapWithPath(throwOrReturnThrowable(t, ctxt), bean, fieldName);
+     }
+ 
++    /**
++     * Helper method that checks whether given class is a local or anonymous
++     * class or, unless <code>allowNonStatic</code> is true, a non-static
++     * member class.
++     *
++     * @return Null if class is neither; type String (that identifies the
++     *   kind of class) if it is
++     */
++    public static String findNestedClassKind(Class<?> type, boolean allowNonStatic)
++    {
++        if (ClassUtil.hasEnclosingMethod(type)) {
++            return "local/anonymous";
++        }
++        return ObjectMapper.findMemberClassKind(type, allowNonStatic);
++    }
++
++
+     private Throwable throwOrReturnThrowable(Throwable t, DeserializationContext ctxt) 
+         throws IOException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/ClassUtil.java b/src/main/java/com/fasterxml/jackson/databind/util/ClassUtil.java
+index 28e88c5fa..e06930c79 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/ClassUtil.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/ClassUtil.java
+@@ -177,33 +177,16 @@ public final class ClassUtil
+         return null;
+     }
+     
++    /**
++     * Helper method that checks whether given class is a local or anonymous
++     * class or, unless <code>allowNonStatic</code> is true, a non-static
++     * member class; returns type String (that identifies the kind of class)
++     * if it is, and null if it is neither.
++       The answer is looked up in a table that maps each class seen so far to its kind, and is added to that table the first time a class is checked.
++     */
+     public static String isLocalType(Class<?> type, boolean allowNonStatic)
+     {
+-        /* As per [JACKSON-187], GAE seems to throw SecurityExceptions
+-         * here and there... and GAE itself has a bug, too
+-         * (see []). Bah. So we need to catch some wayward exceptions on GAE
+-         */
+-        try {
+-            // one more: method locals, anonymous, are not good:
+-            if (hasEnclosingMethod(type)) {
+-                return "local/anonymous";
+-            }
+-            
+-            /* But how about non-static inner classes? Can't construct
+-             * easily (theoretically, we could try to check if parent
+-             * happens to be enclosing... but that gets convoluted)
+-             */
+-            if (!allowNonStatic) {
+-                if (!Modifier.isStatic(type.getModifiers())) {
+-                    if (getEnclosingClass(type) != null) {
+-                        return "non-static member class";
+-                    }
+-                }
+-            }
+-        }
+-        catch (SecurityException e) { }
+-        catch (NullPointerException e) { }
+-        return null;
++        return com.fasterxml.jackson.databind.DeserializationContext.findClassKind(type, allowNonStatic);
+     }
+ 
+     /**

@@ -1,0 +1,60 @@
+{
+ "instance": "Lang-12",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::randomFromRange (hop 2)",
+   "edit": "start = numbers ? '0' : letters ? 'a' : 0; end = numbers ? '9' + 1 : letters ? 'z' + 1 : Integer.MAX_VALUE (two lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::randomText (hop 1)",
+   "edit": "return ToStringStyle.randomFromRange(count, letters, numbers, random).replace('\\0', numbers ? '0' : 'a');",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::randomText (hop 1)",
+   "edit": "String s = ToStringStyle.randomFromRange(count, letters, numbers, random); for (int i; (i = s.indexOf(0)) >= 0;) s = s.substring(0, i) + ToStringStyle.randomFromRange(1, letters, numbers, random) + s.substring(i + 1); return s; (three lines)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.lang3.RandomStringUtils::random(int,boolean,boolean) (facade)",
+   "edit": "return random(count, 0, 0, letters, numbers, null, RANDOM);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.RandomStringUtils::random(int,boolean,boolean)",
+  "hop1 org.apache.commons.lang3.text.StrBuilder::randomText",
+  "hop2 org.apache.commons.lang3.builder.ToStringStyle::randomFromRange",
+  "hop3 org.apache.commons.lang3.StringUtils::randomBetween",
+  "hop4 org.apache.commons.lang3.time.DateUtils::randomSpan",
+  "gold org.apache.commons.lang3.ArrayUtils::randomChars"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger RandomStringUtilsTest::testRandomStringUtils fails with 'r1 contains alphabetic expected:<true> but was:<false>'; ownership tests testLANG805, testLang100 and testExceptions pass; full suite on the variant fails only the trigger; correct.patch passes the trigger. (a) The gold drops the 'else { count++; }' branch, so every rejected code (filtered-out class, private high surrogate 56192-56319, or surrogate at position 0) consumes a position and leaves '\\u0000'. That violates the gold's own contract ('Characters will be chosen as indicated by the arguments'; '\\u0000' is neither in [start, start+gap) nor a letter). Hops 1-4 each do exactly what their javadoc says (count guard; ' '..'z'+1 or 0..MAX_VALUE range; gap = end - start; pass-through), and the observed '\\u0000' lies outside every range a hop passes, so only the gold can produce it. (b) No hop javadoc contradicts its code; hop 2 pins its range explicitly, hop 3 states the half-open range it converts, hop 4 states start+width, hop 1 states the guard. (c) No competing repair: the only non-bypass passing edit (hop 2 range narrowing) contradicts hop 2's own javadoc (' ' to 'z'), makes randomAlphabetic never produce upper case and randomAlphanumeric never produce letters, and leaves the gold still emitting '\\u0000' in the unfiltered mode (random(int)). Both hop-1 edits overwrite or redraw the gold's '\\u0000' positions with another implementation while the gold still violates its contract; they also change the documented distribution (a genuine drawn '\\u0000' in unfiltered mode is replaced/redrawn, redrawn positions can never be surrogates); classified bypass. The facade switch to the seven-argument overload makes the whole chain dead: bypass (declared in the spec). (d) Neutral names (randomText, randomFromRange, randomBetween, randomSpan, randomChars), no comments in the gold, G2b clean; the lie ('filled from its first position to its last, each character being cut from the low sixteen bits of a single random long') describes a different algorithm (the gold fills last-to-first with nextInt(gap)+start) and names neither the rejection nor the redraw. (e) Gold is exactly five calls below the facade; hops are in five different existing classes (StrBuilder, ToStringStyle, StringUtils, DateUtils, ArrayUtils), none of them the facade's class; the original facade had no guard and the variant body is one delegating call; one added procedural sentence the code does not perform; the gold javadoc is silent on the redraw; trigger is an existing test (empty test.patch) and is the only new failure. (f) The seven-argument overload RandomStringUtils.random(int,int,int,boolean,boolean,char[],Random), intact in the variant, runs the same loop with '} else { count++; }', and randomAlphabetic/randomNumeric/randomAlphanumeric document that every character comes from their class.",
+ "notes": "Weaknesses that do not change the verdict: (1) No passing test pins the redraw step itself: testLang100 passes through the gold in the unfiltered mode but a '\\u0000' left by a rejected private high surrogate survives the UTF-8 round trip, and testLANG805 (char[] {'a'}, no filter) never rejects; the pin for the redraw is the evidence code (seven-argument overload) and the class-level docs of randomAlphabetic/randomNumeric/randomAlphanumeric. (2) The spec's claim that 'no caller can draw for that position again' is too strong: hop 1 can detect '\\u0000' positions and redraw them through single-character calls (alternative 3), but only by treating '\\u0000' as an undocumented sentinel, which misfires on a genuine drawn '\\u0000' in the unfiltered mode; this is a bypass, not a competing repair. (3) The lie is appended after the @return tag without a leading '*', as the recipe's rewrite_facade writes it; this marks the facade javadoc as edited but does not point at the gold. (4) The lie's 'single random long per character' could be read as one draw per position (matching the variant's behaviour), but it contradicts the letters/numbers filter, the seven-argument overload and the variant's own code, so it does not make the gold's behaviour defensible. All alternative edits were run in /private/tmp scratch copies (trigger, three ownership tests, full defects4j test): all four pass; scratch deleted."
+}

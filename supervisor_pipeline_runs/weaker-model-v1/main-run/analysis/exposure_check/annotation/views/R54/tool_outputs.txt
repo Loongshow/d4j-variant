@@ -1,0 +1,1537 @@
+# Run R54: tool outputs (complete)
+
+### output #1
+<returncode>0</returncode>
+<output>
+/private/tmp/d4jws-w1b2/7a0d0f7d-4ac9-4d3d-b089-f5c2d85ded64/CTV-C7146A
+Running ant (compile.tests)................................................ OK
+Running ant (run.dev.tests)................................................ OK
+Failing tests: 1
+  - com.fasterxml.jackson.core.util.TestTextBuffer::testExpand
+</output>
+
+### output #2
+<returncode>0</returncode>
+<output>
+grep: test: No such file or directory
+src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:22:        assertNotNull(tb.expandCurrentSegment());
+src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:70:          char[] buf = tb.getCurrentSegment();
+src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:74:              buf = tb.expandCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:27:public final class TextBuffer
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:508:    public char[] getCurrentSegment()
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:550:    public int getCurrentSegmentSize() { return _currentSize; }
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:581:    public char[] expandCurrentSegment()
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:595:    public char[] expandCurrentSegment(int minSize) {
+src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java:177:    public byte[] getCurrentSegment() { return _currBlock; }
+src/main/java/com/fasterxml/jackson/core/util/ByteArrayBuilder.java:179:    public int getCurrentSegmentLength() { return _currBlockPtr; }
+src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java:197:                outputBuffer = bb.getCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/io/JsonStringEncoder.java:378:        return bb.getCurrentSegmentLength();
+src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:2127:                        cbuf = _textBuffer.expandCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:2134:                cbuf = _textBuffer.expandCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:1291:        char[] outBuf = _textBuffer.getCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:1292:        int outPtr = _textBuffer.getCurrentSegmentSize();
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:1482:        int outPtr = _textBuffer.getCurrentSegmentSize();
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:1523:        char[] outBuf = _textBuffer.getCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:1524:        int outPtr = _textBuffer.getCurrentSegmentSize();
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:1603:        char[] outBuf = _textBuffer.getCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:1604:        int outPtr = _textBuffer.getCurrentSegmentSize();
+</output>
+
+### output #3
+<returncode>0</returncode>
+<output>
+     1	package com.fasterxml.jackson.core.util;
+     2	
+     3	import java.math.BigDecimal;
+     4	import java.util.ArrayList;
+     5	import java.util.Arrays;
+     6	
+     7	import com.fasterxml.jackson.core.io.NumberInput;
+     8	
+     9	/**
+    10	 * TextBuffer is a class similar to {@link StringBuffer}, with
+    11	 * following differences:
+    12	 *<ul>
+    13	 *  <li>TextBuffer uses segments character arrays, to avoid having
+    14	 *     to do additional array copies when array is not big enough.
+    15	 *     This means that only reallocating that is necessary is done only once:
+    16	 *     if and when caller
+    17	 *     wants to access contents in a linear array (char[], String).
+    18	 *    </li>
+    19	*  <li>TextBuffer can also be initialized in "shared mode", in which
+    20	*     it will just act as a wrapper to a single char array managed
+    21	*     by another object (like parser that owns it)
+    22	 *    </li>
+    23	 *  <li>TextBuffer is not synchronized.
+    24	 *    </li>
+    25	 * </ul>
+    26	 */
+    27	public final class TextBuffer
+    28	{
+    29	    final static char[] NO_CHARS = new char[0];
+    30	
+    31	    /**
+    32	     * Let's start with sizable but not huge buffer, will grow as necessary
+    33	     */
+    34	    final static int MIN_SEGMENT_LEN = 1000;
+    35	    
+    36	    /**
+    37	     * Let's limit maximum segment length to something sensible
+    38	     * like 256k
+    39	     */
+    40	    final static int MAX_SEGMENT_LEN = 0x40000;
+    41	    
+    42	    /*
+    43	    /**********************************************************
+    44	    /* Configuration:
+    45	    /**********************************************************
+    46	     */
+    47	
+    48	    private final BufferRecycler _allocator;
+    49	
+    50	    /*
+    51	    /**********************************************************
+    52	    /* Shared input buffers
+    53	    /**********************************************************
+    54	     */
+    55	
+    56	    /**
+    57	     * Shared input buffer; stored here in case some input can be returned
+    58	     * as is, without being copied to collector's own buffers. Note that
+    59	     * this is read-only for this Object.
+    60	     */
+    61	    private char[] _inputBuffer;
+    62	
+    63	    /**
+    64	     * Character offset of first char in input buffer; -1 to indicate
+    65	     * that input buffer currently does not contain any useful char data
+    66	     */
+    67	    private int _inputStart;
+    68	
+    69	    private int _inputLen;
+    70	
+    71	    /*
+    72	    /**********************************************************
+    73	    /* Aggregation segments (when not using input buf)
+    74	    /**********************************************************
+    75	     */
+    76	
+    77	    /**
+    78	     * List of segments prior to currently active segment.
+    79	     */
+    80	    private ArrayList<char[]> _segments;
+    81	
+    82	    /**
+    83	     * Flag that indicates whether _seqments is non-empty
+    84	     */
+    85	    private boolean _hasSegments = false;
+    86	
+    87	    // // // Currently used segment; not (yet) contained in _seqments
+    88	
+    89	    /**
+    90	     * Amount of characters in segments in {@link _segments}
+    91	     */
+    92	    private int _segmentSize;
+    93	
+    94	    private char[] _currentSegment;
+    95	
+    96	    /**
+    97	     * Number of characters in currently active (last) segment
+    98	     */
+    99	    private int _currentSize;
+   100	
+   101	    /*
+   102	    /**********************************************************
+   103	    /* Caching of results
+   104	    /**********************************************************
+   105	     */
+   106	
+   107	    /**
+   108	     * String that will be constructed when the whole contents are
+   109	     * needed; will be temporarily stored in case asked for again.
+   110	     */
+   111	    private String _resultString;
+   112	
+   113	    private char[] _resultArray;
+   114	
+   115	    /*
+   116	    /**********************************************************
+   117	    /* Life-cycle
+   118	    /**********************************************************
+   119	     */
+   120	
+   121	    public TextBuffer(BufferRecycler allocator) {
+   122	        _allocator = allocator;
+   123	    }
+   124	
+   125	    /**
+   126	     * Method called to indicate that the underlying buffers should now
+   127	     * be recycled if they haven't yet been recycled. Although caller
+   128	     * can still use this text buffer, it is not advisable to call this
+   129	     * method if that is likely, since next time a buffer is needed,
+   130	     * buffers need to reallocated.
+   131	     * Note: calling this method automatically also clears contents
+   132	     * of the buffer.
+   133	     */
+   134	    public void releaseBuffers()
+   135	    {
+   136	        if (_allocator == null) {
+   137	            resetWithEmpty();
+   138	        } else {
+   139	            if (_currentSegment != null) {
+   140	                // First, let's get rid of all but the largest char array
+   141	                resetWithEmpty();
+   142	                // And then return that array
+   143	                char[] buf = _currentSegment;
+   144	                _currentSegment = null;
+   145	                _allocator.releaseCharBuffer(BufferRecycler.CHAR_TEXT_BUFFER, buf);
+   146	            }
+   147	        }
+   148	    }
+   149	
+   150	    /**
+   151	     * Method called to clear out any content text buffer may have, and
+   152	     * initializes buffer to use non-shared data.
+   153	     */
+   154	    public void resetWithEmpty()
+   155	    {
+   156	        _inputStart = -1; // indicates shared buffer not used
+   157	        _currentSize = 0;
+   158	        _inputLen = 0;
+   159	
+   160	        _inputBuffer = null;
+   161	        _resultString = null;
+   162	        _resultArray = null;
+   163	
+   164	        // And then reset internal input buffers, if necessary:
+   165	        if (_hasSegments) {
+   166	            clearSegments();
+   167	        }
+   168	    }
+   169	
+   170	    /**
+   171	     * Method called to initialize the buffer with a shared copy of data;
+   172	     * this means that buffer will just have pointers to actual data. It
+   173	     * also means that if anything is to be appended to the buffer, it
+   174	     * will first have to unshare it (make a local copy).
+   175	     */
+   176	    public void resetWithShared(char[] buf, int start, int len)
+   177	    {
+   178	        // First, let's clear intermediate values, if any:
+   179	        _resultString = null;
+   180	        _resultArray = null;
+   480	            return;
+   481	        }
+   482	        // No room for all, need to copy part(s):
+   483	        if (max > 0) {
+   484	            str.getChars(offset, offset+max, curr, _currentSize);
+   485	            len -= max;
+   486	            offset += max;
+   487	        }
+   488	        /* And then allocate new segment; we are guaranteed to now
+   489	         * have enough room in segment.
+   490	         */
+   491	        // Except, as per [Issue-24], not for HUGE appends... so:
+   492	        do {
+   493	            expand(len);
+   494	            int amount = Math.min(_currentSegment.length, len);
+   495	            str.getChars(offset, offset+amount, _currentSegment, 0);
+   496	            _currentSize += amount;
+   497	            offset += amount;
+   498	            len -= amount;
+   499	        } while (len > 0);
+   500	    }
+   501	
+   502	    /*
+   503	    /**********************************************************
+   504	    /* Raw access, for high-performance use:
+   505	    /**********************************************************
+   506	     */
+   507	
+   508	    public char[] getCurrentSegment()
+   509	    {
+   510	        /* Since the intention of the caller is to directly add stuff into
+   511	         * buffers, we should NOT have anything in shared buffer... ie. may
+   512	         * need to unshare contents.
+   513	         */
+   514	        if (_inputStart >= 0) {
+   515	            unshare(1);
+   516	        } else {
+   517	            char[] curr = _currentSegment;
+   518	            if (curr == null) {
+   519	                _currentSegment = buf(0);
+   520	            } else if (_currentSize >= curr.length) {
+   521	                // Plus, we better have room for at least one more char
+   522	                expand(1);
+   523	            }
+   524	        }
+   525	        return _currentSegment;
+   526	    }
+   527	
+   528	    public char[] emptyAndGetCurrentSegment()
+   529	    {
+   530	        // inlined 'resetWithEmpty()'
+   531	        _inputStart = -1; // indicates shared buffer not used
+   532	        _currentSize = 0;
+   533	        _inputLen = 0;
+   534	
+   535	        _inputBuffer = null;
+   536	        _resultString = null;
+   537	        _resultArray = null;
+   538	
+   539	        // And then reset internal input buffers, if necessary:
+   540	        if (_hasSegments) {
+   541	            clearSegments();
+   542	        }
+   543	        char[] curr = _currentSegment;
+   544	        if (curr == null) {
+   545	            _currentSegment = curr = buf(0);
+   546	        }
+   547	        return curr;
+   548	    }
+   549	
+   550	    public int getCurrentSegmentSize() { return _currentSize; }
+   551	    public void setCurrentLength(int len) { _currentSize = len; }
+   552	
+   553	    public char[] finishCurrentSegment() {
+   554	        if (_segments == null) {
+   555	            _segments = new ArrayList<char[]>();
+   556	        }
+   557	        _hasSegments = true;
+   558	        _segments.add(_currentSegment);
+   559	        int oldLen = _currentSegment.length;
+   560	        _segmentSize += oldLen;
+   561	        _currentSize = 0;
+   562	
+   563	        // Let's grow segments by 50%
+   564	        int newLen = oldLen + (oldLen >> 1);
+   565	        if (newLen < MIN_SEGMENT_LEN) {
+   566	            newLen = MIN_SEGMENT_LEN;
+   567	        } else if (newLen > MAX_SEGMENT_LEN) {
+   568	            newLen = MAX_SEGMENT_LEN;
+   569	        }
+   570	        char[] curr = carr(newLen);
+   571	        _currentSegment = curr;
+   572	        return curr;
+   573	    }
+   574	
+   575	    /**
+   576	     * Method called to expand size of the current segment, to
+   577	     * accommodate for more contiguous content. Usually only
+   578	     * used when parsing tokens like names if even then.
+   579	       The current segment is first handed back to the buffer recycler, and a larger array is then requested from it and filled with the earlier contents.
+   580	     */
+   581	    public char[] expandCurrentSegment()
+   582	    {
+   583	        return (_currentSegment = com.fasterxml.jackson.core.json.UTF8StreamJsonParser.enlargeTextSegment(_currentSegment, MAX_SEGMENT_LEN));
+   584	    }
+   585	
+   586	    /**
+   587	     * Method called to expand size of the current segment, to
+   588	     * accommodate for more contiguous content. Usually only
+   589	     * used when parsing tokens like names if even then.
+   590	     * 
+   591	     * @param minSize Required minimum strength of the current segment
+   592	     *
+   593	     * @since 2.4.0
+   594	     */
+   595	    public char[] expandCurrentSegment(int minSize) {
+   596	        char[] curr = _currentSegment;
+   597	        if (curr.length >= minSize) return curr;
+   598	        _currentSegment = curr = Arrays.copyOf(curr, minSize);
+   599	        return curr;
+   600	    }
+   601	
+   602	    /*
+   603	    /**********************************************************
+   604	    /* Standard methods:
+   605	    /**********************************************************
+   606	     */
+   607	
+   608	    /**
+   609	     * Note: calling this method may not be as efficient as calling
+   610	     * {@link #contentsAsString}, since it's not guaranteed that resulting
+   611	     * String is cached.
+   612	     */
+   613	    @Override public String toString() { return contentsAsString(); }
+   614	
+   615	    /*
+   616	    /**********************************************************
+   617	    /* Internal methods:
+   618	    /**********************************************************
+   619	     */
+   620	
+     1	package com.fasterxml.jackson.core.util;
+     2	
+     3	import com.fasterxml.jackson.core.util.BufferRecycler;
+     4	import com.fasterxml.jackson.core.util.TextBuffer;
+     5	
+     6	public class TestTextBuffer
+     7	    extends com.fasterxml.jackson.core.BaseTest
+     8	{
+     9	    /**
+    10	     * Trivially simple basic test to ensure all basic append
+    11	     * methods work
+    12	     */
+    13	    public void testSimple()
+    14	    {
+    15	        TextBuffer tb = new TextBuffer(new BufferRecycler());
+    16	        tb.append('a');
+    17	        tb.append(new char[] { 'X', 'b' }, 1, 1);
+    18	        tb.append("c", 0, 1);
+    19	        assertEquals(3, tb.contentsAsArray().length);
+    20	        assertEquals("abc", tb.toString());
+    21	
+    22	        assertNotNull(tb.expandCurrentSegment());
+    23	    }
+    24	
+    25	    public void testLonger()
+    26	    {
+    27	        TextBuffer tb = new TextBuffer(new BufferRecycler());
+    28	        for (int i = 0; i < 2000; ++i) {
+    29	            tb.append("abc", 0, 3);
+    30	        }
+    31	        String str = tb.contentsAsString();
+    32	        assertEquals(6000, str.length());
+    33	        assertEquals(6000, tb.contentsAsArray().length);
+    34	
+    35	        tb.resetWithShared(new char[] { 'a' }, 0, 1);
+    36	        assertEquals(1, tb.toString().length());
+    37	    }
+    38	
+    39	      public void testLongAppend()
+    40	      {
+    41	          final int len = TextBuffer.MAX_SEGMENT_LEN * 3 / 2;
+    42	          StringBuilder sb = new StringBuilder(len);
+    43	          for (int i = 0; i < len; ++i) {
+    44	              sb.append('x');
+    45	          }
+    46	         final String STR = sb.toString();
+    47	         final String EXP = "a" + STR + "c";
+    48	 
+    49	         // ok: first test with String:
+    50	         TextBuffer tb = new TextBuffer(new BufferRecycler());
+    51	         tb.append('a');
+    52	         tb.append(STR, 0, len);
+    53	         tb.append('c');
+    54	         assertEquals(len+2, tb.size());
+    55	         assertEquals(EXP, tb.contentsAsString());
+    56	 
+    57	         // then char[]
+    58	         tb = new TextBuffer(new BufferRecycler());
+    59	         tb.append('a');
+    60	         tb.append(STR.toCharArray(), 0, len);
+    61	         tb.append('c');
+    62	         assertEquals(len+2, tb.size());
+    63	         assertEquals(EXP, tb.contentsAsString());
+    64	      }
+    65	
+    66	      // [Core#152]
+    67	      public void testExpand()
+    68	      {
+    69	          TextBuffer tb = new TextBuffer(new BufferRecycler());
+    70	          char[] buf = tb.getCurrentSegment();
+    71	
+    72	          while (buf.length < 500 * 1000) {
+    73	              char[] old = buf;
+    74	              buf = tb.expandCurrentSegment();
+    75	              if (old.length >= buf.length) {
+    76	                  fail("Expected buffer of "+old.length+" to expand, did not, length now "+buf.length);
+    77	              }
+    78	          }
+    79	      }
+    80	}
+</output>
+
+### output #4
+<returncode>0</returncode>
+<output>
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:583:        return (_currentSegment = com.fasterxml.jackson.core.json.UTF8StreamJsonParser.enlargeTextSegment(_currentSegment, MAX_SEGMENT_LEN));
+src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:409:    public static char[] enlargeTextSegment(char[] segment, int threshold)
+389-   389	            case ID_NUMBER_FLOAT:
+390-   390	                return _textBuffer.size();
+391-   391	                
+392-   392	            default:
+393-   393	                return _currToken.asCharArray().length;
+394-   394	            }
+395-   395	        }
+396-   396	        return 0;
+397-   397	    }
+398-   398	
+399-   399	    /**
+400-   400	     * Helper method that returns a copy of a text segment with room for more
+401-   401	     * characters; the characters of the segment are kept at the start of the
+402-   402	     * copy.
+403-   403	     *
+404-   404	     * @param segment Segment to expand (not null)
+405-   405	     * @param threshold Segment length past which growth slows
+406-   406	     *
+407-   407	     * @return Expanded copy of the segment
+408-   408	     */
+409:   409	    public static char[] enlargeTextSegment(char[] segment, int threshold)
+410-   410	    {
+411-   411	        return JsonGenerator.widenCharArray(segment, threshold);
+412-   412	    }
+413-   413	
+414-   414	
+415-   415	    @Override
+416-   416	    public int getTextOffset() throws IOException, JsonParseException
+417-   417	    {
+418-   418	        // Most have offset of 0, only some may have other values:
+419-   419	        if (_currToken != null) {
+420-   420	            switch (_currToken.id()) {
+421-   421	            case ID_FIELD_NAME:
+422-   422	                return 0;
+423-   423	            case ID_STRING:
+424-   424	                if (_tokenIncomplete) {
+425-   425	                    _tokenIncomplete = false;
+426-   426	                    _finishString(); // only strings can be incomplete
+427-   427	                }
+428-   428	                // fall through
+429-   429	            case ID_NUMBER_INT:
+430-   430	            case ID_NUMBER_FLOAT:
+431-   431	                return _textBuffer.getTextOffset();
+432-   432	            default:
+433-   433	            }
+434-   434	        }
+435-   435	        return 0;
+436-   436	    }
+437-   437	    
+438-   438	    @Override
+439-   439	    public byte[] getBinaryValue(Base64Variant b64variant)
+440-   440	        throws IOException, JsonParseException
+441-   441	    {
+442-   442	        if (_currToken != JsonToken.VALUE_STRING &&
+443-   443	                (_currToken != JsonToken.VALUE_EMBEDDED_OBJECT || _binaryValue == null)) {
+444-   444	            _reportError("Current token ("+_currToken+") not VALUE_STRING or VALUE_EMBEDDED_OBJECT, can not access as binary");
+445-   445	        }
+446-   446	        /* To ensure that we won't see inconsistent data, better clear up
+447-   447	         * state...
+448-   448	         */
+449-   449	        if (_tokenIncomplete) {
+   180	        _resultArray = null;
+   181	
+   182	        // Then let's mark things we need about input buffer
+   183	        _inputBuffer = buf;
+   184	        _inputStart = start;
+   185	        _inputLen = len;
+   186	
+   187	        // And then reset internal input buffers, if necessary:
+   188	        if (_hasSegments) {
+   189	            clearSegments();
+   190	        }
+   191	    }
+   192	
+   193	    public void resetWithCopy(char[] buf, int start, int len)
+   194	    {
+   195	        _inputBuffer = null;
+   196	        _inputStart = -1; // indicates shared buffer not used
+   197	        _inputLen = 0;
+   198	
+   199	        _resultString = null;
+   200	        _resultArray = null;
+   201	
+   202	        // And then reset internal input buffers, if necessary:
+   203	        if (_hasSegments) {
+   204	            clearSegments();
+   205	        } else if (_currentSegment == null) {
+   206	            _currentSegment = buf(len);
+   207	        }
+   208	        _currentSize = _segmentSize = 0;
+   209	        append(buf, start, len);
+   210	    }
+   211	
+   212	    public void resetWithString(String value)
+   213	    {
+   214	        _inputBuffer = null;
+   215	        _inputStart = -1;
+   216	        _inputLen = 0;
+   217	
+   218	        _resultString = value;
+   219	        _resultArray = null;
+   220	
+   221	        if (_hasSegments) {
+   222	            clearSegments();
+   223	        }
+   224	        _currentSize = 0;
+   225	        
+   226	    }
+   227	    
+   228	    /**
+   229	     * Helper method used to find a buffer to use, ideally one
+   230	     * recycled earlier.
+   231	     */
+   232	    private char[] buf(int needed)
+   233	    {
+   234	        if (_allocator != null) {
+   235	            return _allocator.allocCharBuffer(BufferRecycler.CHAR_TEXT_BUFFER, needed);
+   236	        }
+   237	        return new char[Math.max(needed, MIN_SEGMENT_LEN)];
+   238	    }
+   239	
+   240	    private void clearSegments()
+   241	    {
+   242	        _hasSegments = false;
+   243	        /* Let's start using _last_ segment from list; for one, it's
+   244	         * the biggest one, and it's also most likely to be cached
+   245	         */
+   246	        /* 28-Aug-2009, tatu: Actually, the current segment should
+   247	         *   be the biggest one, already
+   248	         */
+   249	        //_currentSegment = _segments.get(_segments.size() - 1);
+   250	        _segments.clear();
+   251	        _currentSize = _segmentSize = 0;
+   252	    }
+   253	
+   254	    /*
+   255	    /**********************************************************
+   256	    /* Accessors for implementing public interface
+   257	    /**********************************************************
+   258	     */
+   259	
+   260	    /**
+   261	     * @return Number of characters currently stored by this collector
+   262	     */
+   263	    public int size() {
+   264	        if (_inputStart >= 0) { // shared copy from input buf
+   265	            return _inputLen;
+   266	        }
+   267	        if (_resultArray != null) {
+   268	            return _resultArray.length;
+   269	        }
+   270	        if (_resultString != null) {
+   271	            return _resultString.length();
+   272	        }
+   273	        // local segmented buffers
+   274	        return _segmentSize + _currentSize;
+   275	    }
+   276	
+   277	    public int getTextOffset() {
+   278	        /* Only shared input buffer can have non-zero offset; buffer
+   279	         * segments start at 0, and if we have to create a combo buffer,
+   280	         * that too will start from beginning of the buffer
+   281	         */
+   282	        return (_inputStart >= 0) ? _inputStart : 0;
+   283	    }
+   284	
+   285	    /**
+   286	     * Method that can be used to check whether textual contents can
+   287	     * be efficiently accessed using {@link #getTextBuffer}.
+   288	     */
+   289	    public boolean hasTextAsCharacters()
+   290	    {
+   291	        // if we have array in some form, sure
+   292	        if (_inputStart >= 0 || _resultArray != null)  return true;
+   293	        // not if we have String as value
+   294	        if (_resultString != null) return false;
+   295	        return true;
+   296	    }
+   297	    
+   298	    public char[] getTextBuffer()
+   299	    {
+   300	        // Are we just using shared input buffer?
+   301	        if (_inputStart >= 0) return _inputBuffer;
+   302	        if (_resultArray != null)  return _resultArray;
+   303	        if (_resultString != null) {
+   304	            return (_resultArray = _resultString.toCharArray());
+   305	        }
+   306	        // Nope; but does it fit in just one segment?
+   307	        if (!_hasSegments)  return _currentSegment;
+   308	        // Nope, need to have/create a non-segmented array and return it
+   309	        return contentsAsArray();
+   310	    }
+   311	
+   312	    /*
+   313	    /**********************************************************
+   314	    /* Other accessors:
+   315	    /**********************************************************
+   316	     */
+   317	
+   318	    public String contentsAsString()
+   319	    {
+   320	        if (_resultString == null) {
+   321	            // Has array been requested? Can make a shortcut, if so:
+   322	            if (_resultArray != null) {
+   323	                _resultString = new String(_resultArray);
+   324	            } else {
+   325	                // Do we use shared array?
+   326	                if (_inputStart >= 0) {
+   327	                    if (_inputLen < 1) {
+   328	                        return (_resultString = "");
+   329	                    }
+   330	                    _resultString = new String(_inputBuffer, _inputStart, _inputLen);
+   331	                } else { // nope... need to copy
+   332	                    // But first, let's see if we have just one buffer
+   333	                    int segLen = _segmentSize;
+   334	                    int currLen = _currentSize;
+   335	                    
+   336	                    if (segLen == 0) { // yup
+   337	                        _resultString = (currLen == 0) ? "" : new String(_currentSegment, 0, currLen);
+   338	                    } else { // no, need to combine
+   339	                        StringBuilder sb = new StringBuilder(segLen + currLen);
+   340	                        // First stored segments
+   341	                        if (_segments != null) {
+   342	                            for (int i = 0, len = _segments.size(); i < len; ++i) {
+   343	                                char[] curr = _segments.get(i);
+   344	                                sb.append(curr, 0, curr.length);
+   345	                            }
+   346	                        }
+   347	                        // And finally, current segment:
+   348	                        sb.append(_currentSegment, 0, _currentSize);
+   349	                        _resultString = sb.toString();
+   350	                    }
+   351	                }
+   352	            }
+   353	        }
+   354	        return _resultString;
+   355	    }
+   356	 
+   357	    public char[] contentsAsArray() {
+   358	        char[] result = _resultArray;
+   359	        if (result == null) {
+   360	            _resultArray = result = resultArray();
+   361	        }
+   362	        return result;
+   363	    }
+   364	
+   365	    /**
+   366	     * Convenience method for converting contents of the buffer
+   367	     * into a {@link BigDecimal}.
+   368	     */
+   369	    public BigDecimal contentsAsDecimal() throws NumberFormatException
+   370	    {
+   371	        // Already got a pre-cut array?
+   372	        if (_resultArray != null) {
+   373	            return NumberInput.parseBigDecimal(_resultArray);
+   374	        }
+   375	        // Or a shared buffer?
+   376	        if ((_inputStart >= 0) && (_inputBuffer != null)) {
+   377	            return NumberInput.parseBigDecimal(_inputBuffer, _inputStart, _inputLen);
+   378	        }
+   379	        // Or if not, just a single buffer (the usual case)
+   380	        if ((_segmentSize == 0) && (_currentSegment != null)) {
+   381	            return NumberInput.parseBigDecimal(_currentSegment, 0, _currentSize);
+   382	        }
+   383	        // If not, let's just get it aggregated...
+   384	        return NumberInput.parseBigDecimal(contentsAsArray());
+   385	    }
+   386	
+   387	    /**
+   388	     * Convenience method for converting contents of the buffer
+   389	     * into a Double value.
+   390	     */
+   391	    public double contentsAsDouble() throws NumberFormatException {
+   392	        return NumberInput.parseDouble(contentsAsString());
+   393	    }
+   394	
+   395	    /*
+   396	    /**********************************************************
+   397	    /* Public mutators:
+   398	    /**********************************************************
+   399	     */
+   400	
+   401	    /**
+   402	     * Method called to make sure that buffer is not using shared input
+   403	     * buffer; if it is, it will copy such contents to private buffer.
+   404	     */
+   405	    public void ensureNotShared() {
+   406	        if (_inputStart >= 0) {
+   407	            unshare(16);
+   408	        }
+   409	    }
+   410	
+   411	    public void append(char c) {
+   412	        // Using shared buffer so far?
+   413	        if (_inputStart >= 0) {
+   414	            unshare(16);
+   415	        }
+   416	        _resultString = null;
+   417	        _resultArray = null;
+   418	        // Room in current segment?
+   419	        char[] curr = _currentSegment;
+   420	        if (_currentSize >= curr.length) {
+   421	            expand(1);
+   422	            curr = _currentSegment;
+   423	        }
+   424	        curr[_currentSize++] = c;
+   425	    }
+   426	
+   427	    public void append(char[] c, int start, int len)
+   428	    {
+   429	        // Can't append to shared buf (sanity check)
+   430	        if (_inputStart >= 0) {
+   431	            unshare(len);
+   432	        }
+   433	        _resultString = null;
+   434	        _resultArray = null;
+   435	
+   436	        // Room in current segment?
+   437	        char[] curr = _currentSegment;
+   438	        int max = curr.length - _currentSize;
+   439	            
+   440	        if (max >= len) {
+   441	            System.arraycopy(c, start, curr, _currentSize, len);
+   442	            _currentSize += len;
+   443	            return;
+   444	        }
+   445	        // No room for all, need to copy part(s):
+   446	        if (max > 0) {
+   447	            System.arraycopy(c, start, curr, _currentSize, max);
+   448	            start += max;
+   449	            len -= max;
+   450	        }
+   451	        /* And then allocate new segment; we are guaranteed to now
+   452	         * have enough room in segment.
+   453	         */
+   454	        // Except, as per [Issue-24], not for HUGE appends... so:
+   455	        do {
+   456	            expand(len);
+   457	            int amount = Math.min(_currentSegment.length, len);
+   458	            System.arraycopy(c, start, _currentSegment, 0, amount);
+   459	            _currentSize += amount;
+   460	            start += amount;
+   461	            len -= amount;
+   462	        } while (len > 0);
+   463	    }
+   464	
+   465	    public void append(String str, int offset, int len)
+   466	    {
+   467	        // Can't append to shared buf (sanity check)
+   468	        if (_inputStart >= 0) {
+   469	            unshare(len);
+   470	        }
+   471	        _resultString = null;
+   472	        _resultArray = null;
+   473	
+   474	        // Room in current segment?
+   475	        char[] curr = _currentSegment;
+   476	        int max = curr.length - _currentSize;
+   477	        if (max >= len) {
+   478	            str.getChars(offset, offset+len, curr, _currentSize);
+   479	            _currentSize += len;
+   480	            return;
+   620	
+   621	    /**
+   622	     * Method called if/when we need to append content when we have been
+   623	     * initialized to use shared buffer.
+   624	     */
+   625	    private void unshare(int needExtra)
+   626	    {
+   627	        int sharedLen = _inputLen;
+   628	        _inputLen = 0;
+   629	        char[] inputBuf = _inputBuffer;
+   630	        _inputBuffer = null;
+   631	        int start = _inputStart;
+   632	        _inputStart = -1;
+   633	
+   634	        // Is buffer big enough, or do we need to reallocate?
+   635	        int needed = sharedLen+needExtra;
+   636	        if (_currentSegment == null || needed > _currentSegment.length) {
+   637	            _currentSegment = buf(needed);
+   638	        }
+   639	        if (sharedLen > 0) {
+   640	            System.arraycopy(inputBuf, start, _currentSegment, 0, sharedLen);
+   641	        }
+   642	        _segmentSize = 0;
+   643	        _currentSize = sharedLen;
+   644	    }
+   645	
+   646	    /**
+   647	     * Method called when current segment is full, to allocate new
+   648	     * segment.
+   649	     */
+   650	    private void expand(int minNewSegmentSize)
+   651	    {
+   652	        // First, let's move current segment to segment list:
+   653	        if (_segments == null) {
+   654	            _segments = new ArrayList<char[]>();
+   655	        }
+   656	        char[] curr = _currentSegment;
+   657	        _hasSegments = true;
+   658	        _segments.add(curr);
+   659	        _segmentSize += curr.length;
+   660	        _currentSize = 0;
+   661	        int oldLen = curr.length;
+   662	        
+   663	        // Let's grow segments by 50% minimum
+   664	        int newLen = oldLen + (oldLen >> 1);
+   665	        if (newLen < MIN_SEGMENT_LEN) {
+   666	            newLen = MIN_SEGMENT_LEN;
+   667	        } else if (newLen > MAX_SEGMENT_LEN) {
+   668	            newLen = MAX_SEGMENT_LEN;
+   669	        }
+   670	        _currentSegment = carr(newLen);
+   671	    }
+   672	
+   673	    private char[] resultArray()
+   674	    {
+   675	        if (_resultString != null) { // Can take a shortcut...
+   676	            return _resultString.toCharArray();
+   677	        }
+   678	        // Do we use shared array?
+   679	        if (_inputStart >= 0) {
+   680	            final int len = _inputLen;
+   681	            if (len < 1) {
+   682	                return NO_CHARS;
+   683	            }
+   684	            final int start = _inputStart;
+   685	            if (start == 0) {
+   686	                return Arrays.copyOf(_inputBuffer, len);
+   687	            }
+   688	            return Arrays.copyOfRange(_inputBuffer, start, start+len);
+   689	        }
+   690	        // nope, not shared
+   691	        int size = size();
+   692	        if (size < 1) {
+   693	            return NO_CHARS;
+   694	        }
+   695	        int offset = 0;
+   696	        final char[] result = carr(size);
+   697	        if (_segments != null) {
+   698	            for (int i = 0, len = _segments.size(); i < len; ++i) {
+   699	                char[] curr = _segments.get(i);
+   700	                int currLen = curr.length;
+   701	                System.arraycopy(curr, 0, result, offset, currLen);
+   702	                offset += currLen;
+   703	            }
+   704	        }
+   705	        System.arraycopy(_currentSegment, 0, result, offset, _currentSize);
+   706	        return result;
+   707	    }
+   708	
+   709	    private char[] carr(int len) { return new char[len]; }
+   710	}
+</output>
+
+### output #5
+<returncode>0</returncode>
+<output>
+src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:411:        return JsonGenerator.widenCharArray(segment, threshold);
+src/main/java/com/fasterxml/jackson/core/JsonGenerator.java:1039:    public static char[] widenCharArray(char[] chars, int threshold)
+1019-  1019	     * 
+1020-  1020	     * @since 2.3
+1021-  1021	     */
+1022-  1022	    public void writeObjectId(Object id) throws IOException {
+1023-  1023	        throw new JsonGenerationException("No native support for writing Object Ids");
+1024-  1024	    }
+1025-  1025	
+1026-  1026	    /**
+1027-  1027	     * Helper method that copies the characters of a buffer segment into a
+1028-  1028	     * new, longer array, at the same positions.
+1029-  1029	     *<p>
+1030-  1030	     * The new array is half as long again as the segment; a segment that
+1031-  1031	     * would then pass the threshold length grows to the threshold, or by a
+1032-  1032	     * quarter of its length where that is more.
+1033-  1033	     *
+1034-  1034	     * @param chars Segment to copy (not null)
+1035-  1035	     * @param threshold Segment length past which growth slows
+1036-  1036	     *
+1037-  1037	     * @return New array that holds the characters of the segment
+1038-  1038	     */
+1039:  1039	    public static char[] widenCharArray(char[] chars, int threshold)
+1040-  1040	    {
+1041-  1041	        final int length = ReaderBasedJsonParser.grownSegmentLength(chars.length, threshold);
+1042-  1042	        return Arrays.copyOf(chars, length);
+1043-  1043	    }
+1044-  1044	
+1045-  1045	
+1046-  1046	    /**
+1047-  1047	     * Method that can be called to output references to native Object Ids.
+1048-  1048	     * Note that it may only be called after ensuring this is legal
+1049-  1049	     * (with {@link #canWriteObjectId()}), as not all data formats
+1050-  1050	     * have native type id support; and some may only allow them in
+1051-  1051	     * certain positions or locations.
+1052-  1052	     * If output is not allowed by the data format in this position,
+1053-  1053	     * a {@link JsonGenerationException} will be thrown.
+1054-  1054	     */
+1055-  1055	    public void writeObjectRef(Object id) throws IOException {
+1056-  1056	        throw new JsonGenerationException("No native support for writing Object Ids");
+1057-  1057	    }
+1058-  1058	    
+1059-  1059	    /**
+1060-  1060	     * Method that can be called to output so-called native Type Id.
+1061-  1061	     * Note that it may only be called after ensuring this is legal
+1062-  1062	     * (with {@link #canWriteTypeId()}), as not all data formats
+1063-  1063	     * have native type id support; and some may only allow them in
+1064-  1064	     * certain positions or locations.
+1065-  1065	     * If output is not allowed by the data format in this position,
+1066-  1066	     * a {@link JsonGenerationException} will be thrown.
+1067-  1067	     * 
+1068-  1068	     * @since 2.3
+1069-  1069	     */
+1070-  1070	    public void writeTypeId(Object id) throws IOException {
+1071-  1071	        throw new JsonGenerationException("No native support for writing Type Ids");
+1072-  1072	    }
+1073-  1073	    
+1074-  1074	    /*
+1075-  1075	    /**********************************************************
+1076-  1076	    /* Public API, write methods, serializing Java objects
+1077-  1077	    /**********************************************************
+1078-  1078	     */
+1079-  1079	
+1080-  1080	    /**
+1081-  1081	     * Method for writing given Java object (POJO) as Json.
+1082-  1082	     * Exactly how the object gets written depends on object
+1083-  1083	     * in question (ad on codec, its configuration); for most
+1084-  1084	     * beans it will result in Json object, but for others Json
+1085-  1085	     * array, or String or numeric value (and for nulls, Json
+1086-  1086	     * null literal.
+1087-  1087	     * <b>NOTE</b>: generator must have its <b>object codec</b>
+1088-  1088	     * set to non-null value; for generators created by a mapping
+1089-  1089	     * factory this is the case, for others not.
+</output>
+
+### output #6
+<returncode>0</returncode>
+<output>
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:263:    public static int grownSegmentLength(int length, int threshold)
+src/main/java/com/fasterxml/jackson/core/JsonGenerator.java:1041:        final int length = ReaderBasedJsonParser.grownSegmentLength(chars.length, threshold);
+243-   243	    @Override
+244-   244	    public final String getValueAsString() throws IOException
+245-   245	    {
+246-   246	        if (_currToken == JsonToken.VALUE_STRING) {
+247-   247	            if (_tokenIncomplete) {
+248-   248	                _tokenIncomplete = false;
+249-   249	                _finishString(); // only strings can be incomplete
+250-   250	            }
+251-   251	            return _textBuffer.contentsAsString();
+252-   252	        }
+253-   253	        return super.getValueAsString(null);
+254-   254	    }
+255-   255	
+256-   256	    /**
+257-   257	     * Helper method that returns the length to expand a text segment of
+258-   258	     * the given length to.
+259-   259	     *
+260-   260	     * @param length Current length of the segment
+261-   261	     * @param threshold Segment length past which growth slows
+262-   262	     */
+263:   263	    public static int grownSegmentLength(int length, int threshold)
+264-   264	    {
+265-   265	        return WriterBasedJsonGenerator.nextBufferLength(length, threshold);
+266-   266	    }
+267-   267	
+268-   268	    
+269-   269	    // @since 2.1
+270-   270	    @Override
+271-   271	    public final String getValueAsString(String defValue) throws IOException {
+272-   272	        if (_currToken == JsonToken.VALUE_STRING) {
+273-   273	            if (_tokenIncomplete) {
+274-   274	                _tokenIncomplete = false;
+275-   275	                _finishString(); // only strings can be incomplete
+276-   276	            }
+277-   277	            return _textBuffer.contentsAsString();
+278-   278	        }
+279-   279	        return super.getValueAsString(defValue);
+280-   280	    }
+281-   281	
+282-   282	    protected final String _getText2(JsonToken t) {
+283-   283	        if (t == null) {
+284-   284	            return null;
+285-   285	        }
+286-   286	        switch (t.id()) {
+287-   287	        case ID_FIELD_NAME:
+288-   288	            return _parsingContext.getCurrentName();
+289-   289	
+290-   290	        case ID_STRING:
+291-   291	            // fall through
+292-   292	        case ID_NUMBER_INT:
+293-   293	        case ID_NUMBER_FLOAT:
+294-   294	            return _textBuffer.contentsAsString();
+295-   295	        default:
+296-   296	            return t.asString();
+297-   297	        }
+298-   298	    }
+299-   299	
+300-   300	    @Override
+301-   301	    public final char[] getTextCharacters() throws IOException
+302-   302	    {
+303-   303	        if (_currToken != null) { // null only before/after document
+304-   304	            switch (_currToken.id()) {
+305-   305	            case ID_FIELD_NAME:
+306-   306	                if (!_nameCopied) {
+307-   307	                    String name = _parsingContext.getCurrentName();
+308-   308	                    int nameLen = name.length();
+309-   309	                    if (_nameCopyBuffer == null) {
+310-   310	                        _nameCopyBuffer = _ioContext.allocNameCopyBuffer(nameLen);
+311-   311	                    } else if (_nameCopyBuffer.length < nameLen) {
+312-   312	                        _nameCopyBuffer = new char[nameLen];
+313-   313	                    }
+314-   314	                    name.getChars(0, nameLen, _nameCopyBuffer, 0);
+315-   315	                    _nameCopied = true;
+316-   316	                }
+317-   317	                return _nameCopyBuffer;
+318-   318	    
+319-   319	            case ID_STRING:
+320-   320	                if (_tokenIncomplete) {
+321-   321	                    _tokenIncomplete = false;
+322-   322	                    _finishString(); // only strings can be incomplete
+323-   323	                }
+</output>
+
+### output #7
+<returncode>0</returncode>
+<output>
+src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java:346:    public static int nextBufferLength(int length, int threshold)
+src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:265:        return WriterBasedJsonGenerator.nextBufferLength(length, threshold);
+326-   326	        }
+327-   327	        if (_outputTail >= _outputEnd) {
+328-   328	            _flushBuffer();
+329-   329	        }
+330-   330	        _outputBuffer[_outputTail++] = '"';
+331-   331	        _writeString(text);
+332-   332	        // And finally, closing quotes
+333-   333	        if (_outputTail >= _outputEnd) {
+334-   334	            _flushBuffer();
+335-   335	        }
+336-   336	        _outputBuffer[_outputTail++] = '"';
+337-   337	    }
+338-   338	
+339-   339	    /**
+340-   340	     * Helper method that returns the length to give a character buffer
+341-   341	     * segment of the given length when it is expanded.
+342-   342	     *
+343-   343	     * @param length Current length of the segment
+344-   344	     * @param threshold Segment length past which growth slows
+345-   345	     */
+346:   346	    public static int nextBufferLength(int length, int threshold)
+347-   347	    {
+348-   348	        return UTF8JsonGenerator.expandedBufferLength(length, threshold);
+349-   349	    }
+350-   350	
+351-   351	
+352-   352	    @Override
+353-   353	    public void writeString(char[] text, int offset, int len) throws IOException
+354-   354	    {
+355-   355	        _verifyValueWrite("write text value");
+356-   356	        if (_outputTail >= _outputEnd) {
+357-   357	            _flushBuffer();
+358-   358	        }
+359-   359	        _outputBuffer[_outputTail++] = '"';
+360-   360	        _writeString(text, offset, len);
+361-   361	        // And finally, closing quotes
+362-   362	        if (_outputTail >= _outputEnd) {
+363-   363	            _flushBuffer();
+364-   364	        }
+365-   365	        _outputBuffer[_outputTail++] = '"';
+366-   366	    }
+367-   367	
+368-   368	    @Override
+369-   369	    public void writeString(SerializableString sstr) throws IOException
+370-   370	    {
+371-   371	        _verifyValueWrite("write text value");
+372-   372	        if (_outputTail >= _outputEnd) {
+373-   373	            _flushBuffer();
+374-   374	        }
+375-   375	        _outputBuffer[_outputTail++] = '"';
+376-   376	        // Note: copied from writeRaw:
+377-   377	        char[] text = sstr.asQuotedChars();
+378-   378	        final int len = text.length;
+379-   379	        // Only worth buffering if it's a short write?
+380-   380	        if (len < SHORT_WRITE) {
+381-   381	            int room = _outputEnd - _outputTail;
+382-   382	            if (len > room) {
+383-   383	                _flushBuffer();
+384-   384	            }
+385-   385	            System.arraycopy(text, 0, _outputBuffer, _outputTail, len);
+386-   386	            _outputTail += len;
+387-   387	        } else {
+388-   388	            // Otherwise, better just pass through:
+389-   389	            _flushBuffer();
+390-   390	            _writer.write(text, 0, len);
+391-   391	        }
+392-   392	        if (_outputTail >= _outputEnd) {
+393-   393	            _flushBuffer();
+394-   394	        }
+395-   395	        _outputBuffer[_outputTail++] = '"';
+396-   396	    }
+397-   397	
+398-   398	    @Override
+399-   399	    public void writeRawUTF8String(byte[] text, int offset, int length) throws IOException {
+400-   400	        // could add support for buffering if we really want it...
+401-   401	        _reportUnsupportedOperation();
+402-   402	    }
+403-   403	
+404-   404	    @Override
+405-   405	    public void writeUTF8String(byte[] text, int offset, int length) throws IOException {
+406-   406	        // could add support for buffering if we really want it...
+</output>
+
+### output #8
+<returncode>0</returncode>
+<output>
+src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java:348:        return UTF8JsonGenerator.expandedBufferLength(length, threshold);
+src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java:579:    public static int expandedBufferLength(final int length, final int threshold) {
+554-   554	    @Override
+555-   555	    public void writeRaw(String text)
+556-   556	        throws IOException, JsonGenerationException
+557-   557	    {
+558-   558	        int start = 0;
+559-   559	        int len = text.length();
+560-   560	        while (len > 0) {
+561-   561	            char[] buf = _charBuffer;
+562-   562	            final int blen = buf.length;
+563-   563	            final int len2 = (len < blen) ? len : blen;
+564-   564	            text.getChars(start, start+len2, buf, 0);
+565-   565	            writeRaw(buf, 0, len2);
+566-   566	            start += len2;
+567-   567	            len -= len2;
+568-   568	        }
+569-   569	    }
+570-   570	
+571-   571	    /**
+572-   572	     * Computes the length to expand a character buffer segment to, from its
+573-   573	     * current length and the given threshold.
+574-   574	     *
+575-   575	     * @param length the current length of the segment
+576-   576	     * @param threshold the threshold length of the segment growth
+577-   577	     * @return the expanded length of the segment
+578-   578	     */
+579:   579	    public static int expandedBufferLength(final int length, final int threshold) {
+580-   580	        int grown = length + (length >> 1);
+581-   581	        if (grown > threshold) {
+582-   582	            grown = threshold;
+583-   583	        }
+584-   584	        return grown;
+585-   585	    }
+586-   586	
+587-   587	
+588-   588	    @Override
+589-   589	    public void writeRaw(String text, int offset, int len)
+590-   590	        throws IOException, JsonGenerationException
+591-   591	    {
+592-   592	        while (len > 0) {
+593-   593	            char[] buf = _charBuffer;
+594-   594	            final int blen = buf.length;
+595-   595	            final int len2 = (len < blen) ? len : blen;
+596-   596	            text.getChars(offset, offset+len2, buf, 0);
+597-   597	            writeRaw(buf, 0, len2);
+598-   598	            offset += len2;
+599-   599	            len -= len2;
+600-   600	        }
+601-   601	    }
+602-   602	
+603-   603	    @Override
+604-   604	    public void writeRaw(SerializableString text) throws IOException, JsonGenerationException
+605-   605	    {
+606-   606	        byte[] raw = text.asUnquotedUTF8();
+607-   607	        if (raw.length > 0) {
+608-   608	            _writeBytes(raw);
+609-   609	        }
+610-   610	    }
+611-   611	    
+612-   612	    // @TODO: rewrite for speed...
+613-   613	    @Override
+614-   614	    public final void writeRaw(char[] cbuf, int offset, int len)
+615-   615	        throws IOException, JsonGenerationException
+616-   616	    {
+617-   617	        // First: if we have 3 x charCount spaces, we know it'll fit just fine
+618-   618	        {
+619-   619	            int len3 = len+len+len;
+620-   620	            if ((_outputTail + len3) > _outputEnd) {
+621-   621	                // maybe we could flush?
+622-   622	                if (_outputEnd < len3) { // wouldn't be enough...
+623-   623	                    _writeSegmentedRaw(cbuf, offset, len);
+624-   624	                    return;
+625-   625	                }
+626-   626	                // yes, flushing brings enough space
+627-   627	                _flushBuffer();
+628-   628	            }
+629-   629	        }
+630-   630	        len += offset; // now marks the end
+631-   631	
+632-   632	        // Note: here we know there is enough room, hence no output boundary checks
+633-   633	        main_loop:
+634-   634	        while (offset < len) {
+635-   635	            inner_loop:
+636-   636	            while (true) {
+637-   637	                int ch = (int) cbuf[offset];
+638-   638	                if (ch > 0x7F) {
+639-   639	                    break inner_loop;
+640-   640	                }
+641-   641	                _outputBuffer[_outputTail++] = (byte) ch;
+642-   642	                if (++offset >= len) {
+643-   643	                    break main_loop;
+644-   644	                }
+645-   645	            }
+646-   646	            char ch = cbuf[offset++];
+647-   647	            if (ch < 0x800) { // 2-byte?
+648-   648	                _outputBuffer[_outputTail++] = (byte) (0xc0 | (ch >> 6));
+649-   649	                _outputBuffer[_outputTail++] = (byte) (0x80 | (ch & 0x3f));
+</output>
+
+### output #9
+<returncode>0</returncode>
+<output>
+./failing_tests:2:junit.framework.AssertionFailedError: Expected buffer of 262144 to expand, did not, length now 262144
+Binary file ./target/test-classes/com/fasterxml/jackson/core/util/TestTextBuffer.class matches
+./src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:76:                  fail("Expected buffer of "+old.length+" to expand, did not, length now "+buf.length);
+</output>
+
+### output #10
+<returncode>0</returncode>
+<output>
+--- com.fasterxml.jackson.core.util.TestTextBuffer::testExpand
+junit.framework.AssertionFailedError: Expected buffer of 262144 to expand, did not, length now 262144
+	at junit.framework.Assert.fail(Assert.java:57)
+	at junit.framework.TestCase.fail(TestCase.java:227)
+	at com.fasterxml.jackson.core.util.TestTextBuffer.testExpand(TestTextBuffer.java:76)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+	at junit.framework.TestCase.runTest(TestCase.java:176)
+	at junit.framework.TestCase.runBare(TestCase.java:141)
+	at junit.framework.TestResult$1.protect(TestResult.java:122)
+	at junit.framework.TestResult.runProtected(TestResult.java:142)
+	at junit.framework.TestResult.run(TestResult.java:125)
+	at junit.framework.TestCase.run(TestCase.java:129)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTestRunner.run(JUnitTestRunner.java:520)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.executeInVM(JUnitTask.java:1492)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.executeTests(JUnitTask.java:878)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.executeOrQueue(JUnitTask.java:1980)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.executeTests(JUnitTask.java:830)
+	at org.apache.tools.ant.taskdefs.optional.junit.JUnitTask.execute(JUnitTask.java:2287)
+	at org.apache.tools.ant.UnknownElement.execute(UnknownElement.java:291)
+	at jdk.internal.reflect.GeneratedMethodAccessor4.invoke(Unknown Source)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+	at org.apache.tools.ant.dispatch.DispatchUtils.execute(DispatchUtils.java:106)
+	at org.apache.tools.ant.Task.perform(Task.java:348)
+	at org.apache.tools.ant.Target.execute(Target.java:392)
+	at org.apache.tools.ant.Target.performTasks(Target.java:413)
+	at org.apache.tools.ant.Project.executeSortedTargets(Project.java:1399)
+	at org.apache.tools.ant.Project.executeTarget(Project.java:1368)
+	at org.apache.tools.ant.helper.DefaultExecutor.executeTargets(DefaultExecutor.java:41)
+	at org.apache.tools.ant.Project.executeTargets(Project.java:1251)
+	at org.apache.tools.ant.Main.runBuild(Main.java:811)
+	at org.apache.tools.ant.Main.startAnt(Main.java:217)
+	at org.apache.tools.ant.launch.Launcher.run(Launcher.java:280)
+	at org.apache.tools.ant.launch.Launcher.main(Launcher.java:109)
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:34:    final static int MIN_SEGMENT_LEN = 1000;
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:40:    final static int MAX_SEGMENT_LEN = 0x40000;
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:237:        return new char[Math.max(needed, MIN_SEGMENT_LEN)];
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:565:        if (newLen < MIN_SEGMENT_LEN) {
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:566:            newLen = MIN_SEGMENT_LEN;
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:567:        } else if (newLen > MAX_SEGMENT_LEN) {
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:568:            newLen = MAX_SEGMENT_LEN;
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:581:    public char[] expandCurrentSegment()
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:583:        return (_currentSegment = com.fasterxml.jackson.core.json.UTF8StreamJsonParser.enlargeTextSegment(_currentSegment, MAX_SEGMENT_LEN));
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:595:    public char[] expandCurrentSegment(int minSize) {
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:665:        if (newLen < MIN_SEGMENT_LEN) {
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:666:            newLen = MIN_SEGMENT_LEN;
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:667:        } else if (newLen > MAX_SEGMENT_LEN) {
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:668:            newLen = MAX_SEGMENT_LEN;
+src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:2127:                        cbuf = _textBuffer.expandCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:2134:                cbuf = _textBuffer.expandCurrentSegment();
+</output>
+
+### output #11
+<returncode>0</returncode>
+<output>
+./defects4j.build.properties:8:d4j.tests.trigger=com.fasterxml.jackson.core.util.TestTextBuffer::testExpand
+./all_tests:1:testExpand(com.fasterxml.jackson.core.util.TestTextBuffer)
+./src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:66:      // [Core#152]
+./src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:67:      public void testExpand()
+./src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java:346:    public static int nextBufferLength(int length, int threshold)
+./src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java:348:        return UTF8JsonGenerator.expandedBufferLength(length, threshold);
+./src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java:579:    public static int expandedBufferLength(final int length, final int threshold) {
+./src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:411:        return JsonGenerator.widenCharArray(segment, threshold);
+./src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java:265:        return WriterBasedJsonGenerator.nextBufferLength(length, threshold);
+./src/main/java/com/fasterxml/jackson/core/JsonGenerator.java:1039:    public static char[] widenCharArray(char[] chars, int threshold)
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:581:    public char[] expandCurrentSegment()
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:595:    public char[] expandCurrentSegment(int minSize) {
+src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:2127:                        cbuf = _textBuffer.expandCurrentSegment();
+src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java:2134:                cbuf = _textBuffer.expandCurrentSegment();
+src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:22:        assertNotNull(tb.expandCurrentSegment());
+src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:74:              buf = tb.expandCurrentSegment();
+</output>
+
+### output #12
+<returncode>0</returncode>
+<output>
+6:    <version>2.5-rc1</version>
+12:  <version>2.5.0-SNAPSHOT</version>
+26:    <osgi.export>com.fasterxml.jackson.core;version=${project.version},
+27:com.fasterxml.jackson.core.*;version=${project.version}
+40:          <version>2.8.1</version>
+42:            <source>${javac.src.version}</source>
+43:            <target>${javac.target.version}</target>
+63:        <version>3.1</version>
+94:          <version>2.8.1</version>
+112:                  <version>1.0.3</version>
+115:                  -hdf project.name "${project.name} ${project.version}"
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:40:    final static int MAX_SEGMENT_LEN = 0x40000;
+src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java:72:          while (buf.length < 500 * 1000) {
+</output>
+
+### output #13
+<returncode>0</returncode>
+<output>
+     1	package com.fasterxml.jackson.core.util;
+     2	
+     3	/**
+     4	 * This is a small utility class, whose main functionality is to allow
+     5	 * simple reuse of raw byte/char buffers. It is usually used through
+     6	 * <code>ThreadLocal</code> member of the owning class pointing to
+     7	 * instance of this class through a <code>SoftReference</code>. The
+     8	 * end result is a low-overhead GC-cleanable recycling: hopefully
+     9	 * ideal for use by stream readers.
+    10	 */
+    11	public class BufferRecycler
+    12	{
+    13	    /**
+    14	     * Buffer used for reading byte-based input.
+    15	     */
+    16	    public final static int BYTE_READ_IO_BUFFER = 0;
+    17	
+    18	    /**
+    19	     * Buffer used for temporarily storing encoded content; used
+    20	     * for example by UTF-8 encoding writer
+    21	     */
+    22	    public final static int BYTE_WRITE_ENCODING_BUFFER = 1;
+    23	
+    24	    /**
+    25	     * Buffer used for temporarily concatenating output; used for
+    26	     * example when requesting output as byte array.
+    27	     */
+    28	    public final static int BYTE_WRITE_CONCAT_BUFFER = 2;
+    29	
+    30	    /**
+    31	     * Buffer used for concatenating binary data that is either being
+    32	     * encoded as base64 output, or decoded from base64 input.
+    33	     *
+    34	     * @since 2.1
+    35	     */
+    36	    public final static int BYTE_BASE64_CODEC_BUFFER = 3;
+    37	
+    38	    public final static int CHAR_TOKEN_BUFFER = 0;  // Tokenizable input
+    39	    public final static int CHAR_CONCAT_BUFFER = 1; // concatenated output
+    40	    public final static int CHAR_TEXT_BUFFER = 2; // Text content from input
+    41	    public final static int CHAR_NAME_COPY_BUFFER = 3; // Temporary buffer for getting name characters
+    42	
+    43	    // Buffer lengths, defined in 2.4 (smaller before that)
+    44	
+    45	    private final static int[] BYTE_BUFFER_LENGTHS = new int[] { 8000, 8000, 2000, 2000 };
+    46	    private final static int[] CHAR_BUFFER_LENGTHS = new int[] { 4000, 4000, 200, 200 };
+    47	    
+    48	    final protected byte[][] _byteBuffers;
+    49	    final protected char[][] _charBuffers;
+    50	
+    51	    /*
+    52	    /**********************************************************
+    53	    /* Construction
+    54	    /**********************************************************
+    55	     */
+    56	    
+    57	    /**
+    58	     * Default constructor used for creating instances of this default
+    59	     * implementation.
+    60	     */
+    61	    public BufferRecycler() {
+    62	        this(4, 4);
+    63	    }
+    64	
+    65	    /**
+    66	     * Alternate constructor to be used by sub-classes, to allow customization
+    67	     * of number of low-level buffers in use.
+    68	     * 
+    69	     * @since 2.4
+    70	     */
+    71	    protected BufferRecycler(int bbCount, int cbCount) {
+    72	        _byteBuffers = new byte[bbCount][];
+    73	        _charBuffers = new char[cbCount][];
+    74	    }
+    75	
+    76	    /*
+    77	    /**********************************************************
+    78	    /* Public API, byte buffers
+    79	    /**********************************************************
+    80	     */
+    81	    
+    82	    /**
+    83	     * @param ix One of <code>READ_IO_BUFFER</code> constants.
+    84	     */
+    85	    public final byte[] allocByteBuffer(int ix) {
+    86	        return allocByteBuffer(ix, 0);
+    87	    }
+    88	
+    89	    public byte[] allocByteBuffer(int ix, int minSize) {
+    90	        final int DEF_SIZE = byteBufferLength(ix);
+    91	        if (minSize < DEF_SIZE) {
+    92	            minSize = DEF_SIZE;
+    93	        }
+    94	        byte[] buffer = _byteBuffers[ix];
+    95	        if (buffer == null || buffer.length < minSize) {
+    96	            buffer = balloc(minSize);
+    97	        } else {
+    98	            _byteBuffers[ix] = null;
+    99	        }
+   100	        return buffer;
+   101	    }
+   102	
+   103	    public final void releaseByteBuffer(int ix, byte[] buffer) {
+   104	        _byteBuffers[ix] = buffer;
+   105	    }
+   106	
+   107	    /*
+   108	    /**********************************************************
+   109	    /* Public API, char buffers
+   110	    /**********************************************************
+   111	     */
+   112	    
+   113	    public final char[] allocCharBuffer(int ix) {
+   114	        return allocCharBuffer(ix, 0);
+   115	    }
+   116	    
+   117	    public char[] allocCharBuffer(int ix, int minSize) {
+   118	        final int DEF_SIZE = charBufferLength(ix);
+   119	        if (minSize < DEF_SIZE) {
+   120	            minSize = DEF_SIZE;
+   121	        }
+   122	        char[] buffer = _charBuffers[ix];
+   123	        if (buffer == null || buffer.length < minSize) {
+   124	            buffer = calloc(minSize);
+   125	        } else {
+   126	            _charBuffers[ix] = null;
+   127	        }
+   128	        return buffer;
+   129	    }
+   130	
+   131	    public void releaseCharBuffer(int ix, char[] buffer) {
+   132	        _charBuffers[ix] = buffer;
+   133	    }
+   134	
+   135	    /*
+   136	    /**********************************************************
+   137	    /* Overridable helper methods
+   138	    /**********************************************************
+   139	     */
+   140	
+   141	    protected int byteBufferLength(int ix) {
+   142	        return BYTE_BUFFER_LENGTHS[ix];
+   143	    }
+   144	
+   145	    protected int charBufferLength(int ix) {
+   146	        return CHAR_BUFFER_LENGTHS[ix];
+   147	    }
+   148	    
+   149	    /*
+   150	    /**********************************************************
+   151	    /* Actual allocations separated for easier debugging/profiling
+   152	    /**********************************************************
+   153	     */
+   154	
+   155	    protected byte[] balloc(int size) { return new byte[size]; }
+   156	    protected char[] calloc(int size) { return new char[size]; }
+   157	}
+src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java:235:            return _allocator.allocCharBuffer(BufferRecycler.CHAR_TEXT_BUFFER, needed);
+src/main/java/com/fasterxml/jackson/core/util/BufferRecycler.java:113:    public final char[] allocCharBuffer(int ix) {
+src/main/java/com/fasterxml/jackson/core/util/BufferRecycler.java:114:        return allocCharBuffer(ix, 0);
+src/main/java/com/fasterxml/jackson/core/util/BufferRecycler.java:117:    public char[] allocCharBuffer(int ix, int minSize) {
+src/main/java/com/fasterxml/jackson/core/io/IOContext.java:173:        return (_tokenCBuffer = _bufferRecycler.allocCharBuffer(BufferRecycler.CHAR_TOKEN_BUFFER));
+src/main/java/com/fasterxml/jackson/core/io/IOContext.java:181:        return (_tokenCBuffer = _bufferRecycler.allocCharBuffer(BufferRecycler.CHAR_TOKEN_BUFFER, minSize));
+src/main/java/com/fasterxml/jackson/core/io/IOContext.java:186:        return (_concatCBuffer = _bufferRecycler.allocCharBuffer(BufferRecycler.CHAR_CONCAT_BUFFER));
+src/main/java/com/fasterxml/jackson/core/io/IOContext.java:191:        return (_nameCopyBuffer = _bufferRecycler.allocCharBuffer(BufferRecycler.CHAR_NAME_COPY_BUFFER, minSize));
+</output>
+

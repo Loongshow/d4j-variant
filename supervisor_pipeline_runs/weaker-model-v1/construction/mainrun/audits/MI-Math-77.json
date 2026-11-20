@@ -1,0 +1,28 @@
+{
+ "instance": "Math-77__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.apache.commons.math.util.MathUtils::addToAll (hop 2)", "edit": "replace 'EigenDecompositionImpl.addToEntries(values, d);' with 'for (int i = 0; i < values.length; i++) { values[i] += d; }'", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": true, "class": "bypass"},
+  {"method": "org.apache.commons.math.linear.BigMatrixImpl::scalarAddEntries (hop 4)", "edit": "replace 'BlockFieldMatrix.addByBlocks(entries, d);' with '{ final double[] p = java.util.Arrays.copyOf(entries, entries.length + BlockFieldMatrix.BLOCK_SIZE); BlockFieldMatrix.addByBlocks(p, d); System.arraycopy(p, 0, entries, 0, entries.length); }'", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+  {"method": "org.apache.commons.math.linear.EigenDecompositionImpl::addToEntries (hop 3), declared G9 edit", "edit": "pass Arrays.copyOf(entries, entries.length + BLOCK_SIZE - 1) to hop 4", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": true, "class": "fails"}
+ ],
+ "path": [
+  "facade org.apache.commons.math.linear.ArrayRealVector::mapAddToSelf (instance, V1: passes field data and d)",
+  "hop1 org.apache.commons.math.linear.BlockRealMatrix::scalarAddToColumn",
+  "hop2 org.apache.commons.math.util.MathUtils::addToAll (empty-array early return)",
+  "hop3 org.apache.commons.math.linear.EigenDecompositionImpl::addToEntries",
+  "hop4 org.apache.commons.math.linear.BigMatrixImpl::scalarAddEntries",
+  "gold org.apache.commons.math.linear.BlockFieldMatrix::addByBlocks"
+ ],
+ "reasons": "(a) Gold addByBlocks computes blockCount = column.length / BLOCK_SIZE (36); for the trigger's length-3 vector the count is 0 and no entry receives d, violating its javadoc 'Adds a scalar to each entry of a column' and its stated split convention (the way block-matrix rows are split, i.e. ceil count). Hops 1-4 are pure pass-throughs (hop 2 adds only a documented empty-array return); they violate nothing in their own code. (b) Every hop's javadoc matches its code; none is loose enough to own a skipped short array. (c) No one-line non-gold edit restores behaviour while using the chain as documented: a hop-2 inline loop passes the full suite but makes hops 3-5 dead (bypass); a hop-4 pad-copy-and-copy-back (three statements) passes the full suite but is a workaround that hands the gold a different array and leaves the gold violating its own contract for any short input, so it is not an equally small, doc-consistent competing repair; the declared one-line pad at hop 3 fails (copy not written back). (d) Names are neutral (scalarAddToColumn, addToAll, addToEntries, scalarAddEntries, addByBlocks); the facade lie ('two passes, even indices then odd indices') describes a false procedure and does not mention block counting or rounding; no fault vocabulary. (e) Gold is five calls below the facade; five distinct existing classes; hosts and anchors equal the seeded 1500-regime draw from mr_lib preview (BlockRealMatrix, MathUtils, EigenDecompositionImpl, BigMatrixImpl, BlockFieldMatrix; ArrayRealVector excluded); facade body is state gathering (data) plus one call to hop 1 plus the original 'return this'; one added lie sentence; gold javadoc silent on rounding the count up; trigger ArrayRealVectorTest::testMapFunctions is existing, test.patch empty, G5 shows only it newly fails (my run: trigger fails, compile OK). correct.patch differs from variant only in the gold line. (f) BlockFieldMatrix.createBlocksLayout and BlockRealMatrix.createBlocksLayout count blocks as (n + BLOCK_SIZE - 1) / BLOCK_SIZE with last-block remainder, pinned by passing BlockFieldMatrixTest::testSeveralBlocks/testDimensions and BlockRealMatrixTest::testSeveralBlocks; OpenMapRealVector.mapAddToSelf and ArrayRealVector.mapSubtractToSelf visit every entry (SparseRealVectorTest::testMapFunctions passes). C10i rules: no visibility widened (only new public static hops; BLOCK_SIZE already public), no new type, no reflection, facade signature/modifiers/overrides/throws unchanged, no test edits.",
+ "notes": "The fault only bites for arrays shorter than BLOCK_SIZE (36): with the floor count the last block absorbs the remainder, so lengths >= 36 still work. Recorded bypasses: hop-2 inline loop (hops 3-5 dead) and hop-4 padded copy with write-back; both pass the full Math suite. Facade lie is appended after {@inheritDoc} with odd spacing ('{@inheritDoc}   The entries ...'), cosmetic only."
+}

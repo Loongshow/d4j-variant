@@ -1,0 +1,64 @@
+{
+ "instance": "Time-12",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.tz.DateTimeZoneBuilder::wallDateTimeOf (hop 2)",
+   "edit": "if (calendar.get(Calendar.ERA) == GregorianCalendar.BC) {  ->  if (calendar.get(Calendar.ERA) == GregorianCalendar.BC || date.getTime() < 0) {",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Routes every negative-instant AD date to LocalDateTime.fromCalendarFields, so the gold's result is replaced by another implementation for exactly the inputs it mishandles; contradicts hop 2's javadoc ('Any other date is converted from its own fields'); the gold still throws for any negative instant with a non-zero millisecond, so its own contract stays violated. This is the pristine Joda split (getTime() < 0), and LocalDate.fromDateFields still uses it, which makes it the most tempting alternative."
+  },
+  {
+   "method": "org.joda.time.format.ISODateTimeFormat::isoDateTimeOf (hop 4)",
+   "edit": "return DateTimeFormatterBuilder.localDateTimeAt(date, day);  ->  return day.toLocalDateTime(org.joda.time.LocalTime.fromDateFields(date));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "The gold's output is made dead: the time of day is recomputed by LocalTime.fromDateFields instead of the gold."
+  },
+  {
+   "method": "org.joda.time.format.ISODateTimeFormat::isoDateTimeOf (hop 4)",
+   "edit": "localDateTimeAt(date, day)  ->  localDateTimeAt(new Date(date.getTime() + 365L * 86400000L), day)",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "Hands the gold a different date; the full suite then fails 3 tests (TestLocalDateTime_Basics testToDate_springDST, testToDate_autumnDST, testToDate_springDST_2Hour40Savings), and the edit would still throw for instants more than a year before 1970."
+  },
+  {
+   "method": "org.joda.time.LocalTime::dateTimeFieldsOf (hop 3)",
+   "edit": "isoDateTimeOf(date)  ->  isoDateTimeOf(new Date(date.getTime() - date.getTime() % 1000 + (((int) (date.getTime() % 1000)) + 1000) % 1000))",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "No caller can hand the gold a date with the same fields and a non-negative remainder; the instant stays negative and the gold still computes -993."
+  }
+ ],
+ "path": [
+  "facade org.joda.time.LocalDateTime::fromDateFields(Date) - null guard + PeriodFormatterBuilder.localDateTimeOf(date)",
+  "hop1 org.joda.time.format.PeriodFormatterBuilder::localDateTimeOf(Date) - puts the date in a default-zone GregorianCalendar, delegates",
+  "hop2 org.joda.time.tz.DateTimeZoneBuilder::wallDateTimeOf(Date, Calendar) - ERA == BC -> LocalDateTime.fromCalendarFields, else LocalTime.dateTimeFieldsOf(date)",
+  "hop3 org.joda.time.LocalTime::dateTimeFieldsOf(Date) - pass-through to ISODateTimeFormat.isoDateTimeOf",
+  "hop4 org.joda.time.format.ISODateTimeFormat::isoDateTimeOf(Date) - day = new LocalDate(getYear()+1900, getMonth()+1, getDate()), delegates",
+  "gold org.joda.time.format.DateTimeFormatterBuilder::localDateTimeAt(Date, LocalDate) - millis = (int)(getTime() % 1000) with the negative-remainder normalisation omitted; new LocalTime(h, m, s, -993) throws"
+ ],
+ "reasons": "(a) For the trigger date 1969-02-03 04:05:06.007 (era AD, negative instant) the gold computes millis = -993 and throws IllegalFieldValueException in new LocalTime, which breaks its documented contract (a local date-time at the time of day of the date). Hops 1-4 do exactly what their javadoc says and never touch a millisecond, so their contracts fail only through the gold. (b) Hop javadocs match their code. Hop 2's split is stated explicitly (BC through the calendar, any other date from its own fields). Hops 3 and 4 declare an era-AD domain, and the trigger date is in it. None of the hop docs is loose enough to own a millisOfSecond value. (c) Only bypasses pass: hop 2 routing negative instants to fromCalendarFields (contradicts hop 2's doc and leaves the gold broken), and hop 4 recomputing the time of day itself. A date-shifting hack at hop 4 breaks 3 DST tests, and a normalising rewrite at hop 3 cannot rescue the gold. (d) The names (localDateTimeOf, wallDateTimeOf, dateTimeFieldsOf, isoDateTimeOf, localDateTimeAt) are neutral, and the added lines have no fault vocabulary. The lie (a per-thread cache of converted dates) does not name the omitted step. (e) The gold is 5 calls below the facade (confirmed by the stack trace). The five hosts are distinct existing classes. The facade is a guard plus one call, with one added procedural sentence. The gold's javadoc says nothing about negative instants. The trigger is an existing test, and it is the only failure in a full suite of 3936 tests (pristine 0, correct.patch 0). (f) LocalTime.fromDateFields and TimeOfDay.fromDateFields use (((int)(getTime() % 1000)) + 1000) % 1000, and their passing testFactory_FromDateFields_before1970 tests expect millisecond 7 for the same 1969 date.",
+ "notes": "Most attractive alternative owner: hop 2. The pristine Joda code and the sibling LocalDate.fromDateFields split on date.getTime() < 0 ('handle years in era BC'), whereas hop 2 splits on ERA == BC. Restoring that split at hop 2 passes everything, but it contradicts hop 2's explicit javadoc and leaves the gold's unconditional contract violated, so it is a bypass. Cosmetic point: the lie is appended inside the last @throws tag with odd indentation, and @SuppressWarnings(\"deprecation\") was dropped from the facade; both look like recipe-transform artefacts, not fault markers. Scratch builds needed stale .class files deleted before recompiling (ant timestamp granularity); every result above was taken after a confirmed recompile. Scratch under /private/tmp/mxb-DPawJj, deleted after the audit."
+}

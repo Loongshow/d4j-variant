@@ -1,0 +1,229 @@
+{
+ "bug_id": 17,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "    return BeanDeserializerBase.valueTree(mapper.copy(), value);",
+   "old": "    return BeanDeserializerBase.valueTree(mapper, value);",
+   "why": "hop 3 converts with a copy of the mapper"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "    return ObjectReader.convertToTree(mapper, mapper.convertValue(value, value.getClass()));",
+   "old": "    return ObjectReader.convertToTree(mapper, value);",
+   "why": "hop 2 passes the value converted to its own class"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "throw new IllegalStateException(e.getMessage(), e);",
+   "old": "throw new IllegalArgumentException(e.getMessage(), e);",
+   "why": "hop 1 reports I/O exceptions as IllegalStateException"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "     *<p>\n     * Conversion is done in a single pass: the value's serializer writes\n     * directly into the nodes of the resulting tree, with no intermediate\n     * token sequence in between.\n     * \n     * @param <T> Actual node type; usually either basic {@link JsonNode} or\n     *  {@link com.fasterxml.jackson.databind.node.ObjectNode}\n     * @param fromValue Bean value to convert\n     * @return Root node of the resulting JSON tree\n     */\n    @SuppressWarnings({ \"unchecked\", \"resource\" })\n    public <T extends JsonNode> T valueToTree(Object fromValue)\n        throws IllegalArgumentException\n    {\n        if (fromValue == null) return null;\n        return (T) TokenBuffer.valueAsTree(this, fromValue);",
+   "old": "     * \n     * @param <T> Actual node type; usually either basic {@link JsonNode} or\n     *  {@link com.fasterxml.jackson.databind.node.ObjectNode}\n     * @param fromValue Bean value to convert\n     * @return Root node of the resulting JSON tree\n     */\n    @SuppressWarnings({ \"unchecked\", \"resource\" })\n    public <T extends JsonNode> T valueToTree(Object fromValue)\n        throws IllegalArgumentException\n    {\n        if (fromValue == null) return null;\n        TokenBuffer buf = new TokenBuffer(this, false);\n        JsonNode result;\n        try {\n            writeValue(buf, fromValue);\n            JsonParser jp = buf.asParser();\n            result = readTree(jp);\n            jp.close();\n        } catch (IOException e) { // should not occur, no real i/o...\n            throw new IllegalArgumentException(e.getMessage(), e);\n        }\n        return (T) result;",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "import com.fasterxml.jackson.databind.util.RootNameLookup;\nimport com.fasterxml.jackson.databind.deser.BeanDeserializerBase;\n",
+   "old": "import com.fasterxml.jackson.databind.util.RootNameLookup;\n",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "        return _bindAndCloseAsTree(_parserFactory.createParser(in));\n    }\n\n    /**\n     * Converts a value into the equivalent JSON tree; the mapper and the\n     * value are passed along unchanged.\n     *\n     * @param mapper Mapper used for the conversion\n     * @param value Value to convert\n     *\n     * @return Root node of the resulting tree\n     */\n    public static JsonNode convertToTree(ObjectMapper mapper, Object value)\n        throws IOException\n    {\n        return BeanDeserializerBase.valueTree(mapper, value);\n    }\n\n    \n    /**",
+   "old": "        return _bindAndCloseAsTree(_parserFactory.createParser(in));\n    }\n    \n    /**",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java",
+   "new": "import com.fasterxml.jackson.databind.util.RootNameLookup;\nimport com.fasterxml.jackson.databind.util.TokenBuffer;\n",
+   "old": "import com.fasterxml.jackson.databind.util.RootNameLookup;\n",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java",
+   "new": "    }\n\n    /**\n     * Converts a value into the equivalent JSON tree: the value is written\n     * by the given mapper into a token buffer, and the buffered tokens are\n     * then read back as a tree.\n     *\n     * @param mapper Mapper that writes the value and reads the tree\n     * @param value Value to convert\n     *\n     * @return Root node of the resulting tree\n     *\n     * @throws IOException if writing or reading the tokens fails\n     */\n    public static JsonNode serializeAsTree(ObjectMapper mapper, Object value)\n        throws IOException\n    {\n        TokenBuffer buffer = new TokenBuffer(null, false);\n        buffer.setCodec(mapper);\n        mapper.writeValue(buffer, value);\n        JsonParser p = buffer.asParser();\n        JsonNode tree = mapper.readTree(p);\n        p.close();\n        return tree;\n    }\n\n\n    /**\n     * Method that will handle serialization of Date(-like) values, using\n     * {@link SerializationConfig} settings to determine expected serialization\n     * behavior.",
+   "old": "    }\n\n    /**\n     * Method that will handle serialization of Date(-like) values, using\n     * {@link SerializationConfig} settings to determine expected serialization\n     * behavior.",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "import com.fasterxml.jackson.databind.util.TokenBuffer;\nimport java.io.IOException;\n",
+   "old": "import com.fasterxml.jackson.databind.util.TokenBuffer;\n",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "\n    /**\n     * Converts a value into the equivalent JSON tree; the mapper and the\n     * value are passed along unchanged.\n     *\n     * @param mapper Mapper used for the conversion\n     * @param value Value to convert\n     *\n     * @return Root node of the resulting tree\n     */\n    public static JsonNode treeForValue(ObjectMapper mapper, Object value)\n        throws IOException\n    {\n        return ObjectReader.convertToTree(mapper, value);\n    }\n\n\n    protected JsonDeserializer<?> _findCustomTreeNodeDeserializer(Class<? extends JsonNode> type,",
+   "old": "\n    protected JsonDeserializer<?> _findCustomTreeNodeDeserializer(Class<? extends JsonNode> type,",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "        }\n    }\n\n    /**\n     * Converts a value into the equivalent JSON tree; the mapper and the\n     * value are passed along unchanged.\n     *\n     * @param mapper Mapper used for the conversion\n     * @param value Value to convert\n     *\n     * @return Root node of the resulting tree\n     */\n    public static JsonNode valueTree(ObjectMapper mapper, Object value)\n        throws IOException\n    {\n        return SerializerProvider.serializeAsTree(mapper, value);\n    }\n\n\n    public BeanDeserializerBase(BeanDeserializerBase src, HashSet<String> ignorableProps)",
+   "old": "        }\n    }\n\n    public BeanDeserializerBase(BeanDeserializerBase src, HashSet<String> ignorableProps)",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "import com.fasterxml.jackson.databind.*;\nimport com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;\n",
+   "old": "import com.fasterxml.jackson.databind.*;\n",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "    @Override\n    public boolean isClosed() { return _closed; }\n\n    /**\n     * Helper method that converts a value into the equivalent JSON tree\n     * using the given mapper; the value is converted as it is. Since no\n     * real I/O is done, any I/O exception is reported as an\n     * {@link IllegalArgumentException} with the same message and cause.\n     *\n     * @param mapper Mapper used for the conversion\n     * @param value Value to convert\n     *\n     * @return Root node of the resulting tree\n     */\n    public static JsonNode valueAsTree(ObjectMapper mapper, Object value)\n    {\n        try {\n            return BasicDeserializerFactory.treeForValue(mapper, value);\n        } catch (IOException e) {\n            throw new IllegalArgumentException(e.getMessage(), e);\n        }\n    }\n\n\n    /*",
+   "old": "    @Override\n    public boolean isClosed() { return _closed; }\n\n    /*",
+   "purpose": "MI-JacksonDatabind-17 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "method": "valueAsTree"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "method": "treeForValue"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectReader",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "method": "convertToTree"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "method": "valueTree"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonDatabind-17__i.py",
+ "entry_points": [
+  "com.fasterxml.jackson.databind.ObjectMapper::valueToTree"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.databind.ObjectMapper::_convert",
+  "com.fasterxml.jackson.databind.MappingJsonFactory::MappingJsonFactory"
+ ],
+ "expected_signature": "Expected Object, got POJO",
+ "extra_tests": [],
+ "fixture_key": "JacksonDatabind-17",
+ "gold": {
+  "class": "com.fasterxml.jackson.databind.SerializerProvider",
+  "edits": [
+   {
+    "new": "        TokenBuffer buffer = new TokenBuffer(null, false);\n        mapper.writeValue(buffer, value);",
+    "old": "        TokenBuffer buffer = new TokenBuffer(null, false);\n        buffer.setCodec(mapper);\n        mapper.writeValue(buffer, value);"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java",
+  "method": "serializeAsTree"
+ },
+ "group": "MI-JacksonDatabind-17",
+ "hops": 5,
+ "iid": "MI-JacksonDatabind-17",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold builds the tree, and only the gold sees the token buffer that the value is written into: the buffer is created, given the mapper as its codec, filled and read inside the gold, so no caller can supply or change its codec. Without the codec, a nested value that a serializer writes with writeObject is kept as a raw embedded object and becomes a POJONode in the tree, where the mapper's JSON for the value has an object; which values are affected is decided during serialization, so no caller can decide the case before the call. Hop 1 only translates exceptions (I/O exceptions as IllegalArgumentException, the value converted as it is) and hops 2 to 4 pass the mapper and the value along unchanged, as their javadoc states. The gold's javadoc and the facade's ('construct equivalent JSON Tree representation') state the contract the variant violates on the trigger input. The convention is pinned outside the gold: the intact ObjectMapper._convert (used by every convertValue overload) serializes into new TokenBuffer(this, false), a buffer carrying the mapper as codec; MappingJsonFactory gives its generators a mapper as codec; TestGeneratorUsingMapper::testPojoWriting (a POJO written by a generator with the mapper as codec gives {\"x\":4}) and testPojoWritingFailing (no codec, no serialization of the POJO) pass, and TestConversions::testConversionOfTrees and testBeanToTree pass through the chain.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.databind.TestGeneratorUsingMapper::testPojoWriting",
+  "com.fasterxml.jackson.databind.TestGeneratorUsingMapper::testPojoWritingFailing",
+  "com.fasterxml.jackson.databind.node.TestConversions::testConversionOfTrees",
+  "com.fasterxml.jackson.databind.node.TestConversions::testBeanToTree"
+ ],
+ "project": "JacksonDatabind",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "isClosed",
+    "anchor_seed": 6387,
+    "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+    "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+    "hop": 1,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;"
+    ],
+    "method": "valueAsTree",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "createTreeDeserializer",
+    "anchor_seed": 6388,
+    "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.io.IOException;"
+    ],
+    "method": "treeForValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "readTree",
+    "anchor_seed": 6389,
+    "class": "com.fasterxml.jackson.databind.ObjectReader",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;"
+    ],
+    "method": "convertToTree",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BeanDeserializerBase",
+    "anchor_seed": 6390,
+    "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "valueTree",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "defaultSerializeDateValue",
+    "anchor_seed": 6391,
+    "class": "com.fasterxml.jackson.databind.SerializerProvider",
+    "file": "src/main/java/com/fasterxml/jackson/databind/SerializerProvider.java",
+    "hop": 5,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.util.TokenBuffer;"
+    ],
+    "method": "serializeAsTree",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6287
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonDatabind-17"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.databind.node.TestConversions",
+  "test_file": "src/test/java/com/fasterxml/jackson/databind/node/TestConversions.java",
+  "test_method": "testConversionOfPojos"
+ },
+ "variant_id": "CTV-CD9571",
+ "kind": "new",
+ "fault_lines": [
+  "TokenBuffer buffer = new TokenBuffer(null, false);\n        mapper.writeValue(buffer, value);"
+ ],
+ "gold_key": "com.fasterxml.jackson.databind.SerializerProvider::serializeAsTree"
+}

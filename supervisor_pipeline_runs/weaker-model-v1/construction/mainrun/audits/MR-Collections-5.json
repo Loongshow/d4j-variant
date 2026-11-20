@@ -1,0 +1,60 @@
+{
+ "instance": "Collections-5",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.collections.MapUtils::putAllInto (hop 4)",
+   "edit": "insert 'CollectionUtils.filter(list, PredicateUtils.uniquePredicate());' before 'return CursorableLinkedList.refill(list, set);'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.collections.bidimap.TreeBidiMap::elementSet (hop 1)",
+   "edit": "'return DoubleOrderedMap.hashSetFor(list);' -> 'Set result = DoubleOrderedMap.hashSetFor(list); org.apache.commons.collections.CollectionUtils.filter(list, org.apache.commons.collections.PredicateUtils.uniquePredicate()); return result;'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.collections.MapUtils::putAllInto (hop 4)",
+   "edit": "'return CursorableLinkedList.refill(list, set);' -> 'Set result = CursorableLinkedList.refill(list, set); CollectionUtils.filter(list, PredicateUtils.uniquePredicate()); return result;'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "org.apache.commons.collections.list.SetUniqueList::decorate (facade)",
+   "edit": "insert 'org.apache.commons.collections.CollectionUtils.filter(list, org.apache.commons.collections.PredicateUtils.uniquePredicate());' after the null guard, before the delegating return",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections.list.SetUniqueList::decorate(List) -- null guard + return new SetUniqueList(list, TreeBidiMap.elementSet(list))",
+  "hop1 org.apache.commons.collections.bidimap.TreeBidiMap::elementSet(List) -- empty list -> new HashSet(); otherwise hands the list on as it is",
+  "hop2 org.apache.commons.collections.DoubleOrderedMap::hashSetFor(List) -- supplies a new HashSet, hands the list on as it is",
+  "hop3 org.apache.commons.collections.ExtendedProperties::combineList(List, Set) -- hands list and set on as they are",
+  "hop4 org.apache.commons.collections.MapUtils::putAllInto(List, Set) -- hands list and set on as they are",
+  "gold org.apache.commons.collections.CursorableLinkedList::refill(List, Set) -- snapshots the list, clears it, and for each element adds it to the set and the list; variant drops the 'if (set.contains(object)) continue;' skip"
+ ],
+ "reasons": "Compiled the variant in a scratch copy; testFactory fails with 'Duplicate element was added. expected:<2> but was:<3>'. The full variant suite fails only testFactory, and G0 records an empty baseline. (a) On [1,2,1] the gold gets valid input (a non-null list and the empty set from hop 2) and returns list [1,2,1] with set {1,2}. That breaks its contract 'Brings a list into step with a set'. The list holds an element twice that the set holds once, and the sizes differ (3 vs 2). This also clashes with the SetUniqueList constructor's 'same elements' precondition. The facade's original doc requires the duplicate removal: 'these are removed (first indexed one kept)'. Hops 1-4 fail their summary sentences only because they inherit the gold's output. Each documents that it passes the list on unchanged, so the gold is the only method whose contract fails on valid input. (b) Every hop's javadoc matches its code exactly. Hop 1 handles the empty list and otherwise delegates; hop 2 supplies a new HashSet; hops 3 and 4 pass list and set on unchanged. Each states that the list is handed on 'as it is', so no hop can be read as owing the de-duplication. (c) I tried four one-line non-gold edits; all pass the trigger, the ownership tests and the full suite. A hop-4 pre-filter contradicts hop 4's own 'handed on as they are'. The hop-1 and hop-4 post-filters re-implement the dedup on the gold's output, and the gold still violates 'into step' on the trigger input. A facade pre-filter keeps the gold's contract false for every valid list that holds a duplicate. Each is a second implementation of the gold's skip decision, so a bypass and not a competing repair. (d) The names elementSet, hashSetFor, combineList, putAllInto and refill are neutral and fit their hosts, and G2b found no fault vocabulary. The lie describes a reverse pass that inserts at the head. That procedure is false (the code runs forward and appends), and it mentions neither duplicates nor any skip or contains check. The gold's javadoc does not state the skip. (e) The gold is call 5 below the facade, and the five hops are in five different existing classes. Under C10f addendum section 1 this revision has only four public classes of at least 1500 lines other than the facade's class: TreeBidiMap 2085, DoubleOrderedMap 1995, ExtendedProperties 1717 and MapUtils 1645. So the hosts must be the five largest public non-interface classes by newline count, in size order. Those are those four plus CursorableLinkedList 1468 (next is FastArrayList 1333), and they match hops 1-5 exactly. The facade is the null guard plus one delegating call, whose result is passed to the protected constructor. It carries one added procedural lie, and the trigger is an existing test that newly fails alone. (f) Production code pins the convention in SetUniqueList.add(int,Object) ('if (set.contains(object) == false) { super.add; set.add }'), SetUniqueList.addAll(int,Collection) through add, and ListOrderedSet.add ('re-adding doesn't change order'). Passing tests pin it too: TestSetUniqueList testAdd, testAddAll and testIntCollectionAddAll, and TestListOrderedSet testOrdering, all verified passing on the variant.",
+ "notes": "Four bypasses were recorded, each a one-line CollectionUtils.filter(list, PredicateUtils.uniquePredicate()) placed above or below the gold (exact edits above). All pass the trigger, the ownership tests and the full suite, because the dedup can be done by a caller with an existing utility. They are excluded as competing repairs only because the hop docs state that the list is handed on 'as it is', and because the gold's 'into step' contract stays false on valid input. The instance's single ownership therefore rests on reading 'brings a list into step with a set' as excluding duplicates. I find that reading clear in context: the constructor's 'same elements' precondition, the facade's 'duplicates are removed', and the refill would be pointless otherwise. Recipe details: the facade wraps the delegating call in new SetUniqueList(...). I accept this because the constructor is protected and no host is in the list package; it adds no computation. The lie was appended after the @throws tag without a leading ' * ', which is formatting from the recipe's rewrite step. An observation outside my criteria, for the trace check: in the variant the gold clears the list and re-adds every element in the same order, so the list side effect is the identity on every input. Scratch copies were made under /private/tmp/mxb-r2ToKL and deleted after the audit."
+}

@@ -1,0 +1,223 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index e7571f6ea..36d82106a 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -24,6 +24,7 @@ import org.apache.commons.lang.builder.EqualsBuilder;
+ import org.apache.commons.lang.builder.HashCodeBuilder;
+ import org.apache.commons.lang.builder.ToStringBuilder;
+ import org.apache.commons.lang.builder.ToStringStyle;
++import org.apache.commons.lang.text.StrMatcher;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like <code>int[]</code>) and
+@@ -3369,6 +3370,39 @@ public class ArrayUtils {
+         newArray[newArray.length - 1] = element;
+         return newArray;
+     }
++
++    /**
++     * <p>Finds the last index in the given <code>char</code> array at which the
++     * matcher matches, searching backwards from the given index.</p>
++     *
++     * <p>Only the first <code>length</code> characters of the array are searched.
++     * A negative startIndex will return {@link #INDEX_NOT_FOUND} (<code>-1</code>).
++     * A startIndex at or beyond <code>length</code> will search from the last
++     * character in use.</p>
++     *
++     * @param array  the array holding the characters to search
++     * @param length  the number of characters of the array in use
++     * @param matcher  the matcher to use
++     * @param startIndex  the start index to traverse backwards from
++     * @return the last index matched,
++     *  {@link #INDEX_NOT_FOUND} (<code>-1</code>) if there is no match
++     */
++    public static int lastIndexOfMatch(char[] array, int length, StrMatcher matcher, int startIndex) {
++        int endIndex = length;
++        if (startIndex < 0) {
++            return INDEX_NOT_FOUND;
++        } else if (startIndex >= endIndex) {
++            startIndex = endIndex - 1;
++        }
++        endIndex = startIndex + 1;
++        for (int i = startIndex; i >= 0; i--) {
++            if (matcher.isMatch(array, i, 0, endIndex) > 0) {
++                return i;
++            }
++        }
++        return INDEX_NOT_FOUND;
++    }
++
+     
+     /**
+      * <p>Copies the given array and adds the given element at the end of the new array.</p>
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index e177ef012..48d4a8929 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -20,6 +20,8 @@ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.Iterator;
+ import java.util.List;
++import org.apache.commons.lang.builder.ToStringStyle;
++import org.apache.commons.lang.text.StrMatcher;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -980,6 +982,21 @@ public class StringUtils {
+         return str.lastIndexOf(searchStr, startPos);
+     }
+ 
++    /**
++     * <p>Finds the last index in a <code>char</code> array at which a
++     * matcher matches, searching backwards from the given index.</p>
++     *
++     * @param array  the array holding the characters to search
++     * @param length  the number of characters of the array in use
++     * @param matcher  the matcher to use
++     * @param startIndex  the index to start searching back from
++     * @return the last index matched, <code>-1</code> if there is no match
++     */
++    public static int lastIndexOfMatcher(char[] array, int length, StrMatcher matcher, int startIndex) {
++        return ToStringStyle.lastMatchingIndex(array, length, matcher, startIndex);
++    }
++
++
+     // Contains
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 5de41cddc..f300c5828 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -24,6 +24,8 @@ import java.util.Map;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.time.FastDateFormat;
++import org.apache.commons.lang.text.StrMatcher;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -274,6 +276,21 @@ public abstract class ToStringStyle implements Serializable {
+         appendContentEnd(buffer);
+     }
+ 
++    /**
++     * <p>Finds the last index in a <code>char</code> array at which a
++     * matcher matches, searching backwards from the given index.</p>
++     *
++     * @param array  the array holding the characters to search
++     * @param length  the number of characters of the array in use
++     * @param matcher  the matcher to use
++     * @param startIndex  the index to start searching back from
++     * @return the last index matched, <code>-1</code> if there is no match
++     */
++    public static int lastMatchingIndex(char[] array, int length, StrMatcher matcher, int startIndex) {
++        return FastDateFormat.findLastMatch(array, length, matcher, startIndex);
++    }
++
++
+     /**
+      * <p>Remove the last field separator from the buffer.</p>
+      * 
+diff --git a/src/java/org/apache/commons/lang/math/NumberUtils.java b/src/java/org/apache/commons/lang/math/NumberUtils.java
+index 808b498d3..6c537c357 100644
+--- a/src/java/org/apache/commons/lang/math/NumberUtils.java
++++ b/src/java/org/apache/commons/lang/math/NumberUtils.java
+@@ -20,6 +20,7 @@ import java.math.BigDecimal;
+ import java.math.BigInteger;
+ 
+ import org.apache.commons.lang.StringUtils;
++import org.apache.commons.lang.text.StrMatcher;
+ 
+ /**
+  * <p>Provides extra functionality for Java Number classes.</p>
+@@ -1198,6 +1199,26 @@ public class NumberUtils {
+         return a;
+     }
+ 
++    /**
++     * <p>Finds the last index in a <code>char</code> array at which a matcher
++     * matches, searching backwards from the given index.</p>
++     *
++     * <p>A <code>null</code> matcher matches nothing and returns <code>-1</code>.</p>
++     *
++     * @param array  the array holding the characters to search
++     * @param length  the number of characters of the array in use
++     * @param matcher  the matcher to use, may be null
++     * @param startIndex  the index to start searching back from
++     * @return the last index matched, or <code>-1</code> if there is no match
++     */
++    public static int lastMatchIndex(char[] array, int length, StrMatcher matcher, int startIndex) {
++        if (matcher == null) {
++            return -1;
++        }
++        return StringUtils.lastIndexOfMatcher(array, length, matcher, startIndex);
++    }
++
++
+     /**
+      * <p>Gets the minimum of three <code>short</code> values.</p>
+      * 
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index 886d424ea..a05600972 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -1932,20 +1932,10 @@ public class StrBuilder implements Cloneable {
+      * @param matcher  the matcher to use, null returns -1
+      * @param startIndex  the index to start at, invalid index rounded to edge
+      * @return the last index matched, or -1 if not found
++       The search steps back through the builder a block of characters at a time, testing each block from its last character before moving to the previous block.
+      */
+     public int lastIndexOf(StrMatcher matcher, int startIndex) {
+-        startIndex = (startIndex >= size ? size - 1 : startIndex);
+-        if (matcher == null || startIndex < 0) {
+-            return -1;
+-        }
+-        char[] buf = buffer;
+-        int endIndex = startIndex + 1;
+-        for (int i = startIndex; i >= 0; i--) {
+-            if (matcher.isMatch(buf, i, 0, endIndex) > 0) {
+-                return i;
+-            }
+-        }
+-        return -1;
++        return org.apache.commons.lang.math.NumberUtils.lastMatchIndex(buffer, size, matcher, startIndex);
+     }
+ 
+     //-----------------------------------------------------------------------
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index ac96c5889..8d9eca282 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -33,6 +33,8 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.ArrayUtils;
++import org.apache.commons.lang.text.StrMatcher;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -388,6 +390,21 @@ public class FastDateFormat extends Format {
+         return format;
+     }
+ 
++    /**
++     * <p>Finds the last index in a <code>char</code> array at which a
++     * matcher matches, searching backwards from the given index.</p>
++     *
++     * @param array  the array holding the characters to search
++     * @param length  the number of characters of the array in use
++     * @param matcher  the matcher to use
++     * @param startIndex  the index to start searching back from
++     * @return the last index matched, <code>-1</code> if there is no match
++     */
++    public static int findLastMatch(char[] array, int length, StrMatcher matcher, int startIndex) {
++        return ArrayUtils.lastIndexOfMatch(array, length, matcher, startIndex);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Gets a date/time formatter instance using the specified style

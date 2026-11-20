@@ -1,0 +1,171 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 87fd9aaf..4fb33dc3 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -19,6 +19,7 @@ import java.util.regex.Pattern;
+ import java.util.zip.GZIPInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -239,6 +240,19 @@ public class HttpConnection implements Connection {
+         return this;
+     }
+ 
++    /**
++     * Get the unescaped form of a backslash escaped value, accumulated in a builder sized to the value.
++     *
++     * @param value backslash escaped value
++     * @return the unescaped value
++     */
++    public static String unescapedValue(String value) {
++        final StringBuilder accum = new StringBuilder(value.length());
++        Evaluator.IsFirstChild.appendUnescapedText(accum, value);
++        return accum.toString();
++    }
++
++
+     public Connection parser(Parser parser) {
+         req.parser(parser);
+         return this;
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index caf11107..e743377c 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -24,6 +24,7 @@ import java.util.Map;
+ import java.util.Set;
+ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -417,6 +418,19 @@ public class Element extends Node {
+         prependChild(node);
+         return this;
+     }
++
++    /**
++     * Get the unescaped form of a backslash escaped text. A text that holds no backslash is returned as is.
++     *
++     * @param text backslash escaped text
++     * @return the unescaped text
++     */
++    public static String unescapedText(String text) {
++        if (text.indexOf('\\') == -1)
++            return text;
++        return HttpConnection.unescapedValue(text);
++    }
++
+     
+     /**
+      * Add inner HTML to this element. The supplied HTML will be parsed, and each node appended to the end of the children.
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index ed191565..cc7f93fe 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -91,6 +91,23 @@ public abstract class Node implements Cloneable {
+         return attributes;
+     }
+ 
++    /**
++     * Append the unescaped form of a backslash escaped text.
++     *
++     * @param accum builder to append to
++     * @param text backslash escaped text
++     */
++    public static void appendUnescaped(StringBuilder accum, String text) {
++        int start = 0;
++        for (int esc = text.indexOf('\\'); esc != -1; esc = text.indexOf('\\', esc + 1)) {
++            if (esc > 0 && text.charAt(esc - 1) == '\\') continue;
++            accum.append(text, start, esc);
++            start = esc + 1;
++        }
++        accum.append(text, start, text.length());
++    }
++
++
+     /**
+      * Set an attribute (key=value). If the attribute already exists, it is replaced.
+      * @param attributeKey The attribute key.
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index 2078a9b9..cecd6be7 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -372,6 +372,17 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         stack.add(i+1, in);
+     }
+ 
++    /**
++     * Append the unescaped form of a backslash escaped text.
++     *
++     * @param accum builder to append to
++     * @param text backslash escaped text
++     */
++    public static void appendUnescapedChars(StringBuilder accum, String text) {
++        Node.appendUnescaped(accum, text);
++    }
++
++
+     void replaceOnStack(Element out, Element in) {
+         replaceInQueue(stack, out, in);
+     }
+diff --git a/src/main/java/org/jsoup/parser/TokenQueue.java b/src/main/java/org/jsoup/parser/TokenQueue.java
+index ffcb4a42..23861aca 100644
+--- a/src/main/java/org/jsoup/parser/TokenQueue.java
++++ b/src/main/java/org/jsoup/parser/TokenQueue.java
+@@ -296,20 +296,10 @@ public class TokenQueue {
+      * Unescaped a \ escaped string.
+      * @param in backslash escaped string
+      * @return unescaped string
++       The characters are read from the end of the string towards its start and pushed onto a stack, which is then emptied into the result.
+      */
+     public static String unescape(String in) {
+-        StringBuilder out = new StringBuilder();
+-        char last = 0;
+-        for (char c : in.toCharArray()) {
+-            if (c == ESC) {
+-                if (last != 0 && last == ESC)
+-                    out.append(c);
+-            }
+-            else 
+-                out.append(c);
+-            last = c;
+-        }
+-        return out.toString();
++        return org.jsoup.nodes.Element.unescapedText(in);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index d363f162..c303f435 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -11,6 +11,7 @@ import org.jsoup.nodes.XmlDeclaration;
+ import java.util.List;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -563,6 +564,17 @@ public abstract class Evaluator {
+     	public String toString() {
+     		return ":first-child";
+     	}
++
++    /**
++     * Append the unescaped form of a backslash escaped text.
++     *
++     * @param accum builder to append to
++     * @param text backslash escaped text
++     */
++    public static void appendUnescapedText(StringBuilder accum, String text) {
++        HtmlTreeBuilder.appendUnescapedChars(accum, text);
++    }
++
+     }
+     
+     /**

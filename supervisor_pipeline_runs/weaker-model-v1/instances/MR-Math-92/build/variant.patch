@@ -1,0 +1,150 @@
+diff --git a/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java b/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
+index 564cfc19e..eddfbe0dd 100644
+--- a/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
++++ b/src/java/org/apache/commons/math/linear/AbstractRealMatrix.java
+@@ -358,6 +358,21 @@ public abstract class AbstractRealMatrix implements RealMatrix, Serializable {
+ 
+     }
+ 
++    /**
++     * Multiply a number by a power of two.
++     * @param d base number
++     * @param exponentIncrement power of two by which d is multiplied, as an
++     * increment of the exponent bits (the scale factor times 2<sup>52</sup>)
++     * @return d multiplied by the power of two
++     */
++    public static double multiplyByPowerOfTwo(final double d, final long exponentIncrement) {
++        final long bits = Double.doubleToLongBits(d);
++        final long exponent = bits & 0x7ff0000000000000L;
++        final long rest = bits & 0x800fffffffffffffL;
++        return Double.longBitsToDouble(rest | (exponent + exponentIncrement));
++    }
++
++
+     /** {@inheritDoc} */
+     public void copySubMatrix(int[] selectedRows, int[] selectedColumns, double[][] destination)
+         throws MatrixIndexException, IllegalArgumentException {
+diff --git a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index f8f5fdfea..117048890 100644
+--- a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -1325,6 +1325,17 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+         }
+         return true;
+     }
++
++    /**
++     * Scale a value by 2<sup>scaleFactor</sup>.
++     * @param d value to scale
++     * @param scaleFactor power of two by which d is multiplied
++     * @return d &times; 2<sup>scaleFactor</sup>
++     */
++    public static double exponentScaledValue(final double d, final int scaleFactor) {
++        return RealVectorImpl.scaledComponent(d, scaleFactor);
++    }
++
+     
+     /**
+      * Computes a hashcode for the matrix.
+diff --git a/src/java/org/apache/commons/math/linear/DenseRealMatrix.java b/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
+index d8d0e43ed..02c41940b 100644
+--- a/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
++++ b/src/java/org/apache/commons/math/linear/DenseRealMatrix.java
+@@ -1600,6 +1600,17 @@ public class DenseRealMatrix extends AbstractRealMatrix implements Serializable
+         return visitor.end();
+     }
+ 
++    /**
++     * Scale an entry by 2<sup>scaleFactor</sup>.
++     * @param d entry to scale
++     * @param scaleFactor power of two by which d is multiplied
++     * @return d &times; 2<sup>scaleFactor</sup>
++     */
++    public static double binaryScaledEntry(final double d, final int scaleFactor) {
++        return BigMatrixImpl.exponentScaledValue(d, scaleFactor);
++    }
++
++
+     /**
+      * Get the height of a block.
+      * @param blockRow row index (in block sense) of the block
+diff --git a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+index 37498b09c..84387cccb 100644
+--- a/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
++++ b/src/java/org/apache/commons/math/linear/EigenDecompositionImpl.java
+@@ -366,6 +366,17 @@ public class EigenDecompositionImpl implements EigenDecomposition {
+         return new Solver(realEigenvalues, imagEigenvalues, eigenvectors);
+     }
+ 
++    /**
++     * Scale a number by 2<sup>scaleFactor</sup>.
++     * @param d base number
++     * @param scaleFactor power of two by which d is multiplied
++     * @return d &times; 2<sup>scaleFactor</sup>
++     */
++    public static double scaledByPowerOfTwo(final double d, final int scaleFactor) {
++        return DenseRealMatrix.binaryScaledEntry(d, scaleFactor);
++    }
++
++
+     /** Specialized solver. */
+     private static class Solver implements DecompositionSolver {
+ 
+diff --git a/src/java/org/apache/commons/math/linear/RealVectorImpl.java b/src/java/org/apache/commons/math/linear/RealVectorImpl.java
+index 640be4549..583230522 100644
+--- a/src/java/org/apache/commons/math/linear/RealVectorImpl.java
++++ b/src/java/org/apache/commons/math/linear/RealVectorImpl.java
+@@ -410,6 +410,23 @@ public class RealVectorImpl implements RealVector, Serializable {
+         return new RealVectorImpl(out);
+     }
+ 
++    /**
++     * Scale a vector component by 2<sup>scaleFactor</sup>.
++     * <p>A zero scale factor leaves the component unchanged; any other scale
++     * factor is converted into the matching increment of the exponent bits,
++     * scaleFactor &times; 2<sup>52</sup>.</p>
++     * @param d component to scale
++     * @param scaleFactor power of two by which d is multiplied
++     * @return d &times; 2<sup>scaleFactor</sup>
++     */
++    public static double scaledComponent(final double d, final int scaleFactor) {
++        if (scaleFactor == 0) {
++            return d;
++        }
++        return AbstractRealMatrix.multiplyByPowerOfTwo(d, ((long) scaleFactor) << 52);
++    }
++
++
+     /** {@inheritDoc} */
+     public RealVector mapExpm1ToSelf() {
+         for (int i = 0; i < data.length; i++) {
+diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java
+index 03c92eb20..71d981a98 100644
+--- a/src/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/java/org/apache/commons/math/util/MathUtils.java
+@@ -813,23 +813,10 @@ public final class MathUtils {
+      * @param scaleFactor power of two by which d sould be multiplied
+      * @return d &times; 2<sup>scaleFactor</sup>
+      * @since 2.0
++       The factor 2<sup>scaleFactor</sup> is first evaluated with {@link Math#pow(double, double)}, and d is then multiplied by this factor.
+      */
+     public static double scalb(final double d, final int scaleFactor) {
+-
+-        // handling of some important special cases
+-        if ((d == 0) || Double.isNaN(d) || Double.isInfinite(d)) {
+-            return d;
+-        }
+-
+-        // split the double in raw components
+-        final long bits     = Double.doubleToLongBits(d);
+-        final long exponent = bits & 0x7ff0000000000000L;
+-        final long rest     = bits & 0x800fffffffffffffL;
+-
+-        // shift the exponent
+-        final long newBits = rest | (exponent + (((long) scaleFactor) << 52));
+-        return Double.longBitsToDouble(newBits);
+-
++        return org.apache.commons.math.linear.EigenDecompositionImpl.scaledByPowerOfTwo(d, scaleFactor);
+     }
+ 
+     /**

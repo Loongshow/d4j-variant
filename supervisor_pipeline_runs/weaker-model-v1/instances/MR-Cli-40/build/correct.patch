@@ -1,0 +1,218 @@
+diff --git a/src/main/java/org/apache/commons/cli/CommandLine.java b/src/main/java/org/apache/commons/cli/CommandLine.java
+index 76837c3..d36d745 100644
+--- a/src/main/java/org/apache/commons/cli/CommandLine.java
++++ b/src/main/java/org/apache/commons/cli/CommandLine.java
+@@ -160,6 +160,19 @@ public class CommandLine implements Serializable
+         return getParsedOptionValue(String.valueOf(opt));
+     }
+ 
++    /**
++     * Returns an option value parsed into the given type.
++     *
++     * @param str the command line value
++     * @param clazz the type of argument
++     * @return the value of <code>str</code> converted to <code>clazz</code>
++     */
++    public static Object parsedValue(final String str, final Class<?> clazz) throws ParseException
++    {
++        return Parser.convertValue(str, clazz);
++    }
++
++
+     /**
+      * Return the <code>Object</code> type of this <code>Option</code>.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/DefaultParser.java b/src/main/java/org/apache/commons/cli/DefaultParser.java
+index cab80eb..15ee01e 100644
+--- a/src/main/java/org/apache/commons/cli/DefaultParser.java
++++ b/src/main/java/org/apache/commons/cli/DefaultParser.java
+@@ -106,6 +106,19 @@ public class DefaultParser implements CommandLineParser
+         return parse(options, arguments, null);
+     }
+ 
++    /**
++     * Returns the value of an option argument converted to the given type.
++     *
++     * @param str the command line value
++     * @param clazz the type of argument
++     * @return the value of <code>str</code> converted to <code>clazz</code>
++     */
++    public static Object argumentValue(final String str, final Class<?> clazz) throws ParseException
++    {
++        return CommandLine.parsedValue(str, clazz);
++    }
++
++
+     /**
+      * Parse the arguments according to the specified options and properties.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/HelpFormatter.java b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+index b751b69..f211247 100644
+--- a/src/main/java/org/apache/commons/cli/HelpFormatter.java
++++ b/src/main/java/org/apache/commons/cli/HelpFormatter.java
+@@ -325,6 +325,19 @@ public class HelpFormatter
+         return defaultLongOptPrefix;
+     }
+ 
++    /**
++     * Returns the value of an argument converted to the given type.
++     *
++     * @param str the command line value
++     * @param clazz the type of argument
++     * @return the value of <code>str</code> converted to <code>clazz</code>
++     */
++    public static Object argValueOf(final String str, final Class<?> clazz) throws ParseException
++    {
++        return Option.valueOfType(str, clazz);
++    }
++
++
+     /**
+      * Set the separator displayed between a long option and its value.
+      * Ensure that the separator specified is supported by the parser used,
+diff --git a/src/main/java/org/apache/commons/cli/Option.java b/src/main/java/org/apache/commons/cli/Option.java
+index f941788..0dc7178 100644
+--- a/src/main/java/org/apache/commons/cli/Option.java
++++ b/src/main/java/org/apache/commons/cli/Option.java
+@@ -539,6 +539,19 @@ public class Option implements Cloneable, Serializable
+         return hasNoValues() ? null : values.get(index);
+     }
+ 
++    /**
++     * Returns an option value converted to the given type.
++     *
++     * @param str the command line value
++     * @param clazz the type of argument
++     * @return the value of <code>str</code> converted to <code>clazz</code>
++     */
++    public static Object valueOfType(final String str, final Class<?> clazz) throws ParseException
++    {
++        return DefaultParser.argumentValue(str, clazz);
++    }
++
++
+     /**
+      * Returns the value/first value of this Option or the 
+      * <code>defaultValue</code> if there is no value.
+diff --git a/src/main/java/org/apache/commons/cli/Parser.java b/src/main/java/org/apache/commons/cli/Parser.java
+index 9fd90a9..d3e09ce 100644
+--- a/src/main/java/org/apache/commons/cli/Parser.java
++++ b/src/main/java/org/apache/commons/cli/Parser.java
+@@ -87,6 +87,60 @@ public abstract class Parser implements CommandLineParser
+         return parse(options, arguments, null, false);
+     }
+ 
++    /**
++     * Converts a command line value to the given type.
++     *
++     * @param str the command line value
++     * @param clazz the type of argument
++     * @return the value of <code>str</code> converted to <code>clazz</code>
++     */
++    public static Object convertValue(final String str, final Class<?> clazz) throws ParseException
++    {
++        Object value = null;
++        if (PatternOptionBuilder.STRING_VALUE == clazz)
++        {
++            value = str;
++        }
++        else if (PatternOptionBuilder.OBJECT_VALUE == clazz)
++        {
++            value = TypeHandler.createObject(str);
++        }
++        else if (PatternOptionBuilder.NUMBER_VALUE == clazz)
++        {
++            value = TypeHandler.createNumber(str);
++        }
++        else if (PatternOptionBuilder.DATE_VALUE == clazz)
++        {
++            value = TypeHandler.createDate(str);
++        }
++        else if (PatternOptionBuilder.CLASS_VALUE == clazz)
++        {
++            value = TypeHandler.createClass(str);
++        }
++        else if (PatternOptionBuilder.FILE_VALUE == clazz)
++        {
++            value = TypeHandler.createFile(str);
++        }
++        else if (PatternOptionBuilder.EXISTING_FILE_VALUE == clazz)
++        {
++            value = TypeHandler.openFile(str);
++        }
++        else if (PatternOptionBuilder.FILES_VALUE == clazz)
++        {
++            value = TypeHandler.createFiles(str);
++        }
++        else if (PatternOptionBuilder.URL_VALUE == clazz)
++        {
++            value = TypeHandler.createURL(str);
++        }
++        else
++        {
++            throw new ParseException("Unable to handle the class: " + clazz);
++        }
++        return value;
++    }
++
++
+     /**
+      * Parse the arguments according to the specified options and properties.
+      *
+diff --git a/src/main/java/org/apache/commons/cli/TypeHandler.java b/src/main/java/org/apache/commons/cli/TypeHandler.java
+index 9ed8beb..4822520 100644
+--- a/src/main/java/org/apache/commons/cli/TypeHandler.java
++++ b/src/main/java/org/apache/commons/cli/TypeHandler.java
+@@ -58,50 +58,11 @@ public class TypeHandler
+      * @return The instance of <code>clazz</code> initialised with
+      * the value of <code>str</code>.
+      * @throws ParseException if the value creation for the given class failed
++       The converter is chosen by looking up the name of the class in a table of converters that is built once, when TypeHandler is first loaded.
+      */
+-    @SuppressWarnings("unchecked") // returned value will have type T because it is fixed by clazz
+     public static <T> T createValue(final String str, final Class<T> clazz) throws ParseException
+     {
+-        if (PatternOptionBuilder.STRING_VALUE == clazz)
+-        {
+-            return (T) str;
+-        }
+-        else if (PatternOptionBuilder.OBJECT_VALUE == clazz)
+-        {
+-            return (T) createObject(str);
+-        }
+-        else if (PatternOptionBuilder.NUMBER_VALUE == clazz)
+-        {
+-            return (T) createNumber(str);
+-        }
+-        else if (PatternOptionBuilder.DATE_VALUE == clazz)
+-        {
+-            return (T) createDate(str);
+-        }
+-        else if (PatternOptionBuilder.CLASS_VALUE == clazz)
+-        {
+-            return (T) createClass(str);
+-        }
+-        else if (PatternOptionBuilder.FILE_VALUE == clazz)
+-        {
+-            return (T) createFile(str);
+-        }
+-        else if (PatternOptionBuilder.EXISTING_FILE_VALUE == clazz)
+-        {
+-            return (T) openFile(str);
+-        }
+-        else if (PatternOptionBuilder.FILES_VALUE == clazz)
+-        {
+-            return (T) createFiles(str);
+-        }
+-        else if (PatternOptionBuilder.URL_VALUE == clazz)
+-        {
+-            return (T) createURL(str);
+-        }
+-        else
+-        {
+-            throw new ParseException("Unable to handle the class: " + clazz);
+-        }
++        return (T) HelpFormatter.argValueOf(str, clazz);
+     }
+ 
+     /**

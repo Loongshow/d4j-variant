@@ -1,0 +1,268 @@
+diff --git a/src/java/org/apache/commons/math/fraction/ProperFractionFormat.java b/src/java/org/apache/commons/math/fraction/ProperFractionFormat.java
+index a98b6657c..239e87c8e 100644
+--- a/src/java/org/apache/commons/math/fraction/ProperFractionFormat.java
++++ b/src/java/org/apache/commons/math/fraction/ProperFractionFormat.java
+@@ -82,29 +82,11 @@ public class ProperFractionFormat extends FractionFormat {
+      * @param pos On input: an alignment field, if desired. On output: the
+      *            offsets of the alignment field
+      * @return the value passed in as toAppendTo.
++       The whole number is found by repeatedly subtracting the denominator from the numerator, and the count of subtractions is written before what is left.
+      */
+     public StringBuffer format(Fraction fraction, StringBuffer toAppendTo,
+             FieldPosition pos) {
+-        
+-        pos.setBeginIndex(0);
+-        pos.setEndIndex(0);
+-
+-        int num = fraction.getNumerator();
+-        int den = fraction.getDenominator();
+-        int whole = num / den;
+-        num = num % den;
+-        
+-        if (whole != 0) {
+-            getWholeFormat().format(whole, toAppendTo, pos);
+-            toAppendTo.append(' ');
+-            num = Math.abs(num);
+-        }
+-        getNumeratorFormat().format(num, toAppendTo, pos);
+-        toAppendTo.append(" / ");
+-        getDenominatorFormat().format(den, toAppendTo,
+-            pos);
+-        
+-        return toAppendTo;
++        return org.apache.commons.math.linear.BigMatrixImpl.formatMixedNumber(fraction, getWholeFormat(), getNumeratorFormat(), getDenominatorFormat(), toAppendTo, pos);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index 451dc3a08..bf0b4b827 100644
+--- a/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -17,6 +17,10 @@
+ package org.apache.commons.math.linear;
+ import java.io.Serializable;
+ import java.math.BigDecimal;
++import java.text.FieldPosition;
++import java.text.NumberFormat;
++import org.apache.commons.math.fraction.Fraction;
++import org.apache.commons.math.stat.inference.TTestImpl;
+ 
+ /**
+  * Implementation of {@link BigMatrix} using a BigDecimal[][] array to store entries
+@@ -700,6 +704,33 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+         }
+         return data[row][column];
+     }
++
++    /**
++     * Formats a fraction in proper form, appending the text to the given
++     * buffer.
++     * <p>
++     * The alignment field is reset to the start of the text, and the numerator
++     * and the denominator of the fraction are handed on to be written.  Each
++     * number in the result is written by its own format.
++     *
++     * @param fraction  the fraction to format
++     * @param wholeFormat  the format for the whole part
++     * @param numeratorFormat  the format for the numerator
++     * @param denominatorFormat  the format for the denominator
++     * @param toAppendTo  where the text is to be appended
++     * @param pos  On input: an alignment field, if desired. On output: the
++     *             offsets of the alignment field
++     * @return the value passed in as toAppendTo
++     */
++    public static StringBuffer formatMixedNumber(Fraction fraction,
++            NumberFormat wholeFormat, NumberFormat numeratorFormat,
++            NumberFormat denominatorFormat, StringBuffer toAppendTo,
++            FieldPosition pos) {
++        pos.setBeginIndex(0);
++        pos.setEndIndex(0);
++        return TTestImpl.appendMixedNumber(fraction.getNumerator(), fraction.getDenominator(), wholeFormat, numeratorFormat, denominatorFormat, toAppendTo, pos);
++    }
++
+     
+     /**
+      * Returns the entry in the specified row and column as a double.
+diff --git a/src/java/org/apache/commons/math/linear/RealMatrixImpl.java b/src/java/org/apache/commons/math/linear/RealMatrixImpl.java
+index b31ac6669..d5eba3e4e 100644
+--- a/src/java/org/apache/commons/math/linear/RealMatrixImpl.java
++++ b/src/java/org/apache/commons/math/linear/RealMatrixImpl.java
+@@ -18,6 +18,8 @@ package org.apache.commons.math.linear;
+ 
+ import java.io.Serializable;
+ import org.apache.commons.math.util.MathUtils;
++import java.text.FieldPosition;
++import java.text.NumberFormat;
+ 
+ 
+ /**
+@@ -921,6 +923,27 @@ public class RealMatrixImpl implements RealMatrix, Serializable {
+         return ret;
+     }
+ 
++    /**
++     * Writes a fraction, given by its numerator and denominator, to a buffer
++     * in proper form.  Each number in the result is written by its own format.
++     *
++     * @param numerator the numerator of the fraction
++     * @param denominator the denominator of the fraction
++     * @param wholeFormat the format for the whole part
++     * @param numeratorFormat the format for the numerator
++     * @param denominatorFormat the format for the denominator
++     * @param toAppendTo where the text is to be appended
++     * @param pos the alignment field
++     * @return the value passed in as toAppendTo
++     */
++    public static StringBuffer writeMixedNumber(int numerator, int denominator,
++            NumberFormat wholeFormat, NumberFormat numeratorFormat,
++            NumberFormat denominatorFormat, StringBuffer toAppendTo,
++            FieldPosition pos) {
++        return MathUtils.formatMixed(numerator, denominator, wholeFormat, numeratorFormat, denominatorFormat, toAppendTo, pos);
++    }
++
++
+     //------------------------ Protected methods
+ 
+     /**
+diff --git a/src/java/org/apache/commons/math/stat/inference/TTestImpl.java b/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
+index 4eb8b8a95..5ca95288d 100644
+--- a/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
++++ b/src/java/org/apache/commons/math/stat/inference/TTestImpl.java
+@@ -20,6 +20,9 @@ import org.apache.commons.math.distribution.DistributionFactory;
+ import org.apache.commons.math.distribution.TDistribution;
+ import org.apache.commons.math.stat.StatUtils;
+ import org.apache.commons.math.stat.descriptive.StatisticalSummary;
++import java.text.FieldPosition;
++import java.text.NumberFormat;
++import org.apache.commons.math.linear.RealMatrixImpl;
+ 
+ /**
+  * Implements t-test statistics defined in the {@link TTest} interface.
+@@ -154,6 +157,28 @@ public class TTestImpl implements TTest  {
+         return (pairedTTest(sample1, sample2) < alpha);
+     }
+ 
++    /**
++     * Appends a fraction, given by its numerator and denominator, to a buffer
++     * in proper form.  Each number in the result is written by its own format.
++     *
++     * @param numerator the numerator of the fraction
++     * @param denominator the denominator of the fraction
++     * @param wholeFormat the format for the whole part
++     * @param numeratorFormat the format for the numerator
++     * @param denominatorFormat the format for the denominator
++     * @param toAppendTo where the text is to be appended
++     * @param pos on input: an alignment field, if desired; on output: the
++     * offsets of the alignment field
++     * @return the value passed in as toAppendTo
++     */
++    public static StringBuffer appendMixedNumber(int numerator, int denominator,
++        NumberFormat wholeFormat, NumberFormat numeratorFormat,
++        NumberFormat denominatorFormat, StringBuffer toAppendTo,
++        FieldPosition pos) {
++        return RealMatrixImpl.writeMixedNumber(numerator, denominator, wholeFormat, numeratorFormat, denominatorFormat, toAppendTo, pos);
++    }
++
++
+     /**
+      * Computes a <a href="http://www.itl.nist.gov/div898/handbook/prc/section2/prc22.htm#formula"> 
+      * t statistic </a> given observed values and a comparison constant.
+diff --git a/src/java/org/apache/commons/math/util/MathUtils.java b/src/java/org/apache/commons/math/util/MathUtils.java
+index 9bfb7bc5b..f50a7cc40 100644
+--- a/src/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/java/org/apache/commons/math/util/MathUtils.java
+@@ -17,6 +17,8 @@
+ package org.apache.commons.math.util;
+ 
+ import java.math.BigDecimal;
++import java.text.FieldPosition;
++import java.text.NumberFormat;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -202,6 +204,28 @@ public final class MathUtils {
+         return (Math.exp(x) + Math.exp(-x)) / 2.0;
+     }
+ 
++    /**
++     * Formats a fraction, given by its numerator and denominator, in proper
++     * form, appending the text to a buffer.  Each number in the result is
++     * written by its own format.
++     *
++     * @param numerator the numerator of the fraction
++     * @param denominator the denominator of the fraction
++     * @param wholeFormat the format for the whole part
++     * @param numeratorFormat the format for the numerator
++     * @param denominatorFormat the format for the denominator
++     * @param toAppendTo where the text is to be appended
++     * @param pos the alignment field
++     * @return the value passed in as toAppendTo
++     */
++    public static StringBuffer formatMixed(int numerator, int denominator,
++            NumberFormat wholeFormat, NumberFormat numeratorFormat,
++            NumberFormat denominatorFormat, StringBuffer toAppendTo,
++            FieldPosition pos) {
++        return ResizableDoubleArray.appendMixedForm(numerator, denominator, wholeFormat, numeratorFormat, denominatorFormat, toAppendTo, pos);
++    }
++
++
+     /**
+      * Returns true iff both arguments are NaN or neither is NaN and they are
+      * equal
+diff --git a/src/java/org/apache/commons/math/util/ResizableDoubleArray.java b/src/java/org/apache/commons/math/util/ResizableDoubleArray.java
+index 97da2f139..553991ab2 100644
+--- a/src/java/org/apache/commons/math/util/ResizableDoubleArray.java
++++ b/src/java/org/apache/commons/math/util/ResizableDoubleArray.java
+@@ -16,6 +16,8 @@
+ package org.apache.commons.math.util;
+ 
+ import java.io.Serializable;
++import java.text.FieldPosition;
++import java.text.NumberFormat;
+ 
+ /**
+  * <p>
+@@ -185,6 +187,43 @@ public class ResizableDoubleArray implements DoubleArray, Serializable {
+         setContractionCriteria(expansionFactor +0.5f);
+     }
+ 
++    /**
++     * Appends a fraction, given by its numerator and denominator, to a buffer
++     * in proper form: the whole part, a space, and the remainder over the
++     * denominator.  A whole part of zero is left out.
++     * <p>
++     * The whole part, the remainder and the denominator are written with the
++     * whole, numerator and denominator formats respectively, and the remainder
++     * and the denominator are separated by <code>" / "</code>.
++     *
++     * @param numerator the numerator of the fraction
++     * @param denominator the denominator of the fraction
++     * @param wholeFormat the format used for the whole part
++     * @param numeratorFormat the format used for the remainder
++     * @param denominatorFormat the format used for the denominator
++     * @param toAppendTo where the text is to be appended
++     * @param pos On input: an alignment field, if desired. On output: the
++     *            offsets of the alignment field
++     * @return the value passed in as toAppendTo
++     */
++    public static StringBuffer appendMixedForm(int numerator, int denominator,
++            NumberFormat wholeFormat, NumberFormat numeratorFormat,
++            NumberFormat denominatorFormat, StringBuffer toAppendTo,
++            FieldPosition pos) {
++        int whole = numerator / denominator;
++        int remainder = numerator % denominator;
++        if (whole != 0) {
++            wholeFormat.format(whole, toAppendTo, pos);
++            toAppendTo.append(' ');
++            remainder = Math.abs(remainder);
++        }
++        numeratorFormat.format(remainder, toAppendTo, pos);
++        toAppendTo.append(" / ");
++        denominatorFormat.format(denominator, toAppendTo, pos);
++        return toAppendTo;
++    }
++
++
+     /**
+      * <p>
+      * Create a ResizableArray with the specified initialCapacity, 

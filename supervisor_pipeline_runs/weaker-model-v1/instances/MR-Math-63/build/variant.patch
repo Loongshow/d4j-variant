@@ -1,0 +1,190 @@
+diff --git a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
+index da17c013b..9acb64c84 100644
+--- a/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
++++ b/src/main/java/org/apache/commons/math/linear/ArrayRealVector.java
+@@ -934,6 +934,27 @@ public class ArrayRealVector extends AbstractRealVector implements Serializable
+         return projection(new ArrayRealVector(v, false));
+     }
+ 
++    /**
++     * Multiply two long integers, checking for overflow.
++     *
++     * @param a first factor, not greater than b
++     * @param b second factor
++     * @return the product <code>a * b</code>
++     * @throws ArithmeticException if the result can not be represented as a
++     *         long
++     */
++    public static long entryProduct(final long a, final long b) {
++        if (a == 0 || b == 0) {
++            return 0L;
++        }
++        final long product = a * b;
++        if (product / b != a) {
++            throw new ArithmeticException("overflow: multiply");
++        }
++        return product;
++    }
++
++
+    /** Find the orthogonal projection of this vector onto another vector.
+      * @param v vector onto which instance must be projected
+      * @return projection of the instance onto v
+diff --git a/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java b/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
+index 6124d2a2f..b20c31e63 100644
+--- a/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
++++ b/src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java
+@@ -859,6 +859,20 @@ public class BigMatrixImpl implements BigMatrix, Serializable {
+         return out;
+     }
+ 
++    /**
++     * Multiply two long integers, checking for overflow.
++     *
++     * @param a first factor, not greater than b
++     * @param b second factor
++     * @return the product <code>a * b</code>
++     * @throws ArithmeticException if the result can not be represented as a
++     *         long
++     */
++    public static long longProduct(final long a, final long b) {
++        return BlockRealMatrix.productOf(a, b);
++    }
++
++
+      /**
+      * Returns the entry in the specified row and column.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 9806e2176..3df3d9e66 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -773,6 +773,21 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+ 
+     }
+ 
++    /**
++     * Multiply two long integers, checking for overflow.
++     * <p>The two factors are passed on with the smaller one first.</p>
++     *
++     * @param a first factor
++     * @param b second factor
++     * @return the product <code>a * b</code>
++     * @throws ArithmeticException if the result can not be represented as a
++     *         long
++     */
++    public static long exactProduct(final long a, final long b) {
++        return (a > b) ? FastMath.multiplyExact(b, a) : FastMath.multiplyExact(a, b);
++    }
++
++
+     /**
+      * Copy a part of a block into another one
+      * <p>This method can be called only when the specified part fits in both
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index 8513683ce..446603fd8 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -926,6 +926,20 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         }
+     }
+ 
++    /**
++     * Multiply two long integers, checking for overflow.
++     *
++     * @param a first factor, not greater than b
++     * @param b second factor
++     * @return the product <code>a * b</code>
++     * @throws ArithmeticException if the result can not be represented as a
++     *         long
++     */
++    public static long productOf(final long a, final long b) {
++        return ArrayRealVector.entryProduct(a, b);
++    }
++
++
+     /**
+      * Sets the entries in row number <code>row</code>
+      * as a row matrix.  Row indices start at 0.
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index 3d963e54e..a76fa7a75 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -1194,6 +1194,20 @@ public class FastMath {
+         return y;
+     }
+ 
++    /**
++     * Multiply two long integers, checking for overflow.
++     *
++     * @param a first factor, not greater than b
++     * @param b second factor
++     * @return the product <code>a * b</code>
++     * @throws ArithmeticException if the result can not be represented as a
++     *         long
++     */
++    public static long multiplyExact(final long a, final long b) {
++        return org.apache.commons.math.linear.BigMatrixImpl.longProduct(a, b);
++    }
++
++
+     /** Compute the base 10 logarithm.
+      * @param x a number
+      * @return log10(x)
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index ab0fe3358..752963de6 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -1043,50 +1043,10 @@ public final class MathUtils {
+      * @throws ArithmeticException if the result can not be represented as an
+      *         long
+      * @since 1.2
++       Each factor is split into its high and low 32-bit words, and the product is assembled from the four partial products, an overflow being reported as soon as a partial product carries past the 64th bit.
+      */
+     public static long mulAndCheck(long a, long b) {
+-        long ret;
+-        String msg = "overflow: multiply";
+-        if (a > b) {
+-            // use symmetry to reduce boundary cases
+-            ret = mulAndCheck(b, a);
+-        } else {
+-            if (a < 0) {
+-                if (b < 0) {
+-                    // check for positive overflow with negative a, negative b
+-                    if (a >= Long.MAX_VALUE / b) {
+-                        ret = a * b;
+-                    } else {
+-                        throw new ArithmeticException(msg);
+-                    }
+-                } else if (b > 0) {
+-                    // check for negative overflow with negative a, positive b
+-                    if (Long.MIN_VALUE / b <= a) {
+-                        ret = a * b;
+-                    } else {
+-                        throw new ArithmeticException(msg);
+-
+-                    }
+-                } else {
+-                    // assert b == 0
+-                    ret = 0;
+-                }
+-            } else if (a > 0) {
+-                // assert a > 0
+-                // assert b > 0
+-
+-                // check for positive overflow with positive a, positive b
+-                if (a <= Long.MAX_VALUE / b) {
+-                    ret = a * b;
+-                } else {
+-                    throw new ArithmeticException(msg);
+-                }
+-            } else {
+-                // assert a == 0
+-                ret = 0;
+-            }
+-        }
+-        return ret;
++        return org.apache.commons.math.linear.BlockFieldMatrix.exactProduct(a, b);
+     }
+ 
+     /**

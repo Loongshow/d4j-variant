@@ -1,0 +1,232 @@
+{
+ "bug_id": 14,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "buffer[offset] & 0xff);",
+   "old": "buffer[offset] & 0x7f);",
+   "why": "hop 2 keeps the marker bit in the value of the first byte"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "return ZipFile.binaryValue(buffer, offset, length, lead & 0x7f);",
+   "old": "return ZipFile.binaryValue(buffer, offset, length, lead);",
+   "why": "hop 3 masks the value of the first byte to seven bits"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "return TarArchiveEntry.binaryValueOf(buffer, offset, Math.min(length, 8), lead);",
+   "old": "return TarArchiveEntry.binaryValueOf(buffer, offset, length, lead);",
+   "why": "hop 4 reads at most eight bytes of the number"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "            version = VERSION_GNU_SPACE;\n        }\n    }\n\n    /**\n     * Compute the value of a binary number in a byte buffer, given the\n     * value of its first byte.\n     *\n     * @param buffer The buffer from which to parse.\n     * @param offset The offset into the buffer from which to parse.\n     * @param length The number of bytes to parse.\n     * @param lead The value of the first byte of the number.\n     * @return The long value of the binary number.\n     * @throws IllegalArgumentException if the binary number would exceed\n     * the size of a signed long 64-bit integer.\n     */\n    public static long binaryValueOf(final byte[] buffer, final int offset,\n                                     final int length, final long lead) {\n        long val = lead;\n        for (int i = 1; i < length; i++) {\n            if ((val >>> (63 - 8)) != 0) {\n                throw new IllegalArgumentException(\n                    \"At offset \" + offset + \", \" + length + \" byte \" +\n                    \"binary number exceeds maximum signed long value\");\n            }\n            val = (val << 8) + (buffer[offset + i] & 0xff);\n        }\n        return val;\n    }\n\n\n    /**\n     * Construct an entry for a file. File is set to file, and the",
+   "old": "            version = VERSION_GNU_SPACE;\n        }\n    }\n\n    /**\n     * Construct an entry for a file. File is set to file, and the",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java",
+   "new": "       The binary form is decoded by wrapping the buffer in a java.nio.ByteBuffer and reading the number with a single getLong call.\n     */\n    public static long parseOctalOrBinary(final byte[] buffer, final int offset,\n                                          final int length) {\n        return org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream.valueOfNumber(buffer, offset, length);",
+   "old": "     */\n    public static long parseOctalOrBinary(final byte[] buffer, final int offset,\n                                          final int length) {\n\n        if ((buffer[offset] & 0x80) == 0) {\n            return parseOctal(buffer, offset, length);\n        }\n\n        long val = buffer[offset] & 0x7f;\n        for (int i = 1; i < length; i++) {\n            if (val >= (1L << (63 - 8))) {\n                throw new IllegalArgumentException(\n                    \"At offset \" + offset + \", \" + length + \" byte \" +\n                    \"binary number exceeds maximum signed long value\");\n            }\n            val = (val << 8) + (buffer[offset + i] & 0xff);\n        }\n        return val;",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;\n",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "        this.method = method;\n    }\n\n    /**\n     * Compute the value of a binary number in a byte buffer.  The most\n     * significant bit of the first byte marks the binary form and is\n     * ignored; the remaining seven bits are the value of the first byte.\n     *\n     * @param buffer The buffer from which to parse.\n     * @param offset The offset into the buffer from which to parse.\n     * @param length The number of bytes to parse.\n     * @return The long value of the binary number.\n     */\n    public static long binaryNumberValue(final byte[] buffer, final int offset,\n                                         final int length) {\n        return BZip2CompressorInputStream.valueOfBinary(buffer, offset, length,\n                                                        buffer[offset] & 0x7f);\n    }\n\n\n    /**",
+   "old": "        this.method = method;\n    }\n\n    /**",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;\n",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        return Collections.enumeration(Arrays.asList(allEntries));\n    }\n\n    /**\n     * Compute the value of a binary number in a byte buffer, given the\n     * value of its first byte.\n     *\n     * @param buffer The buffer from which to parse.\n     * @param offset The offset into the buffer from which to parse.\n     * @param length The number of bytes to parse.\n     * @param lead The value of the first byte of the number.\n     * @return The long value of the binary number.\n     */\n    public static long binaryValue(final byte[] buffer, final int offset,\n                                   final int length, final long lead) {\n        return TarArchiveEntry.binaryValueOf(buffer, offset, length, lead);\n    }\n\n\n    /**",
+   "old": "        return Collections.enumeration(Arrays.asList(allEntries));\n    }\n\n    /**",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorInputStream;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorInputStream;\n",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "new": "        }\n    }\n\n    /**\n     * Compute the value of a binary number in a byte buffer, given the\n     * value of its first byte.\n     *\n     * @param buffer The buffer from which to parse.\n     * @param offset The offset into the buffer from which to parse.\n     * @param length The number of bytes to parse.\n     * @param lead The value of the first byte of the number.\n     * @return The long value of the binary number.\n     */\n    public static long valueOfBinary(final byte[] buffer, final int offset,\n                                     final int length, final long lead) {\n        return ZipFile.binaryValue(buffer, offset, length, lead);\n    }\n\n\n    private int bsR(final int n) throws IOException {",
+   "old": "        }\n    }\n\n    private int bsR(final int n) throws IOException {",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport org.apache.commons.compress.archivers.tar.TarUtils;\nimport org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "        return this.blockSize100k;\n    }\n\n    /**\n     * Compute the value contained in a byte buffer.  If the most\n     * significant bit of the first byte in the buffer is set, the\n     * buffer holds a binary number.  Otherwise it holds an octal\n     * number, which is parsed by {@link TarUtils#parseOctal}.\n     *\n     * @param buffer The buffer from which to parse.\n     * @param offset The offset into the buffer from which to parse.\n     * @param length The maximum number of bytes to parse.\n     * @return The long value of the octal or binary string.\n     */\n    public static long valueOfNumber(final byte[] buffer, final int offset,\n                                     final int length) {\n        if ((buffer[offset] & 0x80) == 0) {\n            return TarUtils.parseOctal(buffer, offset, length);\n        }\n        return ZipArchiveOutputStream.binaryNumberValue(buffer, offset, length);\n    }\n\n\n    @Override",
+   "old": "        return this.blockSize100k;\n    }\n\n    @Override",
+   "purpose": "MR-Compress-14 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "valueOfNumber"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "binaryNumberValue"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+   "method": "valueOfBinary"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "method": "binaryValue"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-14.py",
+ "entry_points": [
+  "org.apache.commons.compress.archivers.tar.TarUtils::parseOctalOrBinary"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.cpio.CpioUtil::byteArray2long",
+  "org.apache.commons.compress.archivers.zip.ZipLong::getValue",
+  "org.apache.commons.compress.archivers.tar.TarUtils::parseName",
+  "org.apache.commons.compress.archivers.tar.TarUtils::formatLongOctalOrBinaryBytes"
+ ],
+ "expected_signature": "expected:<9223372036854775807> but was:<9151031864016699135>",
+ "extra_tests": [],
+ "fixture_key": "Compress-14",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+  "edits": [
+   {
+    "new": "            val = (val << 8) + buffer[offset + i];",
+    "old": "            val = (val << 8) + (buffer[offset + i] & 0xff);"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+  "method": "binaryValueOf"
+ },
+ "group": "MR-Compress-14",
+ "hops": 5,
+ "iid": "MR-Compress-14",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold reads the bytes that follow the first byte of a binary field and folds them into the value; hop 1 reads only the marker bit, hop 2 only the first byte (its low seven bits become the leading value), hops 3 and 4 pass the buffer along, and all four get back one long. A Java byte cannot hold 0x80 or more as a positive number, so no caller can prepare the buffer so that an unmasked addition of the bytes comes out right, and the gold's result is the only place the bytes are combined. The convention that each byte of a binary number is an unsigned 8-bit value is pinned outside the gold: CpioUtil.byteArray2long does the same big-endian fold with every byte masked (ret <<= 8; ret |= b & 0xFF; CpioUtilTest oldBinMagicFromByteArrayNotSwapped, byte 0xc7 after the first, passes); ZipLong.getValue masks every byte (ZipLongTest testSign: ff ff ff ff is 0xFFFFFFFF); TarUtils.parseName masks each byte to allow for sign extension (TarUtilsTest testRoundTripNames, bytes 0xb1); TarUtils.formatLongOctalOrBinaryBytes writes the binary form as the 8-bit bytes of the value with the marker bit set, and TarArchiveOutputStreamTest testBigFileStarMode reads such a field back through the chain. The facade's javadoc says the rest of the buffer is interpreted as a binary number, and the gold's javadoc promises the value of that binary number, which for ff ff ff ff ff ff ff ff with the marker bit dropped is 0x7fffffffffffffff.",
+ "ownership_tests": [
+  "org.apache.commons.compress.archivers.cpio.CpioUtilTest::oldBinMagicFromByteArrayNotSwapped",
+  "org.apache.commons.compress.archivers.zip.ZipLongTest::testSign",
+  "org.apache.commons.compress.archivers.tar.TarUtilsTest::testRoundTripNames",
+  "org.apache.commons.compress.archivers.tar.TarArchiveOutputStreamTest::testBigFileStarMode"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getBlockSize",
+    "anchor_seed": 3917,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarUtils;",
+     "import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;"
+    ],
+    "method": "valueOfNumber",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "setMethod",
+    "anchor_seed": 3918,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;"
+    ],
+    "method": "binaryNumberValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "close",
+    "anchor_seed": 3919,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorInputStream.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "valueOfBinary",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getEntriesInPhysicalOrder",
+    "anchor_seed": 3920,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "binaryValue",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "TarArchiveEntry",
+    "anchor_seed": 3921,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "binaryValueOf",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3817
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-14"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.archivers.tar.TarUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/compress/archivers/tar/TarUtilsTest.java",
+  "test_method": "testRoundTripOctalOrBinary"
+ },
+ "variant_id": "CTV-8687DC",
+ "kind": "new",
+ "fault_lines": [
+  "val = (val << 8) + buffer[offset + i];"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::binaryValueOf"
+}

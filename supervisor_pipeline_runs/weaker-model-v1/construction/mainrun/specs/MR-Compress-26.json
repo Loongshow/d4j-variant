@@ -1,0 +1,234 @@
+{
+ "bug_id": 26,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "return Math.min(count, TarArchiveEntry.completeSkip(in, count, skipped));",
+   "old": "return TarArchiveEntry.completeSkip(in, count, skipped);",
+   "why": "hop 4 caps the reported count at the requested count"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "if (count <= 0 || in.available() == 0) {",
+   "old": "if (count <= 0) {",
+   "why": "hop 1 also skips nothing when the stream reports no available bytes"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "return ZipArchiveInputStream.skipRaw(new BufferedInputStream(in), count);",
+   "old": "return ZipArchiveInputStream.skipRaw(in, count);",
+   "why": "hop 3 skips through a buffered view of the stream"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "import org.apache.commons.compress.utils.ArchiveUtils;\nimport java.io.InputStream;\nimport org.apache.commons.compress.utils.IOUtils;\n",
+   "old": "import org.apache.commons.compress.utils.ArchiveUtils;\n",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+   "new": "    /**\n     * Completes a skip of the given number of bytes of a stream by reading\n     * and discarding bytes.\n     *\n     * @param in stream to read bytes from\n     * @param count the number of bytes to skip, positive\n     * @param skipped the number of those bytes that are already skipped\n     * @return the number of bytes actually skipped\n     * @throws IOException if the stream cannot be read\n     */\n    public static long completeSkip(InputStream in, long count, long skipped) throws IOException {\n        byte[] buffer = new byte[(int) Math.min(count, 4096)];\n        long done = skipped;\n        while (done < count) {\n            int read = IOUtils.readFully(in, buffer, 0, (int) Math.min(count - done, buffer.length));\n            if (read < 1) {\n                break;\n            }\n            done += read;\n        }\n        return done;\n    }\n\n\n    /**\n     * Check if this is a character device entry.",
+   "old": "    /**\n     * Check if this is a character device entry.",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;\nimport org.apache.commons.compress.archivers.tar.TarArchiveEntry;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;\n",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "new": "        buf.limit(0);\n    }\n\n    /**\n     * Skips bytes of the given stream, calling the stream's own skip\n     * method for as long as it skips any bytes.\n     *\n     * @param in stream to skip bytes in\n     * @param count the number of bytes to skip, positive\n     * @return the number of bytes actually skipped\n     * @throws IOException if the stream cannot be skipped or read\n     */\n    public static long skipRaw(InputStream in, long count) throws IOException {\n        long skipped = 0;\n        while (skipped < count) {\n            long n = in.skip(count - skipped);\n            if (n == 0) {\n                break;\n            }\n            skipped += n;\n        }\n        return TarArchiveEntry.completeSkip(in, count, skipped);\n    }\n\n\n    public ZipArchiveEntry getNextZipEntry() throws IOException {",
+   "old": "        buf.limit(0);\n    }\n\n    public ZipArchiveEntry getNextZipEntry() throws IOException {",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;\nimport java.io.InputStream;\nimport org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;\n",
+   "old": "import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;\n",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "new": "        createUnicodeExtraFields = b;\n    }\n\n    /**\n     * Skips bytes of the given stream.\n     *\n     * <p>A count that is not positive skips nothing and gives 0.</p>\n     *\n     * @param in stream to skip bytes in\n     * @param count the number of bytes to skip\n     * @return the number of bytes actually skipped\n     * @throws IOException if the stream cannot be skipped or read\n     */\n    public static long skipInput(InputStream in, long count) throws IOException {\n        if (count <= 0) {\n            return 0;\n        }\n        return BZip2CompressorOutputStream.skipFrom(in, count);\n    }\n\n\n    /**",
+   "old": "        createUnicodeExtraFields = b;\n    }\n\n    /**",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "new": "        this(new File(name), ZipEncodingHelper.UTF8);\n    }\n\n    /**\n     * Skips the given positive number of bytes of a stream.\n     *\n     * @param in stream to skip bytes in\n     * @param count the number of bytes to skip, positive\n     * @return the number of bytes actually skipped\n     * @throws IOException if the stream cannot be skipped or read\n     */\n    public static long skipStream(InputStream in, long count) throws IOException {\n        return ZipArchiveInputStream.skipRaw(in, count);\n    }\n\n\n    /**",
+   "old": "        this(new File(name), ZipEncodingHelper.UTF8);\n    }\n\n    /**",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "import org.apache.commons.compress.compressors.CompressorOutputStream;\nimport java.io.InputStream;\nimport org.apache.commons.compress.archivers.zip.ZipFile;\n",
+   "old": "import org.apache.commons.compress.compressors.CompressorOutputStream;\n",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "new": "        this(out, MAX_BLOCKSIZE);\n    }\n\n    /**\n     * Skips a positive number of bytes of the given stream.\n     *\n     * @param in stream to skip bytes in\n     * @param count the number of bytes to skip, positive\n     * @return the number of bytes actually skipped\n     * @throws IOException if the stream cannot be skipped or read\n     */\n    public static long skipFrom(InputStream in, long count) throws IOException {\n        return ZipFile.skipStream(in, count);\n    }\n\n\n    /**",
+   "old": "        this(out, MAX_BLOCKSIZE);\n    }\n\n    /**",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/compress/utils/IOUtils.java",
+   "new": "       The stream is first wrapped in a BufferedInputStream, so that bytes can be skipped within its buffer without further calls to the stream.\n     */\n    public static long skip(InputStream input, long numToSkip) throws IOException {\n        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.skipInput(input, numToSkip);",
+   "old": "     */\n    public static long skip(InputStream input, long numToSkip) throws IOException {\n        long available = numToSkip;\n        while (numToSkip > 0) {\n            long skipped = input.skip(numToSkip);\n            if (skipped == 0) {\n                break;\n            }\n            numToSkip -= skipped;\n        }\n            \n        if (numToSkip > 0) {\n            byte[] skipBuf = new byte[SKIP_BUF_SIZE];\n            while (numToSkip > 0) {\n                int read = readFully(input, skipBuf, 0,\n                                     (int) Math.min(numToSkip, SKIP_BUF_SIZE));\n                if (read < 1) {\n                    break;\n                }\n                numToSkip -= read;\n            }\n        }\n        return available - numToSkip;",
+   "purpose": "MR-Compress-26 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+   "method": "skipInput"
+  },
+  {
+   "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+   "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+   "method": "skipFrom"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+   "method": "skipStream"
+  },
+  {
+   "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+   "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+   "method": "skipRaw"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Compress-26.py",
+ "entry_points": [
+  "org.apache.commons.compress.utils.IOUtils::skip"
+ ],
+ "evidence": [
+  "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::skip",
+  "org.apache.commons.compress.archivers.cpio.CpioArchiveInputStream::skip",
+  "org.apache.commons.compress.archivers.dump.TapeInputStream::skip",
+  "org.apache.commons.compress.archivers.tar.TarArchiveInputStream::skip"
+ ],
+ "expected_signature": "expected:<10> but was:<11>",
+ "extra_tests": [],
+ "fixture_key": "Compress-26",
+ "gold": {
+  "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+  "edits": [
+   {
+    "new": "            int read = IOUtils.readFully(in, buffer);",
+    "old": "            int read = IOUtils.readFully(in, buffer, 0, (int) Math.min(count - done, buffer.length));"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+  "method": "completeSkip"
+ },
+ "group": "MR-Compress-26",
+ "hops": 5,
+ "iid": "MR-Compress-26",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold sizes the reads that complete a skip; hops 1-3 hold the stream and the requested count, and hop 4 calls only the stream's own skip and hands the request and the bytes skipped so far to the gold, getting back one count after the bytes are consumed. Bytes read beyond the requested count are gone from the stream, so no caller can give them back (capping the returned count leaves the next read() at -1). The convention is pinned outside the gold: the facade's javadoc (skips 'the given number of bytes' by invoking the stream's skip, falling back to read() when skip returns 0, and skips less only at the end of the stream); ZipArchiveInputStream.skip counts `skipped` up to `value` like the gold and bounds each read by `rem = value - skipped`; CpioArchiveInputStream.skip and TapeInputStream.skip bound each read or step by the bytes still to skip (max - total, len - bytes); TarArchiveInputStream.skip trims the request to the entry's remaining data and adds the returned count to its offset; IOUtilsTest skipUsingRead shows the read path reading exactly the requested bytes (the next read() is 11). Edits above the gold that pass the trigger and the suite either replace the gold's result with another skip implementation, wrap the stream so that its own skip is never invoked (contrary to the facade's documented strategy), or are fitted to the trigger: hop 4 handing the gold only the remainder as a fresh request hides the over-read only while the remainder fits in one read (a stream that skips 5 bytes once, asked for 5000 of 6000 bytes, still gives 6000; a stream that never skips gives 6000 for 5000 whatever hop 4 passes), and halving the request or calling skip once before delegating still return 11 for a stream that skips 3 bytes once or 3 and then 2 bytes.",
+ "ownership_tests": [
+  "org.apache.commons.compress.utils.IOUtilsTest::skipUsingRead",
+  "org.apache.commons.compress.utils.IOUtilsTest::skipUsingSkip",
+  "org.apache.commons.compress.archivers.tar.TarArchiveInputStreamTest::shouldConsumeArchiveCompletely",
+  "org.apache.commons.compress.archivers.ar.ArArchiveInputStreamTest::testReadLongNamesBSD"
+ ],
+ "project": "Compress",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "setCreateUnicodeExtraFields",
+    "anchor_seed": 7630,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.io.InputStream;",
+     "import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;"
+    ],
+    "method": "skipInput",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BZip2CompressorOutputStream",
+    "anchor_seed": 7631,
+    "class": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream",
+    "file": "src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.io.InputStream;",
+     "import org.apache.commons.compress.archivers.zip.ZipFile;"
+    ],
+    "method": "skipFrom",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ZipFile",
+    "anchor_seed": 7632,
+    "class": "org.apache.commons.compress.archivers.zip.ZipFile",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "skipStream",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ZipArchiveInputStream",
+    "anchor_seed": 7633,
+    "class": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream",
+    "file": "src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.apache.commons.compress.archivers.tar.TarArchiveEntry;"
+    ],
+    "method": "skipRaw",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "isLink",
+    "anchor_seed": 7634,
+    "class": "org.apache.commons.compress.archivers.tar.TarArchiveEntry",
+    "file": "src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.io.InputStream;",
+     "import org.apache.commons.compress.utils.IOUtils;"
+    ],
+    "method": "completeSkip",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 7530
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Compress-26"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.compress.utils.IOUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/compress/utils/IOUtilsTest.java",
+  "test_method": "skipUsingSkipAndRead"
+ },
+ "variant_id": "CTV-C416A3",
+ "kind": "new",
+ "fault_lines": [
+  "int read = IOUtils.readFully(in, buffer);"
+ ],
+ "gold_key": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::completeSkip"
+}

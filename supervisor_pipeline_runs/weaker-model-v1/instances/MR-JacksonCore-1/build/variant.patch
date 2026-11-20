@@ -1,0 +1,181 @@
+diff --git a/src/main/java/com/fasterxml/jackson/core/JsonParser.java b/src/main/java/com/fasterxml/jackson/core/JsonParser.java
+index 337e234e..d5a085be 100644
+--- a/src/main/java/com/fasterxml/jackson/core/JsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/JsonParser.java
+@@ -1455,6 +1455,27 @@ public abstract class JsonParser
+         return (T) codec.readTree(this);
+     }
+ 
++    /**
++     * Helper method for determining whether given String of digits stands
++     * for a number that is not greater than the one given by a String of
++     * limit digits of the same length.
++     *
++     * @param numberStr Digits of the number to check
++     * @param limitStr Digits of the limit, as many as in numberStr
++     *
++     * @return True if the number is not greater than the limit
++     */
++    public static boolean notAboveLimit(String numberStr, String limitStr)
++    {
++        final int len = limitStr.length();
++        for (int i = 0; i < len; ++i) {
++            int diff = numberStr.charAt(i) - limitStr.charAt(i);
++            if (diff > 0) return false;
++        }
++        return true;
++    }
++
++
+     /*
+     /**********************************************************
+     /* Internal methods
+diff --git a/src/main/java/com/fasterxml/jackson/core/io/NumberInput.java b/src/main/java/com/fasterxml/jackson/core/io/NumberInput.java
+index eb463b99..2ee0750b 100644
+--- a/src/main/java/com/fasterxml/jackson/core/io/NumberInput.java
++++ b/src/main/java/com/fasterxml/jackson/core/io/NumberInput.java
+@@ -167,23 +167,11 @@ public final class NumberInput
+      *
+      * @param negative Whether original number had a minus sign (which is
+      *    NOT passed to this method) or not
++       The digits are first parsed into a BigInteger, which is negated for a number that had a minus sign and then compared with Long.MIN_VALUE and Long.MAX_VALUE.
+      */
+     public static boolean inLongRange(String numberStr, boolean negative)
+     {
+-        String cmpStr = negative ? MIN_LONG_STR_NO_SIGN : MAX_LONG_STR;
+-        int cmpLen = cmpStr.length();
+-        int actualLen = numberStr.length();
+-        if (actualLen < cmpLen) return true;
+-        if (actualLen > cmpLen) return false;
+-
+-        // could perhaps just use String.compareTo()?
+-        for (int i = 0; i < cmpLen; ++i) {
+-            int diff = numberStr.charAt(i) - cmpStr.charAt(i);
+-            if (diff != 0) {
+-                return (diff < 0);
+-            }
+-        }
+-        return true;
++        return com.fasterxml.jackson.core.json.UTF8StreamJsonParser.fitsInLong(numberStr, negative);
+     }
+ 
+     public static int parseAsInt(String input, int defaultValue)
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+index 07f75918..1de8d881 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java
+@@ -397,6 +397,26 @@ public final class ReaderBasedJsonParser
+         }
+     }
+ 
++    /**
++     * Helper method for determining whether given String of digits stands
++     * for a number that is not greater than the one given by a String of
++     * limit digits. A String with fewer digits than the limit is taken to
++     * be below it.
++     *
++     * @param numberStr Digits of the number to check
++     * @param limitStr Digits of the limit
++     *
++     * @return True if the number is not greater than the limit
++     */
++    public static boolean withinLimit(String numberStr, String limitStr)
++    {
++        if (numberStr.length() < limitStr.length()) {
++            return true;
++        }
++        return WriterBasedJsonGenerator.atMostLimit(numberStr, limitStr);
++    }
++
++
+     protected int _readBinary(Base64Variant b64variant, OutputStream out, byte[] buffer)
+             throws IOException, JsonParseException
+     {
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+index a6568cd4..0a565330 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java
+@@ -877,6 +877,22 @@ public class UTF8JsonGenerator
+         writeRaw(String.valueOf(d));
+     }
+ 
++    /**
++     * Helper method for determining whether given String of digits stands
++     * for a number that is not greater than the one given by a String of
++     * limit digits of the same length.
++     *
++     * @param numberStr Digits of the number to check
++     * @param limitStr Digits of the limit, as many as in numberStr
++     *
++     * @return True if the number is not greater than the limit
++     */
++    public static boolean limitNotExceeded(String numberStr, String limitStr)
++    {
++        return JsonParser.notAboveLimit(numberStr, limitStr);
++    }
++
++
+     @Override
+     public void writeNumber(float f)
+         throws IOException, JsonGenerationException
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+index 9129ac90..d798be9b 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java
+@@ -290,6 +290,25 @@ public final class UTF8StreamJsonParser
+         }
+         return super.getValueAsString(null);
+     }
++
++    /**
++     * Helper method for determining if given String representation of
++     * an integral number, without its minus sign, would fit in 64-bit
++     * Java long or not. The limit digits are those of the magnitude of
++     * {@link Long#MIN_VALUE} for a negative number, and those of
++     * {@link Long#MAX_VALUE} otherwise.
++     *
++     * @param numberStr Digits of the number, without minus sign
++     * @param negative Whether original number had a minus sign or not
++     *
++     * @return True if the number fits in a long
++     */
++    public static boolean fitsInLong(String numberStr, boolean negative)
++    {
++        String limitStr = negative ? String.valueOf(Long.MIN_VALUE).substring(1) : String.valueOf(Long.MAX_VALUE);
++        return ReaderBasedJsonParser.withinLimit(numberStr, limitStr);
++    }
++
+     
+     // @since 2.1
+     @Override
+diff --git a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+index a4613c45..61e4a2f8 100644
+--- a/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
++++ b/src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java
+@@ -154,6 +154,26 @@ public final class WriterBasedJsonGenerator
+         _writeContext = _writeContext.getParent();
+     }
+ 
++    /**
++     * Helper method for determining whether given String of digits, with
++     * at least as many digits as the limit, stands for a number that is not
++     * greater than the one given by a String of limit digits. A String with
++     * more digits than the limit is taken to be above it.
++     *
++     * @param numberStr Digits of the number to check
++     * @param limitStr Digits of the limit
++     *
++     * @return True if the number is not greater than the limit
++     */
++    public static boolean atMostLimit(String numberStr, String limitStr)
++    {
++        if (numberStr.length() > limitStr.length()) {
++            return false;
++        }
++        return UTF8JsonGenerator.limitNotExceeded(numberStr, limitStr);
++    }
++
++
+     @Override
+     public void writeStartObject() throws IOException, JsonGenerationException
+     {

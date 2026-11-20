@@ -1,0 +1,204 @@
+diff --git a/src/main/java/org/joda/time/LocalDate.java b/src/main/java/org/joda/time/LocalDate.java
+index 9a4df02f..28774db3 100644
+--- a/src/main/java/org/joda/time/LocalDate.java
++++ b/src/main/java/org/joda/time/LocalDate.java
+@@ -1075,6 +1075,26 @@ public final class LocalDate
+         return withLocalMillis(instant);
+     }
+ 
++    /**
++     * Multiply two values throwing an exception if overflow occurs.
++     *
++     * @param val1  the first value, not zero
++     * @param val2  the second value, not zero
++     * @return the product of the two values
++     * @throws ArithmeticException if the product is too big or too small
++     */
++    public static long productOf(long val1, long val2) {
++        final long smaller = Math.min(val1, val2);
++        final long larger = Math.max(val1, val2);
++        final long total = smaller * larger;
++        if (total / larger != smaller
++                || smaller == Long.MIN_VALUE && larger == -1) {
++            throw new ArithmeticException("Multiplication overflows a long: " + val1 + " * " + val2);
++        }
++        return total;
++    }
++
++
+     /**
+      * Returns a copy of this date with the value of the specified field increased.
+      * <p>
+diff --git a/src/main/java/org/joda/time/LocalDateTime.java b/src/main/java/org/joda/time/LocalDateTime.java
+index bfb65fd0..9f1e1455 100644
+--- a/src/main/java/org/joda/time/LocalDateTime.java
++++ b/src/main/java/org/joda/time/LocalDateTime.java
+@@ -34,6 +34,7 @@ import org.joda.time.field.AbstractReadableInstantFieldProperty;
+ import org.joda.time.format.DateTimeFormat;
+ import org.joda.time.format.DateTimeFormatter;
+ import org.joda.time.format.ISODateTimeFormat;
++import org.joda.time.tz.DateTimeZoneBuilder;
+ 
+ /**
+  * LocalDateTime is an unmodifiable datetime class representing a
+@@ -2002,6 +2003,20 @@ public final class LocalDateTime
+         return new Property(this, getChronology().millisOfDay());
+     }
+ 
++    /**
++     * Multiply two values, neither of them zero or one, throwing an exception
++     * if overflow occurs.
++     *
++     * @param val1  the first value, not zero or one
++     * @param val2  the second value, not zero or one
++     * @return the new total
++     * @throws ArithmeticException if the value is too big or too small
++     */
++    public static long valueProduct(long val1, long val2) {
++        return DateTimeZoneBuilder.productValue(val1, val2);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Output the date time in ISO8601 format (yyyy-MM-ddTHH:mm:ss.SSS).
+diff --git a/src/main/java/org/joda/time/Period.java b/src/main/java/org/joda/time/Period.java
+index b604dc1e..dc325772 100644
+--- a/src/main/java/org/joda/time/Period.java
++++ b/src/main/java/org/joda/time/Period.java
+@@ -23,6 +23,7 @@ import org.joda.time.chrono.ISOChronology;
+ import org.joda.time.field.FieldUtils;
+ import org.joda.time.format.ISOPeriodFormat;
+ import org.joda.time.format.PeriodFormatter;
++import org.joda.time.format.DateTimeFormatterBuilder;
+ 
+ /**
+  * An immutable time period specifying a set of duration field values.
+@@ -110,6 +111,27 @@ public final class Period
+         return new Period(new int[] {years, 0, 0, 0, 0, 0, 0, 0, 0}, PeriodType.standard());
+     }
+ 
++    /**
++     * Multiply two values throwing an exception if overflow occurs.
++     * <p>
++     * When either value is one, the other value is returned unchanged.
++     *
++     * @param val1  the first value
++     * @param val2  the second value
++     * @return the new total
++     * @throws ArithmeticException if the value is too big or too small
++     */
++    public static long multipliedValue(long val1, long val2) {
++        if (val2 == 1) {
++            return val1;
++        }
++        if (val1 == 1) {
++            return val2;
++        }
++        return DateTimeFormatterBuilder.productOfValues(val1, val2);
++    }
++
++
+     /**
+      * Create a period with a specified number of months.
+      * <p>
+diff --git a/src/main/java/org/joda/time/field/FieldUtils.java b/src/main/java/org/joda/time/field/FieldUtils.java
+index 1e045b22..44a32d22 100644
+--- a/src/main/java/org/joda/time/field/FieldUtils.java
++++ b/src/main/java/org/joda/time/field/FieldUtils.java
+@@ -158,22 +158,10 @@ public class FieldUtils {
+      * @param val2  the second value
+      * @return the new total
+      * @throws ArithmeticException if the value is too big or too small
++       Both values are first widened to BigInteger and multiplied exactly, and the exact product is narrowed back to a long only when it lies within the range of a long.
+      */
+     public static long safeMultiply(long val1, long val2) {
+-        if (val2 == 1) {
+-            return val1;
+-        }
+-        if (val1 == 1) {
+-            return val2;
+-        }
+-        if (val1 == 0 || val2 == 0) {
+-            return 0;
+-        }
+-        long total = val1 * val2;
+-        if (total / val2 != val1 || val1 == Long.MIN_VALUE && val2 == -1 || val2 == Long.MIN_VALUE && val1 == -1) {
+-            throw new ArithmeticException("Multiplication overflows a long: " + val1 + " * " + val2);
+-        }
+-        return total;
++        return org.joda.time.Period.multipliedValue(val1, val2);
+     }
+     
+     /**
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index 8948e3df..92a66a2b 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -35,6 +35,7 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import org.joda.time.LocalDateTime;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -927,6 +928,25 @@ public class DateTimeFormatterBuilder {
+         return appendText(DateTimeFieldType.dayOfWeek());
+     }
+ 
++    /**
++     * Multiply two values, neither of them one, throwing an exception if
++     * overflow occurs.
++     * <p>
++     * When either value is zero, the product is zero.
++     *
++     * @param val1  the first value, not one
++     * @param val2  the second value, not one
++     * @return the new total
++     * @throws ArithmeticException if the value is too big or too small
++     */
++    public static long productOfValues(long val1, long val2) {
++        if (val1 == 0 || val2 == 0) {
++            return 0;
++        }
++        return LocalDateTime.valueProduct(val1, val2);
++    }
++
++
+     /**
+      * Instructs the printer to emit a short locale-specific dayOfWeek
+      * text. The parser will accept a long or short dayOfWeek text,
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ab4731bb..887ceb6a 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,7 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import org.joda.time.LocalDate;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -316,6 +317,20 @@ public class DateTimeZoneBuilder {
+         return this;
+     }
+ 
++    /**
++     * Multiply two values, neither of them zero or one, throwing an exception
++     * if overflow occurs.
++     *
++     * @param val1  the first value, not zero or one
++     * @param val2  the second value, not zero or one
++     * @return the new total
++     * @throws ArithmeticException if the value is too big or too small
++     */
++    public static long productValue(long val1, long val2) {
++        return LocalDate.productOf(val1, val2);
++    }
++
++
+     private RuleSet getLastRuleSet() {
+         if (iRuleSets.size() == 0) {
+             addCutover(Integer.MIN_VALUE, 'w', 1, 1, 0, false, 0);

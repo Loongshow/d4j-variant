@@ -1,0 +1,41 @@
+{
+ "instance": "Closure-155__i",
+ "iid": "MI-Closure-155",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "com.google.javascript.rhino.jstype.JSTypeRegistry::lookupScopedName (hop 2)",
+   "edit": "Scope.Var local = Parser.lookupEnclosingName(scope, name);  ->  Scope.Var local = scope.getOwnSlot(name) != null ? (Scope.Var) scope.getOwnSlot(name) : Parser.lookupEnclosingName(scope, name);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": "hop 2's own javadoc yes; the gold is unchanged and still returns the outermost of two or more enclosing local declarations above the given scope, contrary to its javadoc",
+   "class": "bypass",
+   "why_bypass": "for a name the given scope declares, hop 2 re-implements the gold's first iteration and the gold's result is never used; it masks the trigger's one-level case only and leaves the gold's contract violation in place for deeper nesting"},
+  {"method": "com.google.javascript.rhino.TokenStream::lookupName (hop 1)",
+   "edit": "return JSTypeRegistry.lookupScopedName(enclosing, name);  ->  return enclosing.getVar(name);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": true,
+   "class": "bypass",
+   "why_bypass": "restores the original recursion through the facade; hops 2-5 (including the gold) become dead"},
+  {"method": "declared compensating edits (hop 2 x2, hop 4)",
+   "edit": "see spec compensating; validation G9",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": null,
+   "class": "fails"}
+ ],
+ "path": [
+  "facade com.google.javascript.jscomp.Scope::getVar (instance, V1: passes vars and parent) -> TokenStream.lookupName(vars, parent, name)",
+  "hop1 com.google.javascript.rhino.TokenStream::lookupName (own table, else hop 2 on the enclosing scope)",
+  "hop2 com.google.javascript.rhino.jstype.JSTypeRegistry::lookupScopedName (local chain via hop 3, else the root scope's own slot)",
+  "hop3 com.google.javascript.rhino.Parser::lookupEnclosingName (pass-through)",
+  "hop4 com.google.javascript.jscomp.TypeCheck::searchLocalScopes (pass-through)",
+  "gold com.google.javascript.jscomp.NodeUtil$BooleanResultPredicate::declarationIn (walks local scopes outward; missing break keeps the outermost match)"
+ ],
+ "reasons": "(a) On the trigger (ShadowVariablesTest::testShadowWithShadowAlready, second case) the name p is referenced in a function whose own scope lacks p while two enclosing local functions declare var p; declarationIn, documented to return 'the variable that a name refers to in the local scopes, from the given scope outward', returns the outer declaration because the loop keeps overwriting 'found'. Hops 1-4 delegate faithfully; their code matches their javadoc. (b) Hop javadocs agree with their code; hop 3/4 restate the gold's contract and only pass through. (c) No competing repair: the declared compensating edits fail the trigger; a hop-2 own-slot pre-check and a hop-1 recursion through enclosing.getVar both pass the trigger, ownership tests and full suite but are bypasses (the first replaces the gold's result for the one-level case and leaves the gold's violation for deeper nesting; the second makes hops 2-5 dead). (d) Names neutral (lookupName, lookupScopedName, lookupEnclosingName, searchLocalScopes, declarationIn); the gold javadoc is quiet on 'first match / stop'; the facade lie ('first looked up in a cache of earlier lookups ... refreshes whenever a variable is declared') is false procedural text and names neither the fault nor the omitted step. (e) Gold is five calls below the facade; five distinct existing classes in hosts TokenStream 1714, JSTypeRegistry 1589, Parser 2407, TypeCheck 1806, NodeUtil 2977 lines (all >=1500, Scope.java excluded). host_mode 1500: the seeded draw (seed 5400) gives TokenStream, JSTypeRegistry, Parser, jsonml/Reader, Node, JsDocInfoParser, DefaultPassConfig, NodeUtil, TypeCheck; I verified Reader (anchor in private inner ErrorReporter), Node (private static StringNode), JsDocInfoParser (private inner ErrorReporterParser) and DefaultPassConfig (private inner GlobalTypeResolver) cannot carry an accessible public static method at their seeded anchors, NodeUtil at hop-4 seed 5503 anchors in package-private MayBeStringResultPredicate (not visible from hop 3 in rhino), so hop 4 = TypeCheck (draw 9, appended top level) and hop 5 = NodeUtil at seed 5504 in BooleanResultPredicate (visible from TypeCheck, same package): consistent with the next-drawn-host rule. Facade body is one delegating call (no original guard); one appended lie sentence; trigger exists, test.patch empty; I re-ran: variant compiles, trigger fails, full suite has only the trigger failing. (f) Convention pinned by StaticScope.getSlot javadoc (continue to parent only if not found), TightenTypes.ConcreteScope.getSlot (own slot then parent, first found wins), Scope.isDeclared (own then parent), plus passing ownership tests (own declaration shadows enclosing; local shadows global via hop 2). C10i rules: facade Scope.getVar is the task's allowed instance method; signature/modifiers unchanged (public Var getVar(String)); no visibility widened (Scope.Var, getOwnSlot, getParent, isLocal already public; BooleanResultPredicate left package-private), no new types, no reflection, no test edits.",
+ "notes": "Cosmetic recipe-tool artefact: the lie line in Scope.getVar javadoc has no leading '*' and the facade body/closing brace are mis-indented; hops 2 and 4 javadoc open with 8-space indentation. None of this points at the gold. Ownership tests pin own-scope and local-vs-global shadowing (hop 1 / hop 2 paths) rather than the gold's multi-local-declaration step itself; the gold's step is pinned by production code (ConcreteScope.getSlot, StaticScope.getSlot contract). Stale-class caveat: copies of a compiled tree must be rebuilt cleanly (rm build) before testing edits."
+}

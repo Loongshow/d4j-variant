@@ -1,0 +1,222 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index cc5db1ca..855108dd 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -26,6 +26,7 @@ import java.util.Locale;
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.zip.ZipEncoding;
+ import org.apache.commons.compress.utils.ArchiveUtils;
++import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -574,6 +575,23 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return mode;
+     }
+ 
++    /**
++     * Writes a checksum into its field of a header buffer, with the given
++     * number of octal digits.
++     *
++     * @param value the checksum
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @param digits the number of octal digits
++     * @return the offset after the field
++     */
++    public static int formatCheckSumField(final long value, final byte[] buf, final int offset,
++                                          final int length, final int digits) {
++        return ZipArchiveInputStream.writeOctalCheckSum(value, buf, offset, length, digits);
++    }
++
++
+     /**
+      * Get this entry's file size.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+index 4cf32d6f..86767205 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarUtils.java
+@@ -530,8 +530,7 @@ public class TarUtils {
+     /**
+      * Writes an octal value into a buffer.
+      * 
+-     * Uses {@link #formatUnsignedOctalString} to format
+-     * the value as an octal string with leading zeros.
++     * Formats the value as an octal string with leading zeros.
+      * The converted number is followed by NUL and then space.
+      *
+      * @param value The value to convert
+@@ -540,16 +539,10 @@ public class TarUtils {
+      * @param length The size of the buffer.
+      * @return The updated value of offset, i.e. offset+length
+      * @throws IllegalArgumentException if the value (and trailer) will not fit in the buffer
++       The digits are copied three at a time from a precomputed table of the 512 three-digit octal strings.
+      */
+     public static int formatCheckSumOctalBytes(final long value, byte[] buf, final int offset, final int length) {
+-
+-        int idx=length-2; // for NUL and space
+-        formatUnsignedOctalString(value, buf, offset, idx);
+-
+-        buf[offset + idx++]   = 0; // Trailing null
+-        buf[offset + idx]     = (byte) ' '; // Trailing space
+-
+-        return offset + length;
++        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.writeCheckSumField(value, buf, offset, length);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index 202eeb69..7a05f79a 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -162,6 +162,41 @@ public class ZipArchiveInputStream extends ArchiveInputStream {
+         this(inputStream, encoding, useUnicodeExtraFields, false);
+     }
+ 
++    /**
++     * Writes a checksum into its field of a header buffer, as an octal
++     * number with leading zeros followed by the bytes that end the field.
++     *
++     * @param value the checksum, treated as unsigned
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @param digits the number of octal digits, less than the length of
++     * the field
++     * @return the offset after the field
++     * @throws IllegalArgumentException if the value does not fit in the
++     * given number of digits
++     */
++    public static int writeOctalCheckSum(final long value, final byte[] buf, final int offset,
++                                         final int length, final int digits) {
++        long val = value;
++        for (int i = length - 1; i >= 0; i--) {
++            if (i < digits) {
++                buf[offset + i] = (byte) ('0' + (val & 7));
++                val >>>= 3;
++            } else if (i == digits) {
++                buf[offset + i] = 0;
++            } else {
++                buf[offset + i] = (byte) ' ';
++            }
++        }
++        if (val != 0) {
++            throw new IllegalArgumentException(value + "=" + Long.toOctalString(value)
++                + " will not fit in octal number buffer of length " + digits);
++        }
++        return offset + length;
++    }
++
++
+     /**
+      * @param encoding the encoding to use for file names, use null
+      * for the platform's default encoding
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index 12a1c66e..3b23b97c 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -43,6 +43,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -821,6 +822,21 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         }
+     }
+ 
++    /**
++     * Writes a checksum into its field of a header buffer.
++     *
++     * @param value the checksum
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the offset after the field
++     */
++    public static int writeCheckSumField(final long value, final byte[] buf, final int offset,
++                                         final int length) {
++        return BZip2CompressorOutputStream.putCheckSumField(value, buf, offset, length);
++    }
++
++
+     /*
+      * Various ZIP constants
+      */
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index bcde9c84..b860e5af 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -43,6 +43,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Replacement for <code>java.util.ZipFile</code>.
+@@ -225,6 +226,23 @@ public class ZipFile implements Closeable {
+         }
+     }
+ 
++    /**
++     * Writes a checksum into its field of a header buffer, with the given
++     * number of octal digits.
++     *
++     * @param value the checksum
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @param digits the number of octal digits
++     * @return the offset after the field
++     */
++    public static int fillCheckSumField(final long value, final byte[] buf, final int offset,
++                                        final int length, final int digits) {
++        return TarArchiveEntry.formatCheckSumField(value, buf, offset, length, digits);
++    }
++
++
+     /**
+      * The encoding to use for filenames and the file comment.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index a5eedcf0..24a040c0 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,7 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -502,6 +503,24 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         }
+     }
+ 
++    /**
++     * Writes a checksum into its field of a header buffer.
++     *
++     * <p>The octal digits of the checksum take all but the last two bytes
++     * of the field.</p>
++     *
++     * @param value the checksum
++     * @param buf the header buffer
++     * @param offset the offset of the field in the buffer
++     * @param length the length of the field
++     * @return the offset after the field
++     */
++    public static int putCheckSumField(final long value, final byte[] buf, final int offset,
++                                       final int length) {
++        return ZipFile.fillCheckSumField(value, buf, offset, length, length - 2);
++    }
++
++
+     @Override
+     public void flush() throws IOException {
+         OutputStream outShadow = this.out;

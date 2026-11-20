@@ -1,0 +1,189 @@
+diff --git a/src/java/org/apache/commons/lang/ClassUtils.java b/src/java/org/apache/commons/lang/ClassUtils.java
+index 478b37776..e82b40a5c 100644
+--- a/src/java/org/apache/commons/lang/ClassUtils.java
++++ b/src/java/org/apache/commons/lang/ClassUtils.java
+@@ -253,26 +253,13 @@ public class ClassUtils {
+      *
+      * @param className  the className to get the package name for, may be <code>null</code>
+      * @return the package name or an empty string
++       The name is split into its parts at every package separator, and all of the parts except the last are joined again, separator by separator, to give the package name.
+      */
+     public static String getPackageName(String className) {
+         if (className == null || className.length() == 0) {
+             return StringUtils.EMPTY;
+         }
+-
+-        // Strip array encoding
+-        while (className.charAt(0) == '[') {
+-            className = className.substring(1);
+-        }
+-        // Strip Object type encoding
+-        if (className.charAt(0) == 'L' && className.charAt(className.length() - 1) == ';') {
+-            className = className.substring(1);
+-        }
+-
+-        int i = className.lastIndexOf(PACKAGE_SEPARATOR_CHAR);
+-        if (i == -1) {
+-            return StringUtils.EMPTY;
+-        }
+-        return className.substring(0, i);
++        return org.apache.commons.lang.text.StrBuilder.packagePrefix(className);
+     }
+ 
+     // Superclasses/Superinterfaces
+diff --git a/src/java/org/apache/commons/lang/StringUtils.java b/src/java/org/apache/commons/lang/StringUtils.java
+index 07783accf..60033be5d 100644
+--- a/src/java/org/apache/commons/lang/StringUtils.java
++++ b/src/java/org/apache/commons/lang/StringUtils.java
+@@ -21,6 +21,7 @@ import java.util.Collection;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
++import org.apache.commons.lang.time.DateUtils;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -748,6 +749,19 @@ public class StringUtils {
+         return str.indexOf(searchStr);
+     }
+ 
++    /**
++     * <p>Gets the package name from a class name, given the index of the
++     * last package separator in the name.</p>
++     *
++     * @param className  the class name to get the package name for, not null
++     * @param end  the index of the last package separator in the name
++     * @return the package name
++     */
++    public static String packageBefore(String className, int end) {
++        return DateUtils.packageSegment(className, end);
++    }
++
++
+     /**
+      * <p>Finds the n-th index within a String, handling <code>null</code>.
+      * This method uses {@link String#indexOf(String)}.</p>
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 56045f105..986fd59e8 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.StringUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -964,6 +965,20 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets the package name from a class name that contains a package
++     * separator.</p>
++     *
++     * <p>The package name ends at the last package separator of the name.</p>
++     *
++     * @param className  the class name to get the package name for, not null
++     * @return the package name
++     */
++    public static String classPackage(String className) {
++        return StringUtils.packageBefore(className, className.lastIndexOf(ClassUtils.PACKAGE_SEPARATOR_CHAR));
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> the detail of a
+      * <code>long</code> array.</p>
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index c823fecc3..9c2d086d6 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,8 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.ClassUtils;
++import org.apache.commons.lang.builder.ToStringStyle;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1478,6 +1480,22 @@ public class StrBuilder implements CharSequence, Appendable {
+         return insert(index, String.valueOf(value));
+     }
+ 
++    /**
++     * <p>Gets the package name from a class name.</p>
++     *
++     * <p>A name that contains no package separator gives the empty String.</p>
++     *
++     * @param className  the class name to get the package name for, not null
++     * @return the package name or an empty string
++     */
++    public static String packagePrefix(String className) {
++        if (className.indexOf(ClassUtils.PACKAGE_SEPARATOR_CHAR) == -1) {
++            return "";
++        }
++        return ToStringStyle.classPackage(className);
++    }
++
++
+     /**
+      * Inserts the value into this builder.
+      *
+diff --git a/src/java/org/apache/commons/lang/time/DateUtils.java b/src/java/org/apache/commons/lang/time/DateUtils.java
+index 1f0701740..7e06136c0 100644
+--- a/src/java/org/apache/commons/lang/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang/time/DateUtils.java
+@@ -1038,6 +1038,19 @@ public class DateUtils {
+         return iterator(gval, rangeStyle);
+     }
+ 
++    /**
++     * <p>Gets the package name from a class name, given the index of the
++     * last package separator in the name.</p>
++     *
++     * @param className  the class name to get the package name for, not null
++     * @param end  the index of the last package separator in the name
++     * @return the package name
++     */
++    public static String packageSegment(String className, int end) {
++        return FastDateFormat.packageUpTo(className, end);
++    }
++
++
+     /**
+      * <p>This constructs an <code>Iterator</code> over each day in a date
+      * range defined by a focus date and range style.</p>
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index 6bfa85354..b02905d05 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -1008,6 +1008,26 @@ public class FastDateFormat extends Format {
+         return total;
+     }
+ 
++    /**
++     * <p>Gets the package name from a class name, given the index of the
++     * last package separator in the name.</p>
++     *
++     * @param className  the class name to get the package name for, not null
++     * @param end  the index of the last package separator in the name
++     * @return the package name
++     */
++    public static String packageUpTo(String className, int end) {
++        int begin = 0;
++        while (className.charAt(begin) == '[') {
++            begin++;
++        }
++        if (className.charAt(begin) == 'L' && className.endsWith(";")) {
++            begin++;
++        }
++        return className.substring(begin, end);
++    }
++
++
+     /**
+      * <p>Gets a debugging string version of this formatter.</p>
+      * 

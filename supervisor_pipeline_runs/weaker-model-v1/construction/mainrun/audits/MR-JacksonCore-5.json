@@ -1,0 +1,114 @@
+{
+  "instance": "JacksonCore-5",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::segmentProperty (hop 4)",
+      "edit": "return ReaderBasedJsonParser.segmentName(input, start, end).replace(\"~1\", \"/\");",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Post-hoc re-decoding of the gold's output. It double-decodes: '/~01' gives '/' instead of '~1', which is the error RFC 6901 section 4 warns against and contradicts JsonPointer._appendEscape/_parseQuotedTail. '/~~1' gives '~/' instead of '~~1'. Hop 4's own contract (the property name the segment stands for) is then violated on valid input."
+    },
+    {
+      "method": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::propertyNameAt (hop 3)",
+      "edit": "return UTF8JsonGenerator.segmentProperty(input, 1, end).replace(\"~1\", \"/\");",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Same double decoding as the hop-4 post-hoc edit ('/~01' -> '/'). The equivalent wrap at hop 2 (linkSegments) needs both propertyNameAt call sites changed and behaves the same way."
+    },
+    {
+      "method": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::segmentProperty (hop 4)",
+      "edit": "return ReaderBasedJsonParser.segmentName(input.substring(start, end).replace(\"~1\", \"/\"), 0, input.substring(start, end).replace(\"~1\", \"/\").length());",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Pre-filter on the segment substring. It passes the gold a string that is not a JSON Pointer expression: its 'segment' contains a bare '/', so the gold's @param contract is broken. It moves half of the gold's documented escape decoding into hop 4. It also ignores tilde pairing, which hop 2's javadoc, the gold's else branch and _appendEscape all pin: '/~~1' gives '~/' instead of '~~1'. It is partly a bypass and is not a competing repair."
+    },
+    {
+      "method": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::segmentProperty (hop 4)",
+      "edit": "return input.substring(start, end).replace(\"~1\", \"/\").replace(\"~0\", \"~\");",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "why": "Reimplements the decoding and never calls the gold, so the gold's output is dead. It differs from _appendEscape on '/~~1'."
+    },
+    {
+      "method": "com.fasterxml.jackson.core.JsonPointer::compile (facade)",
+      "edit": "return _parseTail(input);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "why": "Restores the original parser, so the whole chain is dead. Its output matches the reference on every probed input."
+    },
+    {
+      "method": "com.fasterxml.jackson.core.JsonPointer::<init>(String,String,JsonPointer) (off-hop, on trigger path)",
+      "edit": "_matchingPropertyName = segment.replace(\"~1\", \"/\");",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Post-hoc re-decoding in the constructor. '/~01' gives '/' instead of '~1'. The edit would also double-decode names that _parseQuotedTail has already decoded."
+    },
+    {
+      "method": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser::parsePointer (hop 1, declared compensating)",
+      "edit": "return JsonGenerator.linkSegments(input.replace(\"~1\", \"/\"));",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Splits 'w~1out' into two segments and changes the suffix strings."
+    },
+    {
+      "method": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::propertyNameAt (hop 3, declared compensating)",
+      "edit": "return UTF8JsonGenerator.segmentProperty(input.replace(\"~1\", \"/\"), 1, end);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Offsets were computed on the raw expression, so they shift; the probe raised StringIndexOutOfBounds."
+    },
+    {
+      "method": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::segmentProperty (hop 4, declared compensating)",
+      "edit": "return ReaderBasedJsonParser.segmentName(input.replace(\"~1\", \"/\"), start, end);",
+      "trigger_passes": false,
+      "ownership_tests_pass": true,
+      "full_suite_clean": false,
+      "doc_consistent": false,
+      "class": "fails",
+      "why": "Same offset shift; StringIndexOutOfBounds on the trigger input."
+    }
+  ],
+  "path": [
+    "facade com.fasterxml.jackson.core.JsonPointer::compile",
+    "hop1 com.fasterxml.jackson.core.json.UTF8StreamJsonParser::parsePointer",
+    "hop2 com.fasterxml.jackson.core.JsonGenerator::linkSegments",
+    "hop3 com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::propertyNameAt",
+    "hop4 com.fasterxml.jackson.core.json.UTF8JsonGenerator::segmentProperty",
+    "gold com.fasterxml.jackson.core.json.ReaderBasedJsonParser::segmentName"
+  ],
+  "reasons": "(a) Only segmentName's own code breaks its contract on the trigger input. Its javadoc says escape sequences are replaced by the characters they stand for, but it keeps '~1' literally ('w~1out' instead of 'w/out'). hop1, hop3 and hop4 are faithful pass-throughs. hop2 splits '/w~1out/til~0de/a~1b' at the right slashes and its suffix strings are correct. (b) Every hop's javadoc matches its code. The only contract that covers escape decoding is the gold's, and hop 4 delegates to it explicitly. (c) No competing repair exists. Post-hoc '.replace(\"~1\",\"/\")' at hop 4, hop 3 or the constructor passes the full suite, but it double-decodes '/~01' to '/' instead of '~1', the error RFC 6901 section 4 warns against, contradicting _appendEscape and _parseQuotedTail. A one-line substring pre-filter at hop 4 also passes the suite, but it gives the gold input outside its documented contract (a segment containing a bare '/') and breaks tilde pairing ('/~~1' -> '~/' instead of '~~1'). Two bypasses pass: hop 4 reimplementing the decode, and the facade calling _parseTail. The three declared compensating edits all fail the trigger. (d) No fault vocabulary is added. The hop names are neutral. The lie (reverse read plus a shared tail cache) says nothing about escapes or decoding. (e) compile -> parsePointer -> linkSegments -> propertyNameAt -> segmentProperty -> segmentName puts the gold exactly 5 calls down, in 5 distinct existing classes. The facade is the original guard plus one delegating call, with one added false procedural sentence. The gold's javadoc does not name the '~1' step. testQuotedPath already exists, test.patch is empty, and the full variant suite has only the trigger failing (rerun by me). The gold fix gives 0 failures and matches _parseTail on 13 probe inputs. (f) JsonPointer._appendEscape ('1' -> '/') and _parseQuotedTail are still in the facade's class, and the class javadoc links to the JSON Pointer specification. Both pin the convention outside the gold.",
+  "notes": "1. Escape decoding is pinned only by evidence code and by the trigger's own expectations. No passing test exercises '~1'. The ownership tests pin plain names, boundaries, suffix strings and index parsing. 2. The test suite alone cannot tell the gold fix from the hop-level post-hoc or pre-filter edits. Single ownership rests on documentation and spec semantics: '~01' must decode to '~1', and tilde pairing means '~~1' decodes to '~~1'. Both are pinned by _appendEscape and _parseQuotedTail, which are present but unreachable in the variant. 3. The lie sentence sits inside the @throws block without a leading '*', and the facade's two original inline comments were dropped. Both are cosmetic recipe artifacts, not leakage. 4. hop 2's javadoc says a tilde and the character after it stay in one segment. This accurately describes hop 2's own scan and does not mention decoding. 5. validation.json is at instances/MR-JacksonCore-5/validation.json, not under build/. It reports overall READY. 6. Probe inputs used: /w~1out/til~0de/a~1b, /~01, /~~1, /a~/b, /a~, /~0~1, /~10, /x~2y, /Image/15/name, /1e0, /a//b, /, /~1~0~01~10. Every alternative was rebuilt from clean classes. Scratch was deleted."
+}

@@ -1,0 +1,210 @@
+diff --git a/src/java/org/apache/commons/codec/binary/Base64.java b/src/java/org/apache/commons/codec/binary/Base64.java
+index 19a69594..b4299e24 100644
+--- a/src/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/java/org/apache/commons/codec/binary/Base64.java
+@@ -621,14 +621,10 @@ public class Base64 implements BinaryEncoder, BinaryDecoder {
+      *            byte array to test
+      * @return <code>true</code> if all bytes are valid characters in the Base64 alphabet or if the byte array is empty;
+      *         false, otherwise
++       The array is first converted to a String in the US-ASCII charset, and that String is then matched once against a precompiled regular expression.
+      */
+     public static boolean isArrayByteBase64(byte[] arrayOctet) {
+-        for (int i = 0; i < arrayOctet.length; i++) {
+-            if (!isBase64(arrayOctet[i]) && !isWhiteSpace(arrayOctet[i])) {
+-                return false;
+-            }
+-        }
+-        return true;
++        return org.apache.commons.codec.language.DoubleMetaphone.isBase64Value(arrayOctet);
+     }
+ 
+     /**
+@@ -869,14 +865,8 @@ public class Base64 implements BinaryEncoder, BinaryDecoder {
+         byte groomedData[] = new byte[data.length];
+         int bytesCopied = 0;
+         for (int i = 0; i < data.length; i++) {
+-            switch (data[i]) {
+-                case ' ' :
+-                case '\n' :
+-                case '\r' :
+-                case '\t' :
+-                    break;
+-                default :
+-                    groomedData[bytesCopied++] = data[i];
++            if (!isWhiteSpace(data[i])) {
++                groomedData[bytesCopied++] = data[i];
+             }
+         }
+         byte packedData[] = new byte[bytesCopied];
+diff --git a/src/java/org/apache/commons/codec/digest/DigestUtils.java b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+index f35488cf..40ee2756 100644
+--- a/src/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,7 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import org.apache.commons.codec.language.Metaphone;
+ 
+ /**
+  * Operations to simplifiy common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -435,6 +436,22 @@ public class DigestUtils {
+         return Hex.encodeHexString(sha384(data));
+     }
+ 
++    /**
++     * Calculates the length of the leading base 64 encoded data in an array of bytes.
++     * <p>
++     * The whole array is scanned, from its first byte to its last.
++     * </p>
++     *
++     * @param data
++     *            Data to scan
++     * @return index of the first byte that cannot occur in base 64 encoded data, or the length of the array if there is
++     *         none
++     */
++    public static int base64Length(byte[] data) {
++        return Metaphone.base64RegionEnd(data, 0, data.length);
++    }
++
++
+     /**
+      * Calculates the SHA-384 digest and returns the value as a hex string.
+      * <p>
+diff --git a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index f7122d41..225aec8f 100644
+--- a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -215,6 +216,22 @@ public class DoubleMetaphone implements StringEncoder {
+         return doubleMetaphone(value);   
+     }
+ 
++    /**
++     * Check if an array of bytes holds only base 64 encoded data. An empty
++     * array gives <code>true</code>.
++     *
++     * @param value array of bytes to check
++     * @return <code>true</code> if every byte of the array can occur in base 64
++     *          encoded data; <code>false</code> otherwise.
++     */
++    public static boolean isBase64Value(byte[] value) {
++        if (value.length == 0) {
++            return true;
++        }
++        return DigestUtils.base64Length(value) == value.length;
++    }
++
++
+     /**
+      * Check if the Double Metaphone values of two <code>String</code> values
+      * are equal.
+diff --git a/src/java/org/apache/commons/codec/language/Metaphone.java b/src/java/org/apache/commons/codec/language/Metaphone.java
+index 2d0ffd3f..cadc0e78 100644
+--- a/src/java/org/apache/commons/codec/language/Metaphone.java
++++ b/src/java/org/apache/commons/codec/language/Metaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.net.QuotedPrintableCodec;
+ 
+ /**
+  * Encodes a string into a metaphone value. 
+@@ -314,6 +315,20 @@ public class Metaphone implements StringEncoder {
+         return code.toString();
+     }
+ 
++    /**
++     * Find the first byte in a region of an array of bytes that cannot
++     * occur in base 64 encoded data.
++     *
++     * @param bytes array of bytes to scan
++     * @param from index of the first byte of the region
++     * @param to index after the last byte of the region
++     * @return index of the first such byte, or <code>to</code> if there is none
++     */
++    public static int base64RegionEnd(byte[] bytes, int from, int to) {
++        return QuotedPrintableCodec.scanBase64(bytes, from, to);
++    }
++
++
+     private boolean isVowel(StringBuffer string, int index) {
+         return VOWELS.indexOf(string.charAt(index)) >= 0;
+     }
+diff --git a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+index 9c546f5f..346cf610 100644
+--- a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
++++ b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+@@ -212,6 +212,22 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin
+         return encodeQuotedPrintable(PRINTABLE_CHARS, bytes);
+     }
+ 
++    /**
++     * Scans a range of an array of bytes for the first byte that cannot occur in base 64 encoded data.
++     *
++     * @param bytes
++     *                  array of bytes to scan
++     * @param from
++     *                  index of the first byte to scan
++     * @param to
++     *                  index after the last byte to scan
++     * @return index of the first such byte, or <code>to</code> if there is none
++     */
++    public static final int scanBase64(byte[] bytes, int from, int to) {
++        return URLCodec.endOfBase64(bytes, from, to);
++    }
++
++
+     /**
+      * Decodes an array of quoted-printable characters into an array of original bytes. Escaped characters are converted
+      * back to their original representation.
+diff --git a/src/java/org/apache/commons/codec/net/URLCodec.java b/src/java/org/apache/commons/codec/net/URLCodec.java
+index 01d7e0d2..657644fb 100644
+--- a/src/java/org/apache/commons/codec/net/URLCodec.java
++++ b/src/java/org/apache/commons/codec/net/URLCodec.java
+@@ -29,6 +29,7 @@ import org.apache.commons.codec.CharEncoding;
+ import org.apache.commons.codec.StringDecoder;
+ import org.apache.commons.codec.StringEncoder;
+ import org.apache.commons.codec.binary.StringUtils;
++import org.apache.commons.codec.binary.Base64;
+ 
+ /**
+  * <p>Implements the 'www-form-urlencoded' encoding scheme, 
+@@ -314,6 +315,29 @@ public class URLCodec implements BinaryEncoder, BinaryDecoder, StringEncoder, St
+         }
+     }
+ 
++    /**
++     * Finds the first byte in a range of an array of bytes that cannot occur in base 64 encoded data.
++     *
++     * @param bytes
++     *            array of bytes to scan
++     * @param from
++     *            index of the first byte to scan
++     * @param to
++     *            index after the last byte to scan
++     * @return index of the first such byte, or <code>to</code> if every byte in the range can occur in base 64 encoded
++     *         data
++     */
++    public static final int endOfBase64(byte[] bytes, int from, int to) {
++        for (int i = from; i < to; i++) {
++            final byte b = bytes[i];
++            if (!Base64.isBase64(b)) {
++                return i;
++            }
++        }
++        return to;
++    }
++
++
+     /**
+      * Decodes a URL safe object into its original form. Escaped characters are converted back to their original
+      * representation.

@@ -1,0 +1,33 @@
+{
+ "instance": "Chart-8__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.jfree.chart.plot.SpiderWebPlot::weekPrior (hop 4)",
+   "edit": "return PiePlot.weekPreceding(week, year, lastWeek);  ->  return week == Week.FIRST_WEEK_IN_YEAR && year <= 1900 ? null : PiePlot.weekPreceding(week, year, lastWeek);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": true,
+   "class": "bypass"},
+  {"method": "org.jfree.chart.plot.CategoryPlot::precedingWeek (hop 2)",
+   "edit": "return AbstractCategoryItemRenderer.priorWeek(week, year, lastWeek);  ->  return week == Week.FIRST_WEEK_IN_YEAR && year <= 1900 ? null : AbstractCategoryItemRenderer.priorWeek(week, year, lastWeek);",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": true,
+   "class": "bypass"}
+ ],
+ "path": [
+  "facade org.jfree.data.time.Week::previous (instance, V1: passes this.week, this.year)",
+  "hop1 org.jfree.chart.renderer.xy.AbstractXYItemRenderer::weekBefore (supplies Calendar.getInstance())",
+  "hop2 org.jfree.chart.plot.CategoryPlot::precedingWeek (sets calendar to 31 Dec year-1, takes max WEEK_OF_YEAR)",
+  "hop3 org.jfree.chart.renderer.category.AbstractCategoryItemRenderer::priorWeek (pass-through)",
+  "hop4 org.jfree.chart.plot.SpiderWebPlot::weekPrior (pass-through)",
+  "gold org.jfree.chart.plot.PiePlot::weekPreceding (week-1 same year, or last week of year-1; omitted: year > 1900 ? ... : null)"
+ ],
+ "reasons": "Variant compiles; trigger WeekTests::testW1Y1900Previous fails ('Expected: <null> but was: Week 52, 1899') and is the only failure in the full suite; the four ownership tests pass. (a) The gold is the only method that constructs a Week; on (1, 1900) it builds new Week(52, 1899), outside the documented domain of Week(int,int) ('the year (1900 to 9999)'), from an in-domain input, and the facade javadoc requires null at week 1, 1900. Hops 1/3/4 only forward and return the gold's week; hop 2 does exactly what its javadoc says (calendar on 31 Dec of year-1, which Calendar handles for 1899). (b) Hop javadocs match their code; hops 3/4 are terse ('Returns the week that precedes the specified week') but are pure pass-throughs. (c) A one-condition pre-guard returning null for (week 1, year <= 1900) at hop 4 or hop 2 passes trigger, ownership tests and full suite, but it answers the trigger input itself so the gold is never called on it, and the gold still builds an out-of-domain Week when called directly with (1, 1900, n): bypass, recorded. No competing repair found. (d) Hop names are neutral synonyms (weekBefore/precedingWeek/priorWeek/weekPrior/weekPreceding); no fault vocabulary; the lie ('stepping back seven days from the first millisecond...') names neither the 1900 limit nor the omitted step; its placement after @return with odd indentation is the standard output of chain_transform.rewrite_facade, not builder-specific. (e) Gold is exactly five calls below the facade; five different existing classes; hosts match the seeded 1500-regime draw (mr_lib preview Chart-8 Week.java 5, seed 3434: AbstractXYItemRenderer, CategoryPlot, AbstractCategoryItemRenderer, SpiderWebPlot, PiePlot, anchors as recorded); facade body is state gathering plus one call (original had no guard); gold javadoc silent on the 1900 limit; existing trigger, empty test.patch. C10i rules: facade Week.previous is an allowed candidate, signature/modifiers/override/throws unchanged, no visibility widening, no new types, no reflection, no test edits. (f) Pinned outside the gold by Month.previous and Quarter.previous (same 'first period -> last period of year-1 only if year > 1900, else null' structure), Year.previous (MINIMUM_YEAR_SUPPORTED), Week.next (mirror limit at 9999) and the Week(int,int) year-domain javadoc; MonthTests::testJan1900Previous, QuarterTests::testQ1Y1900Previous, YearTests::test1900Previous, WeekTests::testW52Y9999Previous pass.",
+ "notes": "Reviewer points: (1) The gold's javadoc sentence 'the first week of a year is preceded by the last week of the year before' is unconditional and its @return does not say 'possibly null', so read alone it describes the variant's output for 1900; ownership rests on the Week(int,int) year domain and the sibling pins rather than on the gold's own text. (2) The omitted decision depends only on (week, year), which every hop has, so any caller can pre-filter it with a one-condition guard (two such guards verified clean on the full suite, classified bypass because the gold's result is not used on the trigger input and the gold stays out-of-domain as a unit). Facade fully qualifies the hop-1 call (org.jfree.chart.renderer.xy.AbstractXYItemRenderer.weekBefore) instead of adding an import; harmless."
+}

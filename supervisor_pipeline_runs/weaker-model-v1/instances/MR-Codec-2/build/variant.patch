@@ -1,0 +1,188 @@
+diff --git a/src/java/org/apache/commons/codec/binary/Base64.java b/src/java/org/apache/commons/codec/binary/Base64.java
+index dc2ecfc1..c615dd13 100644
+--- a/src/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/java/org/apache/commons/codec/binary/Base64.java
+@@ -719,22 +719,13 @@ public class Base64 implements BinaryEncoder, BinaryDecoder {
+      *
+      * @param base64Data Byte array containing Base64 data
+      * @return Array containing decoded data.
++       The data is first split into lines at each CRLF, each line is decoded on its own into a separate array, and these arrays are then joined in order.
+      */
+     public static byte[] decodeBase64(byte[] base64Data) {
+         if (base64Data == null || base64Data.length == 0) {
+             return base64Data;
+         }
+-        Base64 b64 = new Base64();
+-        long len = (base64Data.length * 3) / 4;
+-        byte[] buf = new byte[(int) len];
+-        b64.setInitialBuffer(buf, 0, buf.length);
+-        b64.decode(base64Data, 0, base64Data.length);
+-        b64.decode(base64Data, 0, -1); // Notify decoder of EOF.
+-        // We have no idea what the line-length was, so we
+-        // cannot know how much of our array wasn't used.
+-        byte[] result = new byte[b64.pos];
+-        b64.readResults(result, 0, result.length);
+-        return result;
++        return org.apache.commons.codec.language.DoubleMetaphone.decodeToOctets(base64Data);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/codec/digest/DigestUtils.java b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+index 3fc72bc0..c540c74f 100644
+--- a/src/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -23,6 +23,7 @@ import java.security.MessageDigest;
+ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
++import org.apache.commons.codec.language.Metaphone;
+ 
+ /**
+  * Operations to simplifiy common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -442,6 +443,22 @@ public class DigestUtils {
+         return sha512(data.getBytes());
+     }
+ 
++    /**
++     * Decodes Base64 data into octets, using the given array as a buffer.
++     * The decoded octets are returned in a new array of their own length.
++     *
++     * @param base64Data byte array containing Base64 data, not null
++     * @param buffer array to receive the decoded octets, not null
++     * @return array containing the decoded octets
++     */
++    public static byte[] decodedOctets(byte[] base64Data, byte[] buffer) {
++        final int length = Metaphone.decodeOctetsInto(base64Data, buffer);
++        final byte[] octets = new byte[length];
++        System.arraycopy(buffer, 0, octets, 0, length);
++        return octets;
++    }
++
++
+     /**
+      * Calculates the SHA-512 digest and returns the value as a <code>byte[]</code>.
+      * <p>
+diff --git a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index 51868951..4b558f4a 100644
+--- a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -254,6 +255,20 @@ public class DoubleMetaphone implements StringEncoder {
+         return this.maxCodeLen;
+     }
+ 
++    /**
++     * Decodes Base64 data into octets.
++     *
++     * <p>The data is decoded into an array of three octets for every four
++     * bytes of data.</p>
++     *
++     * @param base64Data byte array containing Base64 data, not null
++     * @return array containing the decoded octets
++     */
++    public static byte[] decodeToOctets(byte[] base64Data) {
++        return DigestUtils.decodedOctets(base64Data, new byte[(base64Data.length * 3) / 4]);
++    }
++
++
+     /**
+      * Sets the maxCodeLen.
+      * @param maxCodeLen The maxCodeLen to set
+diff --git a/src/java/org/apache/commons/codec/language/Metaphone.java b/src/java/org/apache/commons/codec/language/Metaphone.java
+index b8783fab..9f1991b5 100644
+--- a/src/java/org/apache/commons/codec/language/Metaphone.java
++++ b/src/java/org/apache/commons/codec/language/Metaphone.java
+@@ -19,6 +19,7 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import org.apache.commons.codec.net.QuotedPrintableCodec;
+ 
+ /**
+  * Encodes a string into a metaphone value. 
+@@ -313,6 +314,18 @@ public class Metaphone implements StringEncoder {
+         return code.toString();
+     }
+ 
++    /**
++     * Decodes Base64 data into the given array of octets.
++     *
++     * @param base64Data byte array containing Base64 data, not null
++     * @param octets array to receive the decoded octets, not null
++     * @return the number of decoded octets
++     */
++    public static int decodeOctetsInto(byte[] base64Data, byte[] octets) {
++        return QuotedPrintableCodec.decodeBase64Octets(base64Data, octets);
++    }
++
++
+     private boolean isVowel(StringBuffer string, int index) {
+         return VOWELS.indexOf(string.charAt(index)) >= 0;
+     }
+diff --git a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+index 92cfc463..8eaa8a1e 100644
+--- a/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
++++ b/src/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+@@ -213,6 +213,18 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin
+         return encodeQuotedPrintable(PRINTABLE_CHARS, bytes);
+     }
+ 
++    /**
++     * Decodes an array of Base64 data into the given array of octets.
++     *
++     * @param base64Data byte array containing Base64 data
++     * @param octets array to receive the decoded octets
++     * @return the number of decoded octets
++     */
++    public static int decodeBase64Octets(byte[] base64Data, byte[] octets) {
++        return URLCodec.decodeOctets(base64Data, octets);
++    }
++
++
+     /**
+      * Decodes an array of quoted-printable characters into an array of original bytes. Escaped characters are converted
+      * back to their original representation.
+diff --git a/src/java/org/apache/commons/codec/net/URLCodec.java b/src/java/org/apache/commons/codec/net/URLCodec.java
+index b7fd03cb..1b075abc 100644
+--- a/src/java/org/apache/commons/codec/net/URLCodec.java
++++ b/src/java/org/apache/commons/codec/net/URLCodec.java
+@@ -142,6 +142,32 @@ public class URLCodec implements BinaryEncoder, BinaryDecoder, StringEncoder, St
+         return buffer.toByteArray(); 
+     }
+ 
++    /**
++     * Decodes Base64 data into octets.
++     *
++     * @param base64Data byte array containing Base64 data
++     * @param octets array to receive the decoded octets
++     * @return the number of decoded octets
++     */
++    public static int decodeOctets(byte[] base64Data, byte[] octets) {
++        int bits = 0;
++        int bitCount = 0;
++        int pos = 0;
++        for (int i = 0; i < base64Data.length && base64Data[i] != '='; i++) {
++            int value = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".indexOf(base64Data[i]);
++            if (value >= 0) {
++                bits = (bits << 6) | value;
++                bitCount += 6;
++                if (bitCount >= 8) {
++                    bitCount -= 8;
++                    octets[pos++] = (byte) (bits >> bitCount);
++                }
++            }
++        }
++        return pos;
++    }
++
++
+ 
+     /**
+      * Decodes an array of URL safe 7-bit characters into an array of 

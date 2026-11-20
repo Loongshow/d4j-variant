@@ -1,0 +1,35 @@
+{
+ "instance": "Math-98__i",
+ "iid": "MI-Math-98",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "GraggBulirschStoerIntegrator::copyEntries (hop 4)",
+   "edit": "replace the single delegating return with a loop: copied[i] = Complex.gatherEntries(entries, width, new int[] {rows[i]}, columns)[0] for each i; return copied (4 statements)",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "note": "route-around: restricts the gold to its single-row case so its multi-row path is never exercised; the gold still violates its own javadoc for any multi-row selection, and the edit is a multi-statement restructuring, not an equally small repair"},
+  {"method": "TTestImpl::subMatrixOf (hop 1)", "edit": "declared G9 compensator: copying BigMatrixImpl constructor", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": false, "doc_consistent": true, "class": "fails"},
+  {"method": "MathUtils::entriesAt (hop 3)", "edit": "declared G9 compensator: width from last row; also reasoned: no one-line layout/stride/width change can compensate because the misplacement (-columns[last] for selection index i >= 1 only) depends on the selection position, not the matrix row", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": false, "doc_consistent": true, "class": "fails"},
+  {"method": "GraggBulirschStoerIntegrator::copyEntries (hop 4)", "edit": "declared G9 compensator: pass a clone of columns", "trigger_passes": false, "ownership_tests_pass": true, "full_suite_clean": false, "doc_consistent": true, "class": "fails"}
+ ],
+ "path": [
+  "facade org.apache.commons.math.linear.BigMatrixImpl::getSubMatrix(int[], int[]) (instance, V1: guard + passes field data)",
+  "hop1 org.apache.commons.math.stat.inference.TTestImpl::subMatrixOf",
+  "hop2 org.apache.commons.math.geometry.Rotation::selectEntries",
+  "hop3 org.apache.commons.math.util.MathUtils::entriesAt",
+  "hop4 org.apache.commons.math.ode.GraggBulirschStoerIntegrator::copyEntries",
+  "gold org.apache.commons.math.complex.Complex::gatherEntries"
+ ],
+ "reasons": "(a) Only gatherEntries reads entries; its javadoc promises entry (i,j) = matrix[rows[i]][columns[j]], and without the per-row reset of the column cursor rows after the first are read from position rows[i]*width + columns[j] - columns[last]; on {0,2}/{1,3} it yields {{2,4},{3.5,2}} instead of {{2,4},{4,8}}. Hops 1-4 javadocs match their code (wrap without copy, index checks before any read, row-by-row layout plus width, pass-through). (b) No hop doc contradicts its code or describes behaviour consistent with the observed misplacement. (c) No one-line hop edit can undo a selection-position-dependent offset; the declared compensators fail (G9); the only passing alternative found is a multi-statement per-row route-around at hop 4 that leaves the gold violating its own contract (recorded as bypass). (d) Neutral names (gathered, line, position, column); facade lie describes a column-major traversal and names neither the reset nor any hop; no fault vocabulary. (e) Five calls below the facade, five distinct existing classes exactly matching hosts_hop_order of Math-98__i (TTestImpl 1059, Rotation 1057, MathUtils 1041, GraggBulirschStoerIntegrator 1020, Complex 877; largest5, facade files BigMatrixImpl/RealMatrixImpl excluded); facade = original guard + one delegating call; one appended lie sentence; gold javadoc silent on the reset; trigger BigMatrixImplTest::testSubMatrix is existing, test.patch empty, and my full-suite run on the variant shows it as the only failure. (f) Convention pinned by intact RealMatrixImpl.getSubMatrix(int[],int[]), BigMatrixImpl.getEntry/getRowMatrix and passing RealMatrixImplTest::testSubMatrix, BigMatrixImplTest::testGetRowMatrix/testGetColumnMatrix. (g) No visibility widened (protected data read inside its own class), no new type, no reflection, facade signature/modifiers/throws unchanged, no test edited.",
+ "notes": "Compile OK; trigger fails with 'Rows02Cols13 expected:<BigMatrixImpl{{2,4},{4,8}}> but was:<BigMatrixImpl{{2,4},{3.5,2}}>'; full suite on variant: 1 failure (trigger only). Cosmetic: the lie line is appended after the @exception tag without a leading '*', and hops 2 and 4 (inserted at class end) have over-indented '/**' openers; neither points at the gold. Hop 2's explicit index checks replace the original's ArrayIndexOutOfBounds catch; all bad-index assertions still pass. The gold keeps the column cursor declared at method scope, so the missing reset is the visible omission; whether that is a local trace is for the trace checker, not this audit. Scratch /private/tmp/mxb-BOmi5A deleted."
+}

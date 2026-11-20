@@ -1,0 +1,66 @@
+{
+ "instance": "MI-Collections-27",
+ "task_key": "Collections-27__i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.collections4.IteratorUtils::copyMappings (hop 4)",
+   "edit": "before `AbstractHashedMap.addAllEntries(target, map);` insert `if (map instanceof org.apache.commons.collections4.MultiMap) { for (final Map.Entry<? extends K, ?> e : map.entrySet()) { for (final Object v : (Collection<?>) e.getValue()) { AbstractHashedMap.addAllEntries(target, java.util.Collections.singletonMap(e.getKey(), v)); } } return; }`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass",
+   "why": "hop 4 re-implements the gold's per-entry multi-map expansion (instanceof dispatch + iteration over each entry's collection) and feeds the gold degenerate singleton maps; much larger than the gold's branch restore, and the gold still violates its own javadoc when handed a multi map"
+  },
+  {
+   "method": "org.apache.commons.collections4.map.MultiValueMap::put (called by the gold)",
+   "edit": "first line of put: `if (value instanceof Collection) { return putAll(key, (Collection<V>) value) ? value : null; }`",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "fails",
+   "why": "contradicts put's javadoc (the value itself is added to the collection at the key; a Collection is a legal value) and changes public API semantics for every caller"
+  },
+  {
+   "method": "org.apache.commons.collections4.CollectionUtils::addAllMappings (hop 2), declared compensating edit",
+   "edit": "`if (map instanceof MultiMap) { target.putAll(map); return; } MapUtils.putAllMappings(target, map);`",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails",
+   "why": "re-enters the facade (infinite recursion); G9 records trigger still failing"
+  },
+  {
+   "method": "org.apache.commons.collections4.IteratorUtils::copyMappings (hop 4), declared compensating edit",
+   "edit": "`AbstractHashedMap.addAllEntries(target, new java.util.HashMap<K, Object>(map));`",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails",
+   "why": "a plain map still holds one collection per key; G9 records trigger still failing"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.collections4.map.MultiValueMap::putAll(Map) [instance, V2: passes this + map]",
+  "hop1 org.apache.commons.collections4.bidimap.TreeBidiMap::putAllValues",
+  "hop2 org.apache.commons.collections4.CollectionUtils::addAllMappings",
+  "hop3 org.apache.commons.collections4.MapUtils::putAllMappings",
+  "hop4 org.apache.commons.collections4.IteratorUtils::copyMappings",
+  "gold org.apache.commons.collections4.map.AbstractHashedMap::addAllEntries"
+ ],
+ "reasons": "Variant compiles; trigger MultiValueMapTest::testPutAll_Map1 fails (expected:<4> but was:<3>); the three ownership tests pass; full suite on the variant fails only the trigger. (a) The gold alone iterates the source map and decides how each entry is added; its javadoc promises every value of the specified map is added to the collection at its key, and for the MultiValueMap source (whose values() is the combination of all keys' values) it adds the collection [object1, object2] as one value. Hops 1-4 are single pass-through calls whose identical contracts fail only by delegation. (b) Hop javadocs match their one-line bodies; none claims a dispatch it does not do. (c) No competing repair: a hop-4 flattening workaround that calls the gold once per value on singleton maps passes trigger, ownership tests and full suite, but it re-implements the gold's per-entry multi-map handling, is far larger than the gold fix, and leaves the gold's own contract violated for multi-map input, so it is recorded as a bypass; changing MultiValueMap.put to expand Collection values passes the suite but contradicts put's javadoc; the two declared compensating edits do not pass the trigger. (d) Names neutral (putAllValues/addAllMappings/putAllMappings/copyMappings/addAllEntries), no fault vocabulary, the gold variant mentions no multi-map type; the lie ('first sorted by key into a temporary list ... merged one key at a time') is procedural, false, and names neither the fault nor any hop. (e) Gold exactly five calls below the facade; five different existing classes equal to hosts_hop_order of the batch-9 task record (largest5: TreeBidiMap 2228, CollectionUtils 1892, MapUtils 1797, IteratorUtils 1523, AbstractHashedMap 1389, the facade file MultiValueMap excluded), anchors reproduce pick_insertion_anchor with seeds 7209-7213 (nextKey, sizeIsEmpty, populateMap, filteredListIterator, values); facade body is one delegating call (the original had no guard); one appended lie sentence; gold javadoc silent on the multi-map step; existing trigger, empty test.patch, only it newly fails. (f) Pinned outside the gold by the facade's own pre-existing javadoc (multi map entries added via putAll(Object,Collection)), AbstractMultiValuedMap.putAll(MultiValuedMap) (put once per k->v mapping), MultiValueMap.putAll(K,Collection), values()/totalSize(), and passing tests MultiValuedHashMapTest::testPutAll_Map1, MultiValueMapTest::testPutAll_KeyCollection, testValues. (g) C10i rules: facade is the allowed instance method MultiValueMap.putAll, signature/@Override/@SuppressWarnings/public/no throws unchanged; V2 receiver (this typed MultiValueMap) and the gold calls only its public put/putAll(K,Collection); no visibility widened, no new type (no anonymous class), no reflection, no test edited.",
+ "notes": "Bypass recorded: hop-4 flattening into per-value singleton maps (exact edit above). It shows a caller can, with a multi-statement workaround, pre-split the input so the gold never sees a multi map; the ownership_reason's 'no one-line change of the arguments' claim holds only for a single call. Gold name 'addAllEntries' mildly fits entry-wise behaviour, but its javadoc governs. The facade keeps @SuppressWarnings(\"unchecked\") though its body no longer casts (required by the unchanged-modifiers rule). Note for re-runners: copying a compiled checkout and editing within the same second can leave stale classes (ant timestamp check); delete target/classes before recompiling."
+}

@@ -1,0 +1,54 @@
+{
+ "instance": "MI-JacksonDatabind-33",
+ "task_key": "JacksonDatabind-33__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "ObjectReader.enumNameOverride (hop 4)",
+   "edit": "return BasicDeserializerFactory.annotatedEnumName(value); -> try { JsonProperty p = value.getClass().getField(value.name()).getAnnotation(JsonProperty.class); return (p == null) ? null : p.value(); } catch (NoSuchFieldException e) { return null; }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": true,
+   "class": "bypass"
+  },
+  {
+   "method": "BeanDeserializerBase.enumPropertyName (hop 1)",
+   "edit": "value.name() -> value.name().toLowerCase() in the fallback",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "ObjectReader.enumNameOverride (hop 4)",
+   "edit": "pass value.getDeclaringClass().getEnumConstants()[value.ordinal()] to the gold (normalising the constant)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade JacksonAnnotationIntrospector.findEnumValue (instance, @Override, V0: no state, one call)",
+  "hop1 BeanDeserializerBase.enumPropertyName",
+  "hop2 ObjectMapper.findExplicitEnumName",
+  "hop3 TokenBuffer.explicitEnumText",
+  "hop4 ObjectReader.enumNameOverride",
+  "gold BasicDeserializerFactory.annotatedEnumName"
+ ],
+ "reasons": "Variant compiles; trigger TestEnumDeserialization::testEnumWithJsonPropertyRename fails with expected:<[\"[b]\",\"a\"]> but was:<[\"[B]\",\"a\"]>; the three ownership tests pass. (a) Only the gold violates its contract: it promises the @JsonProperty value on the constant's field, but for bodied constant B it scans the anonymous subclass's declared fields and returns null. Hops 1-4 receive only the constant and pass/normalise the gold's result, each consistent with its javadoc (null->name(), SecurityException->null, empty->null, pass-through). (c) Every hop hands the gold the same constant object, so no hop can make the gold look in the declaring type; the only passing non-gold edit found re-implements the annotation lookup in hop 4 (bypass). (e) Gold is the fifth call below the facade; five distinct existing classes; hosts match the seeded 1500-regime draw (mr_lib preview seed 7903: BeanDeserializerBase, ObjectMapper, TokenBuffer, ObjectReader, BasicDeserializerFactory; anchors 8003-8007 match); facade body is one delegating call; one appended lie sentence (read-once table) the code does not do; gold javadoc silent on the superclass step; G5 shows only the trigger newly fails. (f) ClassUtil.findEnumType(Enum)/(Class) take the superclass when it is not Enum ('enums with body are sub-classes of the formal type'), used by EnumValues.constructFromName/ToString; ClassNameIdResolver._idFrom does the same; TestClassUtil::testFindEnumType and both testSubclassedEnums pass. (g) No visibility widened, no new type, signature/@Override/throws of findEnumValue unchanged, test.patch empty.",
+ "notes": "The gold's java.lang.reflect use (getDeclaredFields/getAnnotation) is the original facade's own computation (getField/getAnnotation) carried into hop 5, not reflection used to reach private state; no setAccessible. Judged not a breach of the C10i 'no reflection' rule, but a strict literal reading would differ. The gold changes the original lookup from getField (inherited) to getDeclaredFields, which is what makes the superclass step necessary. The lie line lacks a leading '*' (rewrite_facade artifact), cosmetic only. Hop 2's javadoc mentions 'the fields of the enum type', mildly echoing the convention, in a decoy, not the gold. Facade reuse of JacksonDatabind-21__i recorded in the task record."
+}

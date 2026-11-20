@@ -1,0 +1,221 @@
+diff --git a/source/org/jfree/chart/ChartPanel.java b/source/org/jfree/chart/ChartPanel.java
+index 8cd4286..1b6a72e 100644
+--- a/source/org/jfree/chart/ChartPanel.java
++++ b/source/org/jfree/chart/ChartPanel.java
+@@ -190,6 +190,8 @@ import org.jfree.chart.plot.PlotOrientation;
+ import org.jfree.chart.plot.PlotRenderingInfo;
+ import org.jfree.chart.plot.Zoomable;
+ import org.jfree.chart.ui.ExtensionFileFilter;
++import java.util.List;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * A Swing GUI component for displaying a {@link JFreeChart} object.
+@@ -798,6 +800,34 @@ public class ChartPanel extends JPanel implements ChartChangeListener,
+         return this.popup;
+     }
+ 
++    /**
++     * Removes the oldest items from a time series until the timespan from the
++     * oldest to the youngest item is no more than the given maximum age.
++     *
++     * @param series  the time series (<code>null</code> not permitted).
++     * @param data  the list of data items in the series.
++     * @param maximumAge  the maximum item age (in time periods).
++     * @param notify  notify listeners?
++     */
++    public static void removeOldItems(TimeSeries series, List data,
++            long maximumAge, boolean notify) {
++        int count = series.getItemCount();
++        if (count < 2) {
++            return;
++        }
++        long latest = series.getTimePeriod(count - 1).getSerialIndex();
++        if (latest - series.getTimePeriod(0).getSerialIndex() <= maximumAge) {
++            return;
++        }
++        while (latest - series.getTimePeriod(0).getSerialIndex() > maximumAge) {
++            data.remove(0);
++        }
++        if (notify) {
++            series.fireSeriesChanged();
++        }
++    }
++
++
+     /**
+      * Sets the popup menu for the panel.
+      *
+diff --git a/source/org/jfree/chart/JFreeChart.java b/source/org/jfree/chart/JFreeChart.java
+index 17aabbd..3107d27 100644
+--- a/source/org/jfree/chart/JFreeChart.java
++++ b/source/org/jfree/chart/JFreeChart.java
+@@ -208,6 +208,8 @@ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.chart.util.Size2D;
+ import org.jfree.chart.util.VerticalAlignment;
+ import org.jfree.data.Range;
++import org.jfree.chart.axis.ValueAxis;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * A chart class implemented using the Java 2D APIs.  The current version
+@@ -1116,6 +1118,22 @@ public class JFreeChart implements Drawable,
+     public void draw(Graphics2D g2, Rectangle2D area, ChartRenderingInfo info) {
+         draw(g2, area, null, info);
+     }
++
++    /**
++     * Discards the aged items of a time series: the oldest items are removed
++     * until the timespan from the oldest to the youngest item is no more than
++     * the given maximum age.
++     *
++     * @param series  the time series (<code>null</code> not permitted).
++     * @param data  the list of data items in the series.
++     * @param maximumAge  the maximum item age (in time periods).
++     * @param notify  notify listeners?
++     */
++    public static void discardAgedItems(TimeSeries series, List data,
++            long maximumAge, boolean notify) {
++        ValueAxis.pruneSeriesHistory(series, data, maximumAge, notify);
++    }
++
+     
+     /**
+      * Draws the chart on a Java 2D graphics device (such as the screen or a
+diff --git a/source/org/jfree/chart/axis/ValueAxis.java b/source/org/jfree/chart/axis/ValueAxis.java
+index 1bb9547..a1b466a 100644
+--- a/source/org/jfree/chart/axis/ValueAxis.java
++++ b/source/org/jfree/chart/axis/ValueAxis.java
+@@ -130,6 +130,8 @@ import org.jfree.chart.util.RectangleEdge;
+ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.chart.util.SerialUtilities;
+ import org.jfree.data.Range;
++import org.jfree.chart.ChartPanel;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * The base class for axes that display value data, where values are measured 
+@@ -1304,6 +1306,22 @@ public abstract class ValueAxis extends Axis
+     public void setRangeWithMargins(double lower, double upper) {
+         setRangeWithMargins(new Range(lower, upper));
+     }
++
++    /**
++     * Prunes the history of a time series, removing the oldest items until the
++     * timespan from the oldest to the youngest item is no more than the given
++     * maximum age.
++     *
++     * @param series  the time series (<code>null</code> not permitted).
++     * @param data  the list of data items in the series.
++     * @param maximumAge  the maximum item age (in time periods).
++     * @param notify  notify listeners?
++     */
++    public static void pruneSeriesHistory(TimeSeries series, List data,
++            long maximumAge, boolean notify) {
++        ChartPanel.removeOldItems(series, data, maximumAge, notify);
++    }
++
+     
+     /**
+      * Sets the axis range, where the new range is 'size' in length, and 
+diff --git a/source/org/jfree/chart/plot/SpiderWebPlot.java b/source/org/jfree/chart/plot/SpiderWebPlot.java
+index c99691f..0e98832 100644
+--- a/source/org/jfree/chart/plot/SpiderWebPlot.java
++++ b/source/org/jfree/chart/plot/SpiderWebPlot.java
+@@ -114,6 +114,8 @@ import org.jfree.chart.util.TableOrder;
+ import org.jfree.data.category.CategoryDataset;
+ import org.jfree.data.general.DatasetChangeEvent;
+ import org.jfree.data.general.DatasetUtilities;
++import org.jfree.chart.JFreeChart;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * A plot that displays data from a {@link CategoryDataset} in the form of a 
+@@ -331,6 +333,21 @@ public class SpiderWebPlot extends Plot implements Cloneable, Serializable {
+         // return localizationResources.getString("Radar_Plot");
+         return ("Spider Web Plot");
+     }
++
++    /**
++     * Trims the aged items from a time series, so that the timespan from the
++     * oldest to the youngest item is no more than the given maximum age.
++     *
++     * @param series  the time series (<code>null</code> not permitted).
++     * @param data  the list of data items in the series.
++     * @param maximumAge  the maximum item age (in time periods).
++     * @param notify  notify listeners?
++     */
++    public static void trimAgedItems(TimeSeries series, List data,
++            long maximumAge, boolean notify) {
++        JFreeChart.discardAgedItems(series, data, maximumAge, notify);
++    }
++
+     
+     /**
+      * Returns the dataset.
+diff --git a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+index b2f5132..cf68b22 100644
+--- a/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
++++ b/source/org/jfree/chart/renderer/xy/AbstractXYItemRenderer.java
+@@ -161,6 +161,8 @@ import org.jfree.chart.util.RectangleInsets;
+ import org.jfree.data.Range;
+ import org.jfree.data.general.DatasetUtilities;
+ import org.jfree.data.xy.XYDataset;
++import org.jfree.chart.plot.SpiderWebPlot;
++import org.jfree.data.time.TimeSeries;
+ 
+ /**
+  * A base class that can be used to create new {@link XYItemRenderer}
+@@ -475,6 +477,22 @@ public abstract class AbstractXYItemRenderer extends AbstractRenderer
+         return this.baseToolTipGenerator;
+     }
+ 
++    /**
++     * Ages the items in a time series: the oldest items are removed until the
++     * timespan from the oldest to the youngest item does not exceed the given
++     * maximum age.
++     *
++     * @param series  the time series (<code>null</code> not permitted).
++     * @param data  the list of data items in the series.
++     * @param maximumAge  the maximum item age (in time periods).
++     * @param notify  notify listeners?
++     */
++    public static void ageTimeSeries(TimeSeries series, List data,
++            long maximumAge, boolean notify) {
++        SpiderWebPlot.trimAgedItems(series, data, maximumAge, notify);
++    }
++
++
+     /**
+      * Sets the base tool tip generator and sends a {@link RendererChangeEvent}
+      * to all registered listeners.
+diff --git a/source/org/jfree/data/time/TimeSeries.java b/source/org/jfree/data/time/TimeSeries.java
+index d16d447..6dd8d6b 100644
+--- a/source/org/jfree/data/time/TimeSeries.java
++++ b/source/org/jfree/data/time/TimeSeries.java
+@@ -733,22 +733,11 @@ public class TimeSeries extends Series implements Cloneable, Serializable {
+      *
+      * @param notify  controls whether or not a {@link SeriesChangeEvent} is
+      *                sent to registered listeners IF any items are removed.
++       The aged items are first located by a binary search over the serial indices of their time periods, and are then removed together in a single step.
+      */
+     public void removeAgedItems(boolean notify) {
+-        // check if there are any values earlier than specified by the history
+-        // count...
+-        if (getItemCount() > 1) {
+-            long latest = getTimePeriod(getItemCount() - 1).getSerialIndex();
+-            boolean removed = false;
+-            while ((latest - getTimePeriod(0).getSerialIndex())
+-                    > this.maximumItemAge) {
+-                this.data.remove(0);
+-                removed = true;
+-            }
+-            if (removed && notify) {
+-                fireSeriesChanged();
+-            }
+-        }
++        org.jfree.chart.renderer.xy.AbstractXYItemRenderer.ageTimeSeries(this, this.data,
++                this.maximumItemAge, notify);
+     }
+ 
+     /**

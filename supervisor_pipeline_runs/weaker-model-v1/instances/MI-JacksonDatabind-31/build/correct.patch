@@ -1,0 +1,205 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index 13077f820..70460d922 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -3497,6 +3497,28 @@ public class ObjectMapper
+     {
+         acceptJsonFormatVisitor(_typeFactory.constructType(type), visitor);
+     }
++
++    /**
++     * Method that copies contents that the given parser points to into
++     * the given buffer. A parser that points to a field name is taken to be
++     * within a JSON Object whose START_OBJECT has already been read.
++     *
++     * @param buffer Buffer to copy contents into
++     * @param p Parser that points to contents to copy
++     * @param ctxt Context to use for reporting problems
++     *
++     * @return Buffer given
++     */
++    public static TokenBuffer copyToBuffer(TokenBuffer buffer, JsonParser p, DeserializationContext ctxt)
++        throws IOException
++    {
++        if (p.getCurrentTokenId() != JsonToken.FIELD_NAME.id()) {
++            buffer.copyCurrentStructure(p);
++            return buffer;
++        }
++        return BasicDeserializerFactory.bufferContent(buffer, p, ctxt);
++    }
++
+     
+     /**
+      * Method for visiting type hierarchy for given type, using specified visitor.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 376d4d2a2..916cde981 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -40,6 +40,8 @@ import com.fasterxml.jackson.databind.node.NullNode;
+ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;
++import com.fasterxml.jackson.databind.util.TokenBuffer;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -683,6 +685,23 @@ public class ObjectReader
+         return forType(_config.getTypeFactory().constructType(valueType));
+     }
+ 
++    /**
++     * Method for reading contents of a JSON Object, starting from the
++     * field name that the given parser points to, into given buffer.
++     *
++     * @param buffer Buffer to read contents into
++     * @param p Parser that points to the first field name
++     * @param ctxt Context to use for reporting problems
++     *
++     * @return Buffer given
++     */
++    public static TokenBuffer readIntoBuffer(TokenBuffer buffer, JsonParser p, DeserializationContext ctxt)
++        throws IOException
++    {
++        return BeanDeserializerBase.bufferObjectContents(buffer, p, ctxt);
++    }
++
++
+     /**
+      * @deprecated since 2.5 Use {@link #forType(TypeReference)} instead
+      */
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java b/src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java
+index 1108df76a..f72c384c5 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectWriter.java
+@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.jsontype.TypeSerializer;
+ import com.fasterxml.jackson.databind.ser.*;
+ import com.fasterxml.jackson.databind.ser.impl.TypeWrappedSerializer;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
++import com.fasterxml.jackson.databind.util.TokenBuffer;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -807,6 +808,28 @@ public class ObjectWriter
+         return _config.isEnabled(f);
+     }
+ 
++    /**
++     * Method for copying the fields of a JSON Object, starting with the
++     * field name that the given parser points to, into given buffer.
++     * Parser is left pointing to the token that follows the last field.
++     *
++     * @param buffer Buffer to copy fields into
++     * @param p Parser that points to the first field name to copy
++     *
++     * @return Token that follows the last field copied
++     */
++    public static JsonToken writeFields(TokenBuffer buffer, JsonParser p) throws IOException
++    {
++        JsonToken t;
++        do {
++            buffer.copyCurrentEvent(p);
++            p.nextToken();
++            buffer.copyCurrentStructure(p);
++        } while ((t = p.nextToken()) == JsonToken.FIELD_NAME);
++        return t;
++    }
++
++
+     public boolean isEnabled(MapperFeature f) {
+         return _config.isEnabled(f);
+     }
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index e1c5d4702..4a5b8934e 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -21,6 +21,8 @@ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
+ import com.fasterxml.jackson.databind.jsontype.TypeResolverBuilder;
+ import com.fasterxml.jackson.databind.type.*;
+ import com.fasterxml.jackson.databind.util.*;
++import java.io.IOException;
++import com.fasterxml.jackson.core.JsonParser;
+ 
+ /**
+  * Abstract factory base class that can provide deserializers for standard
+@@ -393,6 +395,17 @@ public abstract class BasicDeserializerFactory
+                 config.canOverrideAccessModifiers());
+     }
+ 
++    /**
++     * Helper method used for buffering contents of a JSON Object, starting
++     * from the field name that the given parser points to.
++     */
++    public static TokenBuffer bufferContent(TokenBuffer buffer, JsonParser p, DeserializationContext ctxt)
++        throws IOException
++    {
++        return ObjectReader.readIntoBuffer(buffer, p, ctxt);
++    }
++
++
+     protected void _addDeserializerConstructors
+         (DeserializationContext ctxt, BeanDescription beanDesc, VisibilityChecker<?> vchecker,
+          AnnotationIntrospector intr, CreatorCollector creators,
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 89c60a135..eec1cb4bc 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -795,6 +795,24 @@ public abstract class BeanDeserializerBase
+     public ObjectIdReader getObjectIdReader() {
+         return _objectIdReader;
+     }
++
++    /**
++     * Helper method for buffering contents of a JSON Object whose START_OBJECT
++     * has already been read, so that the parser points to its first field name.
++     * Buffered contents form a complete JSON Object.
++     */
++    public static TokenBuffer bufferObjectContents(TokenBuffer buffer, JsonParser p, DeserializationContext ctxt)
++        throws IOException
++    {
++        buffer.writeStartObject();
++        JsonToken t = ObjectWriter.writeFields(buffer, p);
++        if (t != JsonToken.END_OBJECT) {
++            throw ctxt.mappingException("Expected END_OBJECT after copying contents of a JsonParser into TokenBuffer, got "+t);
++        }
++        buffer.writeEndObject();
++        return buffer;
++    }
++
+     
+     public boolean hasProperty(String propertyName) {
+         return _beanProperties.find(propertyName) != null;
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index fcf0c3b93..3303b433b 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -429,27 +429,11 @@ public class TokenBuffer
+      * Helper method used by standard deserializer.
+      * 
+      * @since 2.3
++       The content is first read into a tree of nodes, which is then traversed depth-first to write its tokens into this buffer.
+      */
+     public TokenBuffer deserialize(JsonParser p, DeserializationContext ctxt) throws IOException
+     {
+-        if (p.getCurrentTokenId() != JsonToken.FIELD_NAME.id()) {
+-            copyCurrentStructure(p);
+-            return this;
+-        }
+-        /* 28-Oct-2014, tatu: As per [databind#592], need to support a special case of starting from
+-         *    FIELD_NAME, which is taken to mean that we are missing START_OBJECT, but need
+-         *    to assume one did exist.
+-         */
+-        JsonToken t;
+-        writeStartObject();
+-        do {
+-            copyCurrentStructure(p);
+-        } while ((t = p.nextToken()) == JsonToken.FIELD_NAME);
+-        if (t != JsonToken.END_OBJECT) {
+-            throw ctxt.mappingException("Expected END_OBJECT after copying contents of a JsonParser into TokenBuffer, got "+t);
+-        }
+-        writeEndObject();
+-        return this;
++        return com.fasterxml.jackson.databind.ObjectMapper.copyToBuffer(this, p, ctxt);
+     }
+ 
+     @Override

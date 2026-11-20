@@ -1,0 +1,212 @@
+diff --git a/src/java/org/apache/commons/codec/binary/Base64.java b/src/java/org/apache/commons/codec/binary/Base64.java
+index 19a69594..932120f3 100644
+--- a/src/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/java/org/apache/commons/codec/binary/Base64.java
+@@ -23,6 +23,8 @@ import org.apache.commons.codec.BinaryDecoder;
+ import org.apache.commons.codec.BinaryEncoder;
+ import org.apache.commons.codec.DecoderException;
+ import org.apache.commons.codec.EncoderException;
++import java.io.IOException;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * Provides Base64 encoding and decoding as defined by RFC 2045.
+@@ -256,6 +258,22 @@ public class Base64 implements BinaryEncoder, BinaryDecoder {
+         this(MIME_CHUNK_SIZE, CHUNK_SEPARATOR, urlSafe);
+     }
+ 
++    /**
++     * Reads the next octet of a Base64 stream through a one-octet holder.
++     *
++     * @param source
++     *            the stream to read
++     * @param holder
++     *            the one-octet array the octet is read into
++     * @return the octet read, or the count the stream reported at its end
++     * @throws IOException
++     *             if the stream cannot be read
++     */
++    public static int nextInputOctet(Base64InputStream source, byte[] holder) throws IOException {
++        return DigestUtils.nextDataByte(source, holder);
++    }
++
++
+     /**
+      * Creates a Base64 codec used for decoding (all modes) and encoding in URL-unsafe mode.
+      * <p>
+diff --git a/src/java/org/apache/commons/codec/binary/Base64InputStream.java b/src/java/org/apache/commons/codec/binary/Base64InputStream.java
+index 479638bc..f1b997de 100644
+--- a/src/java/org/apache/commons/codec/binary/Base64InputStream.java
++++ b/src/java/org/apache/commons/codec/binary/Base64InputStream.java
+@@ -104,16 +104,10 @@ public class Base64InputStream extends FilterInputStream {
+      * @return the byte as an integer in the range 0 to 255. Returns -1 if EOF has been reached.
+      * @throws IOException
+      *             if an I/O error occurs.
++       Each call refills the codec with exactly four bytes of the wrapped stream and returns the first byte the codec produces from them.
+      */
+     public int read() throws IOException {
+-        int r = read(singleByte, 0, 1);
+-        while (r == 0) {
+-            r = read(singleByte, 0, 1);
+-        }
+-        if (r > 0) {
+-            return singleByte[0] < 0 ? 256 + singleByte[0] : singleByte[0];
+-        }
+-        return -1;
++        return org.apache.commons.codec.language.DoubleMetaphone.nextStreamValue(this, singleByte);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/codec/digest/DigestUtils.java b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+index f35488cf..59d5911b 100644
+--- a/src/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,8 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import org.apache.commons.codec.binary.Base64InputStream;
++import org.apache.commons.codec.language.ColognePhonetic;
+ 
+ /**
+  * Operations to simplifiy common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -482,6 +484,23 @@ public class DigestUtils {
+         return digest(getSha512Digest(), data);
+     }
+ 
++    /**
++     * Reads the next byte of data from a Base64 stream through a one-byte
++     * holder.
++     *
++     * @param source
++     *            the stream to read
++     * @param holder
++     *            the one-byte array the byte is read into
++     * @return the byte read, or the count the stream reported at its end
++     * @throws IOException
++     *             if the stream cannot be read
++     */
++    public static int nextDataByte(Base64InputStream source, byte[] holder) throws IOException {
++        return ColognePhonetic.nextCodeValue(source, holder);
++    }
++
++
+     /**
+      * Calculates the SHA-512 digest and returns the value as a <code>byte[]</code>.
+      * <p>
+diff --git a/src/java/org/apache/commons/codec/language/ColognePhonetic.java b/src/java/org/apache/commons/codec/language/ColognePhonetic.java
+index be5ff2da..a8f43d77 100644
+--- a/src/java/org/apache/commons/codec/language/ColognePhonetic.java
++++ b/src/java/org/apache/commons/codec/language/ColognePhonetic.java
+@@ -21,6 +21,8 @@ import java.util.Locale;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import java.io.IOException;
++import org.apache.commons.codec.binary.Base64InputStream;
+ 
+ /**
+  * <h1>ColognePhonetic</h1>
+@@ -340,6 +342,19 @@ public class ColognePhonetic implements StringEncoder {
+         return colognePhonetic(text);
+     }
+ 
++    /**
++     * Reads the next value of a Base64 stream through a one-byte holder.
++     *
++     * @param source the stream to read
++     * @param holder the one-byte array the value is read into
++     * @return the value read, or the count the stream reported at its end
++     * @throws IOException if the stream cannot be read
++     */
++    public static int nextCodeValue(Base64InputStream source, byte[] holder) throws IOException {
++        return Metaphone.nextByteValue(source, holder);
++    }
++
++
+     /**
+      * <p>
+      * <b>colognePhonetic()</b> is the actual implementations of the <i>Kölner
+diff --git a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index f7122d41..5f8db979 100644
+--- a/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,9 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import java.io.IOException;
++import org.apache.commons.codec.binary.Base64;
++import org.apache.commons.codec.binary.Base64InputStream;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -228,6 +231,22 @@ public class DoubleMetaphone implements StringEncoder {
+     public boolean isDoubleMetaphoneEqual(String value1, String value2) {
+         return isDoubleMetaphoneEqual(value1, value2, false);
+     }
++
++    /**
++     * Reads the next byte of a Base64 stream through a one-byte holder.
++     *
++     * <p>A negative result is reported as -1, the end of the stream.</p>
++     *
++     * @param source the stream to read, not null
++     * @param holder the one-byte array the byte is read into
++     * @return the byte read, from 0 to 255, or -1 at the end of the stream
++     * @throws IOException if the stream cannot be read
++     */
++    public static int nextStreamValue(Base64InputStream source, byte[] holder) throws IOException {
++        int value = Base64.nextInputOctet(source, holder);
++        return value < 0 ? -1 : value;
++    }
++
+     
+     /**
+      * Check if the Double Metaphone values of two <code>String</code> values
+diff --git a/src/java/org/apache/commons/codec/language/Metaphone.java b/src/java/org/apache/commons/codec/language/Metaphone.java
+index 2d0ffd3f..6cfc0844 100644
+--- a/src/java/org/apache/commons/codec/language/Metaphone.java
++++ b/src/java/org/apache/commons/codec/language/Metaphone.java
+@@ -19,6 +19,8 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import java.io.IOException;
++import org.apache.commons.codec.binary.Base64InputStream;
+ 
+ /**
+  * Encodes a string into a metaphone value. 
+@@ -392,6 +394,32 @@ public class Metaphone implements StringEncoder {
+         return metaphone(str1).equals(metaphone(str2));
+     }
+ 
++    /**
++     * Reads the next byte of a stream for a single-byte {@code read()}.
++     *
++     * <p>One byte is requested into the holder at a time, and the request is
++     * repeated while the stream transfers none. The byte transferred is
++     * returned; once the stream reports its end, the count it reported is
++     * returned instead.</p>
++     *
++     * @param source the stream to read
++     * @param holder the array the byte is read into, at index 0
++     * @return the byte read, or the count the stream reported at its end
++     * @throws IOException if the stream cannot be read
++     */
++    public static int nextByteValue(Base64InputStream source, byte[] holder) throws IOException {
++        int count = source.read(holder, 0, 1);
++        while (count == 0) {
++            count = source.read(holder, 0, 1);
++        }
++        if (count < 0) {
++            return count;
++        }
++        int value = holder[0];
++        return value;
++    }
++
++
+     /**
+      * Returns the maxCodeLen.
+      * @return int

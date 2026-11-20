@@ -1,0 +1,206 @@
+{
+ "bug_id": 69,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "return BlockRealMatrix.createErrorMatrix(correlations, sampleSize - 1);",
+   "old": "return BlockRealMatrix.createErrorMatrix(correlations, sampleSize - 2);",
+   "why": "hop 1 uses one degree of freedom fewer in the estimate"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+   "new": "return BigMatrixImpl.errorsOfCoefficients(correlations.getColumn(row), degreesOfFreedom);",
+   "old": "return BigMatrixImpl.errorsOfCoefficients(correlations.getRow(row), degreesOfFreedom);",
+   "why": "hop 3 reads the coefficients of column i instead of row i"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java",
+   "new": "return new BlockRealMatrix(errors).transpose();",
+   "old": "return new BlockRealMatrix(errors);",
+   "why": "hop 2 places the rows of errors as columns of the result"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/ArrayRealVector.java",
+   "new": "        data = copyArray ? d.clone() :  d;\n    }\n\n    /**\n     * Computes the standard errors of correlation coefficients.\n     * <p>The entry at index i of the returned array is the standard error of\n     * the coefficient at index i of <code>coefficients</code>, each coefficient\n     * having been estimated with <code>degreesOfFreedom</code> degrees of\n     * freedom.</p>\n     * @param coefficients correlation coefficients\n     * @param degreesOfFreedom number of degrees of freedom of the estimates\n     * @return a new array holding the standard error of each coefficient\n     */\n    public static double[] coefficientStandardErrors(double[] coefficients, int degreesOfFreedom) {\n        double[] errors = new double[coefficients.length];\n        for (int i = 0; i < coefficients.length; ++i) {\n            double r = coefficients[i];\n            double v = 1 - r;\n            v *= 1 + r;\n            errors[i] = Math.sqrt(v / degreesOfFreedom);\n        }\n        return errors;\n    }\n\n\n    /**",
+   "old": "        data = copyArray ? d.clone() :  d;\n    }\n\n    /**",
+   "purpose": "MI-Math-69 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "new": "            out[row] = solution[row][0];\n        }\n        return out;\n    }\n\n    /**\n     * Returns the standard errors of an array of correlation coefficients.\n     *\n     * @param coefficients correlation coefficients\n     * @param degreesOfFreedom number of degrees of freedom of the estimates\n     * @return array of standard errors, one per coefficient\n     */\n    public static double[] errorsOfCoefficients(double[] coefficients, int degreesOfFreedom) {\n        return ArrayRealVector.coefficientStandardErrors(coefficients, degreesOfFreedom);\n    }\n\n\n    /**\n     * Returns a matrix of (column) solution vectors for linear systems with\n     * coefficient matrix = this and constant vectors = columns of\n     * <code>b</code>.\n     *\n     * @param b  array of constants forming RHS of linear systems to\n     * to solve",
+   "old": "            out[row] = solution[row][0];\n        }\n        return out;\n    }\n\n    /**\n     * Returns a matrix of (column) solution vectors for linear systems with\n     * coefficient matrix = this and constant vectors = columns of\n     * <code>b</code>.\n     *\n     * @param b  array of constants forming RHS of linear systems to\n     * to solve",
+   "purpose": "MI-Math-69 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+   "new": "        return rows;\n    }\n\n    /**\n     * Get the standard errors of the correlation coefficients in one row of\n     * a correlation matrix.\n     * @param correlations matrix of correlation coefficients\n     * @param row index of the row\n     * @param degreesOfFreedom number of degrees of freedom of the estimates\n     * @return standard errors of the coefficients in the row\n     */\n    public static double[] rowErrors(final RealMatrix correlations, final int row,\n                                     final int degreesOfFreedom) {\n        return BigMatrixImpl.errorsOfCoefficients(correlations.getRow(row), degreesOfFreedom);\n    }\n\n\n    /** {@inheritDoc} */\n    @Override\n    public int getColumnDimension() {",
+   "old": "        return rows;\n    }\n\n    /** {@inheritDoc} */\n    @Override\n    public int getColumnDimension() {",
+   "purpose": "MI-Math-69 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java",
+   "new": "        this(rawData.length, rawData[0].length, toBlocksLayout(rawData), false);\n    }\n\n    /**\n     * Create a new matrix holding the standard errors of a matrix of\n     * correlation coefficients.\n     * <p>\n     * Row i of the new matrix holds the standard errors of the coefficients\n     * in row i of <code>correlations</code>.\n     * </p>\n     * @param correlations matrix of correlation coefficients\n     * @param degreesOfFreedom number of degrees of freedom of the estimates\n     * @return a new matrix of standard errors\n     */\n    public static BlockRealMatrix createErrorMatrix(final RealMatrix correlations,\n                                                    final int degreesOfFreedom) {\n        final int rows = correlations.getRowDimension();\n        final double[][] errors = new double[rows][];\n        for (int i = 0; i < rows; ++i) {\n            errors[i] = BlockFieldMatrix.rowErrors(correlations, i, degreesOfFreedom);\n        }\n        return new BlockRealMatrix(errors);\n    }\n\n\n    /**",
+   "old": "        this(rawData.length, rawData[0].length, toBlocksLayout(rawData), false);\n    }\n\n    /**",
+   "purpose": "MI-Math-69 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/stat/correlation/PearsonsCorrelation.java",
+   "new": "       Only the entries below the diagonal are computed; each of them is then copied to its mirror position above the diagonal.\n     */\n    public RealMatrix getCorrelationStandardErrors() {\n        return org.apache.commons.math.util.MathUtils.correlationErrors(correlationMatrix, nObs);",
+   "old": "     */\n    public RealMatrix getCorrelationStandardErrors() {\n        int nVars = correlationMatrix.getColumnDimension();\n        double[][] out = new double[nVars][nVars];\n        for (int i = 0; i < nVars; i++) {\n            for (int j = 0; j < nVars; j++) {\n                double r = correlationMatrix.getEntry(i, j);\n                out[i][j] = Math.sqrt((1 - r * r) /(nObs - 2));\n            }\n        }\n        return new BlockRealMatrix(out);",
+   "purpose": "MI-Math-69 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "import org.apache.commons.math.MathRuntimeException;\nimport org.apache.commons.math.linear.BlockRealMatrix;\nimport org.apache.commons.math.linear.RealMatrix;\n",
+   "old": "import org.apache.commons.math.MathRuntimeException;\n",
+   "purpose": "MI-Math-69 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "new": "                a, b);\n        }\n        return lcm;\n    }\n\n    /**\n     * Returns the matrix of standard errors associated with a matrix of\n     * correlation coefficients.\n     * <p>Entry (i, j) of the result is the standard error of entry (i, j) of\n     * <code>correlations</code>, the coefficients having been estimated from\n     * <code>sampleSize</code> observations, i.e. with\n     * <code>sampleSize - 2</code> degrees of freedom.</p>\n     *\n     * @param correlations matrix of correlation coefficients\n     * @param sampleSize number of observations the coefficients were estimated from\n     * @return matrix of standard errors\n     */\n    public static RealMatrix correlationErrors(RealMatrix correlations, int sampleSize) {\n        return BlockRealMatrix.createErrorMatrix(correlations, sampleSize - 2);\n    }\n\n\n    /**\n     * <p>\n     * Returns the least common multiple of the absolute value of two numbers,",
+   "old": "                a, b);\n        }\n        return lcm;\n    }\n\n    /**\n     * <p>\n     * Returns the least common multiple of the absolute value of two numbers,",
+   "purpose": "MI-Math-69 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.math.util.MathUtils",
+   "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+   "method": "correlationErrors"
+  },
+  {
+   "class": "org.apache.commons.math.linear.BlockRealMatrix",
+   "file": "src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java",
+   "method": "createErrorMatrix"
+  },
+  {
+   "class": "org.apache.commons.math.linear.BlockFieldMatrix",
+   "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+   "method": "rowErrors"
+  },
+  {
+   "class": "org.apache.commons.math.linear.BigMatrixImpl",
+   "file": "src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+   "method": "errorsOfCoefficients"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Math-69__i.py",
+ "entry_points": [
+  "org.apache.commons.math.stat.correlation.PearsonsCorrelation::getCorrelationStandardErrors"
+ ],
+ "evidence": [
+  "org.apache.commons.math.stat.correlation.PearsonsCorrelation::getCorrelationPValues",
+  "org.apache.commons.math.stat.regression.SimpleRegression::getMeanSquareError",
+  "org.apache.commons.math.stat.regression.SimpleRegression::getSlopeStdErr"
+ ],
+ "expected_signature": "expected:<0.00509966911319415> but was:<0.01491720061472634>",
+ "extra_tests": [],
+ "fixture_key": "Math-69",
+ "gold": {
+  "class": "org.apache.commons.math.linear.ArrayRealVector",
+  "edits": [
+   {
+    "new": "            double v = 1 - r;\n            errors[i] = Math.sqrt(v / degreesOfFreedom);\n",
+    "old": "            double v = 1 - r;\n            v *= 1 + r;\n            errors[i] = Math.sqrt(v / degreesOfFreedom);\n"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/math/linear/ArrayRealVector.java",
+  "method": "coefficientStandardErrors"
+ },
+ "group": "MI-Math-69",
+ "hops": 5,
+ "iid": "MI-Math-69",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold turns a correlation coefficient into its standard error; hop 1 forms the degrees of freedom (sample size - 2), hop 2 assembles one row of errors per row of the correlation matrix, hop 3 fetches a row and hop 4 passes it on unchanged. The gold's javadoc promises the standard error of each coefficient estimated with the given degrees of freedom, which sqrt((1 - r) / dof) is not. No one-line change above the gold that keeps the hops' documentation restores the errors: the degrees of freedom are one scalar for all entries while the missing factor (1 + r) differs per coefficient, and a column instead of a row or a transposed result gives the same values for the symmetric correlation matrix. The convention is pinned outside the gold: the facade's javadoc formula SE_r = ((1 - r^2) / (n - 2))^(1/2); PearsonsCorrelation.getCorrelationPValues, whose t = |r| ((n - 2) / (1 - r^2))^(1/2) is checked against R by PearsonsCorrelationTest testLongly and testSwissFertility; SimpleRegression.getMeanSquareError (SSE / (n - 2) with SSE = SYY (1 - r^2)) and getSlopeStdErr, checked against NIST by SimpleRegressionTest testNorris.",
+ "ownership_tests": [
+  "org.apache.commons.math.stat.correlation.PearsonsCorrelationTest::testLongly",
+  "org.apache.commons.math.stat.correlation.PearsonsCorrelationTest::testSwissFertility",
+  "org.apache.commons.math.stat.regression.SimpleRegressionTest::testNorris"
+ ],
+ "project": "Math",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "lcm",
+    "anchor_seed": 6163,
+    "class": "org.apache.commons.math.util.MathUtils",
+    "file": "src/main/java/org/apache/commons/math/util/MathUtils.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.math.linear.BlockRealMatrix;",
+     "import org.apache.commons.math.linear.RealMatrix;"
+    ],
+    "method": "correlationErrors",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "BlockRealMatrix",
+    "anchor_seed": 6164,
+    "class": "org.apache.commons.math.linear.BlockRealMatrix",
+    "file": "src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "createErrorMatrix",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getRowDimension",
+    "anchor_seed": 6165,
+    "class": "org.apache.commons.math.linear.BlockFieldMatrix",
+    "file": "src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "rowErrors",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "solve",
+    "anchor_seed": 6166,
+    "class": "org.apache.commons.math.linear.BigMatrixImpl",
+    "file": "src/main/java/org/apache/commons/math/linear/BigMatrixImpl.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "errorsOfCoefficients",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ArrayRealVector",
+    "anchor_seed": 6167,
+    "class": "org.apache.commons.math.linear.ArrayRealVector",
+    "file": "src/main/java/org/apache/commons/math/linear/ArrayRealVector.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "coefficientStandardErrors",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6063
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Math-69"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.math.stat.correlation.PearsonsCorrelationTest",
+  "test_file": "src/test/java/org/apache/commons/math/stat/correlation/PearsonsCorrelationTest.java",
+  "test_method": "testStdErrorConsistency"
+ },
+ "variant_id": "CTV-B240D5",
+ "kind": "new",
+ "fault_lines": [
+  "double v = 1 - r;\n            errors[i] = Math.sqrt(v / degreesOfFreedom);"
+ ],
+ "gold_key": "org.apache.commons.math.linear.ArrayRealVector::coefficientStandardErrors"
+}

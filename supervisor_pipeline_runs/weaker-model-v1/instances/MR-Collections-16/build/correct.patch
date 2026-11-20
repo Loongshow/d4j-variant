@@ -1,0 +1,210 @@
+diff --git a/src/java/org/apache/commons/collections/CursorableLinkedList.java b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+index bc420ca3..d451229e 100644
+--- a/src/java/org/apache/commons/collections/CursorableLinkedList.java
++++ b/src/java/org/apache/commons/collections/CursorableLinkedList.java
+@@ -29,6 +29,7 @@ import java.util.List;
+ import java.util.ListIterator;
+ import java.util.NoSuchElementException;
+ import java.lang.ref.WeakReference;
++import java.util.Set;
+ 
+ /**
+  * A doubly-linked list implementation of the {@link List} interface,
+@@ -1383,6 +1384,26 @@ class CursorableSubList extends CursorableLinkedList implements List {
+         return super.lastIndexOf(o);
+     }
+ 
++    /**
++     * Adds the elements of a collection to a set, in iteration order, and
++     * keeps the insertion order of the set in a list.
++     *
++     * @param coll  the elements to add, not null
++     * @param list  the list to keep the order in, not null
++     * @param set  the set to add to, not null
++     * @return the set
++     */
++    public static Set addInOrder(Collection coll, List list, Set set) {
++        for (Iterator it = coll.iterator(); it.hasNext();) {
++            Object item = it.next();
++            if (set.add(item)) {
++                list.add(item);
++            }
++        }
++        return set;
++    }
++
++
+     public ListIterator listIterator() {
+         checkForComod();
+         return super.listIterator();
+diff --git a/src/java/org/apache/commons/collections/DoubleOrderedMap.java b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+index e7f44648..cef8e72c 100644
+--- a/src/java/org/apache/commons/collections/DoubleOrderedMap.java
++++ b/src/java/org/apache/commons/collections/DoubleOrderedMap.java
+@@ -25,6 +25,8 @@ import java.util.Iterator;
+ import java.util.Map;
+ import java.util.NoSuchElementException;
+ import java.util.Set;
++import java.util.HashSet;
++import java.util.List;
+ 
+ /**
+  * Red-Black tree-based implementation of Map. This class guarantees
+@@ -1307,6 +1309,19 @@ public final class DoubleOrderedMap extends AbstractMap {
+         return lookup((Comparable) key, KEY) != null;
+     }
+ 
++    /**
++     * Gets a new <code>HashSet</code> of the elements of a non-empty list,
++     * leaving the list in the insertion order of the set.
++     *
++     * @param list the list to use, not null or empty.
++     *
++     * @return the set of the elements of the list.
++     */
++    public static Set newSetFor(final List list) {
++        return ExtendedProperties.orderInto(list, new HashSet());
++    }
++
++
+     /**
+      * Returns true if this map maps one or more keys to the
+      * specified value.
+diff --git a/src/java/org/apache/commons/collections/ExtendedProperties.java b/src/java/org/apache/commons/collections/ExtendedProperties.java
+index 6b113707..ed72278d 100644
+--- a/src/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -37,6 +37,7 @@ import java.util.NoSuchElementException;
+ import java.util.Properties;
+ import java.util.StringTokenizer;
+ import java.util.Vector;
++import java.util.Set;
+ 
+ /**
+  * This class extends normal Java properties by adding the possibility
+@@ -1184,6 +1185,19 @@ public class ExtendedProperties extends Hashtable {
+         }
+     }
+ 
++    /**
++     * Adds the elements of a non-empty list to an empty set, leaving the
++     * list in the insertion order of the set.
++     *
++     * @param list The list to use, not null or empty.
++     * @param set The empty set to add to.
++     * @return The set.
++     */
++    public static Set orderInto(List list, Set set) {
++        return MapUtils.refillInOrder(list, set);
++    }
++
++
+     /**
+      * Get a boolean associated with the given configuration key.
+      *
+diff --git a/src/java/org/apache/commons/collections/MapUtils.java b/src/java/org/apache/commons/collections/MapUtils.java
+index 42afd7df..8b2dcd80 100644
+--- a/src/java/org/apache/commons/collections/MapUtils.java
++++ b/src/java/org/apache/commons/collections/MapUtils.java
+@@ -44,6 +44,9 @@ import org.apache.commons.collections.map.TypedMap;
+ import org.apache.commons.collections.map.TypedSortedMap;
+ import org.apache.commons.collections.map.UnmodifiableMap;
+ import org.apache.commons.collections.map.UnmodifiableSortedMap;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Set;
+ 
+ /** 
+  * Provides utility methods and decorators for
+@@ -429,6 +432,26 @@ public class MapUtils {
+         return answer;
+     }
+ 
++    /**
++     * Adds the elements of a non-empty list to an empty set, leaving the
++     * list in the insertion order of the set.
++     * <p>
++     * The list is first copied, element for element, into a new
++     * <code>ArrayList</code> and then cleared; the copy is then added to the
++     * set, element by element in iteration order, with the list keeping the
++     * insertion order of the set.
++     *
++     * @param list  the list to use, not null or empty
++     * @param set  the empty set to add to
++     * @return the set
++     */
++    public static Set refillInOrder(List list, Set set) {
++        List copy = new ArrayList(list);
++        list.clear();
++        return CursorableSubList.addInOrder(copy, list, set);
++    }
++
++
+     /**
+      *  Looks up the given key in the given map, converting the result into
+      *  a byte, using the default value if the the conversion fails.
+diff --git a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index 4c60e28f..c590e511 100644
+--- a/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -32,6 +32,9 @@ import org.apache.commons.collections.OrderedIterator;
+ import org.apache.commons.collections.OrderedMapIterator;
+ import org.apache.commons.collections.iterators.EmptyOrderedMapIterator;
+ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
++import java.util.HashSet;
++import java.util.List;
++import org.apache.commons.collections.DoubleOrderedMap;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -476,6 +479,23 @@ public class TreeBidiMap implements OrderedBidiMap {
+     public String toString() {
+         return this.doToString(KEY);
+     }
++
++    /**
++     * Gets a new <code>HashSet</code> of the elements of a list, leaving the
++     * list in the insertion order of the set.
++     * <p>
++     * An empty list is left as it is and gets an empty set.
++     *
++     * @param list  the list to use, not null
++     * @return the set of the elements of the list
++     */
++    public static Set orderedSetFor(List list) {
++        if (list.isEmpty()) {
++            return new HashSet();
++        }
++        return DoubleOrderedMap.newSetFor(list);
++    }
++
+     
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/java/org/apache/commons/collections/list/SetUniqueList.java b/src/java/org/apache/commons/collections/list/SetUniqueList.java
+index 160693d4..85e41747 100644
+--- a/src/java/org/apache/commons/collections/list/SetUniqueList.java
++++ b/src/java/org/apache/commons/collections/list/SetUniqueList.java
+@@ -69,20 +69,13 @@ public class SetUniqueList extends AbstractSerializableListDecorator {
+      * 
+      * @param list  the list to decorate, must not be null
+      * @throws IllegalArgumentException if list is null
++       The elements are transferred from the end of the list towards its start, each being inserted at index zero of the decorated list.
+      */
+     public static SetUniqueList decorate(List list) {
+         if (list == null) {
+             throw new IllegalArgumentException("List must not be null");
+         }
+-        if (list.isEmpty()) {
+-            return new SetUniqueList(list, new HashSet());
+-        } else {
+-            List temp = new ArrayList(list);
+-            list.clear();
+-            SetUniqueList sl = new SetUniqueList(list, new HashSet());
+-            sl.addAll(temp);
+-            return sl;
+-        }
++        return new SetUniqueList(list, org.apache.commons.collections.bidimap.TreeBidiMap.orderedSetFor(list));
+     }
+ 
+     //-----------------------------------------------------------------------

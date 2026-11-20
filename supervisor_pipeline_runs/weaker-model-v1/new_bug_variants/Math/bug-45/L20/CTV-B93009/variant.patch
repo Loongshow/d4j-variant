@@ -1,0 +1,243 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 5ed758a37..c04330461 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,8 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import org.apache.commons.math.linear.BlockFieldMatrix;
++import org.apache.commons.math.linear.RealMatrix;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -1020,6 +1022,23 @@ public class Dfp implements FieldElement<Dfp> {
+         return trunc(DfpField.RoundingMode.ROUND_CEIL);
+     }
+ 
++    /**
++     * Writes the product of a sparse matrix and a matrix into a matrix of
++     * zeros.
++     *
++     * @param keys the keys of the stored entries of the sparse matrix, in
++     * increasing order
++     * @param values the values of the stored entries
++     * @param columns the number of columns of the sparse matrix
++     * @param m the matrix to postmultiply by
++     * @param out the matrix receiving the product
++     */
++    public static void sparseRows(final int[] keys, final double[] values, final int columns,
++                                  final RealMatrix m, final RealMatrix out) {
++        BlockFieldMatrix.writeProductRows(keys, values, columns, m, out);
++    }
++
++
+     /** Returns the IEEE remainder.
+      * @param d divisor
+      * @return this less n &times; d, where n is the integer closest to this/d
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index 8e9378317..9af7dcfeb 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -603,6 +603,38 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return out;
+     }
+ 
++    /**
++     * Writes the rows of the product of a sparse matrix and a matrix.
++     *
++     * <p>The sparse matrix is given by the keys of its stored entries, in
++     * increasing order, and by their values; the key of an entry is its row
++     * times the number of columns, plus its column. Each row of the product
++     * is written into {@code out} once the last stored entry of its row has
++     * been read; rows without stored entries are left as they are.</p>
++     *
++     * @param keys the keys of the stored entries, in increasing order
++     * @param values the values of the stored entries
++     * @param columns the number of columns of the sparse matrix
++     * @param m the matrix to postmultiply by
++     * @param out the matrix receiving the rows of the product
++     */
++    public static void writeProductRows(final int[] keys, final double[] values, final int columns,
++                                        final RealMatrix m, final RealMatrix out) {
++        int width = m.getColumnDimension();
++        double[] sums = new double[width];
++        for (int e = 0; e < keys.length; e++) {
++            int row = keys[e] / columns;
++            int inner = keys[e] % columns;
++            for (int j = 0; j < width; j++) {
++                sums[j] += values[e] * m.getEntry(inner, j);
++            }
++            if (e + 1 == keys.length || keys[e + 1] / columns != row) {
++                out.setRow(row, sums);
++            }
++        }
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public T[][] getData() {
+diff --git a/src/main/java/org/apache/commons/math/linear/OpenMapRealMatrix.java b/src/main/java/org/apache/commons/math/linear/OpenMapRealMatrix.java
+index f05c8783a..d3e287741 100644
+--- a/src/main/java/org/apache/commons/math/linear/OpenMapRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/OpenMapRealMatrix.java
+@@ -144,7 +144,12 @@ public class OpenMapRealMatrix extends AbstractRealMatrix
+         return out;
+     }
+ 
+-    /** {@inheritDoc} */
++    /**
++     * {@inheritDoc}
++     * When {@code m} is not sparse, its columns are first copied into
++     * dense arrays, and each column of the product is computed in turn as
++     * this matrix times one of them.
++     */
+     @Override
+     public RealMatrix multiply(final RealMatrix m) {
+         try {
+@@ -154,20 +159,7 @@ public class OpenMapRealMatrix extends AbstractRealMatrix
+             // safety check
+             MatrixUtils.checkMultiplicationCompatible(this, m);
+ 
+-            final int outCols = m.getColumnDimension();
+-            final BlockRealMatrix out = new BlockRealMatrix(rows, outCols);
+-            for (OpenIntToDoubleHashMap.Iterator iterator = entries.iterator(); iterator.hasNext();) {
+-                iterator.advance();
+-                final double value = iterator.value();
+-                final int key      = iterator.key();
+-                final int i        = key / columns;
+-                final int k        = key % columns;
+-                for (int j = 0; j < outCols; ++j) {
+-                    out.addToEntry(i, j, value * m.getEntry(k, j));
+-                }
+-            }
+-
+-            return out;
++            return org.apache.commons.math.util.FastMath.productOfEntries(entries, rows, columns, m);
+         }
+     }
+ 
+diff --git a/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java b/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
+index e31e01ad3..a46bd98fe 100644
+--- a/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
++++ b/src/main/java/org/apache/commons/math/optimization/direct/BOBYQAOptimizer.java
+@@ -32,6 +32,8 @@ import org.apache.commons.math.optimization.GoalType;
+ import org.apache.commons.math.optimization.MultivariateRealOptimizer;
+ import org.apache.commons.math.optimization.RealPointValuePair;
+ import org.apache.commons.math.util.MathUtils;
++import org.apache.commons.math.linear.RealMatrix;
++import org.apache.commons.math.util.OpenIntToDoubleHashMap;
+ 
+ /**
+  * Powell's BOBYQA algorithm. This implementation is translated and
+@@ -142,6 +144,29 @@ public class BOBYQAOptimizer
+              DEFAULT_STOPPING_RADIUS);
+     }
+ 
++    /**
++     * Writes the product of a sparse matrix and a matrix into a matrix of
++     * zeros, reading the stored entries of the sparse matrix in increasing
++     * key order.
++     *
++     * @param entries the stored entries of the sparse matrix, by key
++     * @param columns the number of columns of the sparse matrix
++     * @param m the matrix to postmultiply by
++     * @param out the matrix receiving the product
++     */
++    public static void orderedProduct(final OpenIntToDoubleHashMap entries, final int columns,
++                                      final RealMatrix m, final RealMatrix out) {
++        final int[] keys = new int[entries.size()];
++        int n = 0;
++        for (OpenIntToDoubleHashMap.Iterator iterator = entries.iterator(); iterator.hasNext();) {
++            iterator.advance();
++            keys[n++] = iterator.key();
++        }
++        Arrays.sort(keys);
++        MathUtils.keyedProduct(keys, entries, columns, m, out);
++    }
++
++
+     /**
+      * @param numberOfInterpolationPoints Number of interpolation conditions.
+      * For a problem of dimension {@code n}, its value must be in the interval
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index b338c5124..b5d0f709e 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -17,6 +17,9 @@
+ package org.apache.commons.math.util;
+ 
+ import java.io.PrintStream;
++import org.apache.commons.math.linear.BlockRealMatrix;
++import org.apache.commons.math.linear.RealMatrix;
++import org.apache.commons.math.optimization.direct.BOBYQAOptimizer;
+ 
+ /**
+  * Faster, more accurate, portable alternative to {@link Math} and
+@@ -2994,6 +2997,25 @@ public class FastMath {
+         return (x < 0.0f) ? -x : (x == 0.0f) ? 0.0f : x; // -0.0 => +0.0
+     }
+ 
++    /**
++     * Multiplies a sparse matrix, given by its stored entries, by a matrix.
++     *
++     * @param entries the stored entries of the sparse matrix, by key (the row
++     * times the number of columns, plus the column)
++     * @param rows the number of rows of the sparse matrix
++     * @param columns the number of columns of the sparse matrix
++     * @param m the matrix to postmultiply by
++     * @return a new matrix holding the product
++     */
++    public static RealMatrix productOfEntries(final OpenIntToDoubleHashMap entries,
++                                              final int rows, final int columns,
++                                              final RealMatrix m) {
++        final RealMatrix out = new BlockRealMatrix(rows, m.getColumnDimension());
++        BOBYQAOptimizer.orderedProduct(entries, columns, m, out);
++        return out;
++    }
++
++
+     /**
+      * Absolute value.
+      * @param x number from which absolute value is requested
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index 163198d39..feafff4a7 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -36,6 +36,8 @@ import org.apache.commons.math.exception.NullArgumentException;
+ import org.apache.commons.math.exception.NumberIsTooLargeException;
+ import org.apache.commons.math.exception.util.Localizable;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
++import org.apache.commons.math.dfp.Dfp;
++import org.apache.commons.math.linear.RealMatrix;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -655,6 +657,26 @@ public final class MathUtils {
+         return equalsIncludingNaN(x, y) || (FastMath.abs(y - x) <= eps);
+     }
+ 
++    /**
++     * Writes the product of a sparse matrix and a matrix into a matrix of
++     * zeros, looking up the value of each stored entry by its key.
++     *
++     * @param keys the keys of the stored entries, in increasing order
++     * @param entries the stored entries of the sparse matrix, by key
++     * @param columns the number of columns of the sparse matrix
++     * @param m the matrix to postmultiply by
++     * @param out the matrix receiving the product
++     */
++    public static void keyedProduct(final int[] keys, final OpenIntToDoubleHashMap entries, final int columns,
++                                    final RealMatrix m, final RealMatrix out) {
++        final double[] values = new double[keys.length];
++        for (int i = 0; i < keys.length; i++) {
++            values[i] = entries.get(keys[i]);
++        }
++        Dfp.sparseRows(keys, values, columns, m, out);
++    }
++
++
+     /**
+      * Returns true if both arguments are equal or within the range of allowed
+      * error (inclusive).

@@ -1,0 +1,215 @@
+{
+ "bug_id": 18,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonParser.java",
+   "new": "JsonGenerator.passRawText(gen, text, buf.clone());",
+   "old": "JsonGenerator.passRawText(gen, text, buf);",
+   "why": "hop 2 hands a copy of the char buffer on, so that no content of earlier writes is shared"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "java.util.Arrays.fill(buf, '\\0'); ReaderBasedJsonParser.feedRawText(gen, text, buf);",
+   "old": "ReaderBasedJsonParser.feedRawText(gen, text, buf);",
+   "why": "hop 3 clears the char buffer before passing it on"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "gen.flush(); WriterBasedJsonGenerator.rawTextViaBuffer(gen, text, buf);",
+   "old": "WriterBasedJsonGenerator.rawTextViaBuffer(gen, text, buf);",
+   "why": "hop 4 flushes the generator before the text is passed on"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "import com.fasterxml.jackson.core.util.VersionUtil;\nimport com.fasterxml.jackson.core.json.UTF8JsonGenerator;\nimport com.fasterxml.jackson.core.json.ReaderBasedJsonParser;\n",
+   "old": "import com.fasterxml.jackson.core.util.VersionUtil;\n",
+   "purpose": "MI-JacksonCore-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "\n    /**\n     * Method that writes given text to the generator as raw content\n     * (no escaping, no separators), through the char buffer of the generator.\n     *\n     * @param gen Generator to write the text to\n     * @param text Text to write\n     * @param buf Char buffer of the generator\n     */\n    public static void passRawText(UTF8JsonGenerator gen, String text, char[] buf) throws IOException {\n        ReaderBasedJsonParser.feedRawText(gen, text, buf);\n    }\n\n\n    /**\n     * Convenience method for outputting a field entry (\"member\")\n     * (that will contain a JSON Object value), and the START_OBJECT marker.",
+   "old": "\n    /**\n     * Convenience method for outputting a field entry (\"member\")\n     * (that will contain a JSON Object value), and the START_OBJECT marker.",
+   "purpose": "MI-JacksonCore-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonParser.java",
+   "new": "import com.fasterxml.jackson.core.type.TypeReference;\nimport com.fasterxml.jackson.core.json.UTF8JsonGenerator;\n",
+   "old": "import com.fasterxml.jackson.core.type.TypeReference;\n",
+   "purpose": "MI-JacksonCore-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonParser.java",
+   "new": "    }\n\n    /**\n     * Method that writes given text to the generator as raw content,\n     * through the char buffer of the generator.\n     *\n     * @param gen Generator to write the text to\n     * @param text Text to write\n     * @param buf Char buffer of the generator\n     */\n    public static void rawTextToGenerator(UTF8JsonGenerator gen, String text, char[] buf) throws IOException {\n        JsonGenerator.passRawText(gen, text, buf);\n    }\n\n\n    /**\n     * Method that will try to convert value of current token to a\n     * {@link java.lang.String}.\n     * JSON Strings map naturally; scalar values get converted to",
+   "old": "    }\n\n    /**\n     * Method that will try to convert value of current token to a\n     * {@link java.lang.String}.\n     * JSON Strings map naturally; scalar values get converted to",
+   "purpose": "MI-JacksonCore-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "        }\n        return 0;\n    }\n\n    /**\n     * Helper method that writes given text to the generator as raw content,\n     * through the char buffer of the generator.\n     *\n     * @param gen Generator to write the text to\n     * @param text Text to write\n     * @param buf Char buffer of the generator\n     */\n    public static void feedRawText(UTF8JsonGenerator gen, String text, char[] buf) throws IOException {\n        WriterBasedJsonGenerator.rawTextViaBuffer(gen, text, buf);\n    }\n\n\n    @Override\n    public byte[] getBinaryValue(Base64Variant b64variant) throws IOException",
+   "old": "        }\n        return 0;\n    }\n\n    @Override\n    public byte[] getBinaryValue(Base64Variant b64variant) throws IOException",
+   "purpose": "MI-JacksonCore-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "new": "    /**\n     * Method that copies given text verbatim to the output, encoded as UTF-8.\n     * Text is split at line breaks, and each line is encoded and flushed to\n     * the output stream on its own.\n     */\n    @Override\n    public void writeRaw(String text) throws IOException {\n        UTF8StreamJsonParser.copyRawText(this, text, _charBuffer);",
+   "old": "    @Override\n    public void writeRaw(String text) throws IOException {\n        final int len = text.length();\n        final char[] buf = _charBuffer;\n        if (len <= buf.length) {\n            text.getChars(0, len, buf, 0);\n            writeRaw(buf, 0, len);\n        } else {\n            writeRaw(text, 0, len);\n        }",
+   "purpose": "MI-JacksonCore-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "new": "        return nameStr;\n    }\n\n    /**\n     * Helper method that writes given text to the generator as raw content,\n     * using the char buffer of the generator: text that fits in the buffer\n     * is copied into it and written with a single call; longer text is\n     * passed on.\n     *\n     * @param gen Generator to write the text to\n     * @param text Text to write\n     * @param buf Char buffer of the generator\n     */\n    public static void copyRawText(UTF8JsonGenerator gen, String text, char[] buf) throws IOException\n    {\n        final int len = text.length();\n        if (len <= buf.length) {\n            text.getChars(0, len, buf, 0);\n            gen.writeRaw(buf, 0, len);\n            return;\n        }\n        JsonParser.rawTextToGenerator(gen, text, buf);\n    }\n\n\n    // Variant called when we know there's at least 4 more bytes available",
+   "old": "        return nameStr;\n    }\n\n    // Variant called when we know there's at least 4 more bytes available",
+   "purpose": "MI-JacksonCore-18 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "new": "        _releaseBuffers();\n    }\n\n    /**\n     * Helper method that writes given text to the generator as raw content,\n     * using the char buffer of the generator.\n     *\n     * @param gen Generator to write the text to\n     * @param text Text to write\n     * @param buf Char buffer of the generator\n     */\n    public static void rawTextViaBuffer(UTF8JsonGenerator gen, String text, char[] buf) throws IOException\n    {\n        final int end = text.length();\n        int ptr = 0;\n        int i = 0;\n        while (i < end) {\n            int c = text.codePointAt(i);\n            int count = Character.charCount(c);\n            if (ptr + count > buf.length) {\n                gen.writeRaw(buf, 0, ptr);\n                ptr = 0;\n            }\n            ptr += Character.toChars(c, buf, ptr);\n            i += count;\n        }\n        gen.writeRaw(buf, 0, ptr);\n    }\n\n\n    @Override",
+   "old": "        _releaseBuffers();\n    }\n\n    @Override",
+   "purpose": "MI-JacksonCore-18 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "method": "copyRawText"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.JsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonParser.java",
+   "method": "rawTextToGenerator"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.JsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "method": "passRawText"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "method": "feedRawText"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonCore-18__i.py",
+ "entry_points": [
+  "com.fasterxml.jackson.core.json.UTF8JsonGenerator::writeRaw"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.core.json.UTF8JsonGenerator::writeRaw",
+  "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::writeRawLong",
+  "com.fasterxml.jackson.core.json.UTF8JsonGenerator::_flushBuffer"
+ ],
+ "expected_signature": "ArrayIndexOutOfBoundsException",
+ "extra_tests": [],
+ "fixture_key": "JacksonCore-18",
+ "gold": {
+  "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+  "edits": [
+   {
+    "new": "                gen.writeRaw(buf, 0, ptr);\n            }\n",
+    "old": "                gen.writeRaw(buf, 0, ptr);\n                ptr = 0;\n            }\n"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+  "method": "rawTextViaBuffer"
+ },
+ "group": "MI-JacksonCore-18",
+ "hops": 5,
+ "iid": "MI-JacksonCore-18",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold copies text longer than the char buffer and decides when the gathered chars are passed to the generator; hops 2-4 pass the generator, the text and the buffer along unchanged and hop 1 only writes text that fits in the buffer. The gold's javadoc promises that the text is written as raw content through the buffer, which a throw on ordinary 10000-char text is not. No non-gold hop sees the fill position or the block boundaries, so no one-line change above the gold restores the reset without disabling the gold's buffering (recorded bypasses: hop 1 writing long text with the segmented overload; a fresh text-sized array in place of the generator's char buffer, which every hop documents; a pre-split into buffer-sized substrings, which splits surrogate pairs). The convention is pinned outside the gold: UTF8JsonGenerator.writeRaw(String, int, int), the segmented sibling overload, copies each segment into the char buffer at index 0; WriterBasedJsonGenerator.writeRawLong places each piece at index 0 of its buffer after each flush (_outputHead = 0; _outputTail = amount); UTF8JsonGenerator._flushBuffer resets _outputTail to 0 when it passes its buffer on. Passing tests: RawValueWithSurrogatesTest testRawWithSurrogatesString (long raw text with surrogate pairs through the segmented sibling), StringGenerationTest testLongerRandomMultiChunk, TestUtf8Generator testSurrogatesWithRaw and TestJsonGeneratorFeatures testBigDecimalAsPlainString (through the facade).",
+ "ownership_tests": [
+  "com.fasterxml.jackson.core.json.RawValueWithSurrogatesTest::testRawWithSurrogatesString",
+  "com.fasterxml.jackson.core.json.StringGenerationTest::testLongerRandomMultiChunk",
+  "com.fasterxml.jackson.core.json.TestUtf8Generator::testSurrogatesWithRaw",
+  "com.fasterxml.jackson.core.json.TestJsonGeneratorFeatures::testBigDecimalAsPlainString"
+ ],
+ "project": "JacksonCore",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "nextFieldName",
+    "anchor_seed": 2855,
+    "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "copyRawText",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getValueAsBoolean",
+    "anchor_seed": 2856,
+    "class": "com.fasterxml.jackson.core.JsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/JsonParser.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.fasterxml.jackson.core.json.UTF8JsonGenerator;"
+    ],
+    "method": "rawTextToGenerator",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeArrayFieldStart",
+    "anchor_seed": 2857,
+    "class": "com.fasterxml.jackson.core.JsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+    "hop": 3,
+    "imports_added": [
+     "import com.fasterxml.jackson.core.json.UTF8JsonGenerator;",
+     "import com.fasterxml.jackson.core.json.ReaderBasedJsonParser;"
+    ],
+    "method": "passRawText",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getTextOffset",
+    "anchor_seed": 2858,
+    "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "feedRawText",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "close",
+    "anchor_seed": 2859,
+    "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "rawTextViaBuffer",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 2755
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonCore-18"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.core.json.TestJsonGeneratorFeatures",
+  "test_file": "src/test/java/com/fasterxml/jackson/core/json/TestJsonGeneratorFeatures.java",
+  "test_method": "testTooBigBigDecimal"
+ },
+ "variant_id": "CTV-D06650",
+ "kind": "new",
+ "fault_lines": [
+  "gen.writeRaw(buf, 0, ptr);\n            }"
+ ],
+ "gold_key": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator::rawTextViaBuffer"
+}

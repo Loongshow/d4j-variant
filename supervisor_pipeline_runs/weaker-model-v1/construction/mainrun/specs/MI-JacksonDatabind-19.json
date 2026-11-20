@@ -1,0 +1,222 @@
+{
+ "bug_id": 19,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "        if (parametrized.isArray() || Map.class.isAssignableFrom(parametrized)) {",
+   "old": "        if (parametrized.isArray()) {",
+   "why": "hop 1 takes Map classes through its own branch"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "return ObjectMapper.parametrizedType(typeFactory, parametrized, parametrized, parameterTypes);",
+   "old": "return ObjectMapper.parametrizedType(typeFactory, parametrized, parametersFor, parameterTypes);",
+   "why": "hop 2 binds the type parameters to the class itself"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "return BeanDeserializerBase.typeForParameters(typeFactory, parametrized, Map.class.isAssignableFrom(parametrized) ? Map.class : parametersFor, parameterTypes);",
+   "old": "return BeanDeserializerBase.typeForParameters(typeFactory, parametrized, parametersFor, parameterTypes);",
+   "why": "hop 3 binds the type parameters of a Map class to Map"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "new": "        return _deserializationContext;\n    }\n\n    /**\n     * Convenience method for constructing the {@link JavaType} that represents\n     * a parameterized type, using given type factory.\n     *\n     * @param typeFactory Factory used for constructing the type\n     * @param parametrized Type-erased class of the type being constructed\n     * @param parametersFor Class or interface for which type parameters are applied\n     * @param parameterTypes Type parameters to apply\n     */\n    public static JavaType parametrizedType(TypeFactory typeFactory, Class<?> parametrized,\n            Class<?> parametersFor, JavaType[] parameterTypes)\n    {\n        return BeanDeserializerBase.typeForParameters(typeFactory, parametrized, parametersFor, parameterTypes);\n    }\n\n\n    /*",
+   "old": "        return _deserializationContext;\n    }\n\n    /*",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "import com.fasterxml.jackson.databind.util.RootNameLookup;\nimport java.util.Collection;\n",
+   "old": "import com.fasterxml.jackson.databind.util.RootNameLookup;\n",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+   "new": "    public ObjectReader withType(TypeReference<?> valueTypeRef) {\n        return forType(_config.getTypeFactory().constructType(valueTypeRef.getType()));\n    }    \n\n    /**\n     * Method for constructing the {@link JavaType} that represents a\n     * parameterized type.\n     *\n     * @param typeFactory Factory used for constructing the type\n     * @param parametrized Type-erased class of the type being constructed\n     * @param parametersFor Class or interface for which type parameters are applied; either\n     *   <code>parametrized</code> or one of its supertypes\n     * @param parameterTypes Type parameters to apply\n     *\n     * @return Type constructed\n     */\n    public static JavaType parametrizedTypeFor(TypeFactory typeFactory, Class<?> parametrized,\n            Class<?> parametersFor, JavaType[] parameterTypes)\n    {\n        if (Map.class.isAssignableFrom(parametrized)) {\n            if (parameterTypes.length != 2) {\n                throw new IllegalArgumentException(\"Need exactly 2 parameter types for Map types (\"+parametrized.getName()+\")\");\n            }\n            return typeFactory.constructMapType((Class<Map<?,?>>) parametrized, parameterTypes[0], parameterTypes[1]);\n        }\n        if (Collection.class.isAssignableFrom(parametrized)) {\n            if (parameterTypes.length != 1) {\n                throw new IllegalArgumentException(\"Need exactly 1 parameter type for Collection types (\"+parametrized.getName()+\")\");\n            }\n            return typeFactory.constructCollectionType((Class<Collection<?>>) parametrized, parameterTypes[0]);\n        }\n        return typeFactory.constructSimpleType(parametrized, parametersFor, parameterTypes);\n    }\n\n\n    /**\n     * Method for constructing a new instance with configuration that",
+   "old": "    public ObjectReader withType(TypeReference<?> valueTypeRef) {\n        return forType(_config.getTypeFactory().constructType(valueTypeRef.getType()));\n    }    \n\n    /**\n     * Method for constructing a new instance with configuration that",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "new": "\n    /**\n     * Helper method for constructing the {@link JavaType} that represents a\n     * parameterized type. An array class takes exactly one type parameter,\n     * its element type.\n     *\n     * @param typeFactory Factory used for constructing the type\n     * @param parametrized Type-erased class of the type being constructed\n     * @param parametersFor Class or interface for which type parameters are applied\n     * @param parameterTypes Type parameters to apply\n     *\n     * @return Type constructed\n     */\n    public static JavaType typeWithParameters(TypeFactory typeFactory, Class<?> parametrized,\n            Class<?> parametersFor, JavaType[] parameterTypes)\n    {\n        if (parametrized.isArray()) {\n            if (parameterTypes.length != 1) {\n                throw new IllegalArgumentException(\"Need exactly 1 parameter type for arrays (\"+parametrized.getName()+\")\");\n            }\n            return typeFactory.constructArrayType(parameterTypes[0]);\n        }\n        return TokenBuffer.parametrizedTypeOf(typeFactory, parametrized, parametersFor, parameterTypes);\n    }\n\n\n    // Copied almost verbatim from \"createMapDeserializer\" -- should try to share more code",
+   "old": "\n    // Copied almost verbatim from \"createMapDeserializer\" -- should try to share more code",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "import com.fasterxml.jackson.databind.util.*;\nimport com.fasterxml.jackson.databind.type.TypeFactory;\n",
+   "old": "import com.fasterxml.jackson.databind.util.*;\n",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "new": "        return contextual;\n    }\n\n    /**\n     * Helper method for constructing the {@link JavaType} that represents\n     * a parameterized type.\n     *\n     * @param typeFactory Factory used for constructing the type\n     * @param parametrized Type-erased class of the type being constructed\n     * @param parametersFor Class or interface for which type parameters are applied\n     * @param parameterTypes Type parameters to apply\n     */\n    public static JavaType typeForParameters(TypeFactory typeFactory, Class<?> parametrized,\n            Class<?> parametersFor, JavaType[] parameterTypes)\n    {\n        return ObjectReader.parametrizedTypeFor(typeFactory, parametrized, parametersFor, parameterTypes);\n    }\n\n\n    /**",
+   "old": "        return contextual;\n    }\n\n    /**",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java",
+   "new": "       The type parameters are matched to the type variables of <code>parametersFor</code> by name, after both have been sorted alphabetically.\n     */\n    public JavaType constructParametrizedType(Class<?> parametrized, Class<?> parametersFor,\n            JavaType... parameterTypes)\n    {\n        return com.fasterxml.jackson.databind.deser.BasicDeserializerFactory.typeWithParameters(this, parametrized, parametersFor, parameterTypes);",
+   "old": "     */\n    public JavaType constructParametrizedType(Class<?> parametrized, Class<?> parametersFor,\n            JavaType... parameterTypes)\n    {\n        JavaType resultType;\n        \n        // Need to check kind of class we are dealing with...\n        if (parametrized.isArray()) {\n            // 19-Jan-2010, tatus: should we support multi-dimensional arrays directly?\n            if (parameterTypes.length != 1) {\n                throw new IllegalArgumentException(\"Need exactly 1 parameter type for arrays (\"+parametrized.getName()+\")\");\n            }\n            resultType = constructArrayType(parameterTypes[0]);\n        }\n        else if (Map.class.isAssignableFrom(parametrized)) {\n            if (parameterTypes.length != 2) {\n                throw new IllegalArgumentException(\"Need exactly 2 parameter types for Map types (\"+parametrized.getName()+\")\");\n            }\n            resultType = constructMapType((Class<Map<?,?>>)parametrized, parameterTypes[0], parameterTypes[1]);\n        }\n        else if (Collection.class.isAssignableFrom(parametrized)) {\n            if (parameterTypes.length != 1) {\n                throw new IllegalArgumentException(\"Need exactly 1 parameter type for Collection types (\"+parametrized.getName()+\")\");\n            }\n            resultType = constructCollectionType((Class<Collection<?>>)parametrized, parameterTypes[0]);\n        } else {\n            resultType = constructSimpleType(parametrized, parametersFor, parameterTypes);\n        }\n        return resultType;",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "import com.fasterxml.jackson.databind.*;\nimport com.fasterxml.jackson.databind.type.TypeFactory;\n",
+   "old": "import com.fasterxml.jackson.databind.*;\n",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "new": "        writeObject(copy);\n    }\n\n    /**\n     * Helper method for constructing the {@link JavaType} that represents\n     * a parameterized type.\n     *\n     * @param typeFactory Factory used for constructing the type\n     * @param parametrized Type-erased class of the type being constructed\n     * @param parametersFor Class or interface for which type parameters are applied\n     * @param parameterTypes Type parameters to apply\n     */\n    public static JavaType parametrizedTypeOf(TypeFactory typeFactory, Class<?> parametrized,\n            Class<?> parametersFor, JavaType[] parameterTypes)\n    {\n        return ObjectMapper.parametrizedType(typeFactory, parametrized, parametersFor, parameterTypes);\n    }\n\n\n    /**",
+   "old": "        writeObject(copy);\n    }\n\n    /**",
+   "purpose": "MI-JacksonDatabind-19 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+   "method": "typeWithParameters"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+   "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+   "method": "parametrizedTypeOf"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.ObjectMapper",
+   "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+   "method": "parametrizedType"
+  },
+  {
+   "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+   "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+   "method": "typeForParameters"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonDatabind-19__i.py",
+ "entry_points": [
+  "com.fasterxml.jackson.databind.type.TypeFactory::constructParametrizedType"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.databind.type.TypeFactory::_fromClass",
+  "com.fasterxml.jackson.databind.type.TypeFactory::_fromParameterizedClass",
+  "com.fasterxml.jackson.databind.type.TypeFactory::_fromParamType"
+ ],
+ "expected_signature": "expected:<class com.fasterxml.jackson.databind.type.MapType> but was:<class com.fasterxml.jackson.databind.type.SimpleType>",
+ "extra_tests": [],
+ "fixture_key": "JacksonDatabind-19",
+ "gold": {
+  "class": "com.fasterxml.jackson.databind.ObjectReader",
+  "edits": [
+   {
+    "new": "    {\n        if (Collection.class.isAssignableFrom(parametrized)) {\n",
+    "old": "    {\n        if (Map.class.isAssignableFrom(parametrized)) {\n            if (parameterTypes.length != 2) {\n                throw new IllegalArgumentException(\"Need exactly 2 parameter types for Map types (\"+parametrized.getName()+\")\");\n            }\n            return typeFactory.constructMapType((Class<Map<?,?>>) parametrized, parameterTypes[0], parameterTypes[1]);\n        }\n        if (Collection.class.isAssignableFrom(parametrized)) {\n"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+  "method": "parametrizedTypeFor"
+ },
+ "group": "MI-JacksonDatabind-19",
+ "hops": 5,
+ "iid": "MI-JacksonDatabind-19",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold decides, for a class that is not an array, which type the factory constructs (a MapType for a Map class, a CollectionType for a Collection class, a simple type otherwise) and checks the parameter count each container kind needs; hop 1 answers only array classes and hops 2-4 pass the receiver and the three values on unchanged. The gold's javadoc promises the JavaType that represents the parameterized type; for Map<String,ArrayList<String>> that type is a MapType in Jackson's type model, and the variant returns a SimpleType. No one-line change of the values above the gold makes it return a MapType (it sends every non-Collection class to constructSimpleType), and recovering after the gold cannot produce the trigger's 'Need exactly 2 parameter types for Map types' for a Map class with one parameter, for which the gold's simple path already throws its own mismatch message. The convention is pinned outside the gold: TypeFactory._fromClass builds a Map class through _mapType as MapType.construct, and the generic-aware TypeFactory._fromParameterizedClass and _fromParamType build a Map class with type parameters as MapType.construct(raw, key, value) (a Collection class as CollectionType); TestTypeFactory::testMaps (raw HashMap, constructMapType(TreeMap, ...) and TypeReference<HashMap<String,Integer>> all give MapType) and TestTypeFactory::testCollections pass, and TestWithGenerics::testWrapperWithExplicitType and TestTypedContainerSerialization::testIssue329 pass through the whole chain.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.databind.type.TestTypeFactory::testMaps",
+  "com.fasterxml.jackson.databind.type.TestTypeFactory::testCollections",
+  "com.fasterxml.jackson.databind.jsontype.TestWithGenerics::testWrapperWithExplicitType",
+  "com.fasterxml.jackson.databind.jsontype.TestTypedContainerSerialization::testIssue329"
+ ],
+ "project": "JacksonDatabind",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "createMapDeserializer",
+    "anchor_seed": 6477,
+    "class": "com.fasterxml.jackson.databind.deser.BasicDeserializerFactory",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "typeWithParameters",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeBinary",
+    "anchor_seed": 6478,
+    "class": "com.fasterxml.jackson.databind.util.TokenBuffer",
+    "file": "src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java",
+    "hop": 2,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.type.TypeFactory;"
+    ],
+    "method": "parametrizedTypeOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getDeserializationContext",
+    "anchor_seed": 6479,
+    "class": "com.fasterxml.jackson.databind.ObjectMapper",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "parametrizedType",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "createContextual",
+    "anchor_seed": 6480,
+    "class": "com.fasterxml.jackson.databind.deser.BeanDeserializerBase",
+    "file": "src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java",
+    "hop": 4,
+    "imports_added": [
+     "import com.fasterxml.jackson.databind.type.TypeFactory;"
+    ],
+    "method": "typeForParameters",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "withType",
+    "anchor_seed": 6481,
+    "class": "com.fasterxml.jackson.databind.ObjectReader",
+    "file": "src/main/java/com/fasterxml/jackson/databind/ObjectReader.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.util.Collection;"
+    ],
+    "method": "parametrizedTypeFor",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6377
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonDatabind-19"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.databind.type.TestTypeFactory",
+  "test_file": "src/test/java/com/fasterxml/jackson/databind/type/TestTypeFactory.java",
+  "test_method": "testParametricTypes"
+ },
+ "variant_id": "CTV-23ABA5",
+ "kind": "new",
+ "fault_lines": [
+  "{\n        if (Collection.class.isAssignableFrom(parametrized)) {"
+ ],
+ "gold_key": "com.fasterxml.jackson.databind.ObjectReader::parametrizedTypeFor"
+}

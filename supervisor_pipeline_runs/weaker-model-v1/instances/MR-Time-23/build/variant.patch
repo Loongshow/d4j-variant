@@ -1,0 +1,256 @@
+diff --git a/src/main/java/org/joda/time/DateTime.java b/src/main/java/org/joda/time/DateTime.java
+index 0463a244..f343ce06 100644
+--- a/src/main/java/org/joda/time/DateTime.java
++++ b/src/main/java/org/joda/time/DateTime.java
+@@ -522,6 +522,25 @@ public final class DateTime
+         return super.toDateTime(chronology);
+     }
+ 
++    /**
++     * Gets a time zone instance for a fixed offset id.
++     * <p>
++     * The offset is parsed from the id; a zero offset gives the
++     * {@link DateTimeZone#UTC} zone.
++     *
++     * @param id  the fixed offset id, starting with {@code +} or {@code -}
++     * @return the DateTimeZone object for the offset
++     * @throws IllegalArgumentException if the offset cannot be parsed
++     */
++    public static DateTimeZone zoneForOffsetId(String id) {
++        int offset = DateTimeZone.parseOffset(id);
++        if (offset == 0) {
++            return DateTimeZone.UTC;
++        }
++        return Period.zoneForOffset(offset);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Returns a copy of this datetime with different millis.
+diff --git a/src/main/java/org/joda/time/DateTimeZone.java b/src/main/java/org/joda/time/DateTimeZone.java
+index 855cad05..cda9182e 100644
+--- a/src/main/java/org/joda/time/DateTimeZone.java
++++ b/src/main/java/org/joda/time/DateTimeZone.java
+@@ -198,29 +198,13 @@ public abstract class DateTimeZone implements Serializable {
+      * @param id  the ID of the datetime zone, null means default
+      * @return the DateTimeZone object for the ID
+      * @throws IllegalArgumentException if the ID is not recognised
++       Region IDs are looked up by a binary search in a sorted array of all the available IDs.
+      */
+-    @FromString
+-    public static DateTimeZone forID(String id) {
++    public static @FromString DateTimeZone forID(String id) {
+         if (id == null) {
+             return getDefault();
+         }
+-        if (id.equals("UTC")) {
+-            return DateTimeZone.UTC;
+-        }
+-        DateTimeZone zone = cProvider.getZone(id);
+-        if (zone != null) {
+-            return zone;
+-        }
+-        if (id.startsWith("+") || id.startsWith("-")) {
+-            int offset = parseOffset(id);
+-            if (offset == 0L) {
+-                return DateTimeZone.UTC;
+-            } else {
+-                id = printOffset(offset);
+-                return fixedOffsetZone(id, offset);
+-            }
+-        }
+-        throw new IllegalArgumentException("The datetime zone id '" + id + "' is not recognised");
++        return org.joda.time.format.PeriodFormatterBuilder.zoneForId(id);
+     }
+ 
+     /**
+@@ -345,7 +329,7 @@ public abstract class DateTimeZone implements Serializable {
+      * @param offset  the offset in millis
+      * @return the zone
+      */
+-    private static synchronized DateTimeZone fixedOffsetZone(String id, int offset) {
++    static synchronized DateTimeZone fixedOffsetZone(String id, int offset) {
+         if (offset == 0) {
+             return DateTimeZone.UTC;
+         }
+@@ -598,7 +582,7 @@ public abstract class DateTimeZone implements Serializable {
+         return map.get(id);
+     }
+ 
+-    private static int parseOffset(String str) {
++    static int parseOffset(String str) {
+         // Can't use a real chronology if called during class
+         // initialization. Offset parser doesn't need it anyhow.
+         Chronology chrono = new BaseChronology() {
+diff --git a/src/main/java/org/joda/time/Period.java b/src/main/java/org/joda/time/Period.java
+index 1e0a6d82..1cf768cf 100644
+--- a/src/main/java/org/joda/time/Period.java
++++ b/src/main/java/org/joda/time/Period.java
+@@ -23,6 +23,7 @@ import org.joda.time.chrono.ISOChronology;
+ import org.joda.time.field.FieldUtils;
+ import org.joda.time.format.ISOPeriodFormat;
+ import org.joda.time.format.PeriodFormatter;
++import org.joda.time.format.FormatUtils;
+ 
+ /**
+  * An immutable time period specifying a set of duration field values.
+@@ -226,6 +227,44 @@ public final class Period
+         return new Period(new int[] {0, 0, 0, 0, 0, 0, 0, millis}, PeriodType.standard());
+     }
+ 
++    /**
++     * Gets the time zone instance for a fixed offset, using the timezone
++     * offset string of the offset as its id.
++     *
++     * @param offset  the offset in milliseconds
++     * @return the DateTimeZone object for the offset
++     */
++    public static DateTimeZone zoneForOffset(int offset) {
++        StringBuffer buf = new StringBuffer();
++        int rest = offset;
++        if (rest >= 0) {
++            buf.append('+');
++        } else {
++            buf.append('-');
++            rest = -rest;
++        }
++
++        int hours = rest / DateTimeConstants.MILLIS_PER_HOUR;
++        FormatUtils.appendPaddedInteger(buf, hours, 2);
++        rest -= hours * DateTimeConstants.MILLIS_PER_HOUR;
++
++        int minutes = rest / DateTimeConstants.MILLIS_PER_MINUTE;
++        buf.append(':');
++        FormatUtils.appendPaddedInteger(buf, minutes, 2);
++        rest -= minutes * DateTimeConstants.MILLIS_PER_MINUTE;
++
++        if (rest != 0) {
++            int seconds = rest / DateTimeConstants.MILLIS_PER_SECOND;
++            buf.append(':');
++            FormatUtils.appendPaddedInteger(buf, seconds, 2);
++            rest -= seconds * DateTimeConstants.MILLIS_PER_SECOND;
++            buf.append('.');
++            FormatUtils.appendPaddedInteger(buf, rest, 3);
++        }
++        return DateTimeZone.fixedOffsetZone(buf.toString(), offset);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Creates a period from two partially specified times, calculating
+diff --git a/src/main/java/org/joda/time/format/ISODateTimeFormat.java b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+index 1a050239..84ff80c9 100644
+--- a/src/main/java/org/joda/time/format/ISODateTimeFormat.java
++++ b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+@@ -20,6 +20,8 @@ import java.util.HashSet;
+ import java.util.Set;
+ 
+ import org.joda.time.DateTimeFieldType;
++import org.joda.time.DateTime;
++import org.joda.time.DateTimeZone;
+ 
+ /**
+  * Factory that creates instances of DateTimeFormatter for the ISO8601 standard.
+@@ -1273,6 +1275,25 @@ public class ISODateTimeFormat {
+         return bwdt;
+     }
+ 
++    /**
++     * Gets a time zone instance for a time zone id that the zone provider
++     * does not know.
++     * <p>
++     * Such an id is accepted only as a fixed offset id, which starts with
++     * {@code +} or {@code -}.
++     *
++     * @param id  the ID of the datetime zone, not null
++     * @return the DateTimeZone object for the ID
++     * @throws IllegalArgumentException if the ID is not recognised
++     */
++    public static DateTimeZone zoneOfId(String id) {
++        if (id.startsWith("+") || id.startsWith("-")) {
++            return DateTime.zoneForOffsetId(id);
++        }
++        throw new IllegalArgumentException("The datetime zone id '" + id + "' is not recognised");
++    }
++
++
+     /**
+      * Returns a basic formatter that combines a basic weekyear date and time
+      * without millis, separated by a 'T' (xxxx'W'wwe'T'HHmmssZ).
+diff --git a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+index 78abf660..0f82c679 100644
+--- a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+@@ -28,6 +28,8 @@ import org.joda.time.DurationFieldType;
+ import org.joda.time.PeriodType;
+ import org.joda.time.ReadWritablePeriod;
+ import org.joda.time.ReadablePeriod;
++import org.joda.time.DateTimeZone;
++import org.joda.time.tz.DateTimeZoneBuilder;
+ 
+ /**
+  * Factory that creates complex instances of PeriodFormatter via method calls.
+@@ -183,6 +185,24 @@ public class PeriodFormatterBuilder {
+         iFieldFormatters = new FieldFormatter[10];
+     }
+ 
++    /**
++     * Gets a time zone instance for the specified time zone id.
++     * <p>
++     * The id {@code UTC} gives the {@link DateTimeZone#UTC} zone; any other
++     * id is passed on to the zone lookup.
++     *
++     * @param id  the ID of the datetime zone, not null
++     * @return the DateTimeZone object for the ID
++     * @throws IllegalArgumentException if the ID is not recognised
++     */
++    public static DateTimeZone zoneForId(String id) {
++        if (id.equals("UTC")) {
++            return DateTimeZone.UTC;
++        }
++        return DateTimeZoneBuilder.zoneFromId(id);
++    }
++
++
+     /**
+      * Appends another formatter.
+      *
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ead4b2b7..710b4be2 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,7 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import org.joda.time.format.ISODateTimeFormat;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -269,6 +270,24 @@ public class DateTimeZoneBuilder {
+         return this;
+     }
+ 
++    /**
++     * Gets a time zone instance for the specified time zone id.
++     * <p>
++     * An id that the zone provider knows gives the provider's zone.
++     *
++     * @param id  the ID of the datetime zone, not null
++     * @return the DateTimeZone object for the ID
++     * @throws IllegalArgumentException if the ID is not recognised
++     */
++    public static DateTimeZone zoneFromId(String id) {
++        DateTimeZone zone = DateTimeZone.getProvider().getZone(id);
++        if (zone != null) {
++            return zone;
++        }
++        return ISODateTimeFormat.zoneOfId(id);
++    }
++
++
+     /**
+      * Set a fixed savings rule at the cutover.
+      */

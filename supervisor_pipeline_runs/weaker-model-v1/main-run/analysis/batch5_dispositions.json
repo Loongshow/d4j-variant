@@ -1,0 +1,443 @@
+{
+ "dispositions": {
+  "JacksonDatabind-37": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: The C10 recipe needs a facade that an existing test calls, and an existing trigger test that is the only test to newly fail on the variant (G5). SimpleType.construct(Class) has no caller in the fixed checkout, either in tests or in production code; it is a deprecated factory. A probe that makes construct throw on every call leaves the full suite at 0 failing tests out of 1517, so no omission in a chain under this facade can be caught by any existing test. Test sources may not be edited. Rerouting a production caller through the facade would not preserve behaviour and would create coverage artificially. For example, ObjectReader's JSON_NODE_TYPE comes from constructUnsafe, which passes null bindings, while construct uses empty bindings and rejects Map, Collection and array classes. Even with such a rerouting, any gold fault that changed the result for that type would break many tests, not one. Secondarily, the facade has almost no computation to split: three argument rejections plus a protected constructor. A Map/Collection/array rejection dropped at the gold could be restored by any hop that holds cls, so it would also fail the single-owner rule and T3. This is BUILD_BRIEF step 7 (no fault that exactly one test catches), and SimpleType.construct is the only allowed facade.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 92,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-38": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 93,
+   "redesigned": false,
+   "spec_sha256": "06d3b6361578a7bd330ed51b4ab84fdc1eb5856a362f9e74182ae50033d0d959",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-42": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: This falls under BUILD_BRIEF step 7 (\"no target whose computation can be split into a chain\"), as BATCH5_PREREGISTRATION anticipates for short wrappers. The only allowed target, FromStringDeserializer.types(), cannot carry C10 validly, for four reasons.\n\n(1) Nothing to redistribute. types() has no parameters and no computation. Its body is `return new Class<?>[] { File.class, ..., InetSocketAddress.class };`, a constant list in Std.STD_* kind order. It has no argument guard, no iteration, no decision and no per-element core, so the chain has nothing to place in hops 1-4 and nothing to put in a gold. Any five-hop chain would invent a computation whose output is a constant.\n\n(2) No valid fault. With no input, any omission changes the returned set by a fixed amount. The only single-test effect is dropping one class, for example Charset -> TestJdkTypes::testCharset. That needs the gold to give one specific class a treatment the other eleven do not get. Two shapes are possible, and neither works:\n- A per-class or per-kind enumeration (a switch over STD_FILE..STD_INET_SOCKET_ADDRESS, or an if-chain like findDeserializer): dropping one case is a T3(a) trace, a closed set fixed by the type code, with siblings handled.\n- A uniform copy or filter loop: an omission hits all 12 elements or none. A frozen write position (T2(b)(ii)) or null entries (an NPE in JdkDeserializers.<clinit>, then ExceptionInInitializerError and NoClassDefFoundError across the suite) breaks gate G5; dropping a supported-class filter changes nothing.\nA no-arg gold that holds the literal and loses one line of it is not an omission \"in an iteration or decision\".\n\n(3) No single owner. Every hop above the gold holds the complete constant data and can add a dropped class back in one line. So can the only production caller, JdkDeserializers' static initializer, which already keeps its own parallel literal list (UUID, AtomicBoolean, StackTraceElement, ByteBuffer). The effect can therefore be recovered by a caller, which C10 forbids.\n\n(4) No test calls the facade. The pool's \"test_files: 6\" comes from a name-based substring match on test method names (testNestedUntypes in TestUntypedDeserialization, testSubtypes in TestCreatorWithPolymorphic113, testPropertyWithSubtypes in TestSubtypes). The only call site of types() is JdkDeserializers.<clinit> (JdkDeserializers.java:25), which runs once per JVM and is reached only through BasicDeserializerFactory.findDefaultDeserializer.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 94,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-44": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 95,
+   "redesigned": false,
+   "spec_sha256": "95a2710df0c265353863a8dd5fb5622d7ef8ff8da0ce8c4efd2ea9220786fde4",
+   "facade_reuse_of": [
+    "JacksonDatabind-37"
+   ],
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-53": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: TypeBindings.create has no decision or iteration whose one-line omission meets all three conditions: (a) it changes an observable result, (b) exactly one existing test catches it, and (c) it is uniquely owned by a gold and cannot be pre-filtered. Evidence, measured over the full suite by logging every create/createIfNeeded call:\n\n(1) The per-element computation is reading each type variable's name (names[i] = vars[i].getName()). It has no special case. Dropping that assignment leaves a never-written array, a T2 trace. Wrong names are invisible on the general path, which only one test reaches (P2: 0 failing tests); that path runs only for 0 or 3+ types, and the suite has a single such call (ConcurrentHashMap$CollectionView with 3 types, from testMapKeyValueSerialization). Routed through all lengths, wrong names break 35 tests (P4).\n\n(2) The remaining steps are all invisible to every test. These are: the length-1 and length-2 dispatch to the sibling overloads (P3: removing it gives 0 failing tests, with byte-identical names and messages); the cached TypeParamStash lookups; the null and empty normalisations, never reached in the suite; and the plural suffix of the error message, which no test asserts.\n\n(3) The single observable decision that exactly one test reaches is the parameter-count check (IllegalArgumentException \"Can not create TypeBindings for class ...\"), reached only by TestTypeFactory::testParametricTypes. It is an argument check, so it is pre-filterable, which the brief excludes. verifyException only looks for a case-insensitive substring with the class name, so any hop that holds erasedType can redo the check in one line, and the gold would not be the unique owner.\n\n(4) Structural: three of the four overloads have no javadoc, so the C10 lie could only be added by inserting new facade documentation. The private constructor stops any hop from returning a TypeBindings.\n\nPer brief step 7 (no fault that only one test catches with a unique owner), I did not force a design.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 96,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-56": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 97,
+   "redesigned": false,
+   "spec_sha256": "445a70fd37b6558e5828be7ae2ed69e8e199c0cddf6b105ab7fa942e8eab56d8",
+   "facade_reuse_of": [
+    "JacksonDatabind-42"
+   ],
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-59": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: None of the three allowed facade targets in BATCH5_PREREGISTRATION.md (row 98) can carry the C10 recipe.\n\n(1) CollectionLikeType.construct (both overloads) and MapLikeType.construct(Class, JavaType, JavaType) are deprecated factory methods. A grep of the whole checkout (src/main/java and src/test/java, qualified calls and reflective \"construct\" strings) finds no call to either. TypeFactory uses MapType.construct, CollectionType.construct and upgradeFrom, never these two. The pool's \"8 test files\" count comes from its name-based check; it does not reflect real callers. No existing test can therefore fail on a chain under these facades, so there is no trigger and gate G5 cannot be met.\n\n(2) MapLikeType.upgradeFrom is reached by four tests: three in TestTypeModifiers (MapLikeType.upgradeFrom is called from its MyTypeModifier) and TestTypeFactory::testRawMaps (through constructRawMapLikeType). Its whole computation is one argument check (`baseType instanceof TypeBase`, else IllegalArgumentException), which the facade must keep as its guard, and one call to the protected copy constructor. That constructor copies the base type's class, bindings, super types, handlers and static flag, then sets the key and value types. There is no iteration and no per-element decision to give hop 5. The recipe needs the gold to hold the per-element core and the fault to be a one-line omission inside an iteration or decision, so nothing of the original can be moved into a gold.\n\nIn addition, the drawn hosts cannot call the protected constructor at all; every reason is in host_notes. Two workarounds exist, and both force the design:\n- A pre-edit that makes the constructor public widens the target class's public API, and the gold would still be a single constructor call.\n- Building the result field by field through a public full constructor recomputes the hash and still contains no decision. Any decision would have to be invented. Its omission would not break the gold's normal contract on an existing test input, and dropping a copied field or argument would leave a T1 or T3 trace.\n\nBrief step 7 and the batch-5 pre-registration ('if none can carry the recipe validly, the instance is UNBUILDABLE ... recorded, not forced') therefore apply.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 98,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-63": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: JsonMappingException.from is a one-statement exception factory. Its computation has no iteration, so there is no per-element core to put in a gold. Its only decisions are the token location (set when the processor is a JsonParser) and attaching the cause. Every placement of a one-line omission fails G5, G6 or T1, as measured on a scratch copy over the full suite.\n\n(a) Reachability, probed with a marker in each overload:\n- F1 from(JsonParser,String): 47 tests\n- F2 from(JsonParser,String,Throwable): 6 tests\n- F3 from(JsonGenerator,String): 8 tests\n- F4 from(JsonGenerator,String,Throwable): 4 tests\n- F5 from(DeserializationContext,String): 0 tests, so G6 is impossible\n- F6 from(DeserializationContext,String,Throwable): 7 tests\n- F7 from(SerializerProvider,String): 1 test\n- F8 from(SerializerProvider,String,Throwable): 0 tests, so G6 is impossible\n\nNo call passes a null parser, so omitting a null check triggers nothing.\n\n(b) Dropping the token location:\n- F1: 5 tests fail (TestObjectMapperBeanDeserializer testFromIntCtor, testFromLongCtor and testFromDoubleCtor; TestBeanDeserializer testPOJOFromEmptyString and testPOJOFromEmptyArray, all through assertValidLocation). This fails G5.\n- F2 and F6: 0 tests fail, so there is no trigger.\n- F3, F4, F7 and F8: the processor is a generator, so the parser test is always false and there is nothing to omit.\n\n(c) Dropping the cause:\n- F2: 2 tests fail (TestCreators2 testExceptionFromConstructor and testJackson438), so G5 fails.\n- F6: exactly 1 test fails (BuilderSimpleTest::testBuilderMethodReturnInvalidType). But attaching the cause is the cause parameter's only use, so the variant gold would leave it unread. That is checklist T1, a HARD local trace. Any formulation that keeps the original result for every input either leaves that parameter unread or leaves an empty, dead if (T2c).\n\n(d) F7 is reached by one test, which checks only the message text. No step of the computation shapes the message, so no omission changes what the test sees.\n\nNo valid fault without a local trace exists for this target (BUILD_BRIEF step 7 and the batch-3 rule), so the instance is UNBUILDABLE.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 99,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-66": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 100,
+   "redesigned": false,
+   "spec_sha256": "23ff5e850cdbb80c5c0fb7c272e4b0fee8541f02aec625b8269a6746237adffc",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-71": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 101,
+   "redesigned": false,
+   "spec_sha256": "a513fa939cd980a9f2b5314dd9789b9811a19aec4b792d40e009288e4e4622fc",
+   "facade_reuse_of": [
+    "JacksonDatabind-66"
+   ],
+   "facade_reuse_effective": [
+    "JacksonDatabind-66"
+   ]
+  },
+  "JacksonDatabind-75": {
+   "status": "UNBUILDABLE (local trace)",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "TRACE",
+   "pool_rank": 102,
+   "redesigned": true,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-83": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: This is the brief's step-7 case: \"no target whose computation can be split into a chain\". The prereg names short wrappers as expected UNBUILDABLE cases, and this one is a constant.\n\n1. The method has no computation to split. Its whole body is `return new Class<?>[] { File.class, URL.class, ..., StringBuilder.class };`, a list of 13 class literals in FromStringDeserializer.Std kind order. There is no argument guard, iteration or decision, so nothing per-element exists to move into hop 5.\n\n2. Its only production caller is the JdkDeserializers static initializer, which puts each cls.getName() into a HashSet. Only set membership is visible downstream:\n   - adding a class has no effect;\n   - a null or an exception breaks the class initializer and fails the suite broadly;\n   - so the only usable fault effect is dropping a class.\n\n3. The faithful split gives a local trace. The split is: the kind loop and assembly in hops 1-4, and the kind-to-value-type mapping in the gold. That mapping is a switch over the Std.STD_* type codes, so its one-line omissions are:\n   - a missing case while the sibling cases are handled. This is T3(a), because a type-code set is closed. It is also T3(c) against the gold's own \"kinds\" wording, and literal kind numbers would leave a visible hole.\n   - a dropped range end, which is T3(b).\n   A checker would return TRACE, which the disposition table counts as UNBUILDABLE.\n\n4. Any other design invents computation that types() does not perform, and each candidate has its own defect:\n   - **Parsing a delimited list of names, losing the trailing token.** The original's last element, StringBuilder, is the only one whose loss no test detects, so this needs the output reordered. Hop 1 could also absorb the fault by editing the data it holds.\n   - **Filtering a candidate superset.** No production superset exists; StdJdkSerializers.all lacks Charset, TimeZone and the Inet types. Removing a filter line only adds classes, which has no visible effect.\n   - **Flattening groups with an omitted cursor reset.** This drops several classes, unless the group sizes are tuned to the tests.\n   - **Merge tail copies.** These are one-of-two (T3(b)).\n   - **Omitted write positions.** These are frozen locals (T2(b)).\n   In every one of these designs, the dropped class is a known constant that any non-gold hop could re-append. That puts single ownership on documentation wording alone.\n\nThe brief says not to force this, so the instance is reported UNBUILDABLE.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 103,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": [
+    "JacksonDatabind-42"
+   ],
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-99": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: Neither allowed facade can carry the C10 recipe validly (BUILD_BRIEF step 7).\n\n(1) ReferenceType.upgradeFrom(JavaType, JavaType): no existing test calls it, and no production code does either. A grep of src finds only its declaration and a javadoc link; the test file the pool counted (TestTypeModifiers) calls MapLikeType.upgradeFrom and CollectionLikeType.upgradeFrom. So no existing test can fail on a fault beneath it, and gates G3b, G5 and G6 cannot be met. The recipe also requires a facade \"that an existing test calls\".\n\n(2) ReferenceType.construct(Class, TypeBindings, JavaType, JavaType[], JavaType): its whole computation is one call to the protected 9-argument constructor with constant arguments (anchor null, handlers null, asStatic false). It has no argument guard, iteration or decision of its own to split into plumbing at hops 1-4 and a per-element core at hop 5.\n- The only decisions on its path are `bindings == null ? NO_BINDINGS : bindings` in TypeBase's constructor and `anchorType == null ? this : anchorType` in ReferenceType's constructor. Both assign final fields inside constructors, and the second needs `this`, so neither can move into a static method of another class.\n- A copy of the bindings normalisation in the chain would be redundant: TypeBase still does it, so omitting the copy changes nothing and no test fails.\n- The type-parameter choice (empty gives unknown, one gives the parameter, more throws) belongs to TypeFactory._referenceType, the caller, not to the facade. The facade receives refType already chosen.\n- The drawn hosts cannot even build an equal result. The protected constructors are not visible from them, and every public alternative is either the facade (recursion) or not behaviour-preserving (upgradeFrom drops the supertypes and changes hashCode). A pre-edit making the constructor public would preserve behaviour, but it would still leave a gold with no iteration or decision.\n\nAny instance would therefore need invented computation, and the correct chain would then not return the facade's original result for every input. As the batch-5 pre-registration expects for short-wrapper targets, this outcome is recorded rather than forced.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 104,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonDatabind-105": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 105,
+   "redesigned": false,
+   "spec_sha256": "a1d5a10efac6529afc538b19da09d47b6da2679507bb60f9e79183fd40b384d9",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-1": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: This is the brief's step 7: there is no fault that only one test catches.\n\nUnsupportedDurationField.getInstance has a 13-line body: a lazily created HashMap cache keyed by DurationFieldType. It looks up the type, creates the field with the private constructor on a miss, stores it, and returns it. There is no iteration and nothing decided per type. Apart from the returned field's type, the only observable property of this computation is that the same instance comes back every time. The full suite has exactly two tests that observe that, and both are needed in the same way: a first call stores the field and a later call for the same type must return it.\n\nA get-or-create step treats every key and every call alike. So every one-line omission in a gold that carries it does one of three things:\n1. It returns the same result as before (invalid).\n2. It breaks identity for every type. Both tests fail, and this was confirmed for the dropped store and the dropped lookup, which breaks G5.\n3. It changes the returned value. This was confirmed for null on a miss, which fails 11 tests: eras() of most chronologies (ISO, GJ, Coptic, Ethiopic, Islamic, Julian, Gregorian) goes through the facade.\n\nA fault caught only by the years path or only by the weeks path would need something the original computation does not have: a step that depends on the type, the call order or the number of entries, such as a bounded array cache or a first-call-only path. That would be a contrived invention, not a redistribution of the original computation. It would also depend on test order, because the JVM, and with it the cache, is shared by the test methods of one test class.\n\nOn top of this, the hops cannot reach the private static cache or the private constructor, so the chain would need pre-edits that are not merely behaviour-preserving plumbing. The pre-registration expected that some short-wrapper targets would end like this.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 106,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-2": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: This is brief step 7: no fault exists that exactly one existing test catches, so a valid one-line omission cannot be built. getInstance's only behaviour the suite can see is: (a) the result is a non-null field, which 25 tests check or the build fails; and (b) each type gets the same instance every time. Every way of losing (b) fails both identity tests together, the serialization round-trip and the UnsupportedDateTimeField cache test. A single trigger fails only if distinct types collapse onto one instance. The original hashed lookup has no type-comparison step to omit. Making one would require replacing HashMap.get with a hand-written scan of the cached values, which re-implements the computation instead of redistributing it. The omission would then leave a loop that returns its first element unconditionally, while the gold's contract names the requested type: a T4 local trace, so the hard rule fails. The other route is re-keying the cache by name, which does not behave like the original for two distinct types with the same name. A third obstacle is the private constructor, which keeps creation out of every drawn host unless the API is changed. The pre-registration expects short wrappers like this to drop out and says that outcome is recorded, not forced.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 107,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": [
+    "Time-1"
+   ],
+   "facade_reuse_effective": []
+  },
+  "Time-3": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: Brief step 7 applies: no computation that can be split into a chain, no fault that fits, and no single owner. This is the outcome BATCH5_PREREGISTRATION expects for short wrapper targets.\n(1) Nothing to split. Each overload is a null guard (in the zone and chronology overloads) plus one constructor call: new MutableDateTime(), new MutableDateTime(zone) or new MutableDateTime(chronology). The code the trigger then runs does only three things. It reads the global clock (DateTimeUtils.currentTimeMillis -> cMillisProvider.getMillis). It looks up the chronology (ISOChronology.getInstance(zone), or DateTimeUtils.getChronology(chrono)). It stores both (checkInstant is the identity). There is no loop and no per-element step for a hop-5 core. The only decisions are null defaults (zone -> default zone, chronology -> ISO) and the ISO chronology identity cache. The null defaults can never be reached behind the facade's own NPE guard, and the checklist treats them as argument normalisations. A cache hit or miss changes nothing observable (ISOChronology.equals compares zones), and a cache that depends on identityHashCode would be nondeterministic.\n(2) No valid omission. The trigger can only check two things: the chronology (its zone and type) and the millis. Any one-line edit that changes either does one of two things. It removes the gold's only use of its zone or chronology parameter, which is T1 present: for example, dropping a withZone or getInstance(zone) step leaves the zone unused. Or it swaps the clock source, which is a substitution, not an omission in an iteration or decision. The no-argument overload's default-zone order (cached default, then user.timezone, then TimeZone default, then UTC) cannot be rebuilt outside DateTimeZone, because cDefault is private, so getDefault() is the only route and it contains no omittable step.\n(3) No single owner. The result is a mutable MutableDateTime. Both things the trigger checks depend only on the zone or chronology argument, which every hop holds, and on the global clock, which every hop can read. So any hop can restore the correct result in one line that matches its own documentation, for example new MutableDateTime(zone), or setting the chronology from ISOChronology.getInstance(zone). Gate G9 and the ownership audit could not be passed honestly, and the effect is not 'unrecoverable by any caller'.\n(4) A gold could only be made by inventing a computation the facade never performs: assembling the date-time field by field, a local-time round trip through the zone offset, or re-implementing the chronology cache. That would be forcing the recipe, which the brief forbids, and a field-by-field gold with one field left out would show T3(a) (parallel siblings).",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 108,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-5": {
+   "status": "UNBUILDABLE",
+   "status_reason": "redesign UNBUILDABLE: The recipe needs a one-line omission in the gold, inside an iteration or decision that no caller can pre-filter or recover. Exactly one existing test must catch it, and the whole variant gold must pass T1-T4. Period.fieldDifference (Period.java:256-276) offers no such fault.\n\n(1) Validation faults are ruled out. The original's only decisions are: the null test, the size test, start.getFieldType(i) != end.getFieldType(i), and the adjacent duplicate-duration test. All four are argument validation, and the fixed facade javadoc states each one ('must not be null', 'The two partials must contain the same fields', 'may not contain overlapping fields', '@throws IllegalArgumentException if the partials are null or invalid'). So the same check at the facade, or at any pass-through hop, matches all documentation. It also copies the guard shape of the evidence methods (BasePeriod's partial constructor, BaseSingleFieldPeriod.between, AbstractPartial.compareTo). That makes it a competing repair.\n- The gold cannot claim the check with an @throws clause, because the variant would then state a throw it never makes (T4).\n- The overlap check is also redundant: PeriodType.forFields already rejects repeated duration types.\n- This holds for tests 2, 3, 4 and 5.\n\n(2) Computational faults are ruled out. The only test that checks a computed result is testFactoryFieldDifference1 (it checks -1Y 2M -2D and the type PeriodType.yearMonthDay()). Its result depends only on the per-field subtraction and the period type. Every one-line omission there either leaves a local trace or can be recovered by a caller:\n- Dropping either operand of end.getValue(i) - start.getValue(i): T3(b), one half of the start/end pair is treated and the other is not; with a precomputed base array, T1.\n- Dropping the duration-type derivation or a loop step: T2 (a dead or frozen local).\n- Dropping PeriodType.forFields(types), so new MutablePeriod() is used: this is not in an iteration or decision. A caller can recover it with withPeriodType at the placement hop. Test 5 also newly fails, unless the overlap check moves into the guard. With setValue(i) writing by position, types becomes dead or the result is visibly mis-placed (T2 or T4).\n- Index-to-type mapping (setValue(i) vs set(type) vs indexOf): makes no difference, because Partial's largest-first order always matches the standard period order. No test can see it.\n\n(3) No equivalent restatement adds a needed step that is not a trace (reset, special value, boundary or delimiter):\n- add(end) then add(-start): the omission is one half of a pair (T3).\n- Reading end by type with end.get(fieldType): this is the same validation again.\n- Partial-to-period then Period.minus: no step left to omit.\n- Clearing a period passed in to be filled: only matters if a hop pre-fills it, which is contrived.\n- Weekyear or halfday mapping, chronology conversion: change the original semantics, and test 1 cannot reach them.\n\nSo, under BUILD_BRIEF steps 7 and 'Pre-run checks', this target cannot carry the recipe without a competing owner or a local trace.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 109,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-6": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: No valid C10 design exists for this facade (brief step 7: no gold can be made the unique owner of a fault that only one test catches).\n\n(1) The only omission that exactly one existing test catches is the cutover year check, caught by TestGJDate::test_cutoverPreZero. Every other omission in the facade's computation fails 2 to 34 tests, or none (screen log).\n\n(2) That check is an argument validation, a pure function of (cutover, zone). Every hop above the gold must hold both values to pass them down. So a one-line check at any hop is a repair that fits all the documentation (a competing repair), and the brief's \"no caller can pre-filter or recover\" condition fails. No unique owner is possible.\n\n(3) A quiet gold breaks no stated contract when the step is omitted. Its idiomatic contract (create or resolve the GJ chronology for the zone and cutover) still holds when it returns a chronology for a 3 BCE cutover. GJChronology's class javadoc even documents such cutovers (\"If the Gregorian cutover date is specified at or before year -1 (Julian), year zero is defined\"). Writing the 0001-01-01 minimum into the gold is a T4 trace, and as a caller precondition it would move ownership to the callers.\n\n(4) A gold that only resolves the cutover leaves zone unused after the omission (T1). Keeping zone live means the gold must also build the chronology. That needs private constructors and the private cache from hosts in other packages, which means an invasive visibility pre-edit.\n\n(5) The external pin is weak. No production code repeats the check (only an ImpreciseCutoverField.add comment, \"cutover always after year zero\", and RELEASE-NOTES). No passing test pins it apart from the trigger itself.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 110,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-8": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: Brief step 7 applies: the target's computation cannot be split into a chain that carries a valid fault. setDefault (11 lines) does three things, and none can carry the recipe.\n(1) It writes the private static field cDefault inside a synchronized block. This cannot move into a hop in another class. Leaving the write out would break the setUp/tearDown of 82 test files (202 call sites; no production caller), so gate G5 would fail.\n(2) It checks a SecurityManager permission with the constant name \"DateTimeZone.setDefault\". No test sees this check: testDefaultSecurity returns at once unless java.version starts with 1.4, 1.5 or 1.6 (the OLD_JDK guard, TestDateTimeZone.java:54-64 and 173). The JDK here is 11.0.30, and removing the check gives 0 failing tests, so there is no trigger (G3b/G5). The check also depends only on global state, so any hop can redo it before or after the call, which leaves no single owner. A gold reduced to this check would also show a local trace once the check is removed: a dead `sm`, an empty branch or an unused action parameter (T1/T2).\n(3) It rejects a null zone with IllegalArgumentException. This guard is the facade's own argument guard, which the recipe keeps in the facade. It is the only step one test sees (removing it fails exactly testDefault). But it is not an iteration or decision that no caller can pre-filter: the facade or any hop can restore it in one line, consistent with the facade's '@throws IllegalArgumentException if the zone is null'. Moved into hop 5, the gold would be an identity (`return zone;` after the omission), with no per-element core.\nThere is no data, iteration or per-element decision to spread over five hops, so no choice of omission gives a gold that has a trigger, is the unique owner and has no local trace. The batch-5 pre-registration expected this for the DateTimeZone.setX wrappers: the outcome is recorded, not forced.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 111,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-9": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 112,
+   "redesigned": true,
+   "spec_sha256": "ed4676eb991e9e2a81888d4ed45e4861119302047028848fe562e19d798174dd",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-11": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 113,
+   "redesigned": true,
+   "spec_sha256": "c7879d8bee7baa75874718f39dc5e0d40b74bf7bf9fce1540a1e2ec1bc686197",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-12": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 114,
+   "redesigned": false,
+   "spec_sha256": "24c2eecdfd5087b5435c94049d691c8fc0b7848527f9684267181c34da50a910",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-15": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 115,
+   "redesigned": false,
+   "spec_sha256": "12cbd3dc9898f1c88a9c059b21ab1a2081de7b645e7691ac2e5df54fed3541b5",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-17": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 116,
+   "redesigned": false,
+   "spec_sha256": "b0d0d36dc35887f0cf2a3892392dd4c064fb10203f754dc654f053ff739f7357",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-18": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: GJChronology.getInstance cannot carry the C10 recipe validly at the Time-18 fixed revision (b609d7d6). The real Time-18 bug is in getDateTimeMillis, not the factory, and this revision does not yet have the cutover-too-early check in getInstance that later revisions add. The factory's computation has five steps: zone normalisation, cutover default, per-zone list lookup or creation, the reverse search for an entry with matching min days and cutover, and build-on-miss (UTC base or zoned wrapper) followed by caching.\n\nI applied each possible one-step omission to the original method and ran the full suite. Every omission with an observable effect fails at least 2 tests, so gate G5 cannot pass. The cache is identity-based, because GJChronology.equals falls through to Object.equals. Any omission in the cache-insert, search or build steps therefore breaks assertSame/assertEquals in 22-23 tests across TestSerialization, TestCalendarConverter, TestInterval and others. The null-cutover default is reached through BuddhistChronology and CalendarConverter, and omitting it fails 52 tests.\n\nThe closest case is the null-zone default, with 2 failing tests. It also fails single-owner: any hop documented \"null is default\" can repair it in one line with DateTimeUtils.getZone(zone). It is an argument normalisation, not a per-element core.\n\nDropping either term of the cache-match test fails 3 tests, and it would also be a checklist T3 trace (a match key built from one of the two parameters the gold reads).\n\nThe four delegating overloads have no decision of their own. The long overload's only decision (default millis \u2192 null) has no observable effect when omitted (0 failing tests), because the new Instant equals DEFAULT_CUTOVER.\n\nSince the correct configuration must reproduce the original result for every input, no other step is available to omit. Per brief step 7 (\"no fault that only one test catches\"), the instance is UNBUILDABLE.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 117,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": [
+    "Time-6"
+   ],
+   "facade_reuse_effective": []
+  },
+  "Time-19": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 118,
+   "redesigned": false,
+   "spec_sha256": "d7fddf249e82f2cdd49ff8523992b182bd12a40345328fdfdbf29a63735bc181",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-23": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 119,
+   "redesigned": false,
+   "spec_sha256": "dad140304621a0f3ee8f4dc8990d94c0f1b331b7b696414876fcc1de8d4b875c",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-25": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: getDefault cannot carry the C10 recipe validly; brief step 7 and the BUILD_BRIEF line \"if no valid fault without a local trace exists for your target, report UNBUILDABLE\".\n\n(1) Only one input reaches the computation. Apart from the cache, getDefault's only behaviour is the lazy resolution: the user.timezone property via forID, then the JDK default via forTimeZone, then UTC. Under Defects4J that resolution sees one fixed input in every run (single test or full suite, every class): the property and the JDK default are both America/Los_Angeles. Every other path returns what setDefault stored, and production code reads it everywhere (ISOChronology.getInstance, DateTimeUtils.getZone, forID(null), forTimeZone(null)). So a change on the cached path breaks thousands of tests, which fails gate G5.\n\n(2) The only sensitive test reacts to \"fixed zone or not\". Exactly one existing test, testSetInto_Object, reacts to the lazy result, and only to whether the zone is fixed (probes P1-P4). A valid fault must therefore turn the most ordinary input, a region id the provider knows given twice, into a fixed zone. The three ways to do that all fail:\n- Keep the original structure. The only omission that yields UTC is dropping the `temp == null` test before the UTC fallback. The values resolved from the property and the JDK zone are then overwritten on every path: checklist T1 and T2(a).\n- Route both sources through one gold resolver and drop the region lookup. That step is the main case of forID and forTimeZone (callee logic, not the facade's computation). The gold would visibly resolve only UTC and offset ids, which is not a quiet gold and risks T3/T4.\n- Restructure into a loop over the sources and drop its early exit, so the last recognised source (UTC) wins. Hops 1-4 hold the sources and can filter them or apply the fallback themselves, so callers can absorb the fault and repair it at hop 4. The gold can only be made the single owner if its javadoc states which source takes precedence, and that phrase is T4 on the variant.\n\n(3) The facade cannot become \"guard plus one delegating call\" without a recipe deviation or a change in meaning. The cache field cDefault is private and no drawn host can write it. The facade would have to keep the double-checked lazy init itself, or the chain would have to stop caching. Not caching contradicts the facade's own NOTE that a later change to the java.util.TimeZone default is not picked up.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 120,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Time-26": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 121,
+   "redesigned": false,
+   "spec_sha256": "4a2bfe9a6a1eb160261cd266c66295c46c751a1ee06b102648eadc4c1edd923e",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Lang-24": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 122,
+   "redesigned": false,
+   "spec_sha256": "880c0a5c39862471e19ea1c623c1f0df2e1fe7d043b52925ee58653600ba9915",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Lang-27": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 123,
+   "redesigned": false,
+   "spec_sha256": "c29ddf99103c039ca7e96b4f081c04972fde67f7bdf14f569285aad678b5cb96",
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "Lang-36": {
+   "status": "UNBUILDABLE",
+   "status_reason": "builder UNBUILDABLE: None of the three allowed targets can carry the C10 recipe with a fault that has no local trace and has a single existing trigger.\n\n(1) isDigits(String). Its computation is an isEmpty guard plus one universal check per character: every char must satisfy Character.isDigit. Only two groups of existing tests reach it:\n- testIsDigits, with ASCII input only: \"12345\" -> true; \"1234.5\", \"1ab\" and \"abc\" -> false.\n- createNumber's l/L branch, called from testCreateNumber, testIsNumber and testLang300. It passes only all-digit strings: \"12345\", \"12345678901234567890\", \"102147483647\", \"22338\", \"1\" and \"01\".\n\nA wrong false on \"12345\" therefore also fails testCreateNumber, which breaks G5. The only other false negatives that would isolate one test are on \"01\" or \"1\" (testLang300 only), and no step of a digit check singles out those strings. So a sole trigger needs the gold to wrongly accept '.', 'a', 'b' or 'c'. In a scan whose only decision is the per-char digit test, every one-line omission that does this leaves a local trace:\n- Dropping the early return or its branch leaves a dead or empty decision (T2c).\n- Dropping the char load, cursor advance, flag set or count/best-so-far update leaves a frozen local (T2b). Count/filter forms also contradict their own 'digit' text (T4).\n- Splitting the test so that one line can go (an ASCII range with ch < '0' and ch > '9' as separate ifs, or ASCII versus non-ASCII halves) leaves one range end or one half of a two-member set treated (T3b).\n- A permissive base check plus an exclusion line either makes the 'digit' wording contradict the body (T4), or leaves a radix parameter unused (T1). Examples are isLetterOrDigit minus isLetter, getNumericValue, and Character.digit(ch, MAX_RADIX) with a bound against a radix.\nSpecial cases that would read as ordinary (surrogate pairs, supplementary or fullwidth digits) affect only non-ASCII input, and no existing test passes non-ASCII input.\n\n(2) toShort(String). The body is `return toShort(str, (short) 0)`, which is a null check plus Short.parseShort inside an NFE catch. The code base has no per-element core to redistribute. The gold would be a single JDK call with nothing to omit. The alternative is a re-implementation of Short.parseShort (signs, digits, overflow), which the original does not contain and which nothing outside the JDK pins.\n\n(3) createDouble(String). The body is null -> null, then Double.valueOf(str), which is again a bare JDK call with nothing to split. createNumber also calls it (testCreateNumber, testIsNumber), so any fault reachable through it would fail several tests (G5).\n\nPer brief step 7 and the batch-5 pre-registration, this outcome is recorded, not forced.",
+   "final_audit": null,
+   "final_trace": null,
+   "pool_rank": 124,
+   "redesigned": false,
+   "spec_sha256": null,
+   "facade_reuse_of": null,
+   "facade_reuse_effective": []
+  },
+  "JacksonCore-6": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 125,
+   "redesigned": true,
+   "spec_sha256": "aee3d8b24ba0dd5823a04782bf649527825da92555fac4d2263c348965c9510d",
+   "facade_reuse_of": [
+    "JacksonCore-5"
+   ],
+   "facade_reuse_effective": [
+    "JacksonCore-5"
+   ]
+  },
+  "Lang-12": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 126,
+   "redesigned": false,
+   "spec_sha256": "4625487ca52bd0119b934a3ba3d36b10f131874154df0e2b315729d17d56cbaf",
+   "facade_reuse_of": [
+    "Lang-11"
+   ],
+   "facade_reuse_effective": [
+    "Lang-11"
+   ]
+  },
+  "Closure-26": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 127,
+   "redesigned": false,
+   "spec_sha256": "7be66bc81d0eb816ab4ffbc9674f86306871f6bf919eb17dd42fd602b1015bd7",
+   "facade_reuse_of": [
+    "Closure-9"
+   ],
+   "facade_reuse_effective": [
+    "Closure-9"
+   ]
+  },
+  "Closure-141": {
+   "status": "ACCEPTED",
+   "status_reason": null,
+   "final_audit": "CONFIRMED",
+   "final_trace": "NO_TRACE",
+   "pool_rank": 128,
+   "redesigned": false,
+   "spec_sha256": "360421316344d26e9f78be0bccb0e88fefec1d1bbea3982d4a55fe169340af20",
+   "facade_reuse_of": [
+    "Closure-137"
+   ],
+   "facade_reuse_effective": [
+    "Closure-137"
+   ]
+  }
+ },
+ "rule": "BATCH5_PREREGISTRATION.md: the batch-3/4 disposition table applied top to bottom, first match wins; missing audit verdict counts as REJECTED, missing checker verdict as TRACE: checker TRACE -> UNBUILDABLE (local trace); audit REJECTED -> REJECTED; audit FLAG_AMBIGUOUS -> FLAGGED (run after all ACCEPTED, reported separately, never counted); audit CONFIRMED -> ACCEPTED. facade_reuse_of is the pre-registered tag; facade_reuse_effective drops batch-5 candidates that were not ACCEPTED (their facade was never built).",
+ "recorded_at": "2026-10-25"
+}

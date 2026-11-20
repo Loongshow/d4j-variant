@@ -1,0 +1,229 @@
+{
+ "bug_id": 14,
+ "compensating": [
+  {
+   "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+   "new": "if (bound instanceof WildcardType && (((WildcardType) bound).getLowerBounds().length > 0 || ((WildcardType) bound).getUpperBounds()[0] == Object.class)) {",
+   "old": "if (bound instanceof WildcardType && ((WildcardType) bound).getLowerBounds().length > 0) {",
+   "why": "hop 1 also answers an unbounded wildcard directly"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/Gson.java",
+   "new": "return GsonBuilder.upperBoundsIn(new Type[] { com.google.gson.internal.$Gson$Types.canonicalize(bound) });",
+   "old": "return GsonBuilder.upperBoundsIn(new Type[] { bound });",
+   "why": "hop 2 places the canonical form of the bound"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/JsonArray.java",
+   "new": "return upperBounds.isEmpty() ? new Type[] { Object.class } : upperBounds.toArray(new Type[upperBounds.size()]);",
+   "old": "return upperBounds.toArray(new Type[upperBounds.size()]);",
+   "why": "hop 4 gives Object when no upper bound is left"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "gson/src/main/java/com/google/gson/Gson.java",
+   "new": "  }\n\n        /**\n     * Returns the upper bounds of a wildcard type that extends {@code bound}.\n     * The bound is passed on as the only element of an array of bounds.\n     */\n    public static Type[] upperBoundsFor(Type bound) {\n      return GsonBuilder.upperBoundsIn(new Type[] { bound });\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/GsonBuilder.java",
+   "new": "  }\n\n        /**\n     * Returns the upper bounds of a wildcard type that extends each of\n     * {@code bounds}.\n     */\n    public static Type[] upperBoundsIn(Type[] bounds) {\n      return JsonArray.upperBoundsArray(bounds);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/JsonArray.java",
+   "new": "import java.util.List;\nimport java.lang.reflect.Type;\nimport com.google.gson.stream.JsonWriter;\n",
+   "old": "import java.util.List;\n",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/JsonArray.java",
+   "new": "  }\n\n        /**\n     * Returns the upper bounds of a wildcard type that extends each of\n     * {@code bounds}, as an array that holds the elements of the list of\n     * upper bounds in order.\n     */\n    public static Type[] upperBoundsArray(Type[] bounds) {\n      List<Type> upperBounds = JsonWriter.listUpperBounds(bounds);\n      return upperBounds.toArray(new Type[upperBounds.size()]);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/internal/$Gson$Types.java",
+   "new": "     The new wildcard type is interned: when a wildcard type equal to it was created before, that earlier instance is returned in its place.\n     */\n  public static WildcardType subtypeOf(Type bound) {\n        return new WildcardTypeImpl(com.google.gson.stream.JsonReader.upperBoundsOf(bound), EMPTY_TYPE_ARRAY);\n    }",
+   "old": "   */\n  public static WildcardType subtypeOf(Type bound) {\n    Type[] upperBounds;\n    if (bound instanceof WildcardType) {\n      upperBounds = ((WildcardType) bound).getUpperBounds();\n    } else {\n      upperBounds = new Type[] { bound };\n    }\n    return new WildcardTypeImpl(upperBounds, EMPTY_TYPE_ARRAY);\n  }",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+   "new": "import java.io.Reader;\nimport java.lang.reflect.Type;\nimport java.lang.reflect.WildcardType;\nimport com.google.gson.Gson;\n",
+   "old": "import java.io.Reader;\n",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+   "new": "  }\n\n        /**\n     * Returns the upper bounds of a wildcard type that extends {@code bound}.\n     * A wildcard bound with a lower bound, such as {@code ? super String}, is\n     * bounded above only by {@code Object}, which is then the only upper bound.\n     * Any other bound is passed on unchanged.\n     */\n    public static Type[] upperBoundsOf(Type bound) {\n      if (bound instanceof WildcardType && ((WildcardType) bound).getLowerBounds().length > 0) {\n        return new Type[] { Object.class };\n      }\n      return Gson.upperBoundsFor(bound);\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/stream/JsonWriter.java",
+   "new": "import static com.google.gson.stream.JsonScope.NONEMPTY_OBJECT;\nimport java.lang.reflect.Type;\nimport java.util.ArrayList;\nimport java.util.List;\n",
+   "old": "import static com.google.gson.stream.JsonScope.NONEMPTY_OBJECT;\n",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  },
+  {
+   "file": "gson/src/main/java/com/google/gson/stream/JsonWriter.java",
+   "new": "  }\n\n        /**\n     * Returns the upper bounds of a wildcard type that extends each of\n     * {@code bounds}.\n     */\n    public static List<Type> listUpperBounds(Type[] bounds) {\n      List<Type> result = new ArrayList<Type>(bounds.length);\n      for (Type bound : bounds) {\n        if (bound instanceof java.lang.reflect.WildcardType) {\n          java.util.Collections.addAll(result, ((java.lang.reflect.WildcardType) bound).getUpperBounds());\n          continue;\n        }\n        result.add(bound);\n      }\n      return result;\n    }\n\n}",
+   "old": "  }\n}",
+   "purpose": "MR-Gson-14 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.google.gson.stream.JsonReader",
+   "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+   "method": "upperBoundsOf"
+  },
+  {
+   "class": "com.google.gson.Gson",
+   "file": "gson/src/main/java/com/google/gson/Gson.java",
+   "method": "upperBoundsFor"
+  },
+  {
+   "class": "com.google.gson.GsonBuilder",
+   "file": "gson/src/main/java/com/google/gson/GsonBuilder.java",
+   "method": "upperBoundsIn"
+  },
+  {
+   "class": "com.google.gson.JsonArray",
+   "file": "gson/src/main/java/com/google/gson/JsonArray.java",
+   "method": "upperBoundsArray"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Gson-14.py",
+ "entry_points": [
+  "com.google.gson.internal.$Gson$Types::subtypeOf"
+ ],
+ "evidence": [
+  "com.google.gson.internal.$Gson$Types::supertypeOf",
+  "com.google.gson.internal.$Gson$Types::getCollectionElementType",
+  "com.google.gson.internal.$Gson$Types::getRawType",
+  "com.google.gson.internal.$Gson$Types::resolve"
+ ],
+ "expected_signature": "expected:<? extends java.lang.Number> but was:<? extends ? extends java.lang.Number>",
+ "extra_tests": [],
+ "fixture_key": "Gson-14",
+ "gold": {
+  "class": "com.google.gson.stream.JsonWriter",
+  "edits": [
+   {
+    "new": "      for (Type bound : bounds) {\n        result.add(bound);",
+    "old": "      for (Type bound : bounds) {\n        if (bound instanceof java.lang.reflect.WildcardType) {\n          java.util.Collections.addAll(result, ((java.lang.reflect.WildcardType) bound).getUpperBounds());\n          continue;\n        }\n        result.add(bound);"
+   }
+  ],
+  "file": "gson/src/main/java/com/google/gson/stream/JsonWriter.java",
+  "method": "listUpperBounds"
+ },
+ "group": "MR-Gson-14",
+ "hops": 5,
+ "iid": "MR-Gson-14",
+ "mechanism": "MAIN_RUN_C10F",
+ "ownership_reason": "Only the gold maps a bound to the upper bounds it contributes to the new wildcard type. Hop 1 answers only a wildcard bound that has a lower bound (bounded above only by Object) and documents that any other bound is passed on unchanged; hop 2 places the bound as the only element of an array; hop 3 passes the array on; hop 4 copies the gold's list into an array in order; the facade wraps that array in the wildcard type with no lower bound. The gold's javadoc promises the upper bounds of a wildcard type that extends each of the bounds; a wildcard type that extends ? extends Number is an unknown subtype of Number and is bounded above by Number (an upper bound of a wildcard type is never itself a wildcard), so {? extends Number} violates it on the trigger input, as the trigger's ? extends ? extends Number shows. The convention is pinned outside the gold: the sibling facade $Gson$Types.supertypeOf (intact) gives the new wildcard a wildcard bound's own lower bounds (testDoubleSupertype: supertypeOf of ? super Number is ? super Number; testSuperSubtype: supertypeOf of ? extends Number is ?); $Gson$Types.getCollectionElementType and $Gson$Types.getRawType read a wildcard through its own upper bound (CollectionTest testWildcardPrimitiveCollectionDeserilaization reads Collection<? extends Integer> elements as Integer; MapTest testMapDeserializationWithWildcardValues reads Map<String, ? extends Long> values as Long); $Gson$Types.resolve rebuilds a wildcard from its own resolved bound; testSubSupertype pins hop 1's case (subtypeOf of ? super Number is ?). One-line edits outside the gold that pass the suite either compute the upper bounds themselves and discard the chain (the facade's original body), or replace a wildcard bound by its own upper bound before the gold (a second implementation of the gold's per-bound step: it breaks hop 1's 'passed on unchanged', hop 2's placement or hop 3's pass-through, and treats only the first of the bounds at hops 2-3), or replace the first element of the gold's list after it (hop 4, against its 'elements of the list in order'), or make the private WildcardTypeImpl constructor unwrap a wildcard argument for every caller, or make WildcardTypeImpl.getUpperBounds() mask the stored wildcard (toString still shows ? extends ? extends Number and hashCode no longer agrees with equals); in every case the gold still returns the wildcard as its own upper bound against its own javadoc.",
+ "ownership_tests": [
+  "com.google.gson.internal.bind.RecursiveTypesResolveTest::testDoubleSupertype",
+  "com.google.gson.internal.bind.RecursiveTypesResolveTest::testSuperSubtype",
+  "com.google.gson.internal.bind.RecursiveTypesResolveTest::testSubSupertype",
+  "com.google.gson.functional.CollectionTest::testWildcardPrimitiveCollectionDeserilaization",
+  "com.google.gson.functional.MapTest::testMapDeserializationWithWildcardValues"
+ ],
+ "project": "Gson",
+ "src_root": "gson/src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": null,
+    "anchor_seed": 7928,
+    "class": "com.google.gson.stream.JsonReader",
+    "file": "gson/src/main/java/com/google/gson/stream/JsonReader.java",
+    "hop": 1,
+    "imports_added": [
+     "import java.lang.reflect.Type;",
+     "import java.lang.reflect.WildcardType;",
+     "import com.google.gson.Gson;"
+    ],
+    "method": "upperBoundsOf",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 7929,
+    "class": "com.google.gson.Gson",
+    "file": "gson/src/main/java/com/google/gson/Gson.java",
+    "hop": 2,
+    "imports_added": [],
+    "method": "upperBoundsFor",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 7930,
+    "class": "com.google.gson.GsonBuilder",
+    "file": "gson/src/main/java/com/google/gson/GsonBuilder.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "upperBoundsIn",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 7931,
+    "class": "com.google.gson.JsonArray",
+    "file": "gson/src/main/java/com/google/gson/JsonArray.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.lang.reflect.Type;",
+     "import com.google.gson.stream.JsonWriter;"
+    ],
+    "method": "upperBoundsArray",
+    "role": "plain"
+   },
+   {
+    "anchor_after": null,
+    "anchor_seed": 7932,
+    "class": "com.google.gson.stream.JsonWriter",
+    "file": "gson/src/main/java/com/google/gson/stream/JsonWriter.java",
+    "hop": 5,
+    "imports_added": [
+     "import java.lang.reflect.Type;",
+     "import java.util.ArrayList;",
+     "import java.util.List;"
+    ],
+    "method": "listUpperBounds",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 7828
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Gson-14"
+ ],
+ "test_root": "gson/src/test/java",
+ "tier": "MAIN_RUN_C10F",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.google.gson.internal.bind.RecursiveTypesResolveTest",
+  "test_file": "gson/src/test/java/com/google/gson/internal/bind/RecursiveTypesResolveTest.java",
+  "test_method": "testDoubleSubtype"
+ },
+ "variant_id": "CTV-61D793",
+ "kind": "new",
+ "fault_lines": [
+  "for (Type bound : bounds) {\n        result.add(bound);"
+ ],
+ "gold_key": "com.google.gson.stream.JsonWriter::listUpperBounds"
+}

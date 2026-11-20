@@ -1,0 +1,191 @@
+diff --git a/src/java/org/apache/commons/lang/ArrayUtils.java b/src/java/org/apache/commons/lang/ArrayUtils.java
+index 6edd6edb2..a949b6067 100644
+--- a/src/java/org/apache/commons/lang/ArrayUtils.java
++++ b/src/java/org/apache/commons/lang/ArrayUtils.java
+@@ -1929,6 +1929,30 @@ public class ArrayUtils {
+         return INDEX_NOT_FOUND;
+     }
+ 
++    /**
++     * <p>Gets the lowest value in a range of a <code>long</code> array.</p>
++     *
++     * <p>The range runs from <code>startIndexInclusive</code> up to, but not
++     * including, <code>endIndexExclusive</code>.</p>
++     *
++     * @param array  the array to search, not null
++     * @param startIndexInclusive  the first index of the range
++     * @param endIndexExclusive  the index after the last index of the range,
++     *  greater than startIndexInclusive
++     * @return the lowest value in the range
++     */
++    public static long lowestValue(long[] array, int startIndexInclusive, int endIndexExclusive) {
++        long lowest = 0;
++        for (int i = startIndexInclusive; i < endIndexExclusive; i++) {
++            final long value = array[i];
++            if (value < lowest) {
++                lowest = value;
++            }
++        }
++        return lowest;
++    }
++
++
+     /**
+      * <p>Finds the last index of the given value within the array.</p>
+      *
+diff --git a/src/java/org/apache/commons/lang/NumberUtils.java b/src/java/org/apache/commons/lang/NumberUtils.java
+index c5ca8cd19..052d89987 100644
+--- a/src/java/org/apache/commons/lang/NumberUtils.java
++++ b/src/java/org/apache/commons/lang/NumberUtils.java
+@@ -389,15 +389,10 @@ public final class NumberUtils {
+      * @param b  value 2
+      * @param c  value 3
+      * @return  the smallest of the values
++       The values are sorted into ascending order by a three-step exchange network, and the value that ends up in front is returned.
+      */
+     public static long minimum(long a, long b, long c) {
+-        if (b < a) {
+-            a = b;
+-        }
+-        if (c < a) {
+-            a = c;
+-        }
+-        return a;
++        return org.apache.commons.lang.time.FastDateFormat.lowestOf(a, b, c);
+     }
+ 
+     /**
+diff --git a/src/java/org/apache/commons/lang/builder/ToStringStyle.java b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+index 55d48f3b9..110170096 100644
+--- a/src/java/org/apache/commons/lang/builder/ToStringStyle.java
++++ b/src/java/org/apache/commons/lang/builder/ToStringStyle.java
+@@ -26,6 +26,7 @@ import java.util.Set;
+ import org.apache.commons.lang.ClassUtils;
+ import org.apache.commons.lang.ObjectUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.ArrayUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -717,6 +718,23 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Gets the lowest value in a range of a <code>long</code> array.</p>
++     *
++     * <p>The range runs from <code>startIndexInclusive</code> up to, but not
++     * including, <code>endIndexExclusive</code>.</p>
++     *
++     * @param array  the array to search, not null
++     * @param startIndexInclusive  the first index of the range
++     * @param endIndexExclusive  the index after the last index of the range,
++     *  greater than startIndexInclusive
++     * @return the lowest value in the range
++     */
++    public static long lowestInRange(long[] array, int startIndexInclusive, int endIndexExclusive) {
++        return ArrayUtils.lowestValue(array, startIndexInclusive, endIndexExclusive);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>byte</code>
+      * value.</p>
+diff --git a/src/java/org/apache/commons/lang/text/StrBuilder.java b/src/java/org/apache/commons/lang/text/StrBuilder.java
+index bf19b8186..228280574 100644
+--- a/src/java/org/apache/commons/lang/text/StrBuilder.java
++++ b/src/java/org/apache/commons/lang/text/StrBuilder.java
+@@ -24,6 +24,7 @@ import java.util.List;
+ 
+ import org.apache.commons.lang.ArrayUtils;
+ import org.apache.commons.lang.SystemUtils;
++import org.apache.commons.lang.time.DateUtils;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1582,6 +1583,17 @@ public class StrBuilder {
+         return replace(matcher, null, 0, size, -1);
+     }
+ 
++    /**
++     * <p>Gets the lowest element of a <code>long</code> array.</p>
++     *
++     * @param array  the array to search, not null or empty
++     * @return the lowest element of the array
++     */
++    public static long lowestElement(long[] array) {
++        return DateUtils.lowestBetween(array, 0, array.length);
++    }
++
++
+     /**
+      * Deletes the first match within the builder using the specified matcher.
+      * <p>
+diff --git a/src/java/org/apache/commons/lang/time/DateUtils.java b/src/java/org/apache/commons/lang/time/DateUtils.java
+index 799715b54..7d5171238 100644
+--- a/src/java/org/apache/commons/lang/time/DateUtils.java
++++ b/src/java/org/apache/commons/lang/time/DateUtils.java
+@@ -24,6 +24,7 @@ import java.util.Date;
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+ import java.util.TimeZone;
++import org.apache.commons.lang.builder.ToStringStyle;
+ 
+ /**
+  * <p>A suite of utilities surrounding the use of the
+@@ -464,6 +465,23 @@ public class DateUtils {
+         return set(date, Calendar.DAY_OF_MONTH, amount);
+     }
+ 
++    /**
++     * <p>Gets the lowest value in a range of a <code>long</code> array.</p>
++     *
++     * <p>The range runs from <code>startIndexInclusive</code> up to, but not
++     * including, <code>endIndexExclusive</code>.</p>
++     *
++     * @param array  the array to search, not null
++     * @param startIndexInclusive  the first index of the range
++     * @param endIndexExclusive  the index after the last index of the range,
++     *  greater than startIndexInclusive
++     * @return the lowest value in the range
++     */
++    public static long lowestBetween(long[] array, int startIndexInclusive, int endIndexExclusive) {
++        return ToStringStyle.lowestInRange(array, startIndexInclusive, endIndexExclusive);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Sets the hours field to a date returning a new object.  Hours range 
+diff --git a/src/java/org/apache/commons/lang/time/FastDateFormat.java b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+index d2a0f3c02..c26ccb9a5 100644
+--- a/src/java/org/apache/commons/lang/time/FastDateFormat.java
++++ b/src/java/org/apache/commons/lang/time/FastDateFormat.java
+@@ -35,6 +35,7 @@ import java.util.Map;
+ import java.util.TimeZone;
+ 
+ import org.apache.commons.lang.Validate;
++import org.apache.commons.lang.text.StrBuilder;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -166,6 +167,19 @@ public class FastDateFormat extends Format {
+         return getInstance(pattern, null, null);
+     }
+ 
++    /**
++     * <p>Gets the lowest of three <code>long</code> values.</p>
++     *
++     * @param a  value 1
++     * @param b  value 2
++     * @param c  value 3
++     * @return the lowest of the values
++     */
++    public static long lowestOf(long a, long b, long c) {
++        return StrBuilder.lowestElement(new long[] {a, b, c});
++    }
++
++
+     /**
+      * <p>Gets a formatter instance using the specified pattern and
+      * time zone.</p>

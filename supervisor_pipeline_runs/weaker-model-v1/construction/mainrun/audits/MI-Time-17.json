@@ -1,0 +1,87 @@
+{
+ "instance": "MI-Time-17",
+ "task_key": "Time-17__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.DateTime::localOffsetAt (hop 4)",
+   "edit": "return Period.wallOffsetAt(zone, instant, offset);  ->  return Math.max(offset, Period.wallOffsetAt(zone, instant, offset - 1));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "note": "Feeds the gold offset - 1, contrary to the gold's @param offset ('the offset of the zone at the instant') and to hop 4's own doc ('an offset of zero or more is passed on with the instant'), and clamps the gold's result with Math.max to undo the corrupted non-overlap return. It works only by exploiting the gold's internal formula; doc-violating compensation, not a competing repair."
+  },
+  {
+   "method": "org.joda.time.format.PeriodFormatterBuilder::settleLocalOffset (hop 3)",
+   "edit": "return DateTime.localOffsetAt(zone, instantLocal - offsetLocal, offsetLocal);  ->  return DateTime.localOffsetAt(zone, instantLocal - offsetLocal - 1, offsetLocal);",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "At local 02:00 (instant equal to the transition) previousTransition(instant - 1) lands on the spring transition, so +03:00 is returned; trigger and test_getOffsetFromLocal_Moscow_Autumn_overlap_mins fail."
+  },
+  {
+   "method": "org.joda.time.DateTime::localOffsetAt (hop 4), declared compensating edit",
+   "edit": "Period.wallOffsetAt(zone, instant, offset) -> Period.wallOffsetAt(zone, instant - 1, offset)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Same failure mode as the hop 3 shift; G9 records trigger_fail 1. Not re-run separately (equivalent to the hop 3 edit run above)."
+  },
+  {
+   "method": "org.joda.time.DateTime::localOffsetAt (hop 4), declared compensating edit",
+   "edit": "if (offset < 0) -> if (offset <= 0)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Moscow offset is positive; branch irrelevant (G9 trigger_fail 1)."
+  },
+  {
+   "method": "org.joda.time.tz.DateTimeZoneBuilder::wallOffsetFrom (hop 2), declared compensating edit",
+   "edit": "zone.getOffset(instantAdjusted) -> zone.getOffset(instantAdjusted + 1)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "Second estimate unchanged (+03:00) for the trigger input (G9 trigger_fail 1); also contradicts hop 2's doc."
+  },
+  {
+   "method": "DateTimeZoneBuilder.PrecalculatedZone::previousTransition / DSTZone::previousTransition (evidence, not a hop)",
+   "edit": "return the transition instead of transition - 1 (reasoned, not applied)",
+   "trigger_passes": null,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "note": "TestBuilder.testReverseTransitions asserts previousTransition == next row instant - 1, and ZoneInfoCompiler.test rejects trans - 1 != millis; this convention is the external pin, so moving it breaks an ownership test."
+  }
+ ],
+ "path": [
+  "facade org.joda.time.DateTimeZone#getOffsetFromLocal(long) [instance, V2: passes this as DateTimeZone]",
+  "hop1 org.joda.time.format.DateTimeFormatterBuilder.localOffsetOf(DateTimeZone,long) [first estimate zone.getOffset(instantLocal)]",
+  "hop2 org.joda.time.tz.DateTimeZoneBuilder.wallOffsetFrom(DateTimeZone,long,int) [second estimate at instantLocal - offsetLocal]",
+  "hop3 org.joda.time.format.PeriodFormatterBuilder.settleLocalOffset(DateTimeZone,long,int,int) [gap handling when estimates differ; agree -> pass on]",
+  "hop4 org.joda.time.DateTime.localOffsetAt(DateTimeZone,long,int) [negative offset returned as is; else pass on]",
+  "gold org.joda.time.Period.wallOffsetAt(DateTimeZone,long,int) [overlap: offset of the earlier instant; omitted transition++]"
+ ],
+ "reasons": "(a) Trigger local 2007-10-28T02:59:59.999 Europe/Moscow: both estimates are +03:00, hop 3 passes on instant 23:59:59.999Z, hop 4 passes the positive offset on; the gold gets previousTransition = 22:59:59.999Z (transition minus one), offsetBefore +04:00, and without transition++ tests 3600000 < 3600000, returning +03:00. The local time occurs twice (22:59:59.999Z at +04:00, 23:59:59.999Z at +03:00), so the gold's documented contract (offset of the earlier instant during an overlap) is violated; every hop does exactly what its javadoc says on this input. (b) Hop javadocs are precise and match their code (estimates, gap rule, sign rule); none mentions overlaps, so none is loose enough to own the overlap outcome. (c) No doc-consistent one-line hop edit exists: hops 1-4 are fully pinned by their docs and the gold alone sees the previous transition and the offset before it. The only passing non-gold edit found (hop 4 Math.max(offset, wallOffsetAt(zone, instant, offset - 1))) passes trigger, ownership tests and the full suite, but violates the gold's @param offset and hop 4's pass-on doc: bypass, recorded. Declared compensating edits and an instant shift at hop 3 fail the trigger (first-millisecond-of-overlap case). (d) Names neutral (localOffsetOf, wallOffsetFrom, settleLocalOffset, localOffsetAt, wallOffsetAt); G2b clean; gold javadoc states only the idiomatic overlap contract, not the transition-minus-one adjustment; the lie ('standard offset at the local instant plus the daylight saving amount ...') describes an algorithm the code does not do and names neither the fault nor the omitted step. (e) Five calls facade->gold; five different existing classes, all >=1500 lines, matching mr_lib preview's seeded draw and anchors (seed 8295; anchors appendFractionOfHour, addCutover, maximumParsedDigits, parse, fieldDifference), so the C10f largest-five rule is not needed; facade is a single delegating call passing the receiver (C10i V2, the prereg's best variant; getOffsetFromLocal is an allowed instance facade for Time-17__i); one appended lie sentence (recipe's standard placement before */); gold javadoc silent on the step; trigger is an existing test; my full-suite run of the variant fails only the trigger; correct.patch passes the trigger. (f) Convention pinned outside the gold: PrecalculatedZone/DSTZone.previousTransition return transition - 1, verified by ZoneInfoCompiler.test and asserted by TestBuilder.testReverseTransitions (passing); DateTimeZone.adjustOffset places the later-offset half of an overlap at [nextTransition, nextTransition + diff); facade's original javadoc requires the earlier instant during an overlap; overlap tests overlap_mins, DateTime_constructor_Moscow_Autumn and testDateTimeCreation_athens pass on the variant. (g) C10i not-allowed list respected: no visibility widened (only new public static methods and imports added), no new type, no reflection, facade signature/modifiers/throws unchanged and no override change, test.patch empty.",
+ "notes": "Bypass to record: hop 4 'return Math.max(offset, Period.wallOffsetAt(zone, instant, offset - 1));' passes trigger + all four ownership tests + full suite (0 failures) but is doc-inconsistent. The abstract DateTimeZone.previousTransition javadoc ('Retreats the given instant to where the time zone offset or name changes') does not itself state the minus-one convention; a reader relying on it alone could misjudge the gold, but the convention is pinned by the implementations, ZoneInfoCompiler.test and testReverseTransitions, so ownership stays with the gold. The facade calls hop 1 by fully qualified name although DateTimeFormatterBuilder is already imported in DateTimeZone; harmless. The lie line lacks a leading '*' and sits after @return: this is the recipe's mechanical insertion before */, not builder-specific. Scratch copies in /private/tmp/mxb-nfF7wJ deleted after the audit."
+}

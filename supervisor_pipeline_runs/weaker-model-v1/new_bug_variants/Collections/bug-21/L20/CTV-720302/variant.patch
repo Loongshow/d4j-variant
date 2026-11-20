@@ -1,0 +1,227 @@
+diff --git a/src/main/java/org/apache/commons/collections4/CollectionUtils.java b/src/main/java/org/apache/commons/collections4/CollectionUtils.java
+index 122c898c..a251a019 100644
+--- a/src/main/java/org/apache/commons/collections4/CollectionUtils.java
++++ b/src/main/java/org/apache/commons/collections4/CollectionUtils.java
+@@ -527,6 +527,31 @@ public class CollectionUtils {
+         return true;
+     }
+ 
++    /**
++     * Retains in a list only the elements that are contained in the
++     * specified collection.
++     * <p>
++     * The elements of the collection that are in the set of the elements of
++     * the list are gathered first; the other elements of the collection are
++     * ignored.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to retain the elements in, must not be null
++     * @param set  the set of the elements of the list, must not be null
++     * @param coll  the collection of the elements to retain, must not be null
++     * @return true if the list changed
++     */
++    public static <E> boolean keepMatching(final List<E> list, final Set<E> set, final Collection<?> coll) {
++        final Set<Object> kept = new HashSet<Object>();
++        for (final Object next : coll) {
++            if (set.contains(next)) {
++                kept.add(next);
++            }
++        }
++        return MapUtils.keepSelected(list, set, kept);
++    }
++
++
+     /**
+      * Returns <tt>true</tt> iff the given {@link Collection}s contain
+      * exactly the same elements with exactly the same cardinalities.
+diff --git a/src/main/java/org/apache/commons/collections4/MapUtils.java b/src/main/java/org/apache/commons/collections4/MapUtils.java
+index 68dea203..1c36f9b9 100644
+--- a/src/main/java/org/apache/commons/collections4/MapUtils.java
++++ b/src/main/java/org/apache/commons/collections4/MapUtils.java
+@@ -45,6 +45,9 @@ import org.apache.commons.collections4.map.TransformedMap;
+ import org.apache.commons.collections4.map.TransformedSortedMap;
+ import org.apache.commons.collections4.map.UnmodifiableMap;
+ import org.apache.commons.collections4.map.UnmodifiableSortedMap;
++import java.util.List;
++import java.util.Set;
++import org.apache.commons.collections4.trie.PatriciaTrie;
+ 
+ /**
+  * Provides utility methods and decorators for
+@@ -1204,6 +1207,26 @@ public class MapUtils {
+         return map == null || map.isEmpty();
+     }
+ 
++    /**
++     * Retains in a list only the given elements of the list.
++     * <p>
++     * If every element of the list is to be kept, the list is left
++     * unchanged.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to retain the elements in, must not be null
++     * @param set  the set of the elements of the list, must not be null
++     * @param kept  the elements of the list to keep, must not be null
++     * @return true if the list changed
++     */
++    public static <E> boolean keepSelected(final List<E> list, final Set<E> set, final Set<?> kept) {
++        if (kept.size() == set.size()) {
++            return false;
++        }
++        return PatriciaTrie.keepSubset(list, kept);
++    }
++
++
+     /**
+      * Null-safe check if the specified map is not empty.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java b/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
+index 7ef4782b..2b63f3f4 100644
+--- a/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
++++ b/src/main/java/org/apache/commons/collections4/bidimap/TreeBidiMap.java
+@@ -38,6 +38,8 @@ import org.apache.commons.collections4.keyvalue.UnmodifiableMapEntry;
+ 
+ import static org.apache.commons.collections4.bidimap.TreeBidiMap.DataElement.KEY;
+ import static org.apache.commons.collections4.bidimap.TreeBidiMap.DataElement.VALUE;
++import java.util.List;
++import org.apache.commons.collections4.CollectionUtils;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -302,6 +304,23 @@ public class TreeBidiMap<K extends Comparable<K>, V extends Comparable<V>>
+         return doRemoveValue(value);
+     }
+ 
++    /**
++     * Retains in a list only the elements that are contained in the
++     * specified collection.
++     * <p>
++     * The elements of the list are held in the given set.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to retain the elements in, must not be null
++     * @param set  the set of the elements of the list, must not be null
++     * @param coll  the collection of the elements to retain, must not be null
++     * @return true if the list changed
++     */
++    public static <E> boolean keepOnly(final List<E> list, final Set<E> set, final Collection<?> coll) {
++        return CollectionUtils.keepMatching(list, set, coll);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Gets the first (lowest) key currently in this map.
+diff --git a/src/main/java/org/apache/commons/collections4/list/SetUniqueList.java b/src/main/java/org/apache/commons/collections4/list/SetUniqueList.java
+index f7f04b2d..4ced1cc4 100644
+--- a/src/main/java/org/apache/commons/collections4/list/SetUniqueList.java
++++ b/src/main/java/org/apache/commons/collections4/list/SetUniqueList.java
+@@ -267,26 +267,13 @@ public class SetUniqueList<E> extends AbstractSerializableListDecorator<E> {
+     }
+ 
+     @Override
++    /**
++     * Retains only the elements in this list that are contained in the
++     * specified collection.
++       The elements of the specified collection are first copied into a sorted array, and each element of this list is then looked up in that array by a binary search.
++     */
+     public boolean retainAll(final Collection<?> coll) {
+-        final Set<Object> setRetainAll = new HashSet<Object>();
+-        for (final Object next : coll) {
+-            if (set.contains(next)) {
+-                setRetainAll.add(next);
+-            }
+-        }
+-        if (setRetainAll.size() == set.size()) {
+-            return false;
+-        }
+-        if (setRetainAll.size() == 0) {
+-            clear();
+-        } else {
+-            for (final Iterator<E> it = iterator(); it.hasNext();) {
+-                if (!setRetainAll.contains(it.next())) {
+-                    it.remove();
+-                }
+-            }
+-        }
+-        return true;
++        return org.apache.commons.collections4.bidimap.TreeBidiMap.keepOnly(this, set, coll);
+     }
+ 
+     @Override
+diff --git a/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java b/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
+index 3824c223..733cf8c1 100644
+--- a/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
++++ b/src/main/java/org/apache/commons/collections4/map/AbstractHashedMap.java
+@@ -34,6 +34,7 @@ import org.apache.commons.collections4.KeyValue;
+ import org.apache.commons.collections4.MapIterator;
+ import org.apache.commons.collections4.iterators.EmptyIterator;
+ import org.apache.commons.collections4.iterators.EmptyMapIterator;
++import java.util.List;
+ 
+ /**
+  * An abstract implementation of a hash-based map which provides numerous points for
+@@ -366,6 +367,22 @@ public class AbstractHashedMap<K, V> extends AbstractMap<K, V> implements Iterab
+         size = 0;
+     }
+ 
++    /**
++     * Removes from a list the elements that are not contained in a set.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to remove the elements from, must not be null
++     * @param kept  the elements to keep, must not be null
++     */
++    public static <E> void removeAllBut(final List<E> list, final Set<?> kept) {
++        for (int i = 0; i < list.size(); i++) {
++            if (!kept.contains(list.get(i))) {
++                list.remove(i);
++            }
++        }
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Converts input keys to another object for storage in the map.
+diff --git a/src/main/java/org/apache/commons/collections4/trie/PatriciaTrie.java b/src/main/java/org/apache/commons/collections4/trie/PatriciaTrie.java
+index 9bcf72fd..ba28e3ef 100644
+--- a/src/main/java/org/apache/commons/collections4/trie/PatriciaTrie.java
++++ b/src/main/java/org/apache/commons/collections4/trie/PatriciaTrie.java
+@@ -27,6 +27,8 @@ import java.util.Set;
+ import java.util.SortedMap;
+ 
+ import org.apache.commons.collections4.Trie;
++import java.util.List;
++import org.apache.commons.collections4.map.AbstractHashedMap;
+ 
+ /**
+  * <h3>PATRICIA {@link Trie}</h3>
+@@ -179,6 +181,27 @@ public class PatriciaTrie<K, V> extends PatriciaTrieBase<K, V> implements Trie<K
+         return new RangeEntryMap(fromKey, toKey);
+     }
+ 
++    /**
++     * Retains in a list only the given elements of the list, when at least
++     * one element of the list is not among them.
++     * <p>
++     * If no element is to be kept, the list is cleared.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to retain the elements in, must not be null
++     * @param kept  the elements of the list to keep, must not be null
++     * @return true, as the list changes
++     */
++    public static <E> boolean keepSubset(final List<E> list, final Set<?> kept) {
++        if (kept.isEmpty()) {
++            list.clear();
++        } else {
++            AbstractHashedMap.removeAllBut(list, kept);
++        }
++        return true;
++    }
++
++
+     /**
+      * {@inheritDoc}
+      */

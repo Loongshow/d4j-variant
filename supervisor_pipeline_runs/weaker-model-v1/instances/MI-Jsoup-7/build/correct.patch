@@ -1,0 +1,168 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 8f421da2..e681efca 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -15,6 +15,8 @@ import java.util.*;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
+ import java.util.zip.GZIPInputStream;
++import org.jsoup.nodes.Element;
++import org.jsoup.parser.Tag;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -131,6 +133,17 @@ public class HttpConnection implements Connection {
+         return res;
+     }
+ 
++    /**
++     * Finds the first element with the given tag name in an element, matching the tag name case insensitively.
++     * @param root the element to search
++     * @param tagName the tag name
++     * @return the first matching element, or null if there is none
++     */
++    public static Element firstOfTag(Element root, String tagName) {
++        return Tag.firstNamed(root, tagName.toLowerCase());
++    }
++
++
+     public Connection.Request request() {
+         return req;
+     }
+diff --git a/src/main/java/org/jsoup/nodes/Document.java b/src/main/java/org/jsoup/nodes/Document.java
+index 47632fc0..e0c828c4 100644
+--- a/src/main/java/org/jsoup/nodes/Document.java
++++ b/src/main/java/org/jsoup/nodes/Document.java
+@@ -71,15 +71,11 @@ public class Document extends Element {
+      Set the document's {@code title} element. Updates the existing element, or adds {@code title} to {@code head} if
+      not present
+      @param title string to set as title
++       Surrounding whitespace is trimmed from the given title before it is stored.
+      */
+     public void title(String title) {
+         Validate.notNull(title);
+-        Element titleEl = getElementsByTag("title").first();
+-        if (titleEl == null) { // add to head
+-            head().appendElement("title").text(title);
+-        } else {
+-            titleEl.text(title);
+-        }
++        Entities.documentTitle(this, title);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index 4c19b863..1ecd271c 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -11,6 +11,7 @@ import org.jsoup.select.Selector;
+ import java.util.*;
+ import java.util.regex.Pattern;
+ import java.util.regex.PatternSyntaxException;
++import org.jsoup.helper.HttpConnection;
+ 
+ /**
+  * A HTML element consists of a tag name, attributes, and child nodes (including text nodes and
+@@ -677,6 +678,19 @@ public class Element extends Node {
+     public Elements getElementsMatchingText(Pattern pattern) {
+         return Collector.collect(new Evaluator.Matches(pattern), this);
+     }
++
++    /**
++     * Gets the first element with the given tag name anywhere in a document, in document order. If the document has no
++     * such element, a new one is appended to the document's {@code head} and returned.
++     * @param doc the document
++     * @param tagName tag name of the element
++     * @return the existing or the new element
++     */
++    public static Element elementForTag(Document doc, String tagName) {
++        Element found = HttpConnection.firstOfTag(doc, tagName);
++        return found != null ? found : doc.head().appendElement(tagName);
++    }
++
+     
+     /**
+      * Find elements whose text matches the supplied regular expression.
+diff --git a/src/main/java/org/jsoup/nodes/Entities.java b/src/main/java/org/jsoup/nodes/Entities.java
+index 1b52a796..33febaa7 100644
+--- a/src/main/java/org/jsoup/nodes/Entities.java
++++ b/src/main/java/org/jsoup/nodes/Entities.java
+@@ -58,6 +58,17 @@ public class Entities {
+         return accum.toString();
+     }
+ 
++    /**
++     * Sets the text of a document's {@code title} element, replacing the element's contents. The element is the first
++     * {@code title} in the document, or a new one in the document's {@code head} when there is none.
++     * @param doc the document
++     * @param title unencoded text of the title
++     */
++    public static void documentTitle(Document doc, String title) {
++        Element.elementForTag(doc, "title").text(title);
++    }
++
++
+     static String unescape(String string) {
+         if (!string.contains("&"))
+             return string;
+diff --git a/src/main/java/org/jsoup/parser/Tag.java b/src/main/java/org/jsoup/parser/Tag.java
+index d46e5289..e2cbf7be 100644
+--- a/src/main/java/org/jsoup/parser/Tag.java
++++ b/src/main/java/org/jsoup/parser/Tag.java
+@@ -3,6 +3,8 @@ package org.jsoup.parser;
+ import org.jsoup.helper.Validate;
+ 
+ import java.util.*;
++import org.jsoup.nodes.Element;
++import org.jsoup.select.Elements;
+ 
+ /**
+  HTML Tag specifications. This is a very simplistic model without the full expressiveness as the DTD,
+@@ -126,6 +128,18 @@ public class Tag {
+         return canContainBlock;
+     }
+ 
++    /**
++     * Finds the first element with the given lower-case tag name in an element.
++     * @param root the element to search
++     * @param tagName the tag name, in lower case; must not be empty
++     * @return the first matching element, or null if there is none
++     */
++    public static Element firstNamed(Element root, String tagName) {
++        Validate.notEmpty(tagName);
++        return Elements.firstTagged(root, tagName);
++    }
++
++
+     /**
+      Gets if this tag is an inline tag.
+      @return if this tag is an inline tag.
+diff --git a/src/main/java/org/jsoup/select/Elements.java b/src/main/java/org/jsoup/select/Elements.java
+index 782d71aa..3acde78a 100644
+--- a/src/main/java/org/jsoup/select/Elements.java
++++ b/src/main/java/org/jsoup/select/Elements.java
+@@ -419,6 +419,24 @@ public class Elements implements List<Element> {
+ 
+     public boolean remove(Object o) {return contents.remove(o);}
+ 
++    /**
++     * Finds the first element with the given tag name.
++     * @param root the element to search
++     * @param tagName lower-case tag name
++     * @return the first element with the tag name, or null if none is found
++     */
++    public static Element firstTagged(Element root, String tagName) {
++        Elements candidates = root.children();
++        for (int i = 0; i < candidates.size(); i++) {
++            Element candidate = candidates.get(i);
++            if (candidate.tagName().equals(tagName))
++                return candidate;
++            candidates.addAll(i + 1, candidate.children());
++        }
++        return null;
++    }
++
++
+     public boolean containsAll(Collection<?> c) {return contents.containsAll(c);}
+ 
+     public boolean addAll(Collection<? extends Element> c) {return contents.addAll(c);}

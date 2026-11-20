@@ -1,0 +1,192 @@
+diff --git a/src/main/java/org/jsoup/helper/HttpConnection.java b/src/main/java/org/jsoup/helper/HttpConnection.java
+index 2d6d116b..27206b0f 100644
+--- a/src/main/java/org/jsoup/helper/HttpConnection.java
++++ b/src/main/java/org/jsoup/helper/HttpConnection.java
+@@ -48,6 +48,8 @@ import java.util.zip.GZIPInputStream;
+ 
+ import static org.jsoup.Connection.Method.HEAD;
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import org.jsoup.nodes.Element;
++import org.jsoup.select.Evaluator;
+ 
+ /**
+  * Implementation of {@link Connection}.
+@@ -292,6 +294,17 @@ public class HttpConnection implements Connection {
+         return res;
+     }
+ 
++    /**
++     * Test if an element has any text content (that is not just whitespace).
++     *
++     * @param element the element to test
++     * @return true if the element has non-blank text content
++     */
++    public static boolean hasTextContent(Element element) {
++        return Evaluator.IsRoot.hasNonBlankText(element);
++    }
++
++
+     public Connection.Request request() {
+         return req;
+     }
+diff --git a/src/main/java/org/jsoup/nodes/Element.java b/src/main/java/org/jsoup/nodes/Element.java
+index 85d335af..041ce6e2 100644
+--- a/src/main/java/org/jsoup/nodes/Element.java
++++ b/src/main/java/org/jsoup/nodes/Element.java
+@@ -1112,20 +1112,10 @@ public class Element extends Node {
+     /**
+      Test if this element has any text content (that is not just whitespace).
+      @return true if element has non-blank text content.
++       The element's text is collected first, with its whitespace normalised, and is then tested for being empty.
+      */
+     public boolean hasText() {
+-        for (Node child: childNodes) {
+-            if (child instanceof TextNode) {
+-                TextNode textNode = (TextNode) child;
+-                if (!textNode.isBlank())
+-                    return true;
+-            } else if (child instanceof Element) {
+-                Element el = (Element) child;
+-                if (el.hasText())
+-                    return true;
+-            }
+-        }
+-        return false;
++        return org.jsoup.helper.HttpConnection.hasTextContent(this);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/jsoup/nodes/Node.java b/src/main/java/org/jsoup/nodes/Node.java
+index 15d8f2bd..56a42021 100644
+--- a/src/main/java/org/jsoup/nodes/Node.java
++++ b/src/main/java/org/jsoup/nodes/Node.java
+@@ -10,6 +10,7 @@ import org.jsoup.select.NodeVisitor;
+ 
+ import java.io.IOException;
+ import java.util.*;
++import org.jsoup.safety.Whitelist;
+ 
+ /**
+  The base, abstract Node model. Elements, Documents, Comments etc are all Node instances.
+@@ -367,6 +368,16 @@ public abstract class Node implements Cloneable {
+         return this;
+     }
+ 
++    /**
++     * Test if an element with child nodes has any text content (that is not just whitespace).
++     * @param element the element to test, with at least one child node
++     * @return true if the element has non-blank text content
++     */
++    public static boolean holdsText(Element element) {
++        return Whitelist.containsText(element);
++    }
++
++
+     /**
+      * Removes this node from the DOM, and moves its children up into the node's parent. This has the effect of dropping
+      * the node but keeping its children.
+diff --git a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+index 041dcbd9..bc39d9b5 100644
+--- a/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
++++ b/src/main/java/org/jsoup/parser/HtmlTreeBuilder.java
+@@ -491,6 +491,17 @@ public class HtmlTreeBuilder extends TreeBuilder {
+         return inScope(targetName, TagSearchList);
+     }
+ 
++    /**
++     * Test if an element with child nodes has any text content (that is not
++     * just whitespace).
++     * @param element the element to test, with at least one child node
++     * @return true if the element has non-blank text content
++     */
++    public static boolean elementHasText(Element element) {
++        return Node.holdsText(element);
++    }
++
++
+     boolean inButtonScope(String targetName) {
+         return inScope(targetName, TagSearchButton);
+     }
+diff --git a/src/main/java/org/jsoup/safety/Whitelist.java b/src/main/java/org/jsoup/safety/Whitelist.java
+index d363bc24..8895b721 100644
+--- a/src/main/java/org/jsoup/safety/Whitelist.java
++++ b/src/main/java/org/jsoup/safety/Whitelist.java
+@@ -16,6 +16,8 @@ import java.util.Map;
+ import java.util.Set;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
++import org.jsoup.nodes.Node;
++import org.jsoup.nodes.TextNode;
+ 
+ 
+ /**
+@@ -181,6 +183,37 @@ public class Whitelist {
+                 ;
+     }
+ 
++    /**
++     * Test if a node has any text content (that is not just whitespace).
++     * The search runs depth first, without recursion, from the last child
++     * node back.
++     *
++     * @param node the node to test
++     * @return true if a text node that is not blank is found
++     */
++    public static boolean containsText(Node node) {
++        Node current = node;
++        int depth = 0;
++        while (current != null) {
++            if (current instanceof TextNode && !((TextNode) current).isBlank())
++                return true;
++            if (current.childNodeSize() > 0) {
++                current = current.childNode(current.childNodeSize() - 1);
++                depth++;
++            } else {
++                while (current.previousSibling() == null && depth > 0) {
++                    current = current.parentNode();
++                    depth--;
++                }
++                if (current == node)
++                    break;
++                current = current.previousSibling();
++            }
++        }
++        return false;
++    }
++
++
+     /**
+      Create a new, empty whitelist. Generally it will be better to start with a default prepared whitelist instead.
+ 
+diff --git a/src/main/java/org/jsoup/select/Evaluator.java b/src/main/java/org/jsoup/select/Evaluator.java
+index b6670d42..ac65dba6 100644
+--- a/src/main/java/org/jsoup/select/Evaluator.java
++++ b/src/main/java/org/jsoup/select/Evaluator.java
+@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
+ 
+ import static org.jsoup.internal.Normalizer.lowerCase;
+ import static org.jsoup.internal.Normalizer.normalize;
++import org.jsoup.parser.HtmlTreeBuilder;
+ 
+ 
+ /**
+@@ -579,6 +580,19 @@ public abstract class Evaluator {
+     		final Element r = root instanceof Document?root.child(0):root;
+     		return element == r;
+     	}
++
++    /**
++     * Test if an element has any text content (that is not just whitespace).
++     * An element without child nodes has none.
++     * @param element the element to test
++     * @return true if the element has non-blank text content
++     */
++    public static boolean hasNonBlankText(Element element) {
++        if (element.childNodeSize() == 0)
++            return false;
++        return HtmlTreeBuilder.elementHasText(element);
++    }
++
+     	@Override
+     	public String toString() {
+     		return ":root";

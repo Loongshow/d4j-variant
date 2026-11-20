@@ -1,0 +1,74 @@
+{
+ "instance": "Lang-21",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang3.ArrayUtils::nextUnitByLevels (hop 3)",
+   "edit": "table rows {Calendar.DATE, Calendar.DAY_OF_MONTH, DateUtils.SEMI_MONTH},{Calendar.MONTH} -> {Calendar.DATE, Calendar.DAY_OF_MONTH},{Calendar.MONTH, DateUtils.SEMI_MONTH} (as in DateUtils.fields)",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails",
+   "detail": "ceiling semimonth-1: expected Feb 16 2002, got Mar 01 2002 (DATE truncated to 1, then one month added)"
+  },
+  {
+   "method": "org.apache.commons.lang3.builder.ToStringStyle::moveToNextUnit (hop 2)",
+   "edit": "insert before the MILLISECOND check: if (field == org.apache.commons.lang3.time.DateUtils.SEMI_MONTH) val.set(Calendar.DATE, val.get(Calendar.DATE) > 15 ? val.getActualMaximum(Calendar.DATE) : 15);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "pre-places the calendar on the 15th or the month's last day so the gold's one-day step lands on the half-month boundary; contradicts hop 2's javadoc 'for any other field the calendar and the field are handed on unchanged' and moves the half-month decision out of the method that interprets the field"
+  },
+  {
+   "method": "org.apache.commons.lang3.StringUtils::nextUnitStart (hop 1)",
+   "edit": "insert after gval.setTime(date): if (field == org.apache.commons.lang3.time.DateUtils.SEMI_MONTH) gval.set(Calendar.DATE, gval.get(Calendar.DATE) > 15 ? gval.getActualMaximum(Calendar.DATE) : 15);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "same pre-placement; hop 1's javadoc gives the full procedure (date copied into a Calendar, that Calendar moved with the same field, its time returned), and the edit inserts an undocumented change of the copied date"
+  },
+  {
+   "method": "org.apache.commons.lang3.text.StrBuilder::advanceUnit (hop 4)",
+   "edit": "insert before FastDateFormat.stepUp(...): if (field == org.apache.commons.lang3.time.DateUtils.SEMI_MONTH) val.set(Calendar.DATE, val.get(Calendar.DATE) > 15 ? val.getActualMaximum(Calendar.DATE) : 15);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "same pre-placement; contradicts 'The calendar, the field and the levels are handed on unchanged'. The hop 3 analogue is excluded by the same wording ('The calendar and the field are handed on unchanged with these levels'); not run"
+  },
+  {
+   "method": "org.apache.commons.lang3.time.DateUtils::ceiling(Date,int) (facade)",
+   "edit": "return org.apache.commons.lang3.StringUtils.nextUnitStart(date, field); -> return ceiling(toCalendar(date), field).getTime();",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": null,
+   "class": "bypass",
+   "detail": "routes through DateUtils.modify via the Calendar overload; the whole chain becomes dead"
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.time.DateUtils::ceiling(Date,int)",
+  "hop1 org.apache.commons.lang3.StringUtils::nextUnitStart",
+  "hop2 org.apache.commons.lang3.builder.ToStringStyle::moveToNextUnit",
+  "hop3 org.apache.commons.lang3.ArrayUtils::nextUnitByLevels",
+  "hop4 org.apache.commons.lang3.text.StrBuilder::advanceUnit",
+  "gold org.apache.commons.lang3.time.FastDateFormat::stepUp"
+ ],
+ "reasons": "Variant compiles; testCeil fails with 'ceiling semimonth-1 failed expected:<Sat Feb 16 00:00:00 PST 2002> but was:<Wed Feb 13 00:00:00 PST 2002>'; the full suite on the variant shows only testCeil failing. (a) The gold's contract is 'Moves a calendar forward to the start of the next unit of a field'. SEMI_MONTH is 'half a month' (DateUtils constant), so from Feb 12 the next unit starts on Feb 16, but stepUp adds one unit of the row's leading field (DATE) and gives Feb 13. Hops 1-4 do only what their javadocs state (copy the date into a Calendar; refuse a year over 280 million and skip MILLISECOND; supply the level table; hand everything on unchanged), so no other method's own documented behaviour is violated. (b) Every hop's javadoc matches its code. The hop 3 table puts SEMI_MONTH on the DATE level, unlike DateUtils.fields (MONTH row), but that agrees with the correct gold, where the half-month step sets DATE. Moving it to the MONTH row fails the trigger (Mar 01), and no row placement can give a half-month step, so the table is not a fault location. (c) There is no doc-consistent competing repair. A one-line pre-placement of the calendar (to the 15th or the month's last day) at hop 1, 2 or 4 passes the trigger, the ownership tests and the full suite, but each contradicts its hop's documented pass-through and moves the half-month decision out of the gold, so I record it as a bypass. A facade reroute to the Calendar overload is also a bypass. (d) Names are neutral (nextUnitStart, moveToNextUnit, nextUnitByLevels, advanceUnit, stepUp) and there are no comments or fault words. The lie (epoch milliseconds divided by the unit length and rounded up) names neither SEMI_MONTH nor the half-month step. (e) Five hops sit in five different existing classes; the gold is the fifth call below the facade; the facade is the null guard plus one delegating call; one added procedural sentence; the gold's javadoc is silent on SEMI_MONTH; test.patch is empty and only testCeil newly fails. (f) DateUtils.modify (used by truncate, round and ceiling(Calendar)) takes the same half-month ceiling step (1 -> 16; otherwise -15 days and +1 month). DateUtilsRoundingTest.testRoundSemiMonth (round up to the 16th or the 1st of the next month) and testTruncateSemiMonth, DateUtilsTest.testRound and testTruncate pass on the variant.",
+ "notes": "Weakest point: the pre-placement bypass at hops 1-4 passes everything and is excluded only by the hops' javadocs. Hops 2-4 say 'handed on unchanged' explicitly. Hop 1 is excluded by its procedural description (the copied Calendar is moved), which is a bit softer. Hop 2 already treats one field specially (MILLISECOND leaves the calendar as it is), so a model may find hop 2 a natural home for a SEMI_MONTH case. Its javadoc closes that ('for any other field ... handed on unchanged'). The spec's ownership_reason says 'Only the gold interprets the field'. That is slightly overstated: hop 2 interprets MILLISECOND and hop 3 maps fields to levels, both as documented. It does not change the verdict. The lie sits in the facade javadoc after the '@since 2.5' tag, with odd indentation; this is a placement artifact, not leakage. Commands: git apply variant.patch on a scratch copy of fresh-mr/Lang-21; defects4j compile; defects4j test -t DateUtilsTest::testCeil (1 failing); defects4j test (1 failing: testCeil). Each alternative was run on its own scratch copy (trigger, the 4 ownership tests, and the full suite for those that passed the trigger). All scratch is under /private/tmp/mxb-uIgVpq and was deleted afterwards."
+}

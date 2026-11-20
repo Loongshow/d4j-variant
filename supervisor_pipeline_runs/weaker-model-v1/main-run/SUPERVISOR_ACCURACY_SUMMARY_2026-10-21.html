@@ -1,0 +1,275 @@
+<title>gpt-5.5 Accuracy Drop</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --ink: #1d1f24; --muted: #5d6270; --line: #e3e1da;
+  --accent: #c2410c; --accent-soft: #fde7da; --ref: #4b5f86; --ref-soft: #e3e8f2; --ok: #2f6b4f;
+  --bar-track: #efede7;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b; --surface: #1d2025; --ink: #e9e7e2; --muted: #a2a6b0; --line: #30343b;
+    --accent: #f08a54; --accent-soft: #3a2519; --ref: #9fb3d9; --ref-soft: #232b3a; --ok: #7fc4a0;
+    --bar-track: #2a2d33;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171b; --surface: #1d2025; --ink: #e9e7e2; --muted: #a2a6b0; --line: #30343b;
+  --accent: #f08a54; --accent-soft: #3a2519; --ref: #9fb3d9; --ref-soft: #232b3a; --ok: #7fc4a0;
+  --bar-track: #2a2d33;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 6px; }
+h1 .zh { display: block; font-size: 1.35rem; color: var(--muted); font-weight: 600; }
+h2 { font-size: 1.15rem; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+p, li { margin: 0 0 10px; }
+.meta { color: var(--muted); font-size: .92rem; margin: 0 0 18px; }
+code { font: .86em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bar-track); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+.toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--surface); }
+.toggle button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: .88rem; padding: 6px 14px; cursor: pointer; }
+.toggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+body[data-lang="en"] .zh, body[data-lang="zh"] .en { display: none !important; }
+body:not([data-lang="both"]) .sep { display: none; }
+.pair > .zh { color: var(--muted); }
+body[data-lang="zh"] .pair > .zh { color: var(--ink); }
+
+.answer { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 18px 20px; margin-top: 18px; }
+.answer .big { font-size: 1.3rem; font-weight: 700; margin-bottom: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0 6px; }
+.tile { background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+.tile .v { font-size: 1.6rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile .l { font-size: .8rem; color: var(--muted); line-height: 1.35; margin-top: 4px; }
+.tile .l .zh { display: block; margin-top: 2px; }
+.tile.ref .v { color: var(--ref); } .tile.main .v { color: var(--accent); }
+@media (max-width: 640px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+
+.bars { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.group-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 8px 0 6px; }
+.bar-row { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) 7.5rem; gap: 10px; align-items: center; padding: 5px 0; }
+.bar-row .name { font-size: .9rem; line-height: 1.3; }
+.bar-row .name .zh { display: block; font-size: .8rem; }
+.track { height: 14px; background: var(--bar-track); border-radius: 7px; overflow: hidden; }
+.fill { height: 100%; border-radius: 7px; background: var(--ref); }
+.main-row .fill { background: var(--accent); }
+.total-row { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 9px; font-weight: 700; }
+.val { font-variant-numeric: tabular-nums; font-size: .9rem; text-align: right; white-space: nowrap; }
+.val small { color: var(--muted); font-weight: 400; }
+@media (max-width: 640px) {
+  .bar-row { grid-template-columns: 1fr auto; row-gap: 4px; }
+  .bar-row .track { grid-column: 1 / -1; grid-row: 2; }
+}
+
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: .84rem; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+tr.total td { font-weight: 700; }
+
+.ranks { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: end; height: 150px; margin: 12px 0 4px; }
+.rank-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; }
+.rank-col .rb { width: 70%; max-width: 46px; background: var(--ref); border-radius: 4px 4px 0 0; min-height: 2px; }
+.rank-col.r1 .rb { background: var(--ok); }
+.rank-col.r2 .rb { background: var(--accent); }
+.rank-col .c { font-size: .82rem; font-variant-numeric: tabular-nums; margin-bottom: 3px; }
+.rank-axis { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 4px; }
+
+.kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+.kpi div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.kpi .v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi .l { font-size: .82rem; color: var(--muted); line-height: 1.35; }
+@media (max-width: 640px) { .kpi { grid-template-columns: 1fr; } }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+body:not([data-lang="both"]) .cols { grid-template-columns: 1fr; }
+@media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+.cols > div { min-width: 0; }
+.cols ul, .cols ol { padding-left: 1.2em; margin: 0; }
+.lang-tag { display: inline-block; font-size: .72rem; letter-spacing: .06em; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; margin-bottom: 6px; }
+.note { background: var(--accent-soft); border-radius: 10px; padding: 14px 16px; }
+.sources { color: var(--muted); font-size: .85rem; margin-top: 40px; }
+</style>
+
+<main>
+  <h1><span class="en">Has gpt-5.5's accuracy dropped?</span><span class="zh">gpt-5.5 的准确率下降了吗？</span></h1>
+  <p class="meta">
+    <span class="en">Main run, batches 1–4, 16–21 October 2026 · gpt-5.5 (medium reasoning) on the frozen Stage B protocol</span><span class="sep"><br></span>
+    <span class="zh">主实验第 1–4 批，2026 年 10 月 16–21 日 · gpt-5.5（medium reasoning），使用冻结的 Stage B 协议</span>
+  </p>
+  <div class="toggle" role="group" aria-label="Language">
+    <button type="button" data-set="both" aria-pressed="true">EN + 中文</button>
+    <button type="button" data-set="en" aria-pressed="false">EN</button>
+    <button type="button" data-set="zh" aria-pressed="false">中文</button>
+  </div>
+
+  <section class="answer">
+    <div class="big"><span class="en">Yes.</span><span class="sep"> / </span><span class="zh">是的。</span></div>
+    <p class="en">On our constructed Defects4J instances, gpt-5.5 ranks the faulty method first far less often than on the earlier reference sets. The gold usually stays near the top: it is ranked second in most of the misranked runs, and it is in the top 3 in 92.8% of runs.</p>
+    <p class="zh">在我们构造的 Defects4J 实例上，gpt-5.5 把故障方法排在第一位的比例，远低于此前的参照集。故障方法通常仍排在前面：多数排错的运行里它排第二，92.8% 的运行里它在前三名。</p>
+    <div class="tiles">
+      <div class="tile ref"><div class="v">100%</div><div class="l"><span class="en">Earlier held-out set and Stage B single-hop control</span><span class="zh">此前的 held-out 集与 Stage B 单跳对照</span></div></div>
+      <div class="tile main"><div class="v">37.4%</div><div class="l"><span class="en">Main run, all four batches</span><span class="zh">主实验四批合计</span></div></div>
+      <div class="tile main"><div class="v">24.8%</div><div class="l"><span class="en">Batches 3–4, "no local trace" rule</span><span class="zh">第 3–4 批（"no local trace" 规则）</span></div></div>
+      <div class="tile main"><div class="v">20.0%</div><div class="l"><span class="en">Batch 4</span><span class="zh">第 4 批</span></div></div>
+    </div>
+  </section>
+
+  <h2><span class="en">Acc@1 by set</span><span class="sep"> / </span><span class="zh">各数据集的 Acc@1</span></h2>
+  <p class="en">Acc@1 is the share of answered runs whose ranking puts the gold, the injected faulty method, first. No valid run timed out.</p>
+  <p class="zh">Acc@1 指已作答的运行中，把 gold（注入故障的方法）排第一的比例。所有有效运行均无超时。</p>
+
+  <div class="bars">
+    <div class="group-label"><span class="en">Reference sets</span><span class="sep"> / </span><span class="zh">参照集</span></div>
+    <div class="bar-row"><div class="name"><span class="en">Held-out set, 9 earlier constructed instances (recipes HA/HB/HC)</span><span class="zh">held-out 集，9 个此前构造的实例（HA/HB/HC 配方）</span></div><div class="track"><div class="fill" style="width:100%"></div></div><div class="val">100% <small>27/27</small></div></div>
+    <div class="bar-row"><div class="name"><span class="en">Stage B C00, single-hop control</span><span class="zh">Stage B C00，单跳对照</span></div><div class="track"><div class="fill" style="width:100%"></div></div><div class="val">100% <small>15/15</small></div></div>
+    <div class="bar-row"><div class="name"><span class="en">Stage B C01</span><span class="zh">Stage B C01</span></div><div class="track"><div class="fill" style="width:93.3%"></div></div><div class="val">93.3% <small>14/15</small></div></div>
+    <div class="bar-row"><div class="name"><span class="en">Stage B C10, the recipe used in the main run</span><span class="zh">Stage B C10，主实验所用配方</span></div><div class="track"><div class="fill" style="width:20%"></div></div><div class="val">20.0% <small>3/15</small></div></div>
+    <div class="bar-row"><div class="name"><span class="en">Stage B C11</span><span class="zh">Stage B C11</span></div><div class="track"><div class="fill" style="width:26.7%"></div></div><div class="val">26.7% <small>4/15</small></div></div>
+
+    <div class="group-label" style="margin-top:14px"><span class="en">Main run</span><span class="sep"> / </span><span class="zh">主实验</span></div>
+    <div class="bar-row main-row"><div class="name"><span class="en">Batch 1</span><span class="zh">第 1 批</span></div><div class="track"><div class="fill" style="width:47.5%"></div></div><div class="val">47.5% <small>19/40</small></div></div>
+    <div class="bar-row main-row"><div class="name"><span class="en">Batch 2</span><span class="zh">第 2 批</span></div><div class="track"><div class="fill" style="width:66%"></div></div><div class="val">66.0% <small>33/50</small></div></div>
+    <div class="bar-row main-row"><div class="name"><span class="en">Batch 3 ("no local trace" rule)</span><span class="zh">第 3 批（"no local trace" 规则）</span></div><div class="track"><div class="fill" style="width:28.2%"></div></div><div class="val">28.2% <small>24/85</small></div></div>
+    <div class="bar-row main-row"><div class="name"><span class="en">Batch 4 (same rule)</span><span class="zh">第 4 批（同一规则）</span></div><div class="track"><div class="fill" style="width:20%"></div></div><div class="val">20.0% <small>12/60</small></div></div>
+    <div class="bar-row main-row total-row"><div class="name"><span class="en">All batches</span><span class="zh">主实验合计</span></div><div class="track"><div class="fill" style="width:37.4%"></div></div><div class="val">37.4% <small>88/235</small></div></div>
+  </div>
+
+  <p style="margin-top:22px"><span class="en">Where the gold landed in the 235 answered main-run runs:</span><span class="sep"> / </span><span class="zh">主实验 235 次已作答运行中 gold 的排名：</span></p>
+  <div class="bars">
+    <div class="ranks" aria-label="Gold rank distribution">
+      <div class="rank-col r1"><span class="c">88</span><div class="rb" style="height:70.4%"></div></div>
+      <div class="rank-col r2"><span class="c">125</span><div class="rb" style="height:100%"></div></div>
+      <div class="rank-col"><span class="c">5</span><div class="rb" style="height:4%"></div></div>
+      <div class="rank-col"><span class="c">5</span><div class="rb" style="height:4%"></div></div>
+      <div class="rank-col"><span class="c">2</span><div class="rb" style="height:1.6%"></div></div>
+      <div class="rank-col"><span class="c">8</span><div class="rb" style="height:6.4%"></div></div>
+      <div class="rank-col"><span class="c">2</span><div class="rb" style="height:1.6%"></div></div>
+    </div>
+    <div class="rank-axis"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span></div>
+    <p class="meta" style="margin:10px 0 0"><span class="en">Gold rank. The mean reciprocal rank is 0.661; the gold is in the top 3 in 218 of 235 runs (92.8%).</span><span class="sep"><br></span><span class="zh">gold 排名。平均倒数排名（MRR）为 0.661；235 次运行中有 218 次（92.8%）gold 在前三名。</span></p>
+  </div>
+
+  <h2><span class="en">The supervisor's KPI</span><span class="sep"> / </span><span class="zh">导师设定的 KPI</span></h2>
+  <div class="cols">
+    <div class="en"><span class="lang-tag">EN</span><ul>
+      <li><b>Shift.</b> A run is a shift when the gold is not ranked first.</li>
+      <li><b>Success.</b> An instance succeeds when at least one of its 5 runs shifts.</li>
+    </ul></div>
+    <div class="zh"><span class="lang-tag">中文</span><ul>
+      <li><b>Shift（排名下移）：</b>一次运行中 gold 没有排第一，即为一次 shift。</li>
+      <li><b>Success（成功）：</b>一个实例的 5 次运行中至少有一次 shift，即为成功。</li>
+    </ul></div>
+  </div>
+  <div class="kpi">
+    <div><div class="v">47</div><div class="l"><span class="en">validated instances tested</span><span class="sep"> / </span><span class="zh">通过验证并测试的实例</span></div></div>
+    <div><div class="v">38</div><div class="l"><span class="en">with at least one shift</span><span class="sep"> / </span><span class="zh">至少一次 shift</span></div></div>
+    <div><div class="v">147<small style="font-size:.9rem;color:var(--muted)">/235</small></div><div class="l"><span class="en">runs shifted</span><span class="sep"> / </span><span class="zh">次运行发生 shift</span></div></div>
+  </div>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th><span class="en">Batch</span><span class="sep"> / </span><span class="zh">批次</span></th><th class="n"><span class="en">Validated</span><span class="sep"> / </span><span class="zh">验证通过</span></th><th class="n"><span class="en">With ≥1 shift</span><span class="sep"> / </span><span class="zh">至少一次 shift</span></th><th class="n"><span class="en">Shifted / answered runs</span><span class="sep"> / </span><span class="zh">shift 运行数</span></th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td class="n">8</td><td class="n">7</td><td class="n">21/40</td></tr>
+      <tr><td>2</td><td class="n">10</td><td class="n">5</td><td class="n">17/50</td></tr>
+      <tr><td>3 <span class="en">("no local trace" rule)</span><span class="zh">（"no local trace" 规则）</span></td><td class="n">17</td><td class="n">15</td><td class="n">61/85</td></tr>
+      <tr><td>4 <span class="en">(same rule)</span><span class="zh">（同一规则）</span></td><td class="n">12</td><td class="n">11</td><td class="n">48/60</td></tr>
+      <tr class="total"><td><span class="en">Total</span><span class="sep"> / </span><span class="zh">合计</span></td><td class="n">47</td><td class="n">38</td><td class="n">147/235</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th><span class="en">Project</span><span class="sep"> / </span><span class="zh">项目</span></th><th class="n"><span class="en">Instances tested</span><span class="sep"> / </span><span class="zh">测试实例</span></th><th class="n"><span class="en">With ≥1 shift</span><span class="sep"> / </span><span class="zh">至少一次 shift</span></th></tr></thead>
+    <tbody>
+      <tr><td>Lang</td><td class="n">32</td><td class="n">27</td></tr>
+      <tr><td>Math</td><td class="n">6</td><td class="n">4</td></tr>
+      <tr><td>Closure</td><td class="n">6</td><td class="n">6</td></tr>
+      <tr><td>Chart</td><td class="n">2</td><td class="n">1</td></tr>
+      <tr><td>JacksonCore</td><td class="n">1</td><td class="n">0</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="en">How the accuracy drops</span><span class="sep"> / </span><span class="zh">准确率如何下降</span></h2>
+  <div class="cols">
+    <div class="en"><span class="lang-tag">EN</span><ul>
+      <li><b>One error pattern.</b> In all 147 misranked runs, gpt-5.5 ranked the entry-point (facade) method first, that is, the existing method the failing test calls. In almost all of them it had already displayed and read the faulty method.</li>
+      <li><b>What it goes with</b> (pattern seen after batch 2, then checked on new instances). Shifts concentrate where the injected omission leaves no visible trace inside the faulty method, for example a parameter that cannot change the result, a dead local or decision, a visibly incomplete set of cases, or a contradiction with its own documentation. We froze this as a construction rule before building batches 3 and 4. The pre-registered readings were met: batch 3 shifted on 15 of 17 instances (SUPPORTED), and batch 4 on 11 of 12 (REPLICATES).</li>
+    </ul></div>
+    <div class="zh"><span class="lang-tag">中文</span><ul>
+      <li><b>单一错误模式。</b>在全部 147 次排错的运行中，gpt-5.5 都把入口（facade）方法排在第一，也就是失败测试调用的那个已有方法。几乎所有这些运行里，它其实已经显示并读过故障方法。</li>
+      <li><b>相关规律</b>（第 2 批后观察到，随后在新实例上检验）。shift 集中出现在注入的遗漏没有在故障方法内部留下可见痕迹的情况，可见痕迹例如：不会影响结果的参数、无用的局部变量或判断、明显不完整的分支集合，或与自身文档的矛盾。我们在构造第 3、4 批之前把这一点冻结为构造规则。预注册的判定都达到了：第 3 批 17 个实例中 15 个 shift（SUPPORTED），第 4 批 12 个中 11 个（REPLICATES）。</li>
+    </ul></div>
+  </div>
+
+  <h2><span class="en">Important caveats</span><span class="sep"> / </span><span class="zh">重要说明</span></h2>
+  <div class="note"><div class="cols">
+    <div class="en"><span class="lang-tag">EN</span><ol>
+      <li><b>Different instance sets.</b> The 100% figures come from other instance sets, not from these same 47 bugs without the transformation. As instructed, the main run has no baseline arm, so it cannot show how much of the drop on these bugs the construction causes, or which part of it: the hop chain, the misleading facade comment, or the omission type. The only same-bug comparison is Stage B (3 bugs): the single-hop control C00 scored 15/15, against 3/15 for C10.</li>
+      <li><b>Consistency checks, not causal tests.</b> The batch-3 and batch-4 readings are consistency checks of a hypothesis, made without a control arm.</li>
+      <li><b>Constructed instances.</b> The instances are real Defects4J bug identities with a synthetic injected fault, not the original Defects4J bugs.</li>
+    </ol></div>
+    <div class="zh"><span class="lang-tag">中文</span><ol>
+      <li><b>实例集不同。</b>100% 来自其他实例集，而不是这 47 个 bug 未经变换时的结果。按要求，主实验没有设置基线组，所以无法说明这些 bug 上的下降有多少由构造造成，或由构造中的哪一部分造成：调用链、误导性的 facade 注释，还是遗漏类型。唯一的同一 bug 对比来自 Stage B（3 个 bug）：单跳对照 C00 为 15/15，C10 为 3/15。</li>
+      <li><b>一致性检验，而非因果检验。</b>第 3、4 批的判定是对一个假设的一致性检验，并没有对照组。</li>
+      <li><b>构造的实例。</b>实例使用真实的 Defects4J bug 身份，但故障是人工注入的，并不是 Defects4J 原有的 bug。</li>
+    </ol></div>
+  </div></div>
+
+  <h2><span class="en">Cost and next steps</span><span class="sep"> / </span><span class="zh">成本与下一步</span></h2>
+  <div class="cols">
+    <div class="en"><span class="lang-tag">EN</span><ul>
+      <li><b>Cost.</b> Total spend is $159.58 recorded, $163.95 including estimates, within the $200 ceiling.</li>
+      <li><b>Candidate pool.</b> The pool of eligible bugs is used up. Of the 23 left, 9 could only reuse a facade method already in use, and 14 have only targets that already failed to build in a sibling bug.</li>
+      <li><b>Decisions needed.</b>
+        <ol>
+          <li>Whether to widen the pool, for example to the projects excluded for slow test suites.</li>
+          <li>Whether to add a baseline arm, so the drop can be attributed to a component.</li>
+          <li>Whether to run GPT-5.6.</li>
+        </ol></li>
+    </ul></div>
+    <div class="zh"><span class="lang-tag">中文</span><ul>
+      <li><b>成本。</b>总花费为 $159.58（已记录），含估算为 $163.95，在 $200 上限之内。</li>
+      <li><b>候选池。</b>符合条件的 bug 池已经用完。剩下的 23 个中，9 个只能复用已用过的 facade 方法，14 个的目标方法已在共享该方法的其他 bug 中构造失败。</li>
+      <li><b>需要决定。</b>
+        <ol>
+          <li>是否扩大候选池，例如纳入因测试太慢而排除的项目。</li>
+          <li>是否加入基线组，以确定准确率下降由哪个部分造成。</li>
+          <li>是否运行 GPT-5.6。</li>
+        </ol></li>
+    </ul></div>
+  </div>
+
+  <p class="sources">
+    <span class="en">Sources:</span><span class="sep"> / </span><span class="zh">数据来源：</span>
+    <code>main-run/MAIN_RUN_RUNS.csv</code>, <code>main-run/MAIN_RUN_RESULTS.csv</code>, <code>analysis/per_run.json</code>, <code>main-run/SUPERVISOR_PROGRESS_UPDATE.md</code>, <code>AMENDMENTS.md</code> (W23–W41).
+  </p>
+</main>
+
+<script>
+(function () {
+  var body = document.body;
+  var buttons = document.querySelectorAll('.toggle button');
+  function set(lang) {
+    body.setAttribute('data-lang', lang);
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-set') === lang)); });
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('acc-summary-lang'); } catch (e) {}
+  set(saved === 'en' || saved === 'zh' ? saved : 'both');
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var lang = b.getAttribute('data-set');
+      set(lang);
+      try { localStorage.setItem('acc-summary-lang', lang); } catch (e) {}
+    });
+  });
+})();
+</script>

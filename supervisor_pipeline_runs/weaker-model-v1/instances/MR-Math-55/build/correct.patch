@@ -1,0 +1,206 @@
+diff --git a/src/main/java/org/apache/commons/math/dfp/Dfp.java b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+index 04e66132d..15e756d05 100644
+--- a/src/main/java/org/apache/commons/math/dfp/Dfp.java
++++ b/src/main/java/org/apache/commons/math/dfp/Dfp.java
+@@ -20,6 +20,8 @@ package org.apache.commons.math.dfp;
+ import java.util.Arrays;
+ 
+ import org.apache.commons.math.FieldElement;
++import org.apache.commons.math.geometry.Vector3D;
++import org.apache.commons.math.util.FastMath;
+ 
+ /**
+  *  Decimal floating point library for Java
+@@ -639,6 +641,17 @@ public class Dfp implements FieldElement<Dfp> {
+         return field.getRadixDigits();
+     }
+ 
++    /** Compute the angular separation between two vectors.
++     * @param v1 first vector
++     * @param v2 second vector
++     * @param normProduct product of the norms of v1 and v2
++     * @return angular separation between v1 and v2
++     */
++    public static double separationAngle(final Vector3D v1, final Vector3D v2, final double normProduct) {
++        return FastMath.angleBetween(v1, v2, normProduct);
++    }
++
++
+     /** Get the constant 0.
+      * @return a Dfp with value zero
+      */
+diff --git a/src/main/java/org/apache/commons/math/geometry/Vector3D.java b/src/main/java/org/apache/commons/math/geometry/Vector3D.java
+index 2d915e570..2b0f1e17e 100644
+--- a/src/main/java/org/apache/commons/math/geometry/Vector3D.java
++++ b/src/main/java/org/apache/commons/math/geometry/Vector3D.java
+@@ -331,30 +331,15 @@ public class Vector3D implements Serializable {
+    * @param v2 second vector
+    * @return angular separation between v1 and v2
+    * @exception ArithmeticException if either vector has a null norm
+-   */
++     Both vectors are first converted to their azimuth and elevation, and the separation is then evaluated with the haversine formula on these spherical coordinates.
++     */
+   public static double angle(Vector3D v1, Vector3D v2) {
+-
+-    double normProduct = v1.getNorm() * v2.getNorm();
+-    if (normProduct == 0) {
+-      throw new MathArithmeticException(LocalizedFormats.ZERO_NORM);
++        if (v1.getNorm() * v2.getNorm() == 0) {
++            throw new MathArithmeticException(LocalizedFormats.ZERO_NORM);
++        }
++        return org.apache.commons.math.linear.BlockFieldMatrix.separationOf(v1, v2);
+     }
+ 
+-    double dot = dotProduct(v1, v2);
+-    double threshold = normProduct * 0.9999;
+-    if ((dot < -threshold) || (dot > threshold)) {
+-      // the vectors are almost aligned, compute using the sine
+-      Vector3D v3 = crossProduct(v1, v2);
+-      if (dot >= 0) {
+-        return FastMath.asin(v3.getNorm() / normProduct);
+-      }
+-      return FastMath.PI - FastMath.asin(v3.getNorm() / normProduct);
+-    }
+-
+-    // the vectors are sufficiently separated to use the cosine
+-    return FastMath.acos(dot / normProduct);
+-
+-  }
+-
+   /** Get the opposite of the instance.
+    * @return a new vector which is opposite to the instance
+    */
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+index b90b6d00a..8f5c5ba56 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockFieldMatrix.java
+@@ -25,6 +25,8 @@ import org.apache.commons.math.exception.NoDataException;
+ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
++import org.apache.commons.math.geometry.Vector3D;
++import org.apache.commons.math.util.MathUtils;
+ 
+ /**
+  * Cache-friendly implementation of FieldMatrix using a flat arrays to store
+@@ -1130,6 +1132,17 @@ public class BlockFieldMatrix<T extends FieldElement<T>> extends AbstractFieldMa
+         return blocks[iBlock * blockColumns + jBlock][k];
+     }
+ 
++    /**
++     * Compute the angular separation between two vectors.
++     * @param v1 first vector
++     * @param v2 second vector
++     * @return angular separation between v1 and v2
++     */
++    public static double separationOf(final Vector3D v1, final Vector3D v2) {
++        return MathUtils.separationFromNorms(v1, v2, v1.getNorm(), v2.getNorm());
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public void setEntry(final int row, final int column, final T value) {
+diff --git a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+index 9a53cb66a..d015af89e 100644
+--- a/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
++++ b/src/main/java/org/apache/commons/math/linear/BlockRealMatrix.java
+@@ -24,6 +24,8 @@ import org.apache.commons.math.exception.DimensionMismatchException;
+ import org.apache.commons.math.exception.NoDataException;
+ import org.apache.commons.math.exception.util.LocalizedFormats;
+ import org.apache.commons.math.util.FastMath;
++import org.apache.commons.math.geometry.Vector3D;
++import org.apache.commons.math.dfp.Dfp;
+ 
+ /**
+  * Cache-friendly implementation of RealMatrix using a flat arrays to store
+@@ -263,6 +265,18 @@ public class BlockRealMatrix extends AbstractRealMatrix implements Serializable
+         return blocks;
+     }
+ 
++    /**
++     * Compute the angular separation between two vectors.
++     * @param v1 first vector
++     * @param v2 second vector
++     * @param normProduct product of the norms of v1 and v2
++     * @return angular separation between v1 and v2
++     */
++    public static double angularSeparation(final Vector3D v1, final Vector3D v2, final double normProduct) {
++        return Dfp.separationAngle(v1, v2, normProduct);
++    }
++
++
+     /** {@inheritDoc} */
+     @Override
+     public BlockRealMatrix createMatrix(final int rowDimension, final int columnDimension) {
+diff --git a/src/main/java/org/apache/commons/math/util/FastMath.java b/src/main/java/org/apache/commons/math/util/FastMath.java
+index eda2b8be0..52f6005ea 100644
+--- a/src/main/java/org/apache/commons/math/util/FastMath.java
++++ b/src/main/java/org/apache/commons/math/util/FastMath.java
+@@ -16,6 +16,8 @@
+  */
+ package org.apache.commons.math.util;
+ 
++import org.apache.commons.math.geometry.Vector3D;
++
+ /**
+  * Faster, more accurate, portable alternative to {@link StrictMath}.
+  * <p>
+@@ -3861,6 +3863,22 @@ public class FastMath {
+         return (a <= b) ? b : a;
+     }
+ 
++    /** Compute the angular separation between two vectors.
++     * @param v1 first vector
++     * @param v2 second vector
++     * @param normProduct product of the norms of v1 and v2
++     * @return angular separation between v1 and v2
++     */
++    public static double angleBetween(final Vector3D v1, final Vector3D v2, final double normProduct) {
++        final double dot = Vector3D.dotProduct(v1, v2);
++        if (abs(dot) > 0.9999 * normProduct) {
++            final double sine = Vector3D.crossProduct(v1, v2).getNorm() / normProduct;
++            return (dot >= 0) ? asin(sine) : PI - asin(sine);
++        }
++        return acos(dot / normProduct);
++    }
++
++
+     /** Compute the maximum of two values
+      * @param a first value
+      * @param b second value
+diff --git a/src/main/java/org/apache/commons/math/util/MathUtils.java b/src/main/java/org/apache/commons/math/util/MathUtils.java
+index 85d9a048f..566d948d9 100644
+--- a/src/main/java/org/apache/commons/math/util/MathUtils.java
++++ b/src/main/java/org/apache/commons/math/util/MathUtils.java
+@@ -36,6 +36,8 @@ import org.apache.commons.math.exception.MathIllegalArgumentException;
+ import org.apache.commons.math.exception.MathRuntimeException;
+ import org.apache.commons.math.exception.NumberIsTooLargeException;
+ import org.apache.commons.math.exception.NotFiniteNumberException;
++import org.apache.commons.math.geometry.Vector3D;
++import org.apache.commons.math.linear.BlockRealMatrix;
+ 
+ /**
+  * Some useful additions to the built-in functions in {@link Math}.
+@@ -602,6 +604,21 @@ public final class MathUtils {
+         return (Double.isNaN(x) && Double.isNaN(y)) || equals(x, y, 1);
+     }
+ 
++    /**
++     * Compute the angular separation between two vectors, given their norms.
++     *
++     * @param v1 first vector
++     * @param v2 second vector
++     * @param norm1 norm of v1
++     * @param norm2 norm of v2
++     * @return angular separation between v1 and v2
++     */
++    public static double separationFromNorms(final Vector3D v1, final Vector3D v2,
++                                             final double norm1, final double norm2) {
++        return BlockRealMatrix.angularSeparation(v1, v2, norm1 * norm2);
++    }
++
++
+     /**
+      * Returns {@code true} if there is no double value strictly between the
+      * arguments or the difference between them is within the range of allowed

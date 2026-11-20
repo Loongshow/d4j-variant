@@ -1,0 +1,234 @@
+diff --git a/src/main/java/org/apache/commons/collections/CollectionUtils.java b/src/main/java/org/apache/commons/collections/CollectionUtils.java
+index 44a5d6f4..373655e8 100644
+--- a/src/main/java/org/apache/commons/collections/CollectionUtils.java
++++ b/src/main/java/org/apache/commons/collections/CollectionUtils.java
+@@ -35,6 +35,7 @@ import org.apache.commons.collections.collection.TransformedCollection;
+ import org.apache.commons.collections.collection.UnmodifiableBoundedCollection;
+ import org.apache.commons.collections.collection.UnmodifiableCollection;
+ import org.apache.commons.collections.functors.TruePredicate;
++import org.apache.commons.collections.trie.PatriciaTrie;
+ 
+ /**
+  * Provides utility methods and decorators for {@link Collection} instances.
+@@ -298,6 +299,24 @@ public class CollectionUtils {
+         return helper.list();
+     }
+ 
++    /**
++     * Retains in a list only the elements of the given set.
++     * <p>
++     * If the set is empty, the list is cleared.
++     *
++     * @param <E> the type of object the list contains
++     * @param list the list to change, must not be null
++     * @param kept the elements to keep, must not be null
++     */
++    public static <E> void retainKeptElements(final List<E> list, final Set<?> kept) {
++        if (kept.isEmpty()) {
++            list.clear();
++        } else {
++            PatriciaTrie.removeElementsNotIn(list, kept);
++        }
++    }
++
++
+     /**
+      * Returns a new {@link Collection} containing <tt><i>a</i> - <i>b</i></tt>.
+      * The cardinality of each element <i>e</i> in the returned {@link Collection}
+diff --git a/src/main/java/org/apache/commons/collections/ExtendedProperties.java b/src/main/java/org/apache/commons/collections/ExtendedProperties.java
+index 062b21de..504b6a29 100644
+--- a/src/main/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/main/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -37,6 +37,9 @@ import java.util.NoSuchElementException;
+ import java.util.Properties;
+ import java.util.StringTokenizer;
+ import java.util.Vector;
++import java.util.Collection;
++import java.util.HashSet;
++import java.util.Set;
+ 
+ /**
+  * This class extends normal Java properties by adding the possibility
+@@ -485,6 +488,29 @@ public class ExtendedProperties extends Hashtable<String, Object> {
+         return isInitialized;
+     }
+ 
++    /**
++     * Retain in a list only the elements that are contained in the given
++     * collection. The elements of the collection that are in the list are
++     * first gathered into a set.
++     *
++     * @param <E> The type of the elements in the list.
++     * @param list The list to change.
++     * @param members The set of the elements in the list.
++     * @param coll The collection of the elements to keep.
++     * @return true if the list changed.
++     */
++    public static <E> boolean retainMembersOf(final List<E> list, final Set<E> members,
++                                              final Collection<?> coll) {
++        final Set<Object> kept = new HashSet<Object>();
++        for (final Object next : coll) {
++            if (members.contains(next)) {
++                kept.add(next);
++            }
++        }
++        return MapUtils.retainSharedElements(list, members, kept);
++    }
++
++
+     /**
+      * Gets the property value for including other properties files.
+      * By default it is "include".
+diff --git a/src/main/java/org/apache/commons/collections/MapUtils.java b/src/main/java/org/apache/commons/collections/MapUtils.java
+index f05accd2..fa99e4c7 100644
+--- a/src/main/java/org/apache/commons/collections/MapUtils.java
++++ b/src/main/java/org/apache/commons/collections/MapUtils.java
+@@ -45,6 +45,8 @@ import org.apache.commons.collections.map.TransformedMap;
+ import org.apache.commons.collections.map.TransformedSortedMap;
+ import org.apache.commons.collections.map.UnmodifiableMap;
+ import org.apache.commons.collections.map.UnmodifiableSortedMap;
++import java.util.List;
++import java.util.Set;
+ 
+ /**
+  * Provides utility methods and decorators for
+@@ -397,6 +399,28 @@ public class MapUtils {
+         return answer;
+     }
+ 
++    /**
++     * Retains in a list only the elements of a set of elements to keep.
++     * <p>
++     * If every element of the list is to be kept, the list is left as it
++     * is and false is returned.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to change, must not be null
++     * @param members  the set of the elements in the list, must not be null
++     * @param kept  the elements of the list to keep, must not be null
++     * @return  true if the list changed
++     */
++    public static <E> boolean retainSharedElements(final List<E> list, final Set<E> members,
++            final Set<?> kept) {
++        if (kept.size() == members.size()) {
++            return false;
++        }
++        CollectionUtils.retainKeptElements(list, kept);
++        return true;
++    }
++
++
+     /**
+      * Looks up the given key in the given map, converting the result into
+      * a boolean, using the default value if the the conversion fails.
+diff --git a/src/main/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/main/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index c3a4fc30..6078d680 100644
+--- a/src/main/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/main/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -34,6 +34,8 @@ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
+ 
+ import static org.apache.commons.collections.bidimap.TreeBidiMap.DataElement.KEY;
+ import static org.apache.commons.collections.bidimap.TreeBidiMap.DataElement.VALUE;
++import java.util.List;
++import org.apache.commons.collections.ExtendedProperties;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -421,6 +423,22 @@ public class TreeBidiMap<K extends Comparable<K>, V extends Comparable<V>> imple
+         return new ViewMapIterator(KEY);
+     }
+ 
++    /**
++     * Retains in a list only the elements that are contained in the
++     * specified collection.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to change, must not be null
++     * @param members  the set of the elements in the list, must not be null
++     * @param coll  the collection of the elements to keep, must not be null
++     * @return true if the list changed
++     */
++    public static <E> boolean retainElementsOf(final List<E> list, final Set<E> members,
++            final Collection<?> coll) {
++        return ExtendedProperties.retainMembersOf(list, members, coll);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Gets the inverse map for comparison.
+diff --git a/src/main/java/org/apache/commons/collections/list/SetUniqueList.java b/src/main/java/org/apache/commons/collections/list/SetUniqueList.java
+index 4443a3f8..23981142 100644
+--- a/src/main/java/org/apache/commons/collections/list/SetUniqueList.java
++++ b/src/main/java/org/apache/commons/collections/list/SetUniqueList.java
+@@ -266,27 +266,14 @@ public class SetUniqueList<E> extends AbstractSerializableListDecorator<E> {
+         return result;
+     }
+ 
++    /**
++     * Retains only the elements of this list that are contained in the
++     * specified collection.
++       The specified collection is first copied into a sorted array, and each element of this list is then looked up in that array by a binary search.
++     */
+     @Override
+     public boolean retainAll(final Collection<?> coll) {
+-        final Set<Object> setRetainAll = new HashSet<Object>();
+-        for (final Object next : coll) {
+-            if (set.contains(next)) {
+-                setRetainAll.add(next);
+-            }
+-        }
+-        if (setRetainAll.size() == set.size()) {
+-            return false;
+-        }
+-        if (setRetainAll.size() == 0) {
+-            clear();
+-        } else {
+-            for (final Iterator<E> it = iterator(); it.hasNext();) {
+-                if (!setRetainAll.contains(it.next())) {
+-                    it.remove();
+-                }
+-            }
+-        }
+-        return true;
++        return org.apache.commons.collections.bidimap.TreeBidiMap.retainElementsOf(this, set, coll);
+     }
+ 
+     @Override
+diff --git a/src/main/java/org/apache/commons/collections/trie/PatriciaTrie.java b/src/main/java/org/apache/commons/collections/trie/PatriciaTrie.java
+index bfd230f9..83505e57 100644
+--- a/src/main/java/org/apache/commons/collections/trie/PatriciaTrie.java
++++ b/src/main/java/org/apache/commons/collections/trie/PatriciaTrie.java
+@@ -27,6 +27,7 @@ import java.util.Set;
+ import java.util.SortedMap;
+ 
+ import org.apache.commons.collections.Trie;
++import java.util.List;
+ 
+ /**
+  * <h3>PATRICIA {@link Trie}</h3>
+@@ -96,6 +97,24 @@ public class PatriciaTrie<K, V> extends PatriciaTrieBase<K, V> implements Trie<K
+         return getPrefixedByBits(key, 0, lengthInBits(key));
+     }
+ 
++    /**
++     * Removes from a list the elements that are not in the given set,
++     * keeping the other elements in their order.
++     *
++     * @param <E>  the type of the elements in the list
++     * @param list  the list to change, must not be null
++     * @param kept  the elements to keep, must not be null
++     */
++    public static <E> void removeElementsNotIn(final List<E> list, final Set<?> kept) {
++        for (int i = 0; i < list.size(); i++) {
++            if (!kept.contains(list.get(i))) {
++                list.remove(i);
++                i--;
++            }
++        }
++    }
++
++
+     /**
+      * {@inheritDoc}
+      */

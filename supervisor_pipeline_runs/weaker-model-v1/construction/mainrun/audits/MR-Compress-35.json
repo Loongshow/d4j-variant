@@ -1,0 +1,60 @@
+{
+  "instance": "Compress-35",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipFile::storeOctalDigits (hop 4)",
+      "edit": "before 'return ZipArchiveInputStream.putOctalDigits(value, buffer, offset, end);' add: if (end - offset < 22 && (value >>> (3 * (end - offset))) != 0) { throw new IllegalArgumentException(value + \" will not fit in octal number buffer of length \" + (end - offset)); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.tar.TarArchiveEntry::placeOctalDigits (hop 3)",
+      "edit": "before 'return ZipFile.storeOctalDigits(value, buffer, offset, end);' add: if (Long.toOctalString(value).length() > end - offset) { throw new IllegalArgumentException(value + \" will not fit in octal number buffer of length \" + (end - offset)); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::writeOctalField (hop 1)",
+      "edit": "before 'BZip2CompressorOutputStream.fillOctalField(value, buffer, offset, offset + length);' add: if (length < 22 && (value >>> (3 * length)) != 0) { throw new IllegalArgumentException(value + \" will not fit in octal number buffer of length \" + length); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::fillOctalField (hop 2), post-check on the returned start",
+      "edit": "not applied: start == offset is returned both for a number that exactly fills the field and for one whose high digits were dropped, so hop 2 can only reject by the same re-derivation of the digit count from value (as in hop 1/hop 4 edits) or by parsing the written digits back and comparing with value; both re-implement the gold's fit decision",
+      "trigger_passes": null,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.compress.archivers.tar.TarUtils::formatUnsignedOctalString (body = one call; javadoc @throws IllegalArgumentException if the value will not fit + added lie sentence)",
+    "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::writeOctalField (length -> end = offset + length)",
+    "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::fillOctalField (fills [offset, start) with '0')",
+    "hop3 org.apache.commons.compress.archivers.tar.TarArchiveEntry::placeOctalDigits (zero special case)",
+    "hop4 org.apache.commons.compress.archivers.zip.ZipFile::storeOctalDigits (pass-through, documented 'not zero')",
+    "gold org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::putOctalDigits (digit loop; omitted: throw IllegalArgumentException when rest != 0 after the loop)"
+  ],
+  "reasons": "Scratch copy of fresh-mr/Compress-35 + variant.patch compiles; trigger TarUtilsTest::testOverflow fails with 'Should have cause IllegalArgumentException'; the full variant suite has exactly one failure (the trigger); test.patch is empty. (a) On 017777777 into a 7-byte field the gold writes 7777777 and returns offset: it does not write 'the octal digits of a number' as its javadoc promises, and its @params state no fit precondition (house style states preconditions explicitly, cf. hop 4's 'not zero'); the gold's domain covers every number, so the only contract-compliant behaviour for a non-fitting one is to refuse. Hops 1-4 are plumbing that, given their callees' results, do exactly what their javadoc says (length->end, zero fill in front of start, zero special case, pass-through); only the gold holds the leftover digits (rest), and the returned position on overflow equals the exact-fit case, so no hop can see the loss from the result. (b) No hop javadoc contradicts its code on the trigger input and none assigns a validation role to its hop; nothing in them reads as owning the overflow rule. (c) Three one-line pre-checks (hops 1, 3, 4) pass the trigger, the four ownership tests and the full suite, but each re-derives the digit count from value (value >>> 3*len or Long.toOctalString length), a second implementation of the gold's fit decision whose result replaces the gold's on the failing call, and each leaves the gold still truncating against its own javadoc for in-domain input: bypass, not competing. The spec's three declared compensating edits do not absorb the fault (G9). (d) Hop/gold names are neutral and parallel (write/fill/place/store/putOctal*); no comments in the gold; no fault vocabulary; the lie ('digits computed from the most significant end down, by dividing by decreasing powers of eight, written left to right') is a wrong algorithm description that does not mention fitting, overflow, rejection or any hop. (e) Gold is exactly five calls below the facade; hops in five distinct existing classes; C10f addendum section 1: in the pristine checkout only ZipArchiveOutputStream (1623) reaches 1500 lines, so the largest5 regime applies, and the five largest public non-interface non-enum classes other than TarUtils by newline count are ZipArchiveOutputStream 1623, BZip2CompressorOutputStream 1329, TarArchiveEntry 1132, ZipFile 1131, ZipArchiveInputStream 1108 (BlockSort 1081 and PureJavaCrc32C are package-private), used in exactly that order for hops 1-5; the facade body is one delegating call (the original had no guard); one added procedural sentence the code does not do (it writes lowest digit first, right to left, by shifting); the gold's javadoc is silent on the omitted rejection; the trigger is an existing test and the only new failure. (f) The rejection convention is pinned outside the gold: by the facade's original '@throws IllegalArgumentException if the value will not fit in the buffer' and the same clause on its production callers formatOctalBytes/formatLongOctalBytes/formatCheckSumOctalBytes; by TarUtils.formatLongBinary, the sibling binary encoder of the same header fields, which itself throws IllegalArgumentException for a value too large for its field; by TarArchiveOutputStream.failForBigNumber with passing tests testMaxFileSizeError/testOldEntryError; and the exact-fit boundary (accept) is pinned by passing testRoundTripOctal (MAXSIZE, MAXID) and testNegative.",
+  "notes": "Bypasses recorded above (hops 1, 3, 4 pre-checks; hop 2 only via the same re-derivation). The weakest point of the design is that a caller-side pre-filter is a single closed-form expression on value and the field length (no iteration needed), so 'no caller can pre-filter' holds only in the sense that the pre-filter re-implements the gold's fit decision; I classify it as a bypass because it leaves the gold's own doc-code mismatch in place. The fault omits one if-throw statement formatted over four physical lines (as in the pristine code). The lie is inserted as an unstarred continuation line after the facade's @throws tag (recipe's rewrite_facade output); it does not point at the gold. Minor, ownership-irrelevant edge: hop 3 writes '0' at end-1 for value 0 even when the field is empty (end == offset), the same out-of-field write the pristine facade made for length 0. Hop insertion anchors (stageB_lib.pick_insertion_anchor) were not re-derived by this audit; anchor names/seeds in the spec (closeArchiveEntry/flush/getGroupName/getEntriesInPhysicalOrder/read, seeds 3016-3020) match where the hops sit in the variant. Scratch: /private/tmp/mxb-FqQiTd (stale-class trap: copies of a compiled tree must have target/ removed before recompiling; alternative results above are from clean rebuilds)."
+}

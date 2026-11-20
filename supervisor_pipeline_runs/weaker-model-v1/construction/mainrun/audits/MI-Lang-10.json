@@ -1,0 +1,41 @@
+{
+ "instance": "Lang-10__i",
+ "iid": "MI-Lang-10",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "org.apache.commons.lang3.ArrayUtils::parseDateWith (hop 4)",
+   "edit": "Date date = DateUtils.parseLeadingDate(parser, str, lead, form); if (date == null) { throw new ParseException(lead + \"Unparseable date: \\\"\" + str + \"\\\" does not match \" + form, 0); } return date;",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "note": "3-line post-check that re-implements the gold's reject decision and message for the null case; the gold still returns null for a string the parser rejects, contradicting its own @throws and 'as DateParser#parse(String) does', so not every method is used as documented"},
+  {"method": "org.apache.commons.lang3.StringUtils::parseToDate (hop 1)",
+   "edit": "return Validate.notNull(ToStringStyle.dateFromText(parser, str, lead, form));",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false,
+   "class": "bypass",
+   "note": "passes only because the test catches any Exception; throws NullPointerException where hop 1's own javadoc and DateParser#parse(String) promise ParseException; gold contract still violated"},
+  {"method": "org.apache.commons.lang3.StringUtils::parseToDate / StrBuilder::readDate / ArrayUtils::parseDateWith (spec G9 set)",
+   "edit": "whitespace collapse at hop 1; trim at hop 3; (Date) parser.parseObject(str) at hop 4",
+   "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": null,
+   "class": "fails",
+   "note": "validated by gate G9 (trigger still fails); hop-4 parseObject recurses through the facade"}
+ ],
+ "path": [
+  "facade org.apache.commons.lang3.time.FastDateParser#parse(String) [instance, @Override, throws ParseException; V2 receiver + V1 state: this, parsePattern.pattern(), JAPANESE_IMPERIAL]",
+  "hop1 org.apache.commons.lang3.StringUtils::parseToDate (composes imperial-locale lead)",
+  "hop2 org.apache.commons.lang3.builder.ToStringStyle::dateFromText (pass-through)",
+  "hop3 org.apache.commons.lang3.text.StrBuilder::readDate (pass-through)",
+  "hop4 org.apache.commons.lang3.ArrayUtils::parseDateWith (pass-through)",
+  "gold org.apache.commons.lang3.time.DateUtils::parseLeadingDate (calls parser.parse(str, new ParsePosition(0)); null-result -> ParseException check omitted)"
+ ],
+ "reasons": "Verified on a scratch copy: variant compiles; trigger FastDateParserTest::testLANG_831 fails ('Expected FDF failure, but got null for [M E,3  Tue]'); full suite: only the trigger fails; ownership tests DateUtilsTest testParseDate, testParseDateWithLeniency, testLANG799_EN_FAIL pass. (a) Only the gold calls the parser and decides on its result; it returns null for a rejected string, violating its own '@throws ParseException if the parser rejects the string' and 'as DateParser#parse(String) does' (DateParser#parse(String): throws ParseException if the beginning cannot be parsed; parse(String,ParsePosition): returns null in case of error). Hops 1-4 return null only by pass-through and never see the parser. (b) Hop javadocs match their code; hop 1's lead note matches its locale branch; none can own the null decision. (c) Two passing alternatives found (hop-4 null post-check, hop-1 Validate.notNull), both leave the gold violating its documented contract (and hop 1's NPE also contradicts its @throws), so they are bypasses, not competing repairs. (d) Names neutral; lie (split at whitespace, match pieces by position) is a false algorithm description that does not name the null check or any hop. (e) Gold is 5 calls below the facade; five distinct existing classes; host_mode 1500 and the hosts equal the seeded draw (mr_lib preview seed 7705) in draw order with matching anchors; facade had only a non-Javadoc comment, so a one-sentence javadoc plus one lie sentence was added; gold javadoc silent on the null check; test.patch empty. (f) Convention pinned by DateParser#parse javadocs and the sibling DateUtils.parseDateWithLeniency (date != null check, else ParseException) with passing DateUtils tests. C10i rules: no visibility widened (JAPANESE_IMPERIAL/parsePattern/locale stay as is, values passed down), no new type, no reflection, facade signature/@Override/throws unchanged, no test edits.",
+ "notes": "Bypasses recorded above. Minor observations, not decisive: (1) the gold (in both the correct and variant configurations) wraps IllegalArgumentException from parse(String, ParsePosition) into ParseException, whereas the original FastDateParser.parse(String) let IAE propagate; G1 shows the full suite is unaffected. (2) The facade calls hop 1 by fully-qualified name org.apache.commons.lang3.StringUtils rather than via an import. (3) The ownership tests pin the null-means-reject convention through the sibling parseDateWithLeniency (SimpleDateFormat path), not through the gold itself. (4) The facade lie, if believed, suggests '3  Tue' could parse, which misdirects toward whitespace handling (the real Lang-10 area) but does not make a null return acceptable under any documented contract."
+}

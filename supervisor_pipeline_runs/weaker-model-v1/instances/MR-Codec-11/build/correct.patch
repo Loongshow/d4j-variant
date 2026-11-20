@@ -1,0 +1,230 @@
+diff --git a/src/main/java/org/apache/commons/codec/binary/Base64.java b/src/main/java/org/apache/commons/codec/binary/Base64.java
+index ac1824b4..91e3e182 100644
+--- a/src/main/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/main/java/org/apache/commons/codec/binary/Base64.java
+@@ -18,6 +18,9 @@
+ package org.apache.commons.codec.binary;
+ 
+ import java.math.BigInteger;
++import java.io.ByteArrayOutputStream;
++import org.apache.commons.codec.DecoderException;
++import org.apache.commons.codec.language.bm.Rule;
+ 
+ /**
+  * Provides Base64 encoding and decoding as defined by <a href="http://www.ietf.org/rfc/rfc2045.txt">RFC 2045</a>.
+@@ -525,6 +528,19 @@ public class Base64 extends BaseNCodec {
+         }
+         return true;
+     }
++
++    /**
++     * Decodes an array of quoted-printable characters into the octets they represent, writing the octets to a buffer.
++     *
++     * @param bytes
++     *            array of quoted-printable characters
++     * @param buffer
++     *            the buffer to write the decoded octets to
++     */
++    public static void decodeQuotedChars(byte[] bytes, ByteArrayOutputStream buffer) throws DecoderException {
++        Rule.unquoteOctets(bytes, buffer);
++    }
++
+     
+     /**
+      * Encodes binary data using the base64 algorithm but does not chunk the output.
+diff --git a/src/main/java/org/apache/commons/codec/digest/DigestUtils.java b/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
+index 124810ca..f04762ae 100644
+--- a/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,9 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import java.io.ByteArrayOutputStream;
++import org.apache.commons.codec.DecoderException;
++import org.apache.commons.codec.language.bm.PhoneticEngine;
+ 
+ /**
+  * Operations to simplify common {@link java.security.MessageDigest} tasks. This class is thread safe.
+@@ -403,6 +406,19 @@ public class DigestUtils {
+         return sha384(getBytesUtf8(data));
+     }
+ 
++    /**
++     * Writes the octets represented by an array of quoted-printable characters to a buffer.
++     *
++     * @param bytes
++     *            Quoted-printable characters
++     * @param buffer
++     *            Buffer to write the octets to
++     */
++    public static void writeQuotedOctets(byte[] bytes, ByteArrayOutputStream buffer) throws DecoderException {
++        PhoneticEngine.appendDecodedOctets(bytes, buffer);
++    }
++
++
+     /**
+      * Calculates the SHA-384 digest and returns the value as a hex string.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index 1c2b2d21..dc41fbbb 100644
+--- a/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -19,6 +19,9 @@ package org.apache.commons.codec.language;
+ 
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
++import java.io.ByteArrayOutputStream;
++import org.apache.commons.codec.DecoderException;
++import org.apache.commons.codec.binary.Base64;
+ 
+ /**
+  * Encodes a string into a double metaphone value.
+@@ -254,6 +257,19 @@ public class DoubleMetaphone implements StringEncoder {
+         return this.maxCodeLen;
+     }
+ 
++    /**
++     * Decodes an array of quoted-printable characters into the octets they represent.
++     *
++     * @param bytes array of quoted-printable characters
++     * @return array of decoded octets
++     */
++    public static byte[] decodeQuotedText(byte[] bytes) throws DecoderException {
++        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
++        Base64.decodeQuotedChars(bytes, buffer);
++        return buffer.toByteArray();
++    }
++
++
+     /**
+      * Sets the maxCodeLen.
+      * @param maxCodeLen The maxCodeLen to set
+diff --git a/src/main/java/org/apache/commons/codec/language/bm/PhoneticEngine.java b/src/main/java/org/apache/commons/codec/language/bm/PhoneticEngine.java
+index edf1b1ff..c11a99a6 100644
+--- a/src/main/java/org/apache/commons/codec/language/bm/PhoneticEngine.java
++++ b/src/main/java/org/apache/commons/codec/language/bm/PhoneticEngine.java
+@@ -28,6 +28,8 @@ import java.util.Locale;
+ import java.util.Map;
+ import java.util.Set;
+ import java.util.TreeSet;
++import java.io.ByteArrayOutputStream;
++import org.apache.commons.codec.DecoderException;
+ 
+ /**
+  * <p>
+@@ -375,6 +377,41 @@ public class PhoneticEngine {
+         return encode(input, languageSet);
+     }
+ 
++    /**
++     * Writes the octets represented by an array of quoted-printable characters to a buffer.
++     *
++     * @param bytes
++     *            array of quoted-printable characters
++     * @param buffer
++     *            the buffer to write the octets to
++     */
++    public static void appendDecodedOctets(byte[] bytes, ByteArrayOutputStream buffer) throws DecoderException {
++        for (int i = 0; i < bytes.length; i++) {
++            final int b = bytes[i];
++            if (b == '\r' || b == '\n') {
++                continue;
++            }
++            if (b != '=') {
++                buffer.write(b);
++                continue;
++            }
++            try {
++                if (bytes[i + 1] == '\r' || bytes[i + 1] == '\n') {
++                    continue;
++                }
++                final int u = Character.digit((char) bytes[++i], 16);
++                final int l = Character.digit((char) bytes[++i], 16);
++                if (u == -1 || l == -1) {
++                    throw new DecoderException("Not a hexadecimal digit after the escape character");
++                }
++                buffer.write((u << 4) + l);
++            } catch (ArrayIndexOutOfBoundsException e) {
++                throw new DecoderException("Incomplete escape sequence", e);
++            }
++        }
++    }
++
++
+     /**
+      * Encodes an input string into an output phonetic representation, given a set of possible origin languages.
+      * 
+diff --git a/src/main/java/org/apache/commons/codec/language/bm/Rule.java b/src/main/java/org/apache/commons/codec/language/bm/Rule.java
+index 6a4af6bb..8ad0b5e2 100644
+--- a/src/main/java/org/apache/commons/codec/language/bm/Rule.java
++++ b/src/main/java/org/apache/commons/codec/language/bm/Rule.java
+@@ -31,6 +31,9 @@ import java.util.Scanner;
+ import java.util.Set;
+ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
++import java.io.ByteArrayOutputStream;
++import org.apache.commons.codec.DecoderException;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * <p>
+@@ -564,6 +567,19 @@ public class Rule {
+         return this.pattern;
+     }
+ 
++    /**
++     * Writes the octets represented by an array of quoted-printable characters to a buffer.
++     *
++     * @param bytes
++     *            the quoted-printable characters
++     * @param buffer
++     *            the buffer to write the octets to
++     */
++    public static void unquoteOctets(byte[] bytes, ByteArrayOutputStream buffer) throws DecoderException {
++        DigestUtils.writeQuotedOctets(bytes, buffer);
++    }
++
++
+     /**
+      * Gets the phoneme. If the rule matches, this is the phoneme associated with the pattern match.
+      * 
+diff --git a/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java b/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+index ed09fecb..40606c2f 100644
+--- a/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
++++ b/src/main/java/org/apache/commons/codec/net/QuotedPrintableCodec.java
+@@ -253,32 +253,13 @@ public class QuotedPrintableCodec implements BinaryEncoder, BinaryDecoder, Strin
+      * @return array of original bytes
+      * @throws DecoderException
+      *                  Thrown if quoted-printable decoding is unsuccessful
++       The data is first split into lines at each soft line break, and every line is then decoded on its own before the decoded lines are joined.
+      */
+     public static final byte[] decodeQuotedPrintable(byte[] bytes) throws DecoderException {
+         if (bytes == null) {
+             return null;
+         }
+-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+-        for (int i = 0; i < bytes.length; i++) {
+-            final int b = bytes[i];
+-            if (b == ESCAPE_CHAR) {
+-                try {
+-                    // if the next octet is a CR we have found a soft line break
+-                    if (bytes[++i] == CR) {
+-                        continue;
+-                    }
+-                    int u = Utils.digit16(bytes[i]);
+-                    int l = Utils.digit16(bytes[++i]);
+-                    buffer.write((char) ((u << 4) + l));
+-                } catch (ArrayIndexOutOfBoundsException e) {
+-                    throw new DecoderException("Invalid quoted-printable encoding", e);
+-                }
+-            } else if (b != CR && b != LF) {
+-                // every other octet is appended except for CR & LF
+-                buffer.write(b);
+-            }
+-        }
+-        return buffer.toByteArray();
++        return org.apache.commons.codec.language.DoubleMetaphone.decodeQuotedText(bytes);
+     }
+ 
+     /**

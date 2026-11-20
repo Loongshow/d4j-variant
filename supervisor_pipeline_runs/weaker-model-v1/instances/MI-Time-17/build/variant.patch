@@ -1,0 +1,234 @@
+diff --git a/src/main/java/org/joda/time/DateTime.java b/src/main/java/org/joda/time/DateTime.java
+index 6cb6dc31..e5736e97 100644
+--- a/src/main/java/org/joda/time/DateTime.java
++++ b/src/main/java/org/joda/time/DateTime.java
+@@ -144,6 +144,26 @@ public final class DateTime
+         return formatter.parseDateTime(str);
+     }
+ 
++    /**
++     * Gets the millisecond offset to subtract from local time to get UTC time,
++     * given a UTC instant and the offset of the zone at that instant.
++     * <p>
++     * A negative offset is returned as it is; an offset of zero or more is
++     * passed on with the instant.
++     *
++     * @param zone  the time zone, not null
++     * @param instant  the UTC instant, the local time less the offset
++     * @param offset  the offset of the zone at the instant
++     * @return the millisecond offset to subtract from local time to get UTC time
++     */
++    public static int localOffsetAt(DateTimeZone zone, long instant, int offset) {
++        if (offset < 0) {
++            return offset;
++        }
++        return Period.wallOffsetAt(zone, instant, offset);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Constructs an instance set to the current system millisecond time
+diff --git a/src/main/java/org/joda/time/DateTimeZone.java b/src/main/java/org/joda/time/DateTimeZone.java
+index 72198993..0ba30306 100644
+--- a/src/main/java/org/joda/time/DateTimeZone.java
++++ b/src/main/java/org/joda/time/DateTimeZone.java
+@@ -876,38 +876,10 @@ public abstract class DateTimeZone implements Serializable {
+      *
+      * @param instantLocal  the millisecond instant, relative to this time zone, to get the offset for
+      * @return the millisecond offset to subtract from local time to get UTC time
++       The offset is computed as the standard offset of the zone at the local instant plus the daylight saving amount that applies at the instant this gives.
+      */
+     public int getOffsetFromLocal(long instantLocal) {
+-        // get the offset at instantLocal (first estimate)
+-        final int offsetLocal = getOffset(instantLocal);
+-        // adjust instantLocal using the estimate and recalc the offset
+-        final long instantAdjusted = instantLocal - offsetLocal;
+-        final int offsetAdjusted = getOffset(instantAdjusted);
+-        // if the offsets differ, we must be near a DST boundary
+-        if (offsetLocal != offsetAdjusted) {
+-            // we need to ensure that time is always after the DST gap
+-            // this happens naturally for positive offsets, but not for negative
+-            if ((offsetLocal - offsetAdjusted) < 0) {
+-                // if we just return offsetAdjusted then the time is pushed
+-                // back before the transition, whereas it should be
+-                // on or after the transition
+-                long nextLocal = nextTransition(instantAdjusted);
+-                long nextAdjusted = nextTransition(instantLocal - offsetAdjusted);
+-                if (nextLocal != nextAdjusted) {
+-                    return offsetLocal;
+-                }
+-            }
+-        } else if (offsetLocal >= 0) {
+-            long prev = previousTransition(instantAdjusted);
+-            if (prev < instantAdjusted) {
+-                int offsetPrev = getOffset(prev);
+-                int diff = offsetPrev - offsetLocal;
+-                if (instantAdjusted - prev <= diff) {
+-                    return offsetPrev;
+-                }
+-            }
+-        }
+-        return offsetAdjusted;
++        return org.joda.time.format.DateTimeFormatterBuilder.localOffsetOf(this, instantLocal);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/joda/time/Period.java b/src/main/java/org/joda/time/Period.java
+index 7ec80720..26511b75 100644
+--- a/src/main/java/org/joda/time/Period.java
++++ b/src/main/java/org/joda/time/Period.java
+@@ -275,6 +275,30 @@ public final class Period
+         return new Period(values, PeriodType.forFields(types));
+     }
+ 
++    /**
++     * Gets the millisecond offset to subtract from local time to get UTC time,
++     * given a UTC instant and the offset of the zone at that instant.
++     * <p>
++     * During an overlap, where a local time occurs twice, the offset of the
++     * earlier of the two instants is returned.
++     *
++     * @param zone  the time zone, not null
++     * @param instant  the UTC instant, the local time less the offset
++     * @param offset  the offset of the zone at the instant
++     * @return the millisecond offset to subtract from local time to get UTC time
++     */
++    public static int wallOffsetAt(DateTimeZone zone, long instant, int offset) {
++        long transition = zone.previousTransition(instant);
++        if (transition < instant) {
++            int offsetBefore = zone.getOffset(transition);
++            if (instant - transition < offsetBefore - offset) {
++                return offsetBefore;
++            }
++        }
++        return offset;
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Creates a new empty period with the standard set of fields.
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index ebb4b087..2b427a35 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -35,6 +35,7 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import org.joda.time.tz.DateTimeZoneBuilder;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -593,6 +594,21 @@ public class DateTimeFormatterBuilder {
+         return appendFraction(DateTimeFieldType.hourOfDay(), minDigits, maxDigits);
+     }
+ 
++    /**
++     * Gets the millisecond offset to subtract from local time to get UTC time.
++     * <p>
++     * The first estimate is the offset of the zone at the local instant read
++     * as a UTC instant.
++     *
++     * @param zone  the time zone, not null
++     * @param instantLocal  the millisecond instant, relative to the zone, to get the offset for
++     * @return the millisecond offset to subtract from local time to get UTC time
++     */
++    public static int localOffsetOf(DateTimeZone zone, long instantLocal) {
++        return DateTimeZoneBuilder.wallOffsetFrom(zone, instantLocal, zone.getOffset(instantLocal));
++    }
++
++
+     /**
+      * Appends the print/parse of a fractional day.
+      * <p>
+diff --git a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+index 2471fce9..ad75b996 100644
+--- a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+@@ -28,6 +28,8 @@ import org.joda.time.DurationFieldType;
+ import org.joda.time.PeriodType;
+ import org.joda.time.ReadWritablePeriod;
+ import org.joda.time.ReadablePeriod;
++import org.joda.time.DateTime;
++import org.joda.time.DateTimeZone;
+ 
+ /**
+  * Factory that creates complex instances of PeriodFormatter via method calls.
+@@ -257,6 +259,38 @@ public class PeriodFormatterBuilder {
+         return this;
+     }
+ 
++    /**
++     * Gets the millisecond offset to subtract from local time to get UTC time,
++     * from two estimates of the offset.
++     * <p>
++     * Estimates that differ mean the local instant is near a transition. If
++     * the first estimate is the smaller one and the next transitions after the
++     * instants reached with the two estimates differ, the local instant falls
++     * in a gap and the first estimate is returned, so that the instant is after
++     * the gap; otherwise the second estimate is returned. Estimates that agree
++     * are passed on with the instant reached with them.
++     *
++     * @param zone  the time zone, not null
++     * @param instantLocal  the millisecond instant, relative to the zone
++     * @param offsetLocal  the first estimate, the offset at the local instant read as UTC
++     * @param offsetAdjusted  the second estimate, the offset at the instant reached with the first
++     * @return the millisecond offset to subtract from local time to get UTC time
++     */
++    public static int settleLocalOffset(DateTimeZone zone, long instantLocal, int offsetLocal, int offsetAdjusted) {
++        if (offsetLocal != offsetAdjusted) {
++            if ((offsetLocal - offsetAdjusted) < 0) {
++                long nextLocal = zone.nextTransition(instantLocal - offsetLocal);
++                long nextAdjusted = zone.nextTransition(instantLocal - offsetAdjusted);
++                if (nextLocal != nextAdjusted) {
++                    return offsetLocal;
++                }
++            }
++            return offsetAdjusted;
++        }
++        return DateTime.localOffsetAt(zone, instantLocal - offsetLocal, offsetLocal);
++    }
++
++
+     /**
+      * Reject signed values when parsing the next and following appended fields.
+      *
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ab4731bb..c29a4ad5 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,7 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import org.joda.time.format.PeriodFormatterBuilder;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -259,6 +260,24 @@ public class DateTimeZoneBuilder {
+         return this;
+     }
+ 
++    /**
++     * Gets the millisecond offset to subtract from local time to get UTC time,
++     * starting from a first estimate of the offset.
++     * <p>
++     * The local instant is adjusted by the estimate, and the offset of the
++     * zone at the adjusted instant is the second estimate.
++     *
++     * @param zone  the time zone, not null
++     * @param instantLocal  the millisecond instant, relative to the zone
++     * @param offsetLocal  the first estimate of the offset
++     * @return the millisecond offset to subtract from local time to get UTC time
++     */
++    public static int wallOffsetFrom(DateTimeZone zone, long instantLocal, int offsetLocal) {
++        long instantAdjusted = instantLocal - offsetLocal;
++        return PeriodFormatterBuilder.settleLocalOffset(zone, instantLocal, offsetLocal, zone.getOffset(instantAdjusted));
++    }
++
++
+     /**
+      * Sets the standard offset to use for newly added rules until the next
+      * cutover is added.

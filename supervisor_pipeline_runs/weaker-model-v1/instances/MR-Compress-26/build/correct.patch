@@ -1,0 +1,216 @@
+diff --git a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+index cc5db1ca..ee2d525b 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
++++ b/src/main/java/org/apache/commons/compress/archivers/tar/TarArchiveEntry.java
+@@ -26,6 +26,8 @@ import java.util.Locale;
+ import org.apache.commons.compress.archivers.ArchiveEntry;
+ import org.apache.commons.compress.archivers.zip.ZipEncoding;
+ import org.apache.commons.compress.utils.ArchiveUtils;
++import java.io.InputStream;
++import org.apache.commons.compress.utils.IOUtils;
+ 
+ /**
+  * This class represents an entry in a Tar archive. It consists
+@@ -772,6 +774,30 @@ public class TarArchiveEntry implements TarConstants, ArchiveEntry {
+         return linkFlag == LF_LINK;
+     }
+ 
++    /**
++     * Completes a skip of the given number of bytes of a stream by reading
++     * and discarding bytes.
++     *
++     * @param in stream to read bytes from
++     * @param count the number of bytes to skip, positive
++     * @param skipped the number of those bytes that are already skipped
++     * @return the number of bytes actually skipped
++     * @throws IOException if the stream cannot be read
++     */
++    public static long completeSkip(InputStream in, long count, long skipped) throws IOException {
++        byte[] buffer = new byte[(int) Math.min(count, 4096)];
++        long done = skipped;
++        while (done < count) {
++            int read = IOUtils.readFully(in, buffer, 0, (int) Math.min(count - done, buffer.length));
++            if (read < 1) {
++                break;
++            }
++            done += read;
++        }
++        return done;
++    }
++
++
+     /**
+      * Check if this is a character device entry.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+index a5b9e4d1..b4d18d97 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveInputStream.java
+@@ -39,6 +39,7 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.DWORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
++import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+ 
+ /**
+  * Implements an input stream that can read Zip archives.
+@@ -184,6 +185,28 @@ public class ZipArchiveInputStream extends ArchiveInputStream {
+         buf.limit(0);
+     }
+ 
++    /**
++     * Skips bytes of the given stream, calling the stream's own skip
++     * method for as long as it skips any bytes.
++     *
++     * @param in stream to skip bytes in
++     * @param count the number of bytes to skip, positive
++     * @return the number of bytes actually skipped
++     * @throws IOException if the stream cannot be skipped or read
++     */
++    public static long skipRaw(InputStream in, long count) throws IOException {
++        long skipped = 0;
++        while (skipped < count) {
++            long n = in.skip(count - skipped);
++            if (n == 0) {
++                break;
++            }
++            skipped += n;
++        }
++        return TarArchiveEntry.completeSkip(in, count, skipped);
++    }
++
++
+     public ZipArchiveEntry getNextZipEntry() throws IOException {
+         boolean firstEntry = true;
+         if (closed || hitCentralDirectory) {
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+index 12a1c66e..5b920e06 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipArchiveOutputStream.java
+@@ -43,6 +43,8 @@ import static org.apache.commons.compress.archivers.zip.ZipConstants.WORD;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MAGIC_SHORT;
+ import static org.apache.commons.compress.archivers.zip.ZipConstants.ZIP64_MIN_VERSION;
++import java.io.InputStream;
++import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+ 
+ /**
+  * Reimplementation of {@link java.util.zip.ZipOutputStream
+@@ -336,6 +338,24 @@ public class ZipArchiveOutputStream extends ArchiveOutputStream {
+         createUnicodeExtraFields = b;
+     }
+ 
++    /**
++     * Skips bytes of the given stream.
++     *
++     * <p>A count that is not positive skips nothing and gives 0.</p>
++     *
++     * @param in stream to skip bytes in
++     * @param count the number of bytes to skip
++     * @return the number of bytes actually skipped
++     * @throws IOException if the stream cannot be skipped or read
++     */
++    public static long skipInput(InputStream in, long count) throws IOException {
++        if (count <= 0) {
++            return 0;
++        }
++        return BZip2CompressorOutputStream.skipFrom(in, count);
++    }
++
++
+     /**
+      * Whether to fall back to UTF and the language encoding flag if
+      * the file name cannot be encoded using the specified encoding.
+diff --git a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+index bcde9c84..5be0be09 100644
+--- a/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
++++ b/src/main/java/org/apache/commons/compress/archivers/zip/ZipFile.java
+@@ -164,6 +164,19 @@ public class ZipFile implements Closeable {
+         this(new File(name), ZipEncodingHelper.UTF8);
+     }
+ 
++    /**
++     * Skips the given positive number of bytes of a stream.
++     *
++     * @param in stream to skip bytes in
++     * @param count the number of bytes to skip, positive
++     * @return the number of bytes actually skipped
++     * @throws IOException if the stream cannot be skipped or read
++     */
++    public static long skipStream(InputStream in, long count) throws IOException {
++        return ZipArchiveInputStream.skipRaw(in, count);
++    }
++
++
+     /**
+      * Opens the given file for reading, assuming the specified
+      * encoding for file names, scanning unicode extra fields.
+diff --git a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+index a5eedcf0..4b337561 100644
+--- a/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
++++ b/src/main/java/org/apache/commons/compress/compressors/bzip2/BZip2CompressorOutputStream.java
+@@ -22,6 +22,8 @@ import java.io.IOException;
+ import java.io.OutputStream;
+ 
+ import org.apache.commons.compress.compressors.CompressorOutputStream;
++import java.io.InputStream;
++import org.apache.commons.compress.archivers.zip.ZipFile;
+ 
+ /**
+  * An output stream that compresses into the BZip2 format into another stream.
+@@ -356,6 +358,19 @@ public class BZip2CompressorOutputStream extends CompressorOutputStream
+         this(out, MAX_BLOCKSIZE);
+     }
+ 
++    /**
++     * Skips a positive number of bytes of the given stream.
++     *
++     * @param in stream to skip bytes in
++     * @param count the number of bytes to skip, positive
++     * @return the number of bytes actually skipped
++     * @throws IOException if the stream cannot be skipped or read
++     */
++    public static long skipFrom(InputStream in, long count) throws IOException {
++        return ZipFile.skipStream(in, count);
++    }
++
++
+     /**
+      * Constructs a new <tt>BZip2CompressorOutputStream</tt> with specified blocksize.
+      *
+diff --git a/src/main/java/org/apache/commons/compress/utils/IOUtils.java b/src/main/java/org/apache/commons/compress/utils/IOUtils.java
+index 177d8f2a..dca64080 100644
+--- a/src/main/java/org/apache/commons/compress/utils/IOUtils.java
++++ b/src/main/java/org/apache/commons/compress/utils/IOUtils.java
+@@ -90,29 +90,10 @@ public final class IOUtils {
+      * @param numToSkip the number of bytes to skip
+      * @return the number of bytes actually skipped
+      * @throws IOException
++       The stream is first wrapped in a BufferedInputStream, so that bytes can be skipped within its buffer without further calls to the stream.
+      */
+     public static long skip(InputStream input, long numToSkip) throws IOException {
+-        long available = numToSkip;
+-        while (numToSkip > 0) {
+-            long skipped = input.skip(numToSkip);
+-            if (skipped == 0) {
+-                break;
+-            }
+-            numToSkip -= skipped;
+-        }
+-            
+-        if (numToSkip > 0) {
+-            byte[] skipBuf = new byte[SKIP_BUF_SIZE];
+-            while (numToSkip > 0) {
+-                int read = readFully(input, skipBuf, 0,
+-                                     (int) Math.min(numToSkip, SKIP_BUF_SIZE));
+-                if (read < 1) {
+-                    break;
+-                }
+-                numToSkip -= read;
+-            }
+-        }
+-        return available - numToSkip;
++        return org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream.skipInput(input, numToSkip);
+     }
+ 
+     /**

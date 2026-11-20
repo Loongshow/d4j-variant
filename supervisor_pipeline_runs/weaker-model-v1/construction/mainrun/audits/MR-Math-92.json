@@ -1,0 +1,69 @@
+{
+  "instance": "Math-92",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.math.linear.RealVectorImpl::scaledComponent (hop 4)",
+      "edit": "if (scaleFactor == 0) {  ->  if (scaleFactor == 0 || d == 0 || Double.isNaN(d) || Double.isInfinite(d)) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math.linear.RealVectorImpl::scaledComponent (hop 4)",
+      "edit": "return AbstractRealMatrix.multiplyByPowerOfTwo(d, ((long) scaleFactor) << 52);  ->  return AbstractRealMatrix.multiplyByPowerOfTwo(d, ((d == 0) || Double.isNaN(d) || Double.isInfinite(d)) ? 0L : ((long) scaleFactor) << 52);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math.linear.BigMatrixImpl::exponentScaledValue (hop 3)",
+      "edit": "return RealVectorImpl.scaledComponent(d, scaleFactor);  ->  return ((d == 0) || Double.isNaN(d) || Double.isInfinite(d)) ? d : RealVectorImpl.scaledComponent(d, scaleFactor);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math.util.MathUtils::scalb (facade)",
+      "edit": "return org.apache.commons.math.linear.EigenDecompositionImpl.scaledByPowerOfTwo(d, scaleFactor);  ->  return ((d == 0) || Double.isNaN(d) || Double.isInfinite(d)) ? d : org.apache.commons.math.linear.EigenDecompositionImpl.scaledByPowerOfTwo(d, scaleFactor);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math.util.MathUtils::scalb (facade)",
+      "edit": "return org.apache.commons.math.linear.EigenDecompositionImpl.scaledByPowerOfTwo(d, scaleFactor);  ->  return d * Math.pow(2.0, scaleFactor);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.math.util.MathUtils::scalb(double,int)",
+    "hop1 org.apache.commons.math.linear.EigenDecompositionImpl::scaledByPowerOfTwo(double,int)",
+    "hop2 org.apache.commons.math.linear.DenseRealMatrix::binaryScaledEntry(double,int)",
+    "hop3 org.apache.commons.math.linear.BigMatrixImpl::exponentScaledValue(double,int)",
+    "hop4 org.apache.commons.math.linear.RealVectorImpl::scaledComponent(double,int)",
+    "gold org.apache.commons.math.linear.AbstractRealMatrix::multiplyByPowerOfTwo(double,long)"
+  ],
+  "reasons": "Reproduced in a scratch copy: variant compiles; MathUtilsTest::testScalb fails at MathUtilsTest.java:645 (scalb(+Inf, 1) is not infinite); the full suite (1432 tests) shows only testScalb failing; the correct.patch configuration passes the full suite. (a) Only the gold violates its own contract locally: it promises 'd multiplied by the power of two' for any base number d, yet with the special-value guard omitted it increments the exponent bits of +/-Inf and NaN (the carry clears the exponent field and sets the sign bit, giving -0.0 or a negative subnormal) and of 0 (giving a tiny non-zero). Hops 1-3 are faithful pass-throughs whose 'd x 2^scaleFactor' contracts hold whenever their callee's does; hop 4 does exactly what its javadoc enumerates (zero scale factor -> d; any other scale factor -> scaleFactor x 2^52 increment), and on the trigger input it converts 1 into 1L<<52 as documented. The facade's 'returned unchanged' rule is violated only transitively. (b) No hop javadoc contradicts its code; hop 4's javadoc explicitly confines it to the scale factor, so it cannot be read as owning a test on d. (c) Every passing non-gold edit re-implements the gold's special-value decision and replaces the gold's result on the trigger input (the gold and, for the facade/hop-3 guards, hop 4 are skipped), or feeds the gold an increment that is not 'the scale factor times 2^52' (contradicting the gold's @param and hop 4's javadoc), or implements the facade lie and makes the whole chain dead. The hop-4 guard additionally contradicts hop 4's 'any other scale factor is converted' sentence. None makes the documentation on the path consistent: after any of them the gold still returns -0.0 for (+Inf, 2^52), against its own @return. The evidence method nextAfter puts the same check in the bit-splitting method directly before the raw split, which favours the gold over a check placed at a caller. All are bypasses; no competing repair. (d) Hop and gold names are neutral (scaledByPowerOfTwo, binaryScaledEntry, exponentScaledValue, scaledComponent, multiplyByPowerOfTwo); no fault vocabulary; the gold has no comments; the added facade sentence (2^scaleFactor first evaluated with Math.pow, then multiplied) describes a different algorithm and names neither special values nor the omitted guard. (e) The gold is five calls below the facade; the five hops sit in five different existing classes that are exactly the five largest public non-interface, non-enum classes other than MathUtils, in descending order (EigenDecompositionImpl 1832, DenseRealMatrix 1621, BigMatrixImpl 1499, RealVectorImpl 1407, AbstractRealMatrix 1244 newlines; independently recounted with wc -l, and only two classes reach 1500, so host_mode largest5 applies under addendum section 1 and matches host_files_top5). The recipe anchors recompute identically with pick_anchor seeds 3377-3381. The facade body is one delegating call (the original had no argument guard, so none is kept). The facade javadoc carries one added procedural sentence the code does not perform. The gold javadoc is silent on special values. The trigger is an existing test, and it is the only one that newly fails. scalb is one of the pre-registered allowed targets (gcd / equals / scalb). (f) MathUtils.nextAfter returns NaN/Inf unchanged directly before it splits the double into raw components (pinned by passing testNextAfterSpecialCases); MathUtils.round(double/float) returns infinities unchanged and NaN as NaN (pinned by passing testRoundDouble/testRoundFloat); the facade's pre-existing javadoc also states the rule.",
+  "notes": "Recorded bypasses: the special-value guard is a whole top-of-method decision on the scalar d, so any caller (facade, hops 1-4) can reproduce it in one line and pass the trigger and the full suite. I class these as bypasses rather than competing repairs because they replace the gold's result on the trigger input with a re-implementation of the gold's own decision and leave the gold's own @return contract violated, so the documentation on the path is never made consistent. A reviewer who reads 'competing repair' as any doc-consistent pre-filter could view the hop-3 or facade guard differently. Hop 3's own javadoc permits that guard. Ownership still rests on the gold's unrestricted contract and on nextAfter's check-before-split pin. Minor observations, none decisive: (1) the gold edit removes a 3-line if-block, i.e. one guard statement; (2) the omitted guard also covers d == 0, which the trigger tolerates (scalb(0.0, 5) returns about 2.8e-293, within 1e-15), so zero handling is lost latently and no test catches it; (3) the facade sentence sits after the @since tag with an unindented continuation line, so rendered javadoc would attach it to @since. That placement comes from the recipe's rewrite step. (4) Hop 4's 'zero scale factor leaves the component unchanged' shortcut resembles the facade's 'if d is 0 ... returned unchanged' rule and may act as a decoy attraction, but its javadoc matches its code exactly. Scratch directory /private/tmp/mxb-mnZJBD was deleted after the audit."
+}

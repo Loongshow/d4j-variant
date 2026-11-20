@@ -1,0 +1,300 @@
+diff --git a/src/main/java/org/apache/commons/lang3/ArrayUtils.java b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+index 98ca1c87b..9874c3bba 100644
+--- a/src/main/java/org/apache/commons/lang3/ArrayUtils.java
++++ b/src/main/java/org/apache/commons/lang3/ArrayUtils.java
+@@ -27,6 +27,9 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
+ import org.apache.commons.lang3.builder.ToStringBuilder;
+ import org.apache.commons.lang3.builder.ToStringStyle;
+ import org.apache.commons.lang3.mutable.MutableInt;
++import java.lang.reflect.Type;
++import java.lang.reflect.TypeVariable;
++import org.apache.commons.lang3.time.FastDateFormat;
+ 
+ /**
+  * <p>Operations on arrays, primitive arrays (like {@code int[]}) and
+@@ -553,6 +556,24 @@ public class ArrayUtils {
+         return array;
+     }
+ 
++    /**
++     * <p>Checks whether each type in a map of type variable assignments lies
++     * within the bounds of the type variable it is assigned to.</p>
++     *
++     * @param typeVarAssigns  the types assigned to the type variables, not null
++     * @return {@code true} if every assigned type satisfies the bounds of its
++     *  type variable
++     */
++    public static boolean boundsSatisfied(Map<TypeVariable<?>, Type> typeVarAssigns) {
++        for (Map.Entry<TypeVariable<?>, Type> entry : typeVarAssigns.entrySet()) {
++            if (!FastDateFormat.withinBounds(entry.getKey(), entry.getValue(), typeVarAssigns)) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++
+     /**
+      * <p>Defensive programming technique to change a {@code null}
+      * reference to an empty one.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/StringUtils.java b/src/main/java/org/apache/commons/lang3/StringUtils.java
+index 3d81b0272..d43c56040 100644
+--- a/src/main/java/org/apache/commons/lang3/StringUtils.java
++++ b/src/main/java/org/apache/commons/lang3/StringUtils.java
+@@ -25,6 +25,12 @@ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.regex.Pattern;
++import java.lang.reflect.ParameterizedType;
++import java.lang.reflect.Type;
++import java.lang.reflect.TypeVariable;
++import java.lang.reflect.WildcardType;
++import java.util.Map;
++import org.apache.commons.lang3.reflect.TypeUtils;
+ 
+ /**
+  * <p>Operations on {@link java.lang.String} that are
+@@ -1641,6 +1647,48 @@ public class StringUtils {
+         return containsAny(cs, CharSequenceUtils.toCharArray(searchChars));
+     }
+ 
++    /**
++     * <p>Checks if a type may be assigned to a parameterized type following the
++     * Java generics rules, the type variables having the given assignments.</p>
++     *
++     * @param type  the type to be assigned
++     * @param toParameterizedType  the target parameterized type, not null
++     * @param typeVarAssigns  the types assigned to the type variables
++     * @return {@code true} if {@code type} is assignable to the parameterized type
++     */
++    public static boolean conformsTo(Type type, ParameterizedType toParameterizedType,
++            Map<TypeVariable<?>, Type> typeVarAssigns) {
++        if (type == null || toParameterizedType.equals(type)) {
++            return true;
++        }
++        Class<?> toClass = TypeUtils.getRawType(toParameterizedType, null);
++        Map<TypeVariable<?>, Type> fromTypeVarAssigns = TypeUtils.getTypeArguments(type, toClass);
++        if (fromTypeVarAssigns == null) {
++            return false;
++        }
++        if (fromTypeVarAssigns.isEmpty()) {
++            return true;
++        }
++        Map<TypeVariable<?>, Type> toTypeVarAssigns = TypeUtils.getTypeArguments(toParameterizedType, toClass,
++                typeVarAssigns);
++        for (TypeVariable<?> var : toTypeVarAssigns.keySet()) {
++            Type toTypeArg = TypeUtils.unrollVariableAssignments(var, toTypeVarAssigns);
++            Type fromTypeArg = TypeUtils.unrollVariableAssignments(var, fromTypeVarAssigns);
++            if (fromTypeArg == null) {
++                continue;
++            }
++            if (toTypeArg.equals(fromTypeArg)) {
++                continue;
++            }
++            if (toTypeArg instanceof WildcardType && TypeUtils.isAssignable(fromTypeArg, toTypeArg, typeVarAssigns)) {
++                continue;
++            }
++            return false;
++        }
++        return true;
++    }
++
++
+     // IndexOfAnyBut chars
+     //-----------------------------------------------------------------------
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+index 7200356f2..70605fe76 100644
+--- a/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
++++ b/src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java
+@@ -25,6 +25,11 @@ import java.util.WeakHashMap;
+ import org.apache.commons.lang3.ClassUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.lang.reflect.ParameterizedType;
++import java.lang.reflect.Type;
++import java.lang.reflect.TypeVariable;
++import org.apache.commons.lang3.StringUtils;
++import org.apache.commons.lang3.reflect.TypeUtils;
+ 
+ /**
+  * <p>Controls <code>String</code> formatting for {@link ToStringBuilder}.
+@@ -837,6 +842,23 @@ public abstract class ToStringStyle implements Serializable {
+         appendFieldEnd(buffer, fieldName);
+     }
+ 
++    /**
++     * <p>Checks if a type may be assigned to a target type following the Java
++     * generics rules, the type variables having the given assignments.</p>
++     *
++     * @param type  the type to be assigned
++     * @param toType  the target type
++     * @param typeVarAssigns  the types assigned to the type variables
++     * @return {@code true} if {@code type} is assignable to {@code toType}
++     */
++    public static boolean assignableUnder(Type type, Type toType, Map<TypeVariable<?>, Type> typeVarAssigns) {
++        if (toType instanceof ParameterizedType) {
++            return StringUtils.conformsTo(type, (ParameterizedType) toType, typeVarAssigns);
++        }
++        return TypeUtils.isAssignable(type, toType, typeVarAssigns);
++    }
++
++
+     /**
+      * <p>Append to the <code>toString</code> a <code>boolean</code>
+      * value.</p>
+diff --git a/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java b/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java
+index 8db8abf4b..9f79f1c04 100644
+--- a/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java
++++ b/src/main/java/org/apache/commons/lang3/reflect/TypeUtils.java
+@@ -74,7 +74,7 @@ public class TypeUtils {
+      * @param typeVarAssigns optional map of type variable assignments
+      * @return <code>true</code> if <code>type</code> is assignable to <code>toType</code>.
+      */
+-    private static boolean isAssignable(Type type, Type toType,
++    public static boolean isAssignable(Type type, Type toType,
+             Map<TypeVariable<?>, Type> typeVarAssigns) {
+         if (toType == null || toType instanceof Class<?>) {
+             return isAssignable(type, (Class<?>) toType);
+@@ -234,7 +234,15 @@ public class TypeUtils {
+         return true;
+     }
+ 
+-    private static Type unrollVariableAssignments(TypeVariable<?> var, Map<TypeVariable<?>, Type> typeVarAssigns) {
++    /**
++     * <p> Follows the assignments of a type variable through a map until a type that is not
++     * another assigned type variable is reached. </p>
++     *
++     * @param var the type variable
++     * @param typeVarAssigns the map with type variables
++     * @return the type the variable stands for, <code>null</code> if it has no assignment
++     */
++    public static Type unrollVariableAssignments(TypeVariable<?> var, Map<TypeVariable<?>, Type> typeVarAssigns) {
+         Type result;
+         do {
+             result = typeVarAssigns.get(var);
+@@ -542,7 +550,7 @@ public class TypeUtils {
+      * @param subtypeVarAssigns a map with type variables
+      * @return the map with type arguments
+      */
+-    private static Map<TypeVariable<?>, Type> getTypeArguments(Type type, Class<?> toClass,
++    public static Map<TypeVariable<?>, Type> getTypeArguments(Type type, Class<?> toClass,
+             Map<TypeVariable<?>, Type> subtypeVarAssigns) {
+         if (type instanceof Class<?>) {
+             return getTypeArguments((Class<?>) type, toClass, subtypeVarAssigns);
+@@ -956,23 +964,10 @@ public class TypeUtils {
+      * type variables.
+      * @return whether or not the types can be assigned to their respective type
+      * variables.
++       The assignments are first copied into a map sorted by the names of their type variables, so that the result does not depend on the iteration order of the given map, and the bounds of each variable are then checked from the last declared to the first.
+      */
+     public static boolean typesSatisfyVariables(Map<TypeVariable<?>, Type> typeVarAssigns) {
+-        // all types must be assignable to all the bounds of the their mapped
+-        // type variable.
+-        for (Map.Entry<TypeVariable<?>, Type> entry : typeVarAssigns.entrySet()) {
+-            TypeVariable<?> typeVar = entry.getKey();
+-            Type type = entry.getValue();
+-
+-            for (Type bound : getImplicitBounds(typeVar)) {
+-                if (!isAssignable(type, substituteTypeVariables(bound, typeVarAssigns),
+-                        typeVarAssigns)) {
+-                    return false;
+-                }
+-            }
+-        }
+-
+-        return true;
++        return org.apache.commons.lang3.ArrayUtils.boundsSatisfied(typeVarAssigns);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+index 0a6d31e8f..da9ba1f61 100644
+--- a/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
++++ b/src/main/java/org/apache/commons/lang3/text/StrBuilder.java
+@@ -24,6 +24,10 @@ import java.util.List;
+ import org.apache.commons.lang3.ArrayUtils;
+ import org.apache.commons.lang3.ObjectUtils;
+ import org.apache.commons.lang3.SystemUtils;
++import java.lang.reflect.Type;
++import java.lang.reflect.TypeVariable;
++import java.util.Map;
++import org.apache.commons.lang3.builder.ToStringStyle;
+ 
+ /**
+  * Builds a string from constituent parts providing a more flexible and powerful API
+@@ -1478,6 +1482,30 @@ public class StrBuilder implements CharSequence, Appendable {
+         return this;
+     }
+ 
++    /**
++     * <p>Checks whether a type lies within one bound of a type variable,
++     * following the Java generics rules. A bound that is itself a type variable
++     * stands for the type assigned to that variable.</p>
++     *
++     * @param type  the type to check
++     * @param bound  the bound of the type variable
++     * @param typeVarAssigns  the types assigned to the type variables
++     * @return {@code true} if the type satisfies the bound
++     * @throws IllegalArgumentException if the bound is a type variable without
++     *  an assigned type
++     */
++    public static boolean meetsBound(Type type, Type bound, Map<TypeVariable<?>, Type> typeVarAssigns) {
++        Type toType = bound;
++        if (bound instanceof TypeVariable<?>) {
++            toType = typeVarAssigns.get(bound);
++            if (toType == null) {
++                throw new IllegalArgumentException("missing assignment type for type variable " + bound);
++            }
++        }
++        return ToStringStyle.assignableUnder(type, toType, typeVarAssigns);
++    }
++
++
+     /**
+      * Inserts the value into this builder.
+      *
+diff --git a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+index 51da48e13..f82b33c20 100644
+--- a/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
++++ b/src/main/java/org/apache/commons/lang3/time/FastDateFormat.java
+@@ -34,6 +34,11 @@ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.ConcurrentMap;
+ 
+ import org.apache.commons.lang3.Validate;
++import java.lang.reflect.Type;
++import java.lang.reflect.TypeVariable;
++import java.util.Map;
++import org.apache.commons.lang3.reflect.TypeUtils;
++import org.apache.commons.lang3.text.StrBuilder;
+ 
+ /**
+  * <p>FastDateFormat is a fast and thread-safe version of
+@@ -329,6 +334,27 @@ public class FastDateFormat extends Format {
+         return cache.getDateTimeInstance(null, style, timeZone, locale);
+     }
+ 
++    /**
++     * <p>Checks whether a type lies within every bound of a type variable,
++     * following the Java generics rules.</p>
++     *
++     * @param typeVariable  the type variable
++     * @param type  the type assigned to the type variable
++     * @param typeVarAssigns  the types assigned to the type variables that the
++     *  bounds may refer to
++     * @return {@code true} if the type satisfies every bound of the type variable
++     */
++    public static boolean withinBounds(TypeVariable<?> typeVariable, Type type,
++            Map<TypeVariable<?>, Type> typeVarAssigns) {
++        for (Type bound : TypeUtils.getImplicitBounds(typeVariable)) {
++            if (!StrBuilder.meetsBound(type, bound, typeVarAssigns)) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * <p>Gets a date/time formatter instance using the specified style

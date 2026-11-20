@@ -1,0 +1,77 @@
+{
+  "instance": "MI-Time-19",
+  "task_key": "Time-19__i",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.joda.time.tz.DateTimeZoneBuilder::keepLocalInZone (hop 2)",
+      "edit": "if (newZone == zone) {  ->  if (newZone == zone || newZone.getOffset(instant) == zone.getOffset(instant)) {",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass",
+      "note": "On both trigger inputs the hop returns the instant before hops 3-5 run, so the gold never executes (its output is dead). It only covers zone pairs with equal offsets. The variant fault stays for other pairs: Paris 01:15+02:00 -> London still gives 01:15Z, while the correct gold and the convertLocalToUTC(long,boolean,long) convention give 01:15+01:00. Not declared in compensating.chain."
+    },
+    {
+      "method": "org.joda.time.DateTime::zoneMillisKeepingFields (hop 4)",
+      "edit": "return LocalDate.millisAtSameLocal(zone, newZone, instant);  ->  return newZone.adjustOffset(LocalDate.millisAtSameLocal(zone, newZone, instant), false);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "Always takes the earlier offset, which breaks the retention convention whenever the original is at the later offset: London 01:15Z -> Lisbon gives 01:15+01:00 (correct 01:15Z); Paris 02:15+01:00 -> Brussels gives +02:00 (correct +01:00); UTC 01:15Z -> London gives +01:00 (correct Z). It passes only because the suite has no later-offset withZoneRetainFields case."
+    },
+    {
+      "method": "org.joda.time.DateTimeZone::convertLocalToUTC(long, boolean) (pristine, on the path)",
+      "edit": "insert first line: if (!strict) { return instantLocal - getOffsetFromLocal(instantLocal); }",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "fails",
+      "note": "The same always-earlier semantics as the hop 4 edit, with the same retention breaks (L2, P3, U1 probes). This method has no original instant and so cannot retain an offset."
+    },
+    {
+      "method": "org.joda.time.format.ISODateTimeFormat::instantWithLocalFields (hop 3)",
+      "edit": "return DateTime.zoneMillisKeepingFields(zone, newZone, instant);  ->  return newZone.convertLocalToUTC(newZone.convertUTCToLocal(DateTime.zoneMillisKeepingFields(zone, newZone, instant)), false, instant);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "note": "Keeps only the gold result's local time, which equals zone.convertUTCToLocal(instant), and redoes the whole local-to-UTC conversion with the retaining overload. This replaces the gold's result with another implementation."
+    },
+    {
+      "method": "org.joda.time.DateTime::zoneMillisKeepingFields (hop 4)",
+      "edit": "long millis = LocalDate.millisAtSameLocal(zone, newZone, instant); return newZone.adjustOffset(millis, newZone.getOffset(instant) == newZone.getOffset(newZone.adjustOffset(millis, true)));",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": true,
+      "class": "bypass",
+      "note": "Post-correction that makes the overlap decision again from the original offset. adjustOffset returns the earlier or later instant whichever overlap instant the gold chose, so the gold's decision is dead and only its local time survives. It is two statements with nested calls, against a one-argument gold repair (pass instant to the three-argument convertLocalToUTC)."
+    }
+  ],
+  "path": [
+    "facade org.joda.time.DateTimeZone::getMillisKeepLocal(DateTimeZone, long) [instance, V2: passes this, newZone, oldInstant] (reached from DateTime::withZoneRetainFields)",
+    "hop1 org.joda.time.format.DateTimeFormatterBuilder::instantInZone (null newZone -> default zone)",
+    "hop2 org.joda.time.tz.DateTimeZoneBuilder::keepLocalInZone (newZone == zone -> instant unchanged)",
+    "hop3 org.joda.time.format.ISODateTimeFormat::instantWithLocalFields (pass-through)",
+    "hop4 org.joda.time.DateTime::zoneMillisKeepingFields (pass-through)",
+    "gold org.joda.time.LocalDate::millisAtSameLocal (local millis in zone -> UTC in newZone; variant omits the original-offset retention decision and calls the two-argument convertLocalToUTC)"
+  ],
+  "reasons": "Reproduced on a scratch copy: the variant compiles; the trigger fails with expected:<...01:15:00.000[+01:00]> but was:<...[Z]>; the full suite (3871 tests) has only the trigger failing. The correct gold passes the trigger, the four ownership tests and the full suite. (a) Only the gold converts local millis back to UTC in the new zone, and it has the original instant in hand but uses the non-retaining two-argument convertLocalToUTC. The other path methods (facade, hops 1-4, withZoneRetainFields, convertLocalToUTC(long,boolean)) do what their javadoc says, and hops 1-4 return the gold's value unchanged. Caveat: the gold's literal @return ('same local time in the new zone') still holds at the overlap, so the violation is of the externally pinned retention convention, not of the gold's own sentence. Probes show the fault is general (Paris early -> Brussels, Paris 01:15 -> London also lose the offset), not specific to equal-offset zones. (b) Each hop's javadoc matches its code exactly. Hop 2's 'An instant kept in its own zone is returned unchanged' is precise, and its identity check matches it. (c) No competing repair. The two edits that pass the suite and stay consistent with the convention (hop 3 round trip, hop 4 adjustOffset re-decision) redo the gold's overlap decision and are bypasses. The hop 2 equal-offset short-circuit skips the gold on the trigger and leaves the fault for other zone pairs (bypass). The always-earlier edits (hop 4, convertLocalToUTC(long,boolean)) pass the suite but break retention for later-offset originals, so they are not doc-consistent. (d) Neutral names, no fault vocabulary, the variant gold reads as an ordinary two-line conversion, and the lie (day/millis-of-day split) does not mention offsets, overlaps or the original instant. (e) Five calls facade -> gold; five distinct existing public classes, all >= 1500 lines (host_mode 1500 per the task record) and none is DateTimeZone; the facade is one delegating call (its null default and identity shortcut moved into hops 1 and 2 as documented plumbing); one appended lie sentence; the gold javadoc is silent on retention; existing trigger, empty test.patch, sole new failure. (f) Retention is pinned outside the gold by DateTimeZone.convertLocalToUTC(long,boolean,long) javadoc ('Whenever possible, the same offset as the original offset will be used ... most significant during a daylight savings overlap'), by ZonedChronology.ZonedDateTimeField set/add/addWrapField/roundFloor and DateTimeZone.adjustOffset calling it, and by passing tests testWithMinuteOfHourInDstChange_mockZone ('retain offset'), testWithMillisOfSecondInDstChange_Paris_winter and testBug3192457_adjustOffset. C10i rules: the facade getMillisKeepLocal is in the Time-19__i allowed list (variant V2), and its signature and modifiers are unchanged; no existing member changes visibility, there is no new type and no reflection, and no test is edited.",
+  "notes": "1) Bypass worth reporting: the hop 2 equal-offset short-circuit (above) passes the full suite. The trigger's name ('sameOffsetsDifferentZones') makes it an attractive decoy edit. It is a bypass, not a competing repair, but the builder's compensating.chain does not list it. 2) The suite pins only the earlier-offset direction through withZoneRetainFields, so always-earlier edits anywhere downstream pass all tests. They are rejected only on doc consistency (the retention convention). 3) Cosmetic: the lie line is appended after the @return tag with no leading '*' and an odd indentation, so in javadoc terms it continues the @return text. It points at the facade, not the gold. The facade calls hop 1 by fully qualified name, and ISODateTimeFormat's new imports are out of alphabetical order. 4) The minimal gold repair is a single argument: newZone.convertLocalToUTC(instantLocal, false, instant). Probe set used (London/Lisbon/Paris/Brussels/UTC at the 2007-10-28 overlap) compared the variant, correct gold and each edit. 5) Did not read MR-Time-19 files, designs/, history/, the no-local-trace checklist or any trace verdict. From BATCH7_PREREGISTRATION.md, read only the Time-19__i task-record row (allowed facades, variant, host mode)."
+}

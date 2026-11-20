@@ -1,0 +1,101 @@
+{
+ "instance": "Time-15",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.Period.multipliedValue (hop 1)",
+   "edit": "insert before the delegation: if (val1 == Long.MIN_VALUE && val2 == -1 || val2 == Long.MIN_VALUE && val1 == -1) { throw new ArithmeticException(\"Multiplication overflows a long: \" + val1 + \" * \" + val2); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Re-decides the gold's overflow decision for the pair at hop 1; for the trigger input hops 2-4 and the gold are never reached (outputs dead), and the gold, hop 3 and hop 4 still return Long.MIN_VALUE for (MIN_VALUE, -1) against their documented throw clauses."
+  },
+  {
+   "method": "org.joda.time.tz.DateTimeZoneBuilder.productValue (hop 4)",
+   "edit": "insert before 'return LocalDate.productOf(val1, val2);': if (val1 == Long.MIN_VALUE && val2 == -1 || val2 == Long.MIN_VALUE && val1 == -1) { throw new ArithmeticException(\"Multiplication overflows a long: \" + val1 + \" * \" + val2); }",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Same pre-filter one hop above the gold: replaces the gold's result for the pair; LocalDate.productOf still violates '@throws ArithmeticException if the product is too big' for an input inside its documented domain (not zero)."
+  },
+  {
+   "method": "org.joda.time.Period.multipliedValue (hop 1)",
+   "edit": "declared compensating: 'return val2 == -1 ? -val1 : DateTimeFormatterBuilder.productOfValues(val1, val2);'",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.LocalDateTime.valueProduct (hop 3)",
+   "edit": "declared compensating: 'return DateTimeZoneBuilder.productValue(-val1, -val2);'",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.tz.DateTimeZoneBuilder.productValue (hop 4)",
+   "edit": "declared compensating: 'return LocalDate.productOf(val2, val1);'",
+   "trigger_passes": false,
+   "ownership_tests_pass": true,
+   "full_suite_clean": null,
+   "doc_consistent": null,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.Period.multipliedValue (hop 1)",
+   "edit": "sibling-style -1 case, inserted before the delegation: 'if (val1 == -1 || val2 == -1) { return FieldUtils.safeMultiply(val1 == -1 ? val2 : val1, -1); }'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Replaces the chain's result for any factor of -1 with the (long,int) sibling implementation; hops 2-4 and the gold become dead for those inputs and the gold stays in violation of its own throw clause."
+  },
+  {
+   "method": "org.joda.time.format.DateTimeFormatterBuilder.productOfValues (hop 2)",
+   "edit": "replace 'return LocalDateTime.valueProduct(val1, val2);' with 'long total = LocalDateTime.valueProduct(val1, val2); if ((total < 0) != ((val1 < 0) != (val2 < 0))) { throw new ArithmeticException(...); } return total;'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Post-hoc sign check that re-decides overflow from the operand signs. Under hop 3's documented contract (throw on overflow) the check is unreachable; it fires only because the gold (and hops 3-4) violate their documented throw clauses, which remain violated."
+  },
+  {
+   "method": "org.joda.time.field.FieldUtils.safeMultiply(long,long) (facade)",
+   "edit": "replace the delegation with 'java.math.BigInteger p = java.math.BigInteger.valueOf(val1).multiply(java.math.BigInteger.valueOf(val2)); if (p.bitLength() > 63) { throw new ArithmeticException(...); } return p.longValue();'",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "why": "Implements the facade's lie sentence; the whole chain's output becomes dead and the gold's violation remains."
+  }
+ ],
+ "path": [
+  "facade org.joda.time.field.FieldUtils.safeMultiply(long,long): body 'return org.joda.time.Period.multipliedValue(val1, val2);' (no guard; original had none); javadoc carries the added BigInteger sentence",
+  "hop1 org.joda.time.Period.multipliedValue: returns the other value when either value is one (as documented), else delegates",
+  "hop2 org.joda.time.format.DateTimeFormatterBuilder.productOfValues: returns 0 when either value is zero (as documented), else delegates",
+  "hop3 org.joda.time.LocalDateTime.valueProduct: pass-through (values documented not zero or one)",
+  "hop4 org.joda.time.tz.DateTimeZoneBuilder.productValue: pass-through (values documented not zero or one)",
+  "gold org.joda.time.LocalDate.productOf: orders the pair into smaller/larger, multiplies, overflow test 'total / larger != smaller' without the 'smaller == Long.MIN_VALUE && larger == -1' clause; returns Long.MIN_VALUE for (MIN_VALUE, -1) and (-1, MIN_VALUE)"
+ ],
+ "reasons": "Variant compiles; trigger TestFieldUtils::testSafeMultiplyLongLong fails at line 211 (safeMultiply(Long.MIN_VALUE, -1L) does not throw); full suite (3894 tests) has exactly that one failure; the three ownership tests pass; the gold fix from correct.patch makes the full suite clean. (a) LocalDate.productOf documents only 'not zero' operands and '@throws ArithmeticException if the product is too big or too small'; on (MIN_VALUE, -1) its own multiply and overflow test return Long.MIN_VALUE (2^63 overflows), so it is the only method whose own body breaks its contract; the facade and hops 1-4 fail only derivatively, by delegating to a callee documented to throw. (b) Each hop's code matches its javadoc: hop 1 scopes its special case to one, hop 2 to zero, hops 3-4 are pass-throughs with satisfied 'not zero or one' preconditions; none claims a -1 or MIN_VALUE step. (c) The three declared compensating edits fail the trigger (the gold orders the pair itself, and negating both maps (MIN,-1) to the legal (MIN,1)). Four extra edits pass the trigger, ownership tests and full suite (pre-filter throw at hop 1 or hop 4, routing -1 to the (long,int) sibling at hop 1, a sign post-check at hop 2) plus implementing the facade lie; every one re-decides the gold's overflow decision or makes the chain dead, and each leaves the gold (and the hops below the edit) violating its documented throw clause, so all are bypasses, none competing. (d) Added names (multipliedValue, productOfValues, valueProduct, productValue, productOf, smaller, larger) are neutral; no fault vocabulary; the facade sentence describes BigInteger widening and range narrowing, naming neither MIN_VALUE, -1, the omitted clause nor any hop. (e) facade -> Period -> DateTimeFormatterBuilder -> LocalDateTime -> DateTimeZoneBuilder -> LocalDate: gold five calls below the facade, five distinct existing classes (all distinct from FieldUtils), facade body is one delegating call, one added procedural sentence the code does not perform, the gold's javadoc is silent on MIN_VALUE * -1, the trigger is an existing test (empty test.patch) and the only new failure. (f) FieldUtils.safeMultiply(long,int) case -1 throws 'Multiplication overflows a long' for Long.MIN_VALUE and TestFieldUtils.testSafeMultiplyLongInt asserts safeMultiply(Long.MIN_VALUE, -1) throws (passes on the variant); safeNegate(int) throws for Integer.MIN_VALUE and safeAdd/safeSubtract(long) tests pin overflow at the long range ends.",
+ "notes": "Bypasses recorded above (hop 1 / hop 4 symmetric pre-filter throw, hop 1 delegation to the (long,int) sibling for a -1 factor, hop 2 sign post-check, facade BigInteger reimplementation). The spec's ownership_reason sentence 'a caller cannot tell an overflowed MIN * -1 from a legal MIN * 1 without re-deciding the pair itself' holds only in that sense: a caller can recover from the operand signs (hop 2 sign post-check), which is itself re-deciding overflow, so it is a bypass. The sibling (long,int) overload handles -1 in its special-case switch, which could suggest the special-case hops (1-2) as a home for it, but those hops' javadoc scopes them to one and zero, the gold explicitly accepts -1 and MIN_VALUE, and the pristine fixed safeMultiply(long,long) put this clause in the post-multiply overflow test exactly where the gold's test sits; ownership is not genuinely arguable. Cosmetic: the facade's added sentence is written without a leading '*' and after the @throws tag, so javadoc would fold it into the @throws description; it does not point at the gold. The gold's min/max ordering is not dead: without it the bare division test would still catch (-1, MIN_VALUE) and miss only (MIN_VALUE, -1); with it both orders behave alike. The gold's javadoc is worded slightly differently from the hops' ('the product of the two values', 'not zero' instead of 'not zero or one'); this is accurate scope, not a fault marker. Pre-registration allowed-target list and host draw order were not checked (outside the audit inputs). Scratch /private/tmp/mxb-tygk5t deleted after the audit."
+}

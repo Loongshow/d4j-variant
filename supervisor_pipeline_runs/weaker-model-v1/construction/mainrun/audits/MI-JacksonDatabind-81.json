@@ -1,0 +1,31 @@
+{
+ "instance": "MI-JacksonDatabind-81",
+ "task_key": "JacksonDatabind-81__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "TokenBuffer.annotatedEnumName (hop 4)", "edit": "String n = DeserializationContext.explicitConstantName(value); return (n != null) ? n : <re-read @JsonProperty via value.getClass().getField(value.name()).getAnnotation(JsonProperty.class), null if absent/empty>", "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": true, "doc_consistent": false, "class": "bypass"},
+  {"method": "BeanDeserializerBase.explicitNameOf (hop 3)", "edit": "builder's G9 edit: pass Enum.valueOf(ClassUtil.findEnumType(value), value.name()) down (same instance, still the anonymous subclass)", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": true, "class": "fails"},
+  {"method": "BasicDeserializerFactory.explicitEnumNameMap (hop 2)", "edit": "builder's G9 edit: also skip empty names", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": true, "class": "fails"},
+  {"method": "ObjectReader.withExplicitEnumNames (hop 1)", "edit": "builder's G9 edit: look up by toString() before name()", "trigger_passes": false, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": true, "class": "fails"}
+ ],
+ "path": [
+  "facade JacksonAnnotationIntrospector.findEnumValues (instance, @Override, signature unchanged; body = one call to hop 1, V0/pure)",
+  "hop1 ObjectReader.withExplicitEnumNames",
+  "hop2 BasicDeserializerFactory.explicitEnumNameMap",
+  "hop3 BeanDeserializerBase.explicitNameOf",
+  "hop4 TokenBuffer.annotatedEnumName",
+  "gold DeserializationContext.explicitConstantName (omits the class-body -> formal-type climb before scanning declared fields)"
+ ],
+ "reasons": "Reproduced: variant compiles; trigger EnumDeserializationTest::testEnumWithJsonPropertyRename fails with expected:<[\"[b]\",\"a\"]> but was:<[\"[B]\",\"a\"]>; full suite: only the trigger fails. (a) Gold's javadoc says the annotation is looked for on the field that declares the value; for constant B (anonymous subclass) it scans the subclass's declared fields, finds none and returns null - only the gold violates its contract; hops 1-4 are documented as forwarding/keying/overwriting and do so. (b) Hop javadocs match their code; all are thin pass-throughs of an Enum value, and no hop can change the value's runtime class. (c) The three builder decoy edits fail the trigger (G9, and hop 3's Enum.valueOf returns the same instance by construction); the only passing non-gold edit found re-reads the annotation in hop 4 (bypass: replaces the gold's result). (d) Names neutral; facade lie ('matched by ordinal ... declaration order') is false about the code (it matches by Enum.name) and does not name the omitted superclass climb; G2a/G2b pass. (e) Facade -> 4 hops -> gold = five calls; five distinct existing classes; hosts equal the seeded 1500-regime draw (mr_lib preview seed 4939: ObjectReader, BasicDeserializerFactory, BeanDeserializerBase, TokenBuffer, DeserializationContext, with matching anchors; facade file excluded); facade had no javadoc, gets a class-voice sentence plus the lie; gold javadoc states the contract, not the step; trigger existing, test.patch empty. (f) ClassUtil.findEnumType(Enum)/(Class) ('enums with body are sub-classes of the formal type'), EnumValues.constructFromName, and the deprecated JacksonAnnotationIntrospector.findEnumValue (Class.getField searches superclass) pin the convention; ClassUtilTest.testFindEnumType and the subclassed-enum tests pass. (g) No visibility widened, no type added, facade signature/modifiers/@Override/throws unchanged, no test edit.",
+ "notes": "1) Reflection: the gold uses java.lang.reflect.Field via ClassUtil.getDeclaredFields and Field.getAnnotation. I judged this NOT a violation of the C10I 'no reflection' rule: the original facade body did exactly this (the computation is intrinsically annotation reflection) and no reflective access to private/hidden members is used; if the supervisor reads the rule literally, this instance would fail g. 2) The facade now ignores its enumType parameter (the original scanned ClassUtil.getDeclaredFields(enumType)); the chain recovers the type from the value instead. All production callers (EnumValues, EnumResolver, AnnotationIntrospectorPair) pass the formal type with its own constants, so behaviour is unchanged when correct, but the unused parameter is a mild cue and gives a careful engineer an argument that the facade 'drops' the type; repairing there would require changing hop signatures (not a small edit) or re-implementing (bypass), so it does not create a competing repair. 3) My first bypass run was masked by stale class files after copying the compiled scratch tree; re-run after rm -rf target gave the result recorded above. 4) Hop 5 host draw note says package-distinctness was relaxed (pool of 6 >=1500-line classes); BeanDeserializerBase and BasicDeserializerFactory share package deser."
+}

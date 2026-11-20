@@ -1,0 +1,234 @@
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+index b6ac1f73b..637d05e90 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java
+@@ -1615,6 +1615,26 @@ public class ObjectMapper
+         return this;
+     }
+ 
++    /**
++     * Constructs the type of a class with the given type parameters, as the
++     * type factory resolves the class when it is declared with those
++     * parameters.
++     *
++     * @param factory Type factory to construct the type with
++     * @param raw Type-erased class of the type
++     * @param parametersFor Class or interface for which the type parameters
++     *   are given; either <code>raw</code> or one of its supertypes
++     * @param parameterTypes Type parameters to apply
++     */
++    public static JavaType typeWithParameters(TypeFactory factory, Class<?> raw, Class<?> parametersFor,
++            JavaType[] parameterTypes)
++    {
++        if (Map.class.isAssignableFrom(raw)) return factory.constructMapType((Class<Map<?,?>>) raw, parameterTypes[0], parameterTypes[1]);
++        if (Collection.class.isAssignableFrom(raw)) return factory.constructCollectionType((Class<Collection<?>>) raw, parameterTypes[0]);
++        return factory.constructSimpleType(raw, parametersFor, parameterTypes);
++    }
++
++
+     /**
+      * Method for enabling specified {@link DeserializationConfig} feature.
+      * Modifies and returns this instance; no new object is created.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+index 3cbe124ec..aee4ed8df 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
++++ b/src/main/java/com/fasterxml/jackson/databind/ObjectReader.java
+@@ -21,6 +21,8 @@ import com.fasterxml.jackson.databind.node.TreeTraversingParser;
+ import com.fasterxml.jackson.databind.type.SimpleType;
+ import com.fasterxml.jackson.databind.type.TypeFactory;
+ import com.fasterxml.jackson.databind.util.RootNameLookup;
++import java.util.Collection;
++import com.fasterxml.jackson.databind.deser.BasicDeserializerFactory;
+ 
+ /**
+  * Builder object that can be used for per-serialization configuration of
+@@ -470,6 +472,37 @@ public class ObjectReader
+         return _with(config);
+     }    
+ 
++    /**
++     * Constructs the type of a non-array class with the given type parameters,
++     * after checking the number of parameters: a Map class takes exactly two,
++     * and a Collection class exactly one. The class and its parameters are
++     * then passed on unchanged.
++     *
++     * @param factory Type factory to construct the type with
++     * @param raw Type-erased class of the type
++     * @param parametersFor Class or interface for which the type parameters
++     *   are given; either <code>raw</code> or one of its supertypes
++     * @param parameterTypes Type parameters to apply
++     *
++     * @throws IllegalArgumentException if a Map or Collection class is given
++     *   another number of type parameters
++     */
++    public static JavaType forParametrizedType(TypeFactory factory, Class<?> raw, Class<?> parametersFor,
++            JavaType[] parameterTypes)
++    {
++        if (Map.class.isAssignableFrom(raw)) {
++            if (parameterTypes.length != 2) {
++                throw new IllegalArgumentException("Need exactly 2 parameter types for Map types ("+raw.getName()+")");
++            }
++        } else if (Collection.class.isAssignableFrom(raw)) {
++            if (parameterTypes.length != 1) {
++                throw new IllegalArgumentException("Need exactly 1 parameter type for Collection types ("+raw.getName()+")");
++            }
++        }
++        return BasicDeserializerFactory.createParametrizedType(factory, raw, parametersFor, parameterTypes);
++    }
++
++
+     /**
+      * Method for constructing a new instance with configuration that uses
+      * passed {@link InjectableValues} to provide injectable values.
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+index 2e9ce024c..5fe039772 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BasicDeserializerFactory.java
+@@ -1024,6 +1024,24 @@ public abstract class BasicDeserializerFactory
+         return deser;
+     }
+ 
++    /**
++     * Constructs the type of a non-array class with the given type parameters,
++     * whose number has been checked; the class and its parameters are passed
++     * on unchanged.
++     *
++     * @param factory Type factory to construct the type with
++     * @param raw Type-erased class of the type
++     * @param parametersFor Class or interface for which the type parameters
++     *   are given; either <code>raw</code> or one of its supertypes
++     * @param parameterTypes Type parameters to apply
++     */
++    public static JavaType createParametrizedType(TypeFactory factory, Class<?> raw, Class<?> parametersFor,
++            JavaType[] parameterTypes)
++    {
++        return ObjectMapper.typeWithParameters(factory, raw, parametersFor, parameterTypes);
++    }
++
++
+     /*
+     /**********************************************************
+     /* JsonDeserializerFactory impl: Map(-like) deserializers
+diff --git a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+index 01f5227e1..fc0d96c84 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
++++ b/src/main/java/com/fasterxml/jackson/databind/deser/BeanDeserializerBase.java
+@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.introspect.*;
+ import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
+ import com.fasterxml.jackson.databind.type.ClassKey;
+ import com.fasterxml.jackson.databind.util.*;
++import com.fasterxml.jackson.databind.type.TypeFactory;
+ 
+ /**
+  * Base class for <code>BeanDeserializer</code>.
+@@ -833,6 +834,22 @@ public abstract class BeanDeserializerBase
+         return _propertyBasedCreator.properties().iterator();
+     }
+ 
++    /**
++     * Constructs the type of a class with the given type parameters.
++     *
++     * @param factory Type factory to construct the type with
++     * @param raw Type-erased class of the type
++     * @param parametersFor Class or interface for which the type parameters
++     *   are given; either <code>raw</code> or one of its supertypes
++     * @param parameterTypes Type parameters to apply
++     */
++    public static JavaType resolveParametrizedType(TypeFactory factory, Class<?> raw, Class<?> parametersFor,
++            JavaType[] parameterTypes)
++    {
++        return TokenBuffer.parametrizedTypeFor(factory, raw, parametersFor, parameterTypes);
++    }
++
++
+     public SettableBeanProperty findProperty(PropertyName propertyName)
+     {
+         // TODO: start matching full name?
+diff --git a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java
+index e0eb63960..ff201a223 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java
++++ b/src/main/java/com/fasterxml/jackson/databind/type/TypeFactory.java
+@@ -618,35 +618,12 @@ public final class TypeFactory
+      * @param parameterTypes Type parameters to apply
+      * 
+      * @since 2.5
++       The type is first looked up in the factory's cache of resolved types, and a new type is constructed only for a class and type parameters that have not been seen before.
+      */
+     public JavaType constructParametrizedType(Class<?> parametrized, Class<?> parametersFor,
+             JavaType... parameterTypes)
+     {
+-        JavaType resultType;
+-        
+-        // Need to check kind of class we are dealing with...
+-        if (parametrized.isArray()) {
+-            // 19-Jan-2010, tatus: should we support multi-dimensional arrays directly?
+-            if (parameterTypes.length != 1) {
+-                throw new IllegalArgumentException("Need exactly 1 parameter type for arrays ("+parametrized.getName()+")");
+-            }
+-            resultType = constructArrayType(parameterTypes[0]);
+-        }
+-        else if (Map.class.isAssignableFrom(parametrized)) {
+-            if (parameterTypes.length != 2) {
+-                throw new IllegalArgumentException("Need exactly 2 parameter types for Map types ("+parametrized.getName()+")");
+-            }
+-            resultType = constructMapType((Class<Map<?,?>>)parametrized, parameterTypes[0], parameterTypes[1]);
+-        }
+-        else if (Collection.class.isAssignableFrom(parametrized)) {
+-            if (parameterTypes.length != 1) {
+-                throw new IllegalArgumentException("Need exactly 1 parameter type for Collection types ("+parametrized.getName()+")");
+-            }
+-            resultType = constructCollectionType((Class<Collection<?>>)parametrized, parameterTypes[0]);
+-        } else {
+-            resultType = constructSimpleType(parametrized, parametersFor, parameterTypes);
+-        }
+-        return resultType;
++        return com.fasterxml.jackson.databind.deser.BeanDeserializerBase.resolveParametrizedType(this, parametrized, parametersFor, parameterTypes);
+     }
+ 
+     /**
+diff --git a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+index 2dbb7dfdd..5e08757fd 100644
+--- a/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
++++ b/src/main/java/com/fasterxml/jackson/databind/util/TokenBuffer.java
+@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.json.JsonReadContext;
+ import com.fasterxml.jackson.core.json.JsonWriteContext;
+ import com.fasterxml.jackson.core.util.ByteArrayBuilder;
+ import com.fasterxml.jackson.databind.*;
++import com.fasterxml.jackson.databind.type.TypeFactory;
+ 
+ /**
+  * Utility class used for efficient storage of {@link JsonToken}
+@@ -618,6 +619,33 @@ sb.append("NativeObjectIds=").append(_hasNativeObjectIds).append(",");
+         }
+     }
+ 
++    /**
++     * Constructs the type of a class with the given type parameters. An array
++     * class gets an array type, with its one type parameter as the element
++     * type; any other class is passed on unchanged, with its parameters.
++     *
++     * @param factory Type factory to construct the type with
++     * @param raw Type-erased class of the type
++     * @param parametersFor Class or interface for which the type parameters
++     *   are given; either <code>raw</code> or one of its supertypes
++     * @param parameterTypes Type parameters to apply
++     *
++     * @throws IllegalArgumentException if an array class is not given exactly
++     *   one type parameter
++     */
++    public static JavaType parametrizedTypeFor(TypeFactory factory, Class<?> raw, Class<?> parametersFor,
++            JavaType[] parameterTypes)
++    {
++        if (raw.isArray()) {
++            if (parameterTypes.length != 1) {
++                throw new IllegalArgumentException("Need exactly 1 parameter type for arrays ("+raw.getName()+")");
++            }
++            return factory.constructArrayType(parameterTypes[0]);
++        }
++        return ObjectReader.forParametrizedType(factory, raw, parametersFor, parameterTypes);
++    }
++
++
+     @Override
+     public final void writeFieldName(String name)
+         throws IOException, JsonGenerationException

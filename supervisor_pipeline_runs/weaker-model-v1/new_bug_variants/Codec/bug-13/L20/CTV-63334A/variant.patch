@@ -1,0 +1,218 @@
+diff --git a/src/main/java/org/apache/commons/codec/binary/Base64.java b/src/main/java/org/apache/commons/codec/binary/Base64.java
+index 82c64027..20d4c15c 100644
+--- a/src/main/java/org/apache/commons/codec/binary/Base64.java
++++ b/src/main/java/org/apache/commons/codec/binary/Base64.java
+@@ -18,6 +18,8 @@
+ package org.apache.commons.codec.binary;
+ 
+ import java.math.BigInteger;
++import java.nio.charset.Charset;
++import org.apache.commons.codec.language.bm.Rule;
+ 
+ /**
+  * Provides Base64 encoding and decoding as defined by <a href="http://www.ietf.org/rfc/rfc2045.txt">RFC 2045</a>.
+@@ -540,6 +542,20 @@ public class Base64 extends BaseNCodec {
+         return true;
+     }
+ 
++    /**
++     * Encodes the characters of a non-empty String into octets using the given charset.
++     *
++     * @param str
++     *            the String to encode, not null or empty
++     * @param charset
++     *            the charset to encode the String with
++     * @return the encoded octets
++     */
++    public static byte[] toOctets(final String str, final Charset charset) {
++        return Rule.inputBytes(str, charset);
++    }
++
++
+     /**
+      * Encodes binary data using the base64 algorithm but does not chunk the output.
+      *
+diff --git a/src/main/java/org/apache/commons/codec/binary/StringUtils.java b/src/main/java/org/apache/commons/codec/binary/StringUtils.java
+index 8f1f57fa..ddc8bd5a 100644
+--- a/src/main/java/org/apache/commons/codec/binary/StringUtils.java
++++ b/src/main/java/org/apache/commons/codec/binary/StringUtils.java
+@@ -133,16 +133,13 @@ public class StringUtils {
+      *             required charset name.
+      * @see CharEncoding
+      * @see String#getBytes(String)
++       The string is first normalized to Unicode Normalization Form C, so that canonically equivalent strings are encoded to the same bytes.
+      */
+     public static byte[] getBytesUnchecked(final String string, final String charsetName) {
+         if (string == null) {
+             return null;
+         }
+-        try {
+-            return string.getBytes(charsetName);
+-        } catch (final UnsupportedEncodingException e) {
+-            throw StringUtils.newIllegalStateException(charsetName, e);
+-        }
++        return org.apache.commons.codec.language.DoubleMetaphone.valueBytes(string, charsetName);
+     }
+ 
+     /**
+diff --git a/src/main/java/org/apache/commons/codec/digest/DigestUtils.java b/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
+index 43021ce4..3d29ad10 100644
+--- a/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
++++ b/src/main/java/org/apache/commons/codec/digest/DigestUtils.java
+@@ -24,6 +24,8 @@ import java.security.NoSuchAlgorithmException;
+ 
+ import org.apache.commons.codec.binary.Hex;
+ import org.apache.commons.codec.binary.StringUtils;
++import java.nio.charset.Charset;
++import org.apache.commons.codec.binary.Base64;
+ 
+ /**
+  * Operations to simplify common {@link java.security.MessageDigest} tasks.
+@@ -485,6 +487,26 @@ public class DigestUtils {
+         return sha256(StringUtils.getBytesUtf8(data));
+     }
+ 
++    /**
++     * Encodes String data into bytes using the given charset.
++     * <p>
++     * Empty data gives an empty array.
++     * </p>
++     *
++     * @param data
++     *            the data to encode, not null
++     * @param charset
++     *            the charset to encode the data with
++     * @return the encoded bytes
++     */
++    public static byte[] dataBytes(final String data, final Charset charset) {
++        if (data.length() == 0) {
++            return new byte[0];
++        }
++        return Base64.toOctets(data, charset);
++    }
++
++
+     /**
+      * Calculates the SHA-256 digest and returns the value as a hex string.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/codec/digest/Sha2Crypt.java b/src/main/java/org/apache/commons/codec/digest/Sha2Crypt.java
+index 1efa8eb8..bfba7399 100644
+--- a/src/main/java/org/apache/commons/codec/digest/Sha2Crypt.java
++++ b/src/main/java/org/apache/commons/codec/digest/Sha2Crypt.java
+@@ -23,6 +23,11 @@ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
+ 
+ import org.apache.commons.codec.Charsets;
++import java.nio.ByteBuffer;
++import java.nio.CharBuffer;
++import java.nio.charset.Charset;
++import java.nio.charset.CharsetEncoder;
++import java.nio.charset.CodingErrorAction;
+ 
+ /**
+  * SHA2-based Unix crypt implementation.
+@@ -521,6 +526,29 @@ public class Sha2Crypt {
+         return sha512Crypt(keyBytes, null);
+     }
+ 
++    /**
++     * Encodes the characters of a key into a new byte array using the given charset.
++     *
++     * @param key
++     *            the characters of the key, not null
++     * @param charset
++     *            the charset to encode the key with, not null
++     * @return the encoded key bytes
++     */
++    public static byte[] encodeKey(final CharSequence key, final Charset charset) {
++        CharsetEncoder encoder = charset.newEncoder().onMalformedInput(CodingErrorAction.REPLACE)
++                .onUnmappableCharacter(CodingErrorAction.REPLACE);
++        CharBuffer in = CharBuffer.wrap(key);
++        ByteBuffer out = ByteBuffer.allocate((int) (in.remaining() * encoder.averageBytesPerChar()));
++        encoder.encode(in, out, true);
++        encoder.flush(out);
++        out.flip();
++        byte[] bytes = new byte[out.remaining()];
++        out.get(bytes);
++        return bytes;
++    }
++
++
+     /**
+      * Generates a libc6 crypt() compatible "$6$" hash value.
+      * <p>
+diff --git a/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java b/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
+index 6ccd3f27..9b42a1a9 100644
+--- a/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
++++ b/src/main/java/org/apache/commons/codec/language/DoubleMetaphone.java
+@@ -20,6 +20,9 @@ package org.apache.commons.codec.language;
+ import org.apache.commons.codec.EncoderException;
+ import org.apache.commons.codec.StringEncoder;
+ import org.apache.commons.codec.binary.StringUtils;
++import java.nio.charset.Charset;
++import java.nio.charset.UnsupportedCharsetException;
++import org.apache.commons.codec.digest.DigestUtils;
+ 
+ /**
+  * Encodes a string into a double metaphone value. This Implementation is based on the algorithm by <CITE>Lawrence
+@@ -253,6 +256,26 @@ public class DoubleMetaphone implements StringEncoder {
+         return this.maxCodeLen;
+     }
+ 
++    /**
++     * Encodes a String value into a sequence of bytes using the named charset.
++     *
++     * @param value
++     *            the String value to encode, not null
++     * @param charsetName
++     *            the name of a required {@link Charset}
++     * @return the encoded bytes
++     * @throws IllegalStateException
++     *             if the named charset is not supported, which should never happen for a required charset name
++     */
++    public static byte[] valueBytes(final String value, final String charsetName) {
++        try {
++            return DigestUtils.dataBytes(value, Charset.forName(charsetName));
++        } catch (final UnsupportedCharsetException e) {
++            throw new IllegalStateException(charsetName + ": " + e);
++        }
++    }
++
++
+     /**
+      * Sets the maxCodeLen.
+      * @param maxCodeLen The maxCodeLen to set
+diff --git a/src/main/java/org/apache/commons/codec/language/bm/Rule.java b/src/main/java/org/apache/commons/codec/language/bm/Rule.java
+index 5fdbb0ef..60cdc2ab 100644
+--- a/src/main/java/org/apache/commons/codec/language/bm/Rule.java
++++ b/src/main/java/org/apache/commons/codec/language/bm/Rule.java
+@@ -33,6 +33,8 @@ import java.util.regex.Matcher;
+ import java.util.regex.Pattern;
+ 
+ import org.apache.commons.codec.language.bm.Languages.LanguageSet;
++import java.nio.charset.Charset;
++import org.apache.commons.codec.digest.Sha2Crypt;
+ 
+ /**
+  * A phoneme rule.
+@@ -285,6 +287,20 @@ public class Rule {
+         return allRules;
+     }
+ 
++    /**
++     * Encodes a sequence of input characters into bytes using the given charset.
++     *
++     * @param input
++     *            the characters to encode, not null or empty
++     * @param charset
++     *            the charset to encode the characters with
++     * @return the encoded bytes
++     */
++    public static byte[] inputBytes(final CharSequence input, final Charset charset) {
++        return Sha2Crypt.encodeKey(input, charset);
++    }
++
++
+     /**
+      * Gets rules for a combination of name type, rule type and a single language.
+      *

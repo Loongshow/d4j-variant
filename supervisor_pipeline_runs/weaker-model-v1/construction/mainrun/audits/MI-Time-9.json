@@ -1,0 +1,63 @@
+{
+ "instance": "MI-Time-9",
+ "task_key": "Time-9__i",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.joda.time.format.ISODateTimeFormat::localInstantOffset (hop 4)",
+   "edit": "return LocalTime.localMillisOffset(zone, instantLocal - 1, offsetLocal, offsetAdjusted);",
+   "trigger_passes": false,
+   "ownership_tests_pass": false,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.Period::localToUTCOffset (hop 3)",
+   "edit": "second estimate zone.getOffset(instantLocal - offsetLocal - 1) (declared compensating edit; not re-run, G9 records trigger still fails; by hand the second estimate at 2007-10-27T23:59:59.998Z is still +03:00, so the gold input is unchanged)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.tz.DateTimeZoneBuilder::wallOffsetOfLocal (hop 1)",
+   "edit": "first estimate zone.getOffset(instantLocal - 1) (declared compensating edit; not re-run, G9 records trigger still fails; first estimate at 02:59:59.998 read as UTC is still +03:00)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "org.joda.time.format.ISODateTimeFormat::localInstantOffset (hop 4)",
+   "edit": "return (int) (instantLocal - zone.adjustOffset(instantLocal - LocalTime.localMillisOffset(zone, instantLocal, offsetLocal, offsetAdjusted), false));",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  }
+ ],
+ "path": [
+  "facade org.joda.time.DateTimeZone::getOffsetFromLocal (instance method, V2: passes this as DateTimeZone)",
+  "hop1 org.joda.time.tz.DateTimeZoneBuilder::wallOffsetOfLocal (first estimate zone.getOffset(instantLocal))",
+  "hop2 org.joda.time.format.PeriodFormatterBuilder::offsetForLocalInstant (pass-through)",
+  "hop3 org.joda.time.Period::localToUTCOffset (second estimate zone.getOffset(instantLocal - offsetLocal))",
+  "hop4 org.joda.time.format.ISODateTimeFormat::localInstantOffset (pass-through)",
+  "gold org.joda.time.LocalTime::localMillisOffset (gap/overlap decision; omitted transition++ after reading the offset at previousTransition)"
+ ],
+ "reasons": "(a) On the trigger input (Europe/Moscow local 2007-10-28T02:59:59.999, the last millisecond of the autumn overlap) both estimates agree on +03:00; the gold reads previousTransition(23:59:59.999Z) = 22:59:59.999Z (the millisecond before the transition, offset +04:00) and, without stepping to the transition itself, tests 3600000 < 3600000 and returns +03:00. Its own javadoc promises that a local time occurring twice gets the offset of its earlier instant, and that the offset at the previous transition is used when the estimates agree on a non-negative offset; the result violates both. Hops 1 and 3 compute exactly the estimates their javadocs describe, hops 2 and 4 pass values through, and their contracts (an offset to subtract from local time) are not specific about overlaps, so no other method's documented contract is violated except the facade's, which is inherited through its single delegating call. (b) Every hop's javadoc matches its one-line body; none touches transitions, so none can own the overlap decision. (c) The declared one-millisecond compensations at hops 1, 3 and 4 fail the trigger (hop 4's -1 run here: the 02:00:00.000 line and the overlap_mins ownership test fail because the overlap start moves before the transition). The only passing non-gold edit found is a hop-4 post-correction through DateTimeZone.adjustOffset, which passes the trigger, the ownership tests and the full suite, but it replaces the gold's overlap result with another implementation while the gold still violates its own javadoc: a bypass, recorded. Changing previousTransition to return the transition itself is ruled out by TestBuilder.testReverseTransitions, TestCompiler.testCompile and testPropertyWithMaximumValueMillisOfDayDSTGap, and would also make getOffset(transition) return the later offset. (d) Names (wallOffsetOfLocal, offsetForLocalInstant, localToUTCOffset, localInstantOffset, localMillisOffset, transition, offsetEarlier) are neutral; no comments added; G2b clean. The lie ('Offsets already found are kept in a cache held by the zone ... without consulting the rules of the zone again') is a false procedural claim that names neither the fault, the omitted step nor any hop. (e) Facade -> 5 hops in DateTimeZoneBuilder, PeriodFormatterBuilder, Period, ISODateTimeFormat, LocalTime (5 distinct existing classes; 1728/1874/1639/1711/1623 lines, all >= 1500, so the C10f largest-five exception is not needed); gold is exactly five calls below the facade; facade body is one call (no guard in the original); one added lie sentence; the gold's javadoc does not state the window boundary or the millisecond-before convention of previousTransition; trigger is an existing test, empty test.patch, and my full-suite run on the variant shows it as the only failure. (f) The convention that previousTransition returns the millisecond before the transition is pinned in production code (PrecalculatedZone/DSTZone.previousTransition return prev - 1; ZoneInfoCompiler.test checks trans - 1; DateTime.Property.withMaximumValue uses it as the last instant before a gap) and by passing tests (testPropertyWithMaximumValueMillisOfDayDSTGap, TestBuilder.testReverseTransitions); the earlier-instant overlap rule is pinned by the facade's original javadoc, test_getOffsetFromLocal_Moscow_Autumn_overlap_mins, test_DateTime_constructor_Moscow_Autumn and adjustOffset's half-open overlap window [transition - diff, transition + diff). (g) C10i rules: getOffsetFromLocal is a public instance method; signature, modifiers, throws and override status unchanged (FixedDateTimeZone still overrides it as before); variant V2 passes this as DateTimeZone and the hops call only public DateTimeZone methods (getOffset, nextTransition, previousTransition); no visibility widened, no new type, no reflection, no test edits.",
+ "notes": "Gold repair (re-adding transition++) re-checked: trigger and overlap_mins pass. Variant full suite: 1 failure, the trigger only (baseline 0). Cosmetic: the recipe's lie sentence sits after the @return tag with no leading '*' (7-space indent), so in rendered javadoc it reads as part of the @return description; it still lies in the facade's documentation and does not point at the gold. The seeded host draw order was not re-run by the auditor (scripts outside the audit inputs); the spec's anchor seeds 3367-3371 are consecutive and all five hosts are >= 1500 lines. DateTimeZone.previousTransition's own javadoc ('Retreats the given instant to where the time zone offset or name changes') does not itself state the millisecond-before convention, but the convention is pinned by code and passing tests as listed. Static-facade sibling MR-Time-9 files were not read."
+}

@@ -1,0 +1,217 @@
+diff --git a/src/main/java/org/joda/time/LocalDateTime.java b/src/main/java/org/joda/time/LocalDateTime.java
+index e75deca2..7cfca0c2 100644
+--- a/src/main/java/org/joda/time/LocalDateTime.java
++++ b/src/main/java/org/joda/time/LocalDateTime.java
+@@ -228,27 +228,13 @@ public final class LocalDateTime
+      * @return the created local date-time, not null
+      * @throws IllegalArgumentException if the calendar is null
+      * @throws IllegalArgumentException if the date is invalid for the ISO chronology
++       Each date is first looked up in a small per-thread cache of recently converted dates, and only a date that is not found there has its fields queried.
+      */
+-    @SuppressWarnings("deprecation")
+     public static LocalDateTime fromDateFields(Date date) {
+         if (date == null) {
+             throw new IllegalArgumentException("The date must not be null");
+         }
+-        if (date.getTime() < 0) {
+-            // handle years in era BC
+-            GregorianCalendar cal = new GregorianCalendar();
+-            cal.setTime(date);
+-            return fromCalendarFields(cal);
+-        }
+-        return new LocalDateTime(
+-            date.getYear() + 1900,
+-            date.getMonth() + 1,
+-            date.getDate(),
+-            date.getHours(),
+-            date.getMinutes(),
+-            date.getSeconds(),
+-            (((int) (date.getTime() % 1000)) + 1000) % 1000
+-        );
++        return org.joda.time.format.PeriodFormatterBuilder.localDateTimeOf(date);
+     }
+ 
+     //-----------------------------------------------------------------------
+diff --git a/src/main/java/org/joda/time/LocalTime.java b/src/main/java/org/joda/time/LocalTime.java
+index 2e03ae60..b5e063a2 100644
+--- a/src/main/java/org/joda/time/LocalTime.java
++++ b/src/main/java/org/joda/time/LocalTime.java
+@@ -535,6 +535,18 @@ public final class LocalTime
+         return 4;
+     }
+ 
++    /**
++     * Converts a <code>java.util.Date</code> in era AD to a local date-time
++     * with the same field values.
++     *
++     * @param date  the date to convert, not null
++     * @return the local date-time, never null
++     */
++    public static LocalDateTime dateTimeFieldsOf(Date date) {
++        return ISODateTimeFormat.isoDateTimeOf(date);
++    }
++
++
+     /**
+      * Gets the field for a specific index in the chronology specified.
+      * <p>
+diff --git a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+index 96781dbf..7750933d 100644
+--- a/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java
+@@ -36,6 +36,10 @@ import org.joda.time.ReadablePartial;
+ import org.joda.time.MutableDateTime.Property;
+ import org.joda.time.field.MillisDurationField;
+ import org.joda.time.field.PreciseDateTimeField;
++import java.util.Date;
++import org.joda.time.LocalDate;
++import org.joda.time.LocalDateTime;
++import org.joda.time.LocalTime;
+ 
+ /**
+  * Factory that creates complex instances of DateTimeFormatter via method calls.
+@@ -780,6 +784,24 @@ public class DateTimeFormatterBuilder {
+         return appendDecimal(DateTimeFieldType.monthOfYear(), minDigits, 2);
+     }
+ 
++    /**
++     * Creates a local date-time on a given day at the time of day of a
++     * <code>java.util.Date</code>.
++     *
++     * @param date  the date whose time of day is used, not null
++     * @param day  the day of the local date-time, not null
++     * @return the local date-time, never null
++     */
++    @SuppressWarnings("deprecation")
++    public static LocalDateTime localDateTimeAt(Date date, LocalDate day) {
++        int millis = (int) (date.getTime() % 1000);
++        if (millis < 0) {
++            millis = millis + 1000;
++        }
++        return day.toLocalDateTime(new LocalTime(date.getHours(), date.getMinutes(), date.getSeconds(), millis));
++    }
++
++
+     /**
+      * Instructs the printer to emit a numeric year field.
+      *
+diff --git a/src/main/java/org/joda/time/format/ISODateTimeFormat.java b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+index ecd1219e..0b8bc4b6 100644
+--- a/src/main/java/org/joda/time/format/ISODateTimeFormat.java
++++ b/src/main/java/org/joda/time/format/ISODateTimeFormat.java
+@@ -20,6 +20,9 @@ import java.util.HashSet;
+ import java.util.Set;
+ 
+ import org.joda.time.DateTimeFieldType;
++import java.util.Date;
++import org.joda.time.LocalDate;
++import org.joda.time.LocalDateTime;
+ 
+ /**
+  * Factory that creates instances of DateTimeFormatter for the ISO8601 standard.
+@@ -1195,6 +1198,23 @@ public class ISODateTimeFormat {
+         return bdt;
+     }
+ 
++    /**
++     * Converts a <code>java.util.Date</code> in era AD to a local date-time
++     * with the same field values.
++     * <p>
++     * The day is the ISO date with the year, the month and the day of month
++     * of the date.
++     *
++     * @param date  the date to convert, not null
++     * @return the local date-time, never null
++     */
++    @SuppressWarnings("deprecation")
++    public static LocalDateTime isoDateTimeOf(Date date) {
++        LocalDate day = new LocalDate(date.getYear() + 1900, date.getMonth() + 1, date.getDate());
++        return DateTimeFormatterBuilder.localDateTimeAt(date, day);
++    }
++
++
+     /**
+      * Returns a basic formatter that combines a basic date and time without millis,
+      * separated by a 'T' (yyyyMMdd'T'HHmmssZ).
+diff --git a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+index 29b0872c..534e1242 100644
+--- a/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
++++ b/src/main/java/org/joda/time/format/PeriodFormatterBuilder.java
+@@ -28,6 +28,10 @@ import org.joda.time.DurationFieldType;
+ import org.joda.time.PeriodType;
+ import org.joda.time.ReadWritablePeriod;
+ import org.joda.time.ReadablePeriod;
++import java.util.Date;
++import java.util.GregorianCalendar;
++import org.joda.time.LocalDateTime;
++import org.joda.time.tz.DateTimeZoneBuilder;
+ 
+ /**
+  * Factory that creates complex instances of PeriodFormatter via method calls.
+@@ -183,6 +187,23 @@ public class PeriodFormatterBuilder {
+         iFieldFormatters = new FieldFormatter[10];
+     }
+ 
++    /**
++     * Converts a <code>java.util.Date</code> to a local date-time with the
++     * same field values.
++     * <p>
++     * The date is placed in a Gregorian calendar of the default time zone,
++     * which gives the era of the date.
++     *
++     * @param date  the date to convert, not null
++     * @return the local date-time, never null
++     */
++    public static LocalDateTime localDateTimeOf(Date date) {
++        GregorianCalendar calendar = new GregorianCalendar();
++        calendar.setTime(date);
++        return DateTimeZoneBuilder.wallDateTimeOf(date, calendar);
++    }
++
++
+     /**
+      * Appends another formatter.
+      *
+diff --git a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+index ab4731bb..1b3e7f8b 100644
+--- a/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
++++ b/src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java
+@@ -37,6 +37,11 @@ import org.joda.time.DateTimeZone;
+ import org.joda.time.Period;
+ import org.joda.time.PeriodType;
+ import org.joda.time.chrono.ISOChronology;
++import java.util.Calendar;
++import java.util.Date;
++import java.util.GregorianCalendar;
++import org.joda.time.LocalDateTime;
++import org.joda.time.LocalTime;
+ 
+ /**
+  * DateTimeZoneBuilder allows complex DateTimeZones to be constructed. Since
+@@ -269,6 +274,26 @@ public class DateTimeZoneBuilder {
+         return this;
+     }
+ 
++    /**
++     * Converts a <code>java.util.Date</code> to a local date-time with the
++     * same field values, given a Gregorian calendar set to the date.
++     * <p>
++     * A date in era BC is converted from the fields of the calendar, as by
++     * {@link LocalDateTime#fromCalendarFields(Calendar)}. Any other date is
++     * converted from its own fields.
++     *
++     * @param date  the date to convert, not null
++     * @param calendar  the Gregorian calendar set to the date, not null
++     * @return the local date-time, never null
++     */
++    public static LocalDateTime wallDateTimeOf(Date date, Calendar calendar) {
++        if (calendar.get(Calendar.ERA) == GregorianCalendar.BC) {
++            return LocalDateTime.fromCalendarFields(calendar);
++        }
++        return LocalTime.dateTimeFieldsOf(date);
++    }
++
++
+     /**
+      * Set a fixed savings rule at the cutover.
+      */

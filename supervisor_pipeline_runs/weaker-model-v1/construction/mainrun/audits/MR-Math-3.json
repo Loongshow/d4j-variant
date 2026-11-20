@@ -1,0 +1,51 @@
+{
+  "instance": "Math-3",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.math3.linear.BlockRealMatrix::blockTotal (hop 4)",
+      "edit": "replace `return BOBYQAOptimizer.rangeSum(values, begin, length);` with `double total = 0d; for (int i = begin; i < begin + length; i++) { if (!Double.isNaN(values[i])) { total += BOBYQAOptimizer.rangeSum(values, i, 1); } } return total;` (7 lines)",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.math3.linear.BlockFieldMatrix::normalizingSum (hop 2), declared compensating",
+      "edit": "`if (sum == 0)` -> `if (sum == 0 || Double.isNaN(sum))` (not re-run; gate G9 in validation.json records trigger still fails)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": true,
+      "class": "fails"
+    },
+    {
+      "method": "org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer::rescaledEntries (hop 1), declared compensating",
+      "edit": "`out[i] = values[i] * total / sum;` -> `out[i] = Double.isNaN(sum) ? values[i] : values[i] * total / sum;` (not re-run; G9 records trigger still fails)",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": false,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.math3.util.MathArrays::normalizeArray (guard on normalizedSum + one call)",
+    "hop1 org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer::rescaledEntries (rescale loop, NaN copied)",
+    "hop2 org.apache.commons.math3.linear.BlockFieldMatrix::normalizingSum (zero-sum check)",
+    "hop3 org.apache.commons.math3.dfp.Dfp::sumOfEntries (pass-through over whole array)",
+    "hop4 org.apache.commons.math3.linear.BlockRealMatrix::blockTotal (pass-through over slice)",
+    "gold org.apache.commons.math3.optimization.direct.BOBYQAOptimizer::rangeSum (per-entry summation; NaN-skip omitted)"
+  ],
+  "reasons": "Variant compiles; trigger MathArraysTest::testNormalizeArray fails with 'expected = 1.0 observed = NaN' on {-1,-1,NaN,1,NaN}; my own full-suite run on the variant fails only the trigger. (a) Gold rangeSum documents 'the sum of the finite entries in the slice' but adds NaN entries, returning NaN; every hop above it is correct given a correct callee (hop1 scales non-NaN entries and copies NaN, hop2 only rejects zero, hops 3-4 are exact pass-throughs), so the gold is the only method whose own code breaks its own contract. (b) Each hop's javadoc matches its code and is specific; none is loose enough to own a NaN sum. (c) NaN poisons the total once it enters the gold's sum, so no one-line edit at a hop can recover it; there is no NaN-removing utility (NaturalRanking.removeNaNs is private) and source level 1.6 rules out a stream pre-filter. The declared hop-1/hop-2 compensations still fail the trigger (G9). The only passing non-gold edit I found is a 7-line hop-4 loop that redoes the slice summation itself and calls the gold only on one-entry non-NaN slices: trigger, ownership tests and full suite all pass, but it replaces the gold's aggregation (bypass), is not equally small, and leaves the gold's code contradicting its own javadoc. (d) No fault vocabulary; hop and gold names are neutral; 'sum of the finite entries' appears in hops 2-4 as well as the gold, so it is not a gold-specific cue; the lie (compensated summation in increasing-magnitude order, in-place rescale) names neither NaN nor the skip step. (e) Five calls deep; five distinct existing classes (two BOBYQAOptimizer classes in different packages); facade body is the original normalizedSum guards plus one delegating call; one added procedural sentence the code does not perform; gold javadoc silent on NaN; existing trigger, empty test.patch, only the trigger newly fails. (f) The convention is pinned outside the gold: the facade's retained javadoc defines sum as 'the sum of the non-NaN entries' and says NaNs are ignored; Max.evaluate and Min.evaluate skip NaN in the same slice-reduction idiom, pinned by the passing MaxTest/MinTest::testNaNs; hop1 copies NaN entries unchanged.",
+  "notes": "Recorded bypass: BlockRealMatrix.blockTotal per-entry pre-filter loop (exact edit above). It passed the trigger, the three ownership tests and the full suite (0 failures). Minor cosmetic point: the facade's lie sentence is appended after '@since 2.1' without a leading '*', so it renders as part of the @since tag. This comes from the recipe's rewrite_facade, does not point at the gold or the omitted step, and is not leakage. VarianceTest::testWeightedVariance pins only the NaN-free path. The validation.json is at instances/MR-Math-3/validation.json (overall READY), not under build/. Scratch dirs /private/tmp/mxb-0qncal and /private/tmp/mxb-9GyLyT were deleted after the audit."
+}

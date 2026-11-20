@@ -1,0 +1,206 @@
+{
+ "bug_id": 4,
+ "compensating": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "    return Arrays.copyOf(chars, Math.max(length, chars.length));",
+   "old": "    return Arrays.copyOf(chars, length);",
+   "why": "hop 2 never returns an array shorter than the segment"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "final int length = ReaderBasedJsonParser.grownSegmentLength(chars.length + 1, threshold);",
+   "old": "final int length = ReaderBasedJsonParser.grownSegmentLength(chars.length, threshold);",
+   "why": "hop 2 measures the segment with room for one more character"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "return WriterBasedJsonGenerator.nextBufferLength(length, threshold) + 1;",
+   "old": "return WriterBasedJsonGenerator.nextBufferLength(length, threshold);",
+   "why": "hop 3 adds room for one more character to the expanded length"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "import com.fasterxml.jackson.core.util.VersionUtil;\nimport java.util.Arrays;\nimport com.fasterxml.jackson.core.json.ReaderBasedJsonParser;\n",
+   "old": "import com.fasterxml.jackson.core.util.VersionUtil;\n",
+   "purpose": "MI-JacksonCore-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "new": "    /**\n     * Helper method that copies the characters of a buffer segment into a\n     * new, longer array, at the same positions.\n     *<p>\n     * The new array is half as long again as the segment; a segment that\n     * would then pass the threshold length grows to the threshold, or by a\n     * quarter of its length where that is more.\n     *\n     * @param chars Segment to copy (not null)\n     * @param threshold Segment length past which growth slows\n     *\n     * @return New array that holds the characters of the segment\n     */\n    public static char[] widenCharArray(char[] chars, int threshold)\n    {\n        final int length = ReaderBasedJsonParser.grownSegmentLength(chars.length, threshold);\n        return Arrays.copyOf(chars, length);\n    }\n\n\n    /**\n     * Method that can be called to output references to native Object Ids.",
+   "old": "    /**\n     * Method that can be called to output references to native Object Ids.",
+   "purpose": "MI-JacksonCore-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "new": "        return super.getValueAsString(null);\n    }\n\n    /**\n     * Helper method that returns the length to expand a text segment of\n     * the given length to.\n     *\n     * @param length Current length of the segment\n     * @param threshold Segment length past which growth slows\n     */\n    public static int grownSegmentLength(int length, int threshold)\n    {\n        return WriterBasedJsonGenerator.nextBufferLength(length, threshold);\n    }\n\n    \n    // @since 2.1",
+   "old": "        return super.getValueAsString(null);\n    }\n    \n    // @since 2.1",
+   "purpose": "MI-JacksonCore-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+   "new": "            len -= len2;\n        }\n    }\n\n    /**\n     * Computes the length to expand a character buffer segment to, from its\n     * current length and the given threshold.\n     *\n     * @param length the current length of the segment\n     * @param threshold the threshold length of the segment growth\n     * @return the expanded length of the segment\n     */\n    public static int expandedBufferLength(final int length, final int threshold) {\n        int grown = length + (length >> 1);\n        if (grown > threshold) {\n            grown = Math.max(threshold, length + (length >> 2));\n        }\n        return grown;\n    }\n\n\n    @Override\n    public void writeRaw(String text, int offset, int len)",
+   "old": "            len -= len2;\n        }\n    }\n\n    @Override\n    public void writeRaw(String text, int offset, int len)",
+   "purpose": "MI-JacksonCore-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "new": "        return 0;\n    }\n\n    /**\n     * Helper method that returns a copy of a text segment with room for more\n     * characters; the characters of the segment are kept at the start of the\n     * copy.\n     *\n     * @param segment Segment to expand (not null)\n     * @param threshold Segment length past which growth slows\n     *\n     * @return Expanded copy of the segment\n     */\n    public static char[] enlargeTextSegment(char[] segment, int threshold)\n    {\n        return JsonGenerator.widenCharArray(segment, threshold);\n    }\n\n\n    @Override",
+   "old": "        return 0;\n    }\n\n    @Override",
+   "purpose": "MI-JacksonCore-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "new": "        }\n        _outputBuffer[_outputTail++] = '\"';\n    }\n\n    /**\n     * Helper method that returns the length to give a character buffer\n     * segment of the given length when it is expanded.\n     *\n     * @param length Current length of the segment\n     * @param threshold Segment length past which growth slows\n     */\n    public static int nextBufferLength(int length, int threshold)\n    {\n        return UTF8JsonGenerator.expandedBufferLength(length, threshold);\n    }\n\n\n    @Override\n    public void writeString(char[] text, int offset, int len) throws IOException",
+   "old": "        }\n        _outputBuffer[_outputTail++] = '\"';\n    }\n\n    @Override\n    public void writeString(char[] text, int offset, int len) throws IOException",
+   "purpose": "MI-JacksonCore-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/com/fasterxml/jackson/core/util/TextBuffer.java",
+   "new": "       The current segment is first handed back to the buffer recycler, and a larger array is then requested from it and filled with the earlier contents.\n     */\n    public char[] expandCurrentSegment()\n    {\n        return (_currentSegment = com.fasterxml.jackson.core.json.UTF8StreamJsonParser.enlargeTextSegment(_currentSegment, MAX_SEGMENT_LEN));",
+   "old": "     */\n    public char[] expandCurrentSegment()\n    {\n        final char[] curr = _currentSegment;\n        // Let's grow by 50% by default\n        final int len = curr.length;\n        int newLen = len + (len >> 1);\n        // but above intended maximum, slow to increase by 25%\n        if (newLen > MAX_SEGMENT_LEN) {\n            newLen = len + (len >> 2);\n        }\n        return (_currentSegment = Arrays.copyOf(curr, newLen));",
+   "purpose": "MI-JacksonCore-4 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+   "method": "enlargeTextSegment"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.JsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+   "method": "widenCharArray"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+   "method": "grownSegmentLength"
+  },
+  {
+   "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+   "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+   "method": "nextBufferLength"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/JacksonCore-4__i.py",
+ "entry_points": [
+  "com.fasterxml.jackson.core.util.TextBuffer::expandCurrentSegment"
+ ],
+ "evidence": [
+  "com.fasterxml.jackson.core.util.TextBuffer::expandCurrentSegment(int)",
+  "com.fasterxml.jackson.core.json.UTF8StreamJsonParser::addName",
+  "com.fasterxml.jackson.core.json.UTF8StreamJsonParser::growArrayBy"
+ ],
+ "expected_signature": "Expected buffer of 262144 to expand, did not, length now 262144",
+ "extra_tests": [],
+ "fixture_key": "JacksonCore-4",
+ "gold": {
+  "class": "com.fasterxml.jackson.core.json.UTF8JsonGenerator",
+  "edits": [
+   {
+    "new": "            grown = threshold;",
+    "old": "            grown = Math.max(threshold, length + (length >> 2));"
+   }
+  ],
+  "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+  "method": "expandedBufferLength"
+ },
+ "group": "MI-JacksonCore-4",
+ "hops": 5,
+ "iid": "MI-JacksonCore-4",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold decides the expanded length of the current segment: hops 1, 3 and 4 pass the segment or its length and the threshold along unchanged, hop 2 copies the characters into an array of the length it is given, and the facade stores and returns hop 1's array. The gold's javadoc promises the length to expand a segment to; for a segment that already has the threshold length the variant returns the same length, so the segment is not expanded, and no caller can obtain a longer array without replacing the gold's length or changing the threshold every hop documents. The convention (a segment past the threshold still grows) is pinned outside the gold: hop 2's javadoc ('a new, longer array'; past the threshold it grows 'to the threshold, or by a quarter of its length where that is more'); the intact overload TextBuffer.expandCurrentSegment(int) grows the segment to the requested size with no cap at MAX_SEGMENT_LEN; the production caller UTF8StreamJsonParser.addName writes a character at the old length right after expandCurrentSegment(), which needs a longer array; UTF8StreamJsonParser.growArrayBy always lengthens its array. testSimple (through the chain), testLongAppend (contents past MAX_SEGMENT_LEN are held) and TestUtf8Parser.testUtf8Name2Bytes (growArrayBy) pass.",
+ "ownership_tests": [
+  "com.fasterxml.jackson.core.util.TestTextBuffer::testSimple",
+  "com.fasterxml.jackson.core.util.TestTextBuffer::testLongAppend",
+  "com.fasterxml.jackson.core.json.TestUtf8Parser::testUtf8Name2Bytes"
+ ],
+ "project": "JacksonCore",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "getTextLength",
+    "anchor_seed": 6761,
+    "class": "com.fasterxml.jackson.core.json.UTF8StreamJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8StreamJsonParser.java",
+    "hop": 1,
+    "imports_added": [],
+    "method": "enlargeTextSegment",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeObjectId",
+    "anchor_seed": 6762,
+    "class": "com.fasterxml.jackson.core.JsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/JsonGenerator.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.util.Arrays;",
+     "import com.fasterxml.jackson.core.json.ReaderBasedJsonParser;"
+    ],
+    "method": "widenCharArray",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "getValueAsString",
+    "anchor_seed": 6763,
+    "class": "com.fasterxml.jackson.core.json.ReaderBasedJsonParser",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/ReaderBasedJsonParser.java",
+    "hop": 3,
+    "imports_added": [],
+    "method": "grownSegmentLength",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeString",
+    "anchor_seed": 6764,
+    "class": "com.fasterxml.jackson.core.json.WriterBasedJsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/WriterBasedJsonGenerator.java",
+    "hop": 4,
+    "imports_added": [],
+    "method": "nextBufferLength",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeRaw",
+    "anchor_seed": 6765,
+    "class": "com.fasterxml.jackson.core.json.UTF8JsonGenerator",
+    "file": "src/main/java/com/fasterxml/jackson/core/json/UTF8JsonGenerator.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "expandedBufferLength",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 6661
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "JacksonCore-4"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "com.fasterxml.jackson.core.util.TestTextBuffer",
+  "test_file": "src/test/java/com/fasterxml/jackson/core/util/TestTextBuffer.java",
+  "test_method": "testExpand"
+ },
+ "variant_id": "CTV-C7146A",
+ "kind": "new",
+ "fault_lines": [
+  "grown = threshold;"
+ ],
+ "gold_key": "com.fasterxml.jackson.core.json.UTF8JsonGenerator::expandedBufferLength"
+}

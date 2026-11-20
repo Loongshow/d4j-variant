@@ -1,0 +1,54 @@
+{
+  "instance": "Compress-38__i",
+  "iid": "MI-Compress-38",
+  "cell": "C10i",
+  "auditor": "independent agent",
+  "verdict": "CONFIRMED",
+  "a_unique_contract_violation": true,
+  "b_hop_doc_issue": false,
+  "c_competing_repair": false,
+  "c_bypass": true,
+  "d_leakage": false,
+  "e_recipe_conformity": true,
+  "f_external_pin": true,
+  "g_c10i_rules": true,
+  "alternative_repairs_tried": [
+    {
+      "method": "org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::readsAsDirectory (hop 4)",
+      "edit": "return SevenZFile.isDirectoryByHeader(entry, flag);  ->  return !entry.isPaxHeader() && !entry.isGlobalPaxHeader() && SevenZFile.isDirectoryByHeader(entry, flag);",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "org.apache.commons.compress.archivers.tar.TarArchiveInputStream::isDirectory (private caller of the facade, off the hop chain)",
+      "edit": "return currEntry != null && currEntry.isDirectory();  ->  return currEntry != null && !currEntry.isPaxHeader() && currEntry.isDirectory();",
+      "trigger_passes": true,
+      "ownership_tests_pass": true,
+      "full_suite_clean": true,
+      "doc_consistent": false,
+      "class": "bypass"
+    },
+    {
+      "method": "declared compensating edits (hop 2 global-PAX-only filter, hop 3 GNU long-name filter, hop 1 file.exists())",
+      "edit": "as in spec compensating[]; not re-run, validation G9 shows trigger still fails for all three",
+      "trigger_passes": false,
+      "ownership_tests_pass": null,
+      "full_suite_clean": null,
+      "doc_consistent": null,
+      "class": "fails"
+    }
+  ],
+  "path": [
+    "facade org.apache.commons.compress.archivers.tar.TarArchiveEntry::isDirectory (instance; body = ZipArchiveOutputStream.isDirectoryEntry(this, linkFlag); V1+V2)",
+    "hop1 org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream::isDirectoryEntry (file check via public getFile, else delegate)",
+    "hop2 org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream::entryIsDirectory (pass-through)",
+    "hop3 org.apache.commons.compress.archivers.zip.ZipFile::denotesDirectory (pass-through)",
+    "hop4 org.apache.commons.compress.archivers.zip.ZipArchiveInputStream::readsAsDirectory (pass-through)",
+    "gold org.apache.commons.compress.archivers.sevenz.SevenZFile::isDirectoryByHeader (LF_DIR check + name check; PAX-header exclusion omitted)"
+  ],
+  "reasons": "Scratch copy of fresh-mr/Compress-38 + variant.patch compiles; trigger TarArchiveInputStreamTest::survivesPaxHeaderWithNameEndingInSlash fails ('Error detected parsing the header') and is the only failure of the full suite. (a) Only the gold makes the directory decision: for COMPRESS-356.tar's PAX extended header (link flag 'x', name ending in '/') it returns true, violating its '@return whether the entry represents a directory' (a PAX header is a header entry whose data are records, not a directory); hops 1-4 contain no decision on a non-file entry (hop 1 only answers for file-created entries, which a read entry never is; hops 2-4 forward unchanged). (b) Hop javadocs match their code; hop 1/3 say 'judged by its link flag and its name', which the correct gold also satisfies (isPaxHeader is a link-flag test) and which they discharge by delegation. (c) The only passing one-line edits found are pre-filters that answer the PAX case themselves (hop 4 conjunction; TarArchiveInputStream.isDirectory conjunction): both pass trigger and full suite, but leave the gold (and in the second case the public facade) still reporting a PAX header as a directory against its own javadoc, i.e. they replace the gold's result for the failing input - bypasses, not competing repairs. (d) Added names (isDirectoryEntry, entryIsDirectory, denotesDirectory, readsAsDirectory, isDirectoryByHeader) and javadocs carry no fault vocabulary and do not mention PAX/header kinds; the lie ('The entry's mode is examined first, and an entry whose mode has the directory bit set is reported as a directory.') describes a mode check the code never does and does not name the omitted PAX exclusion. (e) Five calls facade->gold; five distinct existing classes exactly equal to batch9 hosts_hop_order (largest5: ZipArchiveOutputStream 1621, BZip2CompressorOutputStream 1330, ZipFile 1149, ZipArchiveInputStream 1112, SevenZFile 1014; TarArchiveEntry.java excluded); facade = state gathering (this, linkFlag) + one call; one appended lie sentence; gold javadoc silent on header kinds; test.patch empty, only the trigger newly fails. C10i not-allowed list respected: no visibility change (getFile/isPaxHeader/isGlobalPaxHeader/getName already public), no new type, no reflection, facade signature/@Override/modifiers/throws unchanged, no test edits. (f) Pinned outside the gold: TarArchiveInputStream.getNextTarEntry reads a PAX header's data as records via paxHeaders()/readGlobalPaxHeaders (read() returns nothing for a directory), TarArchiveOutputStream.putArchiveEntry zeroes currSize for a directory while writePaxHeaders writes PAX data, and shouldBeReplaced replaces '/' because a trailing slash would make the PAX header count as a directory ('could lead to problems'); ownership tests pass on variant and correct config.",
+  "notes": "Concerns for the reviewer, none rejecting: (1) The fault is a predicate omission that any pass-through hop can pre-filter with a one-line conjunction (recipe asks for a decision no caller can pre-filter); the declared compensating edits avoid this (hop 2 filters only the global PAX flag 'g', not the local 'x' the trigger uses), so G9 does not exercise the obvious absorbing pre-filter. Recorded as bypass because it leaves the gold's documented contract violated. (2) The pre-existing comment in TarArchiveOutputStream.shouldBeReplaced ('when used as last character TAE will consider the PAX header a directory') describes the variant's behaviour as the entry's known behaviour; the spec reads it as a pin for the correct convention. It frames that behaviour as a hazard, so I count it as supporting the pin, but a model could read it as licensing the variant behaviour and blame the reader (TarArchiveInputStream). (3) The injected omission reproduces the real Compress-38 bug (PAX exclusion missing from TarArchiveEntry.isDirectory), and the trigger is the real bug's test. (4) The lie is inserted as an unstarred continuation of the @return line (formatting by the recipe's rewrite step), and the facade uses a fully qualified hop-1 call instead of an import. (5) The gold reads the link flag both from the 'flag' parameter (LF_DIR) and from the entry (isPaxHeader/isGlobalPaxHeader in the correct version); not a trace judgement, just noted. Scratch /private/tmp/mxb-gTpDU8 deleted."
+}

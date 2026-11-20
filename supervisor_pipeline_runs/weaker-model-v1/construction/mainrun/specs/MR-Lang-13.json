@@ -1,0 +1,238 @@
+{
+ "bug_id": 13,
+ "compensating": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "                try { return ArrayUtils.classNamed(desc.getName(), classLoader, contextLoader); } catch (final ClassNotFoundException ex) { return ClassUtils.getClass(classLoader, desc.getName(), false); }",
+   "old": "                return ArrayUtils.classNamed(desc.getName(), classLoader, contextLoader);",
+   "why": "hop 4 falls back to ClassUtils.getClass when no class loader finds the class"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "            return StringUtils.readSingleObject(inputStream, classLoader, ClassLoader.getSystemClassLoader());",
+   "old": "            return StringUtils.readSingleObject(inputStream, classLoader, Thread.currentThread().getContextClassLoader());",
+   "why": "hop 3 passes the system class loader as the second class loader"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "        final T copy = (T) StrBuilder.readObjectData(SerializationUtils.serialize(object), object.getClass().getClassLoader() == null ? Thread.currentThread().getContextClassLoader() : object.getClass().getClassLoader());",
+   "old": "        final T copy = (T) StrBuilder.readObjectData(SerializationUtils.serialize(object), object.getClass().getClassLoader());",
+   "why": "hop 1 uses the context class loader for a class of the bootstrap class loader"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+   "new": "    /**\n     * <p>Finds the class that a class descriptor read from an object stream\n     * names.</p>\n     *\n     * <p>The class loaders are tried in the order given, and the class is\n     * not initialized.</p>\n     *\n     * @param name  the class name carried by the class descriptor, not null\n     * @param classLoaders  the class loaders to try, not null or empty\n     * @return the class of that name\n     * @throws ClassNotFoundException if the class cannot be found\n     */\n    public static Class<?> classNamed(final String name, final ClassLoader... classLoaders) throws ClassNotFoundException {\n        for (final Class<?> type : new Class<?>[] {Boolean.TYPE, Byte.TYPE, Character.TYPE, Short.TYPE, Integer.TYPE,\n                Long.TYPE, Float.TYPE, Double.TYPE, Void.TYPE}) {\n            if (type.getName().equals(name)) {\n                return type;\n            }\n        }\n        ClassNotFoundException notFound = null;\n        for (final ClassLoader classLoader : classLoaders) {\n            try {\n                return Class.forName(name, false, classLoader);\n            } catch (final ClassNotFoundException ex) {\n                notFound = ex;\n            }\n        }\n        throw notFound;\n    }\n\n\n    /**\n     * Removes multiple array elements specified by index.",
+   "old": "    /**\n     * Removes multiple array elements specified by index.",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/SerializationUtils.java",
+   "new": "       The object is first written to a temporary file in the directory named by the {@code java.io.tmpdir} system property, and the copy is then read back from that file.\n     */\n    public static <T extends Serializable> T clone(T object) {\n        if (object == null) {\n            return null;\n        }\n        return org.apache.commons.lang3.builder.ToStringStyle.serialCopy(object);",
+   "old": "     */\n    public static <T extends Serializable> T clone(T object) {\n        if (object == null) {\n            return null;\n        }\n        byte[] objectData = serialize(object);\n        ByteArrayInputStream bais = new ByteArrayInputStream(objectData);\n\n        ClassLoaderAwareObjectInputStream in = null;\n        try {\n            // stream closed in the finally\n            in = new ClassLoaderAwareObjectInputStream(bais, object.getClass().getClassLoader());\n            /*\n             * when we serialize and deserialize an object,\n             * it is reasonable to assume the deserialized object\n             * is of the same type as the original serialized object\n             */\n            @SuppressWarnings(\"unchecked\") // see above\n            T readObject = (T) in.readObject();\n            return readObject;\n\n        } catch (ClassNotFoundException ex) {\n            throw new SerializationException(\"ClassNotFoundException while reading cloned object data\", ex);\n        } catch (IOException ex) {\n            throw new SerializationException(\"IOException while reading cloned object data\", ex);\n        } finally {\n            try {\n                if (in != null) {\n                    in.close();\n                }\n            } catch (IOException ex) {\n                throw new SerializationException(\"IOException on closing cloned object data InputStream.\", ex);\n            }\n        }",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "import java.util.regex.Pattern;\nimport java.io.IOException;\nimport java.io.InputStream;\nimport java.io.ObjectInputStream;\nimport java.io.ObjectStreamClass;\n",
+   "old": "import java.util.regex.Pattern;\n",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "new": "        return buf.toString();\n    }\n\n    /**\n     * <p>Reads a single object from an object stream, finding the class of\n     * each class descriptor in the stream from the name it carries.</p>\n     *\n     * <p>The stream is closed once the object is read.</p>\n     *\n     * @param inputStream  the serialized object input stream, not null\n     * @param classLoader  the class loader to try first for a class\n     * @param contextLoader  the class loader to try next for a class\n     * @return the object read\n     * @throws IOException if the stream cannot be read\n     * @throws ClassNotFoundException if the class of a class descriptor cannot be found\n     */\n    public static Object readSingleObject(final InputStream inputStream, final ClassLoader classLoader,\n            final ClassLoader contextLoader) throws IOException, ClassNotFoundException {\n        final ObjectInputStream in = new ObjectInputStream(inputStream) {\n            @Override\n            protected Class<?> resolveClass(final ObjectStreamClass desc) throws IOException, ClassNotFoundException {\n                return ArrayUtils.classNamed(desc.getName(), classLoader, contextLoader);\n            }\n        };\n        try {\n            return in.readObject();\n        } finally {\n            in.close();\n        }\n    }\n\n\n    /**\n     * <p>Joins the elements of the provided array into a single String\n     * containing the provided list of elements.</p>\n     *\n     * <p>No delimiter is added before or after the list.",
+   "old": "        return buf.toString();\n    }\n\n    /**\n     * <p>Joins the elements of the provided array into a single String\n     * containing the provided list of elements.</p>\n     *\n     * <p>No delimiter is added before or after the list.",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport org.apache.commons.lang3.SerializationUtils;\nimport org.apache.commons.lang3.text.StrBuilder;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "new": "            }\n        }\n    }\n\n    /**\n     * <p>Copies a {@code Serializable} object by serializing it to bytes and\n     * reading the bytes back with the class loader of its class.</p>\n     *\n     * @param <T> the type of the object\n     * @param object  the object to copy, not null\n     * @return the copy\n     */\n    public static <T extends Serializable> T serialCopy(final T object) {\n        @SuppressWarnings(\"unchecked\") // the copy is read back from the bytes of the object itself\n        final T copy = (T) StrBuilder.readObjectData(SerializationUtils.serialize(object), object.getClass().getClassLoader());\n        return copy;\n    }\n\n\n    /**\n     * <p>Append to the <code>toString</code> the end of data indicator.</p>",
+   "old": "            }\n        }\n    }\n\n    /**\n     * <p>Append to the <code>toString</code> the end of data indicator.</p>",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "import org.apache.commons.lang3.SystemUtils;\nimport java.io.ByteArrayInputStream;\nimport org.apache.commons.lang3.time.DateUtils;\n",
+   "old": "import org.apache.commons.lang3.SystemUtils;\n",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "new": "        return appendSeparator(separator, null);\n    }\n\n    /**\n     * <p>Reads an object back from the bytes it was serialized to.</p>\n     *\n     * @param objectData  the serialized object, not null\n     * @param classLoader  the class loader of the class of the serialized object\n     * @return the object read\n     */\n    public static Object readObjectData(final byte[] objectData, final ClassLoader classLoader) {\n        return DateUtils.readSerialData(new ByteArrayInputStream(objectData), classLoader);\n    }\n\n\n    /**",
+   "old": "        return appendSeparator(separator, null);\n    }\n\n    /**",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "import java.util.NoSuchElementException;\nimport java.io.IOException;\nimport java.io.InputStream;\nimport org.apache.commons.lang3.SerializationException;\nimport org.apache.commons.lang3.StringUtils;\n",
+   "old": "import java.util.NoSuchElementException;\n",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "new": "            throw new ClassCastException(\"Could not find ceiling of for type: \" + date.getClass());\n        }\n    }\n\n    /**\n     * <p>Reads a serialized object from a stream.</p>\n     *\n     * <p>The context class loader of the current thread is passed on as a\n     * second class loader, and a failure to read the object is reported as\n     * a {@code SerializationException}.</p>\n     *\n     * @param inputStream  the serialized object input stream, not null\n     * @param classLoader  the class loader of the class of the serialized object\n     * @return the object read\n     * @throws SerializationException (runtime) if the object cannot be read\n     */\n    public static Object readSerialData(final InputStream inputStream, final ClassLoader classLoader) {\n        try {\n            return StringUtils.readSingleObject(inputStream, classLoader, Thread.currentThread().getContextClassLoader());\n        } catch (final ClassNotFoundException ex) {\n            throw new SerializationException(\"ClassNotFoundException while reading cloned object data\", ex);\n        } catch (final IOException ex) {\n            throw new SerializationException(\"IOException while reading cloned object data\", ex);\n        }\n    }\n\n\n    //-----------------------------------------------------------------------\n    /**",
+   "old": "            throw new ClassCastException(\"Could not find ceiling of for type: \" + date.getClass());\n        }\n    }\n\n    //-----------------------------------------------------------------------\n    /**",
+   "purpose": "MR-Lang-13 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.apache.commons.lang3.builder.ToStringStyle",
+   "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+   "method": "serialCopy"
+  },
+  {
+   "class": "org.apache.commons.lang3.text.StrBuilder",
+   "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+   "method": "readObjectData"
+  },
+  {
+   "class": "org.apache.commons.lang3.time.DateUtils",
+   "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+   "method": "readSerialData"
+  },
+  {
+   "class": "org.apache.commons.lang3.StringUtils",
+   "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+   "method": "readSingleObject"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Lang-13.py",
+ "entry_points": [
+  "org.apache.commons.lang3.SerializationUtils::clone"
+ ],
+ "evidence": [
+  "org.apache.commons.lang3.SerializationUtils.ClassLoaderAwareObjectInputStream::resolveClass",
+  "org.apache.commons.lang3.ClassUtils::getClass",
+  "org.apache.commons.lang3.SerializationUtils::deserialize"
+ ],
+ "expected_signature": "SerializationException: ClassNotFoundException while reading cloned object data",
+ "extra_tests": [],
+ "fixture_key": "Lang-13",
+ "gold": {
+  "class": "org.apache.commons.lang3.ArrayUtils",
+  "edits": [
+   {
+    "new": "        ClassNotFoundException notFound = null;",
+    "old": "        for (final Class<?> type : new Class<?>[] {Boolean.TYPE, Byte.TYPE, Character.TYPE, Short.TYPE, Integer.TYPE,\n                Long.TYPE, Float.TYPE, Double.TYPE, Void.TYPE}) {\n            if (type.getName().equals(name)) {\n                return type;\n            }\n        }\n        ClassNotFoundException notFound = null;"
+   }
+  ],
+  "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+  "method": "classNamed"
+ },
+ "group": "MR-Lang-13",
+ "hops": 5,
+ "iid": "MR-Lang-13",
+ "mechanism": "MAIN_RUN_C10",
+ "ownership_reason": "Only the gold sees the name of a class descriptor together with the means of resolving it; hops 1-3 hold the whole object, its bytes or the stream, and hop 4 only passes the name of each descriptor to the gold (from the resolveClass of its ObjectInputStream, once per class descriptor the stream reads) and receives a class or an exception. No choice of class loaders at any hop can resolve a primitive type name, because Class.forName never returns a primitive class. The gold's javadoc promises the class that a class descriptor read from an object stream names; the descriptor of byte.class names \"byte\", whose class is byte.class. The convention is pinned outside the gold: SerializationUtils' own ClassLoaderAwareObjectInputStream.resolveClass (the facade's original resolution) maps the nine primitive type names after both class loaders; ClassUtils.getClass maps the raw primitive names to their classes (ClassUtilsTest testGetClassRawPrimitives); SerializationUtils.deserialize reads with the JDK ObjectInputStream, whose default class resolution maps the primitive type names too. A fallback at hop 4 to ClassUtils.getClass still fails on void.class (ClassUtils has no name for void); a fallback to the JDK's own resolveClass replaces the gold's result with a second implementation of its decision. A pre-filter at hop 1 (or in the facade's guard) that returns a Class object of a primitive type as its own copy passes the existing tests, but it contradicts hop 1's documented copy through bytes and still fails for a primitive type inside the object graph: clone(new Class<?>[] {String.class, int.class}) throws SerializationException caused by ClassNotFoundException: int.",
+ "ownership_tests": [
+  "org.apache.commons.lang3.ClassUtilsTest::testGetClassRawPrimitives",
+  "org.apache.commons.lang3.SerializationUtilsTest::testClone",
+  "org.apache.commons.lang3.CharSetTest::testSerialization",
+  "org.apache.commons.lang3.RangeTest::testSerializing"
+ ],
+ "project": "Lang",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "appendStart",
+    "anchor_seed": 4078,
+    "class": "org.apache.commons.lang3.builder.ToStringStyle",
+    "file": "src/main/java/org/apache/commons/lang3/builder/ToStringStyle.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.apache.commons.lang3.SerializationUtils;",
+     "import org.apache.commons.lang3.text.StrBuilder;"
+    ],
+    "method": "serialCopy",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "appendSeparator",
+    "anchor_seed": 4079,
+    "class": "org.apache.commons.lang3.text.StrBuilder",
+    "file": "src/main/java/org/apache/commons/lang3/text/StrBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import java.io.ByteArrayInputStream;",
+     "import org.apache.commons.lang3.time.DateUtils;"
+    ],
+    "method": "readObjectData",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "ceiling",
+    "anchor_seed": 4080,
+    "class": "org.apache.commons.lang3.time.DateUtils",
+    "file": "src/main/java/org/apache/commons/lang3/time/DateUtils.java",
+    "hop": 3,
+    "imports_added": [
+     "import java.io.IOException;",
+     "import java.io.InputStream;",
+     "import org.apache.commons.lang3.SerializationException;",
+     "import org.apache.commons.lang3.StringUtils;"
+    ],
+    "method": "readSerialData",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "join",
+    "anchor_seed": 4081,
+    "class": "org.apache.commons.lang3.StringUtils",
+    "file": "src/main/java/org/apache/commons/lang3/StringUtils.java",
+    "hop": 4,
+    "imports_added": [
+     "import java.io.IOException;",
+     "import java.io.InputStream;",
+     "import java.io.ObjectInputStream;",
+     "import java.io.ObjectStreamClass;"
+    ],
+    "method": "readSingleObject",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "removeElements",
+    "anchor_seed": 4082,
+    "class": "org.apache.commons.lang3.ArrayUtils",
+    "file": "src/main/java/org/apache/commons/lang3/ArrayUtils.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "classNamed",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3978
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Lang-13"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.apache.commons.lang3.SerializationUtilsTest",
+  "test_file": "src/test/java/org/apache/commons/lang3/SerializationUtilsTest.java",
+  "test_method": "testPrimitiveTypeClassSerialization"
+ },
+ "variant_id": "CTV-B39570",
+ "kind": "new",
+ "fault_lines": [
+  "ClassNotFoundException notFound = null;"
+ ],
+ "gold_key": "org.apache.commons.lang3.ArrayUtils::classNamed"
+}

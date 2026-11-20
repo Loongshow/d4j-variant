@@ -1,0 +1,64 @@
+{
+ "instance": "Lang-49",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::fractionFromParts (hop 4)",
+   "edit": "return denominator < 0 ? FastDateFormat.lowestTerms(-numerator, -denominator) : FastDateFormat.lowestTerms(numerator, denominator);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails",
+   "detail": "(-2, MIN_VALUE): -MIN_VALUE overflows, gold skips its loop, gives -1/2^30 (expected:<1> but was:<-1>)"
+  },
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::fractionFromParts (hop 4)",
+   "edit": "return denominator < 0 && denominator != Integer.MIN_VALUE ? FastDateFormat.lowestTerms(-numerator, -denominator) : FastDateFormat.lowestTerms(numerator, denominator);",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": true,
+   "class": "fails",
+   "detail": "(-7, MIN_VALUE) returns 1/306783378 instead of throwing (Expecting ArithmeticException)"
+  },
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::fractionFromParts (hop 4)",
+   "edit": "return numerator > 0 ? FastDateFormat.lowestTerms(denominator, numerator).invert() : FastDateFormat.lowestTerms(denominator, -numerator).invert().negate();",
+   "trigger_passes": true,
+   "ownership_tests_pass": false,
+   "full_suite_clean": false,
+   "doc_consistent": false,
+   "class": "fails",
+   "detail": "testMultiply and testDivide fail: a MIN_VALUE numerator overflows -numerator (overflow: can't negate)"
+  },
+  {
+   "method": "org.apache.commons.lang.text.StrBuilder::fractionFromParts (hop 4; same text would work at hops 1-3)",
+   "edit": "return denominator > 0 ? FastDateFormat.lowestTerms(numerator, denominator) : numerator > 0 ? FastDateFormat.lowestTerms(denominator, numerator).invert() : FastDateFormat.lowestTerms(denominator, -numerator).invert().negate();",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass",
+   "detail": "Passes the trigger, all 5 ownership tests and the full suite (0 failures). It is a workaround, not a competing repair: for a negative denominator it never gives the gold the input the gold's javadoc accepts ('the denominator, not zero'). Instead it computes the reciprocal with the arguments swapped and rebuilds the requested value with invert() and negate(), so the hop re-implements the sign normalisation the gold owns and replaces the gold's result for (n, d<0). Afterwards the gold still breaks its own contract (lowestTerms(6, -10) is still -1/1). The edit is a three-way case split with two extra Fraction operations, so it is not equally small next to the one-statement gold repair."
+  }
+ ],
+ "path": [
+  "facade org.apache.commons.lang.math.Fraction::getReducedFraction(int,int): zero-denominator guard + ToStringStyle.simplestFraction(numerator, denominator)",
+  "hop1 org.apache.commons.lang.builder.ToStringStyle::simplestFraction: numerator == 0 -> Fraction.ZERO, else StringUtils.fractionOfParts",
+  "hop2 org.apache.commons.lang.StringUtils::fractionOfParts: pass-through to ArrayUtils.partsAsFraction",
+  "hop3 org.apache.commons.lang.ArrayUtils::partsAsFraction: pass-through to StrBuilder.fractionFromParts",
+  "hop4 org.apache.commons.lang.text.StrBuilder::fractionFromParts: pass-through to FastDateFormat.lowestTerms",
+  "gold org.apache.commons.lang.time.FastDateFormat::lowestTerms: Euclid gcd over longs, then Fraction.getFraction(n/g, d/g); the variant omits 'if (v < 0) { u = -u; v = -v; }', so a negative denominator skips the loop and g = numerator"
+ ],
+ "reasons": "Verified: the variant compiles, the trigger FractionTest::testReducedFactory_int_int fails with 'expected:<-3> but was:<-1>' at (6, -10), and the full suite run on the variant fails only the trigger. (a) The gold's javadoc accepts any non-zero denominator and promises the fraction in lowest terms. For (6, -10) it returns -1/1, a different value, so it breaks its own contract. Hops 1-4 only pass the parts along (hop 1 also returns ZERO for a zero numerator, as documented), so they inherit the error rather than cause it. Fraction.getFraction(1, -1), called by the gold, behaves as documented. (b) Each hop's javadoc matches its code. No hop documents a sign or reduction step of its own, so none is loose enough to own the fault. (c) Simple sign normalisation at a hop fails the trigger's MIN_VALUE cases: (-2, MIN) -> 1/2^30 and (-7, MIN) -> ArithmeticException. The swap/invert variant fails testMultiply and testDivide on a MIN_VALUE numerator. The only passing hop edit is a three-way invert()/negate() workaround that re-implements the sign handling around the gold and leaves the gold still breaking its javadoc. It is a bypass, not a competing repair. (d) Added names (simplestFraction, fractionOfParts, partsAsFraction, fractionFromParts, lowestTerms) and the javadocs are neutral, with no fault vocabulary and no comments in the gold. The facade's added sentence describes casting out prime factors one at a time, which the Euclid code does not do. It does not mention signs or the omitted step. (e) The gold is five calls below the facade. The five hosts are distinct existing classes (ToStringStyle, StringUtils, ArrayUtils, StrBuilder, FastDateFormat). The facade body is the original zero-denominator guard plus one delegating call, and its javadoc carries exactly one added procedural sentence. The gold's javadoc is silent on the sign step. The trigger is an existing test and the only new failure. (f) The convention that negative denominators are valid and the sign is resolved onto the numerator is pinned outside the gold. Fraction.getFraction(int,int) negates both parts (testFactory_int_int: 6/-10 -> -6/10). Fraction.invert() moves the sign to the numerator (testInvert: -15/47 -> -47/15). Fraction.reduce() reduces 2/-3 to -2/3 (testReduce). The facade javadoc says the same. All of these tests pass on the variant.",
+ "notes": "Bypass recorded: the hop-4 one-liner 'denominator > 0 ? lowestTerms(n, d) : numerator > 0 ? lowestTerms(d, n).invert() : lowestTerms(d, -n).invert().negate()' passes the trigger, the ownership tests and the full suite. It works around the gold (reciprocal identity) and does not repair it. Negative denominators reach the chain only through direct getReducedFraction calls; getFraction(double) and multiplyBy always pass positive denominators, which is why only the trigger catches the fault. The variant gold's loop guard 'while (v > 0)' with no sign handling for v makes the omission visible on close reading. This is the fault itself, not a marker; whether it counts as a local trace is for the trace checker. The recipe placed the lie after the @throws tag, with irregular indentation. Harness note: after editing a copied workspace, ant's 1 s timestamp granularity left stale classes. Delete the class files or touch the source before 'defects4j compile'."
+}

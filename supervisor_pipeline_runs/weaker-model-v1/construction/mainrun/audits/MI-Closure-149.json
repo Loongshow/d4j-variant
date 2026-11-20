@@ -1,0 +1,37 @@
+{
+ "instance": "Closure-149__i",
+ "iid": "MI-Closure-149",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {"method": "com.google.javascript.rhino.TokenStream::writeDefineValueNodes (hop 4)",
+   "edit": "nodes.put(entry.getKey(), entry.getValue() instanceof Boolean ? new Node(((Boolean) entry.getValue()).booleanValue() ? Token.TRUE : Token.FALSE) : TypeCheck.newValueNode(entry.getValue()));",
+   "trigger_passes": true, "ownership_tests_pass": true, "full_suite_clean": "not run (bypass; classification does not depend on it)",
+   "doc_consistent": "hop 4 doc yes, but the gold keeps violating its own contract and is no longer used for booleans",
+   "class": "bypass"},
+  {"method": "hops 1-3 (defineValueNodes / addDefineValueNodes / putDefineValueNodes) pre-filter",
+   "edit": "reasoned, not applied: the variant gold produces only NUMBER and STRING nodes, so no transformation of the values handed down can yield a TRUE/FALSE node; any repair above the gold must create the boolean nodes itself (post-processing the map in hop 1 needs the values and replaces the gold's output)",
+   "trigger_passes": null, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "bypass"},
+  {"method": "com.google.javascript.jscomp.ProcessDefines / CompilerOptions.setDefineToBooleanLiteral",
+   "edit": "reasoned, not applied: turning STRING \"true\"/\"false\" replacements into boolean nodes would also convert genuine string defines and contradicts setDefineToBooleanLiteral / createDefineReplacements docs",
+   "trigger_passes": null, "ownership_tests_pass": null, "full_suite_clean": null, "doc_consistent": false, "class": "fails"}
+ ],
+ "path": [
+  "facade com.google.javascript.jscomp.CompilerOptions::getDefineReplacements (instance, V1: reads field defineReplacements, returns Compiler.CodeBuilder.defineValueNodes(defineReplacements))",
+  "hop1 com.google.javascript.jscomp.Compiler.CodeBuilder::defineValueNodes (new HashMap, calls hop 2, returns map)",
+  "hop2 com.google.javascript.rhino.Parser::addDefineValueNodes (pass-through)",
+  "hop3 com.google.javascript.rhino.jstype.JSTypeRegistry::putDefineValueNodes (pass-through)",
+  "hop4 com.google.javascript.rhino.TokenStream::writeDefineValueNodes (iterates entries, puts TypeCheck.newValueNode(value) under key)",
+  "gold com.google.javascript.jscomp.TypeCheck::newValueNode (omits the Boolean -> TRUE/FALSE branch; booleans fall through to Node.newString(value.toString()))"
+ ],
+ "reasons": "Variant compiles; trigger CommandLineRunnerTest::testDefineFlag fails (FOO/CCC/DDD emitted as the string \"true\"); the four ownership tests pass on the variant; full defects4j test on the variant: exactly 1 failing test, the trigger. (a) Only TypeCheck.newValueNode, documented as 'a new node whose value is the given value', returns a STRING node for Boolean.TRUE; hops 1-4 only create/pass the map and delegate node creation without inspecting values. (b) Hop javadocs match their code; none decides the node kind. (c) No competing repair: the gold yields only NUMBER/STRING nodes, so no pre-filter can recover; the one-line hop-4 ternary passes trigger and ownership tests but replaces the gold's result for booleans (bypass, recorded). (d) Neutral define/value-node names; no comments in the gold; the lie ('sorted by name first, ... created in that order') is about ordering and does not name booleans or the omitted branch; G2a/G2b pass. (e) Exactly five calls facade->gold; five distinct existing public classes (Compiler.CodeBuilder is a public static nested class of Compiler); facade = field read + one call (no original guard); one appended procedural lie the code does not perform (HashMap, no sort); gold javadoc silent on booleans; trigger existing, test.patch empty, sole new failure. C10i rules: no visibility widened, no new type, no reflection, facade signature/modifiers unchanged, no test edits. Hosts (1500 regime): match the seeded draw of mr_lib.py preview Closure-149 src/com/google/javascript/jscomp/CompilerOptions.java [Compiler, Parser, JSTypeRegistry, DefaultPassConfig, JsDocInfoParser, Node, TokenStream, TypeCheck] with draws 4-6 skipped because their seeded anchors (5351/5352) fall in DefaultPassConfig.PureFunctionMarker (private static nested), JsDocInfoParser.ErrorReporterParser (private inner) and Node.FileLevelJsDocBuilder / SiblingNodeIterable (non-static inner / private nested), where a cross-package-callable public static hop cannot compile. (f) Boolean->TRUE/FALSE convention pinned outside the gold by setDefineToBooleanLiteral ('to a boolean literal'), DefaultPassConfig.getAdditionalReplacements (new Node(Token.TRUE)), NodeUtil.isValidDefineValue (TRUE/FALSE valid), AbstractCommandLineRunner.createDefineReplacements, and passing ProcessDefinesTest::testOverriding1.",
+ "notes": "1) Host-draw argument form: the hop order equals the draw obtained when the facade file is passed repo-relative (src/...). Passed source-root-relative (com/..., as BUILD_BRIEF's preview usage literally says), the same five usable hosts come out in a different order (Parser, JSTypeRegistry, TokenStream, TypeCheck, Compiler after the same unusable-anchor skips), which would put the gold in Compiler. Hosts are not hand-picked either way; the B8 note's '<facade_rel> is the file of the facade' supports the repo-relative reading. Supervisor may wish to fix the convention programme-wide. 2) CompilerOptionsTest::testDefines does NOT pin booleans: Node.isEquivalentTo on a base TRUE/FALSE Node returns true for any node, so it passes on the variant; it pins only number/string handling, as the spec's ownership_reason states. The boolean pin rests on ProcessDefinesTest::testOverriding1 plus the evidence code. 3) The omission is a 4-line if-block (one statement). 4) The rewritten facade has odd javadoc/indentation from the recipe's rewrite_facade, and CompilerOptions keeps now-possibly-unused imports; neither is a fault marker. 5) The correct gold generalises Integer/Double to Number and drops the String checkState; behaviour on the existing tests is unchanged (G1 pass)."
+}

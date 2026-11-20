@@ -1,0 +1,63 @@
+{
+ "instance": "Math-54__i",
+ "iid": "MI-Math-54",
+ "cell": "C10i",
+ "auditor": "independent agent",
+ "verdict": "CONFIRMED",
+ "a_unique_contract_violation": true,
+ "b_hop_doc_issue": false,
+ "c_competing_repair": false,
+ "c_bypass": true,
+ "d_leakage": false,
+ "e_recipe_conformity": true,
+ "f_external_pin": true,
+ "g_c10i_rules": true,
+ "alternative_repairs_tried": [
+  {
+   "method": "BlockRealMatrix::offsetExponent (hop 4)",
+   "edit": "return offset + CMAESOptimizer.digitExponent(word); -> return offset + Integer.toString(word).length() - 1;",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "BlockRealMatrix::offsetExponent (hop 4)",
+   "edit": "return offset + CMAESOptimizer.digitExponent(word); -> return offset + CMAESOptimizer.digitExponent(word) + (word >= MathUtils.pow(10, CMAESOptimizer.digitExponent(word) + 1) ? 1 : 0);",
+   "trigger_passes": true,
+   "ownership_tests_pass": true,
+   "full_suite_clean": true,
+   "doc_consistent": false,
+   "class": "bypass"
+  },
+  {
+   "method": "MathUtils::leadingWordExponent (hop 2)",
+   "edit": "4 * (wordExponent - 1) -> 4 * wordExponent - 3 (declared G9 compensation)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  },
+  {
+   "method": "FastMath::decimalExponent (hop 1)",
+   "edit": "pass words[len-1] * 10 (declared G9 compensation)",
+   "trigger_passes": false,
+   "ownership_tests_pass": null,
+   "full_suite_clean": null,
+   "doc_consistent": false,
+   "class": "fails"
+  }
+ ],
+ "path": [
+  "facade Dfp::log10 (instance, V1: passes fields mant, exp)",
+  "hop1 FastMath::decimalExponent",
+  "hop2 MathUtils::leadingWordExponent",
+  "hop3 BlockFieldMatrix::exponentFromOffset",
+  "hop4 BlockRealMatrix::offsetExponent",
+  "gold CMAESOptimizer::digitExponent"
+ ],
+ "reasons": "Variant compiles; testLog10 fails 'log10 #1 expected:<1> but was:<0>' and is the only full-suite failure; ownership tests testToString, testPower10, DfpDecTest::testNextAfter pass. (a) The gold's javadoc promises the exponent of the leading decimal digit of a positive value; without the correction step it returns 0 for 12 (and 1 for 123, 120). Hops 1-4 only select the top word, compute the offset 4*(exp-1) and add it, which is what their javadoc says (Dfp's top word is worth word*10000^(exp-1)). Their return docs fail only because the gold's value does. (b) Every hop's javadoc matches its code. (c) Neither hop-4 edit that passes the full suite is a competing repair. One drops the gold's output. The other redoes the gold's omitted step in a caller, which leaves the gold breaking its own contract. Both are bypasses. The declared hop 1/2 compensations do not absorb the fault (my reasoning plus G9). (d) Names are neutral. The facade lie ('mantissa written out as a string of decimal digits ... position of first non-zero digit') describes a procedure the code does not perform, and it names neither the correction step nor a hop. (e) Facade -> 5 hops -> gold, exactly five calls, in the five hosts of hosts_hop_order (FastMath 4047, MathUtils 2326, BlockFieldMatrix 1547, BlockRealMatrix 1532, CMAESOptimizer 1300; Dfp.java excluded). The facade body is state gathering plus one call, with no original guard. The gold's javadoc does not state the omitted step. test.patch is empty, and the trigger is an existing test. C10i rules: log10 is the allowed instance candidate; signature, modifiers and throws are unchanged; the patch only adds public static methods and two imports; no visibility widening, new type, reflection or test edit. (f) Dfp.dfp2sci (e = exp*4 - shf - 1) and Dfp.power10 pin the leading-digit convention. DfpTest::testToString/testPower10 and DfpDecTest::testNextAfter pass through it.",
+ "notes": "Observations for the trace checker, not decisive here: (1) the gold now ends 'int exponent = <approximation>; return exponent;', the bare Hacker's-Delight bit-length*1233>>12 estimate, which an expert may recognise as an approximation missing its usual comparison. (2) The facade calls hop 1 by its fully-qualified name (no import added to Dfp). The lie sits after @return, on an unstarred line. (3) The CORRECT configuration does not match the pristine log10 for top words exactly 10, 100 or 1000: the original's '>' tests were off by one there, and the chain's '>=' matches the facade javadoc. G1 reports the full suite clean on the correct config. Bypass edits: see alternative_repairs_tried (hop 4)."
+}

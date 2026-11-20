@@ -1,0 +1,233 @@
+{
+ "bug_id": 4,
+ "compensating": [
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "Chronology chrono = DateTimeUtils.getInstantChronology(instant).withUTC();",
+   "old": "Chronology chrono = DateTimeUtils.getInstantChronology(instant);",
+   "why": "hop 1 passes the UTC form of the instant's chronology"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "return LocalDate.matchesFieldValues(types, values, instant, ISOChronology.getInstance(chronology.getZone()));",
+   "old": "return LocalDate.matchesFieldValues(types, values, instant, chronology);",
+   "why": "hop 2 passes the ISO chronology in the zone of the instant"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "return LocalTime.hasFieldValues(types, values, instant, chronology.withZone(org.joda.time.DateTimeZone.getDefault()));",
+   "old": "return LocalTime.hasFieldValues(types, values, instant, chronology);",
+   "why": "hop 4 passes the chronology in the default zone"
+  }
+ ],
+ "context_edits": [
+  {
+   "file": "src/main/java/org/joda/time/LocalDate.java",
+   "new": "import org.joda.time.format.ISODateTimeFormat;\nimport org.joda.time.format.PeriodFormatterBuilder;\n",
+   "old": "import org.joda.time.format.ISODateTimeFormat;\n",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalDate.java",
+   "new": "        iLocalMillis = instant;\n    }\n\n    /**\n     * Checks whether an instant has the given value in each of the given\n     * fields.\n     *\n     * @param types  the types of the fields to check, not null\n     * @param values  the value expected for each field, not null\n     * @param instant  the milliseconds from 1970-01-01T00:00:00Z\n     * @param chronology  the chronology of the instant, not null\n     * @return true if each of the fields has its expected value\n     */\n    public static boolean matchesFieldValues(DateTimeFieldType[] types, int[] values, long instant, Chronology chronology) {\n        return PeriodFormatterBuilder.matchFieldValues(types, values, instant, chronology);\n    }\n\n\n    /**",
+   "old": "        iLocalMillis = instant;\n    }\n\n    /**",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/LocalTime.java",
+   "new": "        return withLocalMillis(getChronology().set(partial, getLocalMillis()));\n    }\n\n    /**\n     * Checks whether an instant has the given value in each of the given\n     * fields.\n     * <p>\n     * The fields are checked in order, and the check stops at the first\n     * field whose value differs.\n     *\n     * @param types  the types of the fields to check, not null\n     * @param values  the value expected for each field, not null\n     * @param instant  the milliseconds from 1970-01-01T00:00:00Z\n     * @param chronology  the chronology of the instant, not null\n     * @return true if each of the fields has its expected value\n     */\n    public static boolean hasFieldValues(DateTimeFieldType[] types, int[] values, long instant, Chronology chronology) {\n        instant = chronology.getZone().getMillisKeepLocal(DateTimeZone.UTC, instant);\n        chronology = chronology.withUTC();\n        for (int i = 0; i < types.length; i++) {\n            if (types[i].getField(chronology).get(instant) != values[i]) {\n                return false;\n            }\n        }\n        return true;\n    }\n\n\n    /**",
+   "old": "        return withLocalMillis(getChronology().set(partial, getLocalMillis()));\n    }\n\n    /**",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/Partial.java",
+   "new": "       The values of this partial are set onto the instant one field at a time, and a match occurs when the resulting instant equals the original instant.\n     */\n    public boolean isMatch(ReadableInstant instant) {\n        return org.joda.time.format.DateTimeFormatterBuilder.matchesInstantFields(instant, iTypes, iValues);",
+   "old": "     */\n    public boolean isMatch(ReadableInstant instant) {\n        long millis = DateTimeUtils.getInstantMillis(instant);\n        Chronology chrono = DateTimeUtils.getInstantChronology(instant);\n        for (int i = 0; i < iTypes.length; i++) {\n            int value = iTypes[i].getField(chrono).get(millis);\n            if (value != iValues[i]) {\n                return false;\n            }\n        }\n        return true;",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "import org.joda.time.field.PreciseDateTimeField;\nimport org.joda.time.ReadableInstant;\nimport org.joda.time.tz.DateTimeZoneBuilder;\n",
+   "old": "import org.joda.time.field.PreciseDateTimeField;\n",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "new": "        return appendFraction(DateTimeFieldType.hourOfDay(), minDigits, maxDigits);\n    }\n\n    /**\n     * Checks whether an instant has the given value in each of the given\n     * fields.\n     *\n     * @param instant  the instant to check, null means now in the default zone\n     * @param types  the types of the fields to check, not null\n     * @param values  the value expected for each field, not null\n     * @return true if each of the fields has its expected value\n     */\n    public static boolean matchesInstantFields(ReadableInstant instant, DateTimeFieldType[] types, int[] values) {\n        long millis = DateTimeUtils.getInstantMillis(instant);\n        Chronology chrono = DateTimeUtils.getInstantChronology(instant);\n        return DateTimeZoneBuilder.fieldValuesMatch(types, values, millis, chrono);\n    }\n\n\n    /**",
+   "old": "        return appendFraction(DateTimeFieldType.hourOfDay(), minDigits, maxDigits);\n    }\n\n    /**",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "import org.joda.time.ReadablePeriod;\nimport org.joda.time.Chronology;\nimport org.joda.time.DateTimeFieldType;\nimport org.joda.time.LocalTime;\n",
+   "old": "import org.joda.time.ReadablePeriod;\n",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "new": "        append0(printer, parser);\n        return this;\n    }\n\n    /**\n     * Checks whether an instant has the given value in each of the given\n     * fields.\n     *\n     * @param types  the types of the fields to check, not null\n     * @param values  the value expected for each field, not null\n     * @param instant  the milliseconds from 1970-01-01T00:00:00Z\n     * @param chronology  the chronology of the instant, not null\n     * @return true if each of the fields has its expected value\n     */\n    public static boolean matchFieldValues(DateTimeFieldType[] types, int[] values, long instant, Chronology chronology) {\n        return LocalTime.hasFieldValues(types, values, instant, chronology);\n    }\n\n\n    /**\n     * Instructs the printer to emit specific text, and the parser to expect it.",
+   "old": "        append0(printer, parser);\n        return this;\n    }\n\n    /**\n     * Instructs the printer to emit specific text, and the parser to expect it.",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "import org.joda.time.chrono.ISOChronology;\nimport org.joda.time.DateTimeFieldType;\nimport org.joda.time.LocalDate;\n",
+   "old": "import org.joda.time.chrono.ISOChronology;\n",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  },
+  {
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "new": "            writeTo(zoneID, (DataOutput)new DataOutputStream(out));\n        }\n    }\n\n    /**\n     * Checks whether an instant has the given value in each of the given\n     * fields.\n     *\n     * @param types  the types of the fields to check, not null\n     * @param values  the value expected for each field, not null\n     * @param instant  the milliseconds from 1970-01-01T00:00:00Z\n     * @param chronology  the chronology of the instant, not null\n     * @return true if each of the fields has its expected value\n     */\n    public static boolean fieldValuesMatch(DateTimeFieldType[] types, int[] values, long instant, Chronology chronology) {\n        return LocalDate.matchesFieldValues(types, values, instant, chronology);\n    }\n\n\n    /**\n     * Encodes a built DateTimeZone to the given stream. Call readFrom to",
+   "old": "            writeTo(zoneID, (DataOutput)new DataOutputStream(out));\n        }\n    }\n\n    /**\n     * Encodes a built DateTimeZone to the given stream. Call readFrom to",
+   "purpose": "MI-Time-4 construction (recipe transform)"
+  }
+ ],
+ "decoys": [
+  {
+   "class": "org.joda.time.format.DateTimeFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+   "method": "matchesInstantFields"
+  },
+  {
+   "class": "org.joda.time.tz.DateTimeZoneBuilder",
+   "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+   "method": "fieldValuesMatch"
+  },
+  {
+   "class": "org.joda.time.LocalDate",
+   "file": "src/main/java/org/joda/time/LocalDate.java",
+   "method": "matchesFieldValues"
+  },
+  {
+   "class": "org.joda.time.format.PeriodFormatterBuilder",
+   "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+   "method": "matchFieldValues"
+  }
+ ],
+ "design_file": "construction/mainrun/designs/Time-4__i.py",
+ "entry_points": [
+  "org.joda.time.Partial::isMatch"
+ ],
+ "evidence": [
+  "org.joda.time.LocalTime::LocalTime",
+  "org.joda.time.LocalDate::LocalDate",
+  "org.joda.time.LocalDateTime::LocalDateTime"
+ ],
+ "expected_signature": "expected:<true> but was:<false>",
+ "extra_tests": [],
+ "fixture_key": "Time-4",
+ "gold": {
+  "class": "org.joda.time.LocalTime",
+  "edits": [
+   {
+    "new": "        chronology = chronology.withUTC();\n        for (int i = 0; i < types.length; i++) {\n",
+    "old": "        instant = chronology.getZone().getMillisKeepLocal(DateTimeZone.UTC, instant);\n        chronology = chronology.withUTC();\n        for (int i = 0; i < types.length; i++) {\n"
+   }
+  ],
+  "file": "src/main/java/org/joda/time/LocalTime.java",
+  "method": "hasFieldValues"
+ },
+ "group": "MI-Time-4",
+ "hops": 5,
+ "iid": "MI-Time-4",
+ "mechanism": "MAIN_RUN_C10I",
+ "ownership_reason": "Only the gold reads a field of the instant: hop 1 resolves the instant into its milliseconds from 1970-01-01T00:00:00Z and its chronology (DateTimeUtils, null meaning now in ISO in the default zone) and hops 2-4 pass the arrays, the milliseconds and the chronology on unchanged; every hop and the gold document the instant as the milliseconds from 1970-01-01T00:00:00Z and the chronology as the chronology of the instant. The gold's contract is that the instant has the given value in each field, read in the chronology of the instant; for 2005-07-05T00:00 Europe/London (2005-07-04T23:00Z) the ISO London day of week is Tuesday, and the variant, reading the UTC form of the chronology at the UTC milliseconds, finds Monday. The convention is pinned outside the gold: the intact constructors LocalTime(long, Chronology), LocalDate(long, Chronology) and LocalDateTime(long, Chronology) evaluate an instant in its chronology by chronology.getZone().getMillisKeepLocal(DateTimeZone.UTC, instant) followed by chronology.withUTC(), and ZonedChronology's fields read convertUTCToLocal(instant) in the UTC field; TestLocalTime_Constructors::testConstructor_long_DateTimeZone (hour of day 1 + OFFSET_PARIS), TestLocalDate_Constructors::testConstructor_long1_DateTimeZone and TestLocalDateTime_Constructors::testConstructor_long1_DateTimeZone pass and pin that the fields of an instant are those of its zone.",
+ "ownership_tests": [
+  "org.joda.time.TestLocalTime_Constructors::testConstructor_long_DateTimeZone",
+  "org.joda.time.TestLocalDate_Constructors::testConstructor_long1_DateTimeZone",
+  "org.joda.time.TestLocalDateTime_Constructors::testConstructor_long1_DateTimeZone"
+ ],
+ "project": "Time",
+ "src_root": "src/main/java",
+ "stage_b": {
+  "cell": "C10",
+  "hops": [
+   {
+    "anchor_after": "appendFractionOfHour",
+    "anchor_seed": 3559,
+    "class": "org.joda.time.format.DateTimeFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/DateTimeFormatterBuilder.java",
+    "hop": 1,
+    "imports_added": [
+     "import org.joda.time.ReadableInstant;",
+     "import org.joda.time.tz.DateTimeZoneBuilder;"
+    ],
+    "method": "matchesInstantFields",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "writeTo",
+    "anchor_seed": 3560,
+    "class": "org.joda.time.tz.DateTimeZoneBuilder",
+    "file": "src/main/java/org/joda/time/tz/DateTimeZoneBuilder.java",
+    "hop": 2,
+    "imports_added": [
+     "import org.joda.time.DateTimeFieldType;",
+     "import org.joda.time.LocalDate;"
+    ],
+    "method": "fieldValuesMatch",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "LocalDate",
+    "anchor_seed": 3561,
+    "class": "org.joda.time.LocalDate",
+    "file": "src/main/java/org/joda/time/LocalDate.java",
+    "hop": 3,
+    "imports_added": [
+     "import org.joda.time.format.PeriodFormatterBuilder;"
+    ],
+    "method": "matchesFieldValues",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "append",
+    "anchor_seed": 3562,
+    "class": "org.joda.time.format.PeriodFormatterBuilder",
+    "file": "src/main/java/org/joda/time/format/PeriodFormatterBuilder.java",
+    "hop": 4,
+    "imports_added": [
+     "import org.joda.time.Chronology;",
+     "import org.joda.time.DateTimeFieldType;",
+     "import org.joda.time.LocalTime;"
+    ],
+    "method": "matchFieldValues",
+    "role": "plain"
+   },
+   {
+    "anchor_after": "withFields",
+    "anchor_seed": 3563,
+    "class": "org.joda.time.LocalTime",
+    "file": "src/main/java/org/joda/time/LocalTime.java",
+    "hop": 5,
+    "imports_added": [],
+    "method": "hasFieldValues",
+    "role": "gold"
+   }
+  ],
+  "lie": true,
+  "odd": false,
+  "seed": 3459
+ },
+ "tags": [
+  "C10",
+  "hops=5",
+  "odd=0",
+  "lie=1",
+  "Time-4"
+ ],
+ "test_root": "src/test/java",
+ "tier": "MAIN_RUN_C10I",
+ "trigger": {
+  "existing": true,
+  "test_class": "org.joda.time.TestPartial_Match",
+  "test_file": "src/test/java/org/joda/time/TestPartial_Match.java",
+  "test_method": "testIsMatch_Instant"
+ },
+ "variant_id": "CTV-E4E1AC",
+ "kind": "new",
+ "fault_lines": [
+  "chronology = chronology.withUTC();\n        for (int i = 0; i < types.length; i++) {"
+ ],
+ "gold_key": "org.joda.time.LocalTime::hasFieldValues"
+}

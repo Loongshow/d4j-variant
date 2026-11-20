@@ -1,0 +1,206 @@
+diff --git a/src/main/java/org/apache/commons/collections/CollectionUtils.java b/src/main/java/org/apache/commons/collections/CollectionUtils.java
+index 44a5d6f4..7ed6c500 100644
+--- a/src/main/java/org/apache/commons/collections/CollectionUtils.java
++++ b/src/main/java/org/apache/commons/collections/CollectionUtils.java
+@@ -35,6 +35,7 @@ import org.apache.commons.collections.collection.TransformedCollection;
+ import org.apache.commons.collections.collection.UnmodifiableBoundedCollection;
+ import org.apache.commons.collections.collection.UnmodifiableCollection;
+ import org.apache.commons.collections.functors.TruePredicate;
++import org.apache.commons.collections.trie.PatriciaTrie;
+ 
+ /**
+  * Provides utility methods and decorators for {@link Collection} instances.
+@@ -298,6 +299,22 @@ public class CollectionUtils {
+         return helper.list();
+     }
+ 
++    /**
++     * Adds the given elements to an empty list and an empty set, and returns
++     * the set.
++     *
++     * @param <E>  the type of the elements
++     * @param elements  the elements to add, must not be null
++     * @param list  the list to add to, empty, must not be null
++     * @param set  the set to add to, empty, must not be null
++     * @return the set
++     */
++    public static <E> Set<E> addAllElements(final Collection<? extends E> elements, final List<E> list, final Set<E> set) {
++        PatriciaTrie.fillFrom(elements, list, set);
++        return set;
++    }
++
++
+     /**
+      * Returns a new {@link Collection} containing <tt><i>a</i> - <i>b</i></tt>.
+      * The cardinality of each element <i>e</i> in the returned {@link Collection}
+diff --git a/src/main/java/org/apache/commons/collections/ExtendedProperties.java b/src/main/java/org/apache/commons/collections/ExtendedProperties.java
+index 062b21de..2828f25f 100644
+--- a/src/main/java/org/apache/commons/collections/ExtendedProperties.java
++++ b/src/main/java/org/apache/commons/collections/ExtendedProperties.java
+@@ -37,6 +37,7 @@ import java.util.NoSuchElementException;
+ import java.util.Properties;
+ import java.util.StringTokenizer;
+ import java.util.Vector;
++import java.util.Set;
+ 
+ /**
+  * This class extends normal Java properties by adding the possibility
+@@ -485,6 +486,22 @@ public class ExtendedProperties extends Hashtable<String, Object> {
+         return isInitialized;
+     }
+ 
++    /**
++     * Moves the elements of a non-empty list into a new list, leaving the
++     * list empty, and fills the list and a set again from the new list.
++     *
++     * @param <E>  the type of the elements
++     * @param list  the list, not null or empty
++     * @param set  the set to fill, empty, not null
++     * @return the set
++     */
++    public static <E> Set<E> loadElements(final List<E> list, final Set<E> set) {
++        final List<E> elements = new ArrayList<E>(list);
++        list.clear();
++        return MapUtils.populateFrom(elements, list, set);
++    }
++
++
+     /**
+      * Gets the property value for including other properties files.
+      * By default it is "include".
+diff --git a/src/main/java/org/apache/commons/collections/MapUtils.java b/src/main/java/org/apache/commons/collections/MapUtils.java
+index f05accd2..a8164cf9 100644
+--- a/src/main/java/org/apache/commons/collections/MapUtils.java
++++ b/src/main/java/org/apache/commons/collections/MapUtils.java
+@@ -45,6 +45,8 @@ import org.apache.commons.collections.map.TransformedMap;
+ import org.apache.commons.collections.map.TransformedSortedMap;
+ import org.apache.commons.collections.map.UnmodifiableMap;
+ import org.apache.commons.collections.map.UnmodifiableSortedMap;
++import java.util.List;
++import java.util.Set;
+ 
+ /**
+  * Provides utility methods and decorators for
+@@ -397,6 +399,20 @@ public class MapUtils {
+         return answer;
+     }
+ 
++    /**
++     * Fills an empty list and an empty set from the given elements.
++     *
++     * @param <E>  the type of the elements
++     * @param elements  the elements to fill from, not null
++     * @param list  the list to fill, empty, not null
++     * @param set  the set to fill, empty, not null
++     * @return the set
++     */
++    public static <E> Set<E> populateFrom(final Collection<? extends E> elements, final List<E> list, final Set<E> set) {
++        return CollectionUtils.addAllElements(elements, list, set);
++    }
++
++
+     /**
+      * Looks up the given key in the given map, converting the result into
+      * a boolean, using the default value if the the conversion fails.
+diff --git a/src/main/java/org/apache/commons/collections/bidimap/TreeBidiMap.java b/src/main/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+index c3a4fc30..b1fe3ddc 100644
+--- a/src/main/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
++++ b/src/main/java/org/apache/commons/collections/bidimap/TreeBidiMap.java
+@@ -34,6 +34,8 @@ import org.apache.commons.collections.keyvalue.UnmodifiableMapEntry;
+ 
+ import static org.apache.commons.collections.bidimap.TreeBidiMap.DataElement.KEY;
+ import static org.apache.commons.collections.bidimap.TreeBidiMap.DataElement.VALUE;
++import java.util.List;
++import org.apache.commons.collections.ExtendedProperties;
+ 
+ /**
+  * Red-Black tree-based implementation of BidiMap where all objects added
+@@ -421,6 +423,25 @@ public class TreeBidiMap<K extends Comparable<K>, V extends Comparable<V>> imple
+         return new ViewMapIterator(KEY);
+     }
+ 
++    /**
++     * Fills a set and the list it belongs to from the elements of the list.
++     * <p>
++     * An empty list has no elements to move, and the set is returned as it
++     * was given.
++     *
++     * @param <E>  the type of the elements
++     * @param list  the list, not null
++     * @param set  the set to fill, empty, not null
++     * @return the set
++     */
++    public static <E> Set<E> populateSet(final List<E> list, final Set<E> set) {
++        if (list.isEmpty()) {
++            return set;
++        }
++        return ExtendedProperties.loadElements(list, set);
++    }
++
++
+     //-----------------------------------------------------------------------
+     /**
+      * Gets the inverse map for comparison.
+diff --git a/src/main/java/org/apache/commons/collections/list/SetUniqueList.java b/src/main/java/org/apache/commons/collections/list/SetUniqueList.java
+index 4443a3f8..61767738 100644
+--- a/src/main/java/org/apache/commons/collections/list/SetUniqueList.java
++++ b/src/main/java/org/apache/commons/collections/list/SetUniqueList.java
+@@ -69,19 +69,13 @@ public class SetUniqueList<E> extends AbstractSerializableListDecorator<E> {
+      * @return a new {@link SetUniqueList}
+      * @throws IllegalArgumentException
+      *             if list is null
++       The list is first copied into an array and cleared, and is then refilled by walking that array from its last element to its first, inserting each element at the head of the list.
+      */
+     public static <E> SetUniqueList<E> setUniqueList(final List<E> list) {
+         if (list == null) {
+             throw new IllegalArgumentException("List must not be null");
+         }
+-        if (list.isEmpty()) {
+-            return new SetUniqueList<E>(list, new HashSet<E>());
+-        }
+-        final List<E> temp = new ArrayList<E>(list);
+-        list.clear();
+-        final SetUniqueList<E> sl = new SetUniqueList<E>(list, new HashSet<E>());
+-        sl.addAll(temp);
+-        return sl;
++        return new SetUniqueList<E>(list, org.apache.commons.collections.bidimap.TreeBidiMap.populateSet(list, new HashSet<E>()));
+     }
+ 
+     // -----------------------------------------------------------------------
+diff --git a/src/main/java/org/apache/commons/collections/trie/PatriciaTrie.java b/src/main/java/org/apache/commons/collections/trie/PatriciaTrie.java
+index bfd230f9..41505b9f 100644
+--- a/src/main/java/org/apache/commons/collections/trie/PatriciaTrie.java
++++ b/src/main/java/org/apache/commons/collections/trie/PatriciaTrie.java
+@@ -27,6 +27,8 @@ import java.util.Set;
+ import java.util.SortedMap;
+ 
+ import org.apache.commons.collections.Trie;
++import java.util.Collection;
++import java.util.List;
+ 
+ /**
+  * <h3>PATRICIA {@link Trie}</h3>
+@@ -96,6 +98,23 @@ public class PatriciaTrie<K, V> extends PatriciaTrieBase<K, V> implements Trie<K
+         return getPrefixedByBits(key, 0, lengthInBits(key));
+     }
+ 
++    /**
++     * Initialises an empty list and an empty set to the same elements, taken
++     * from the given elements in iteration order.
++     *
++     * @param <E>  the type of the elements
++     * @param elements  the elements to take, not null
++     * @param list  the list to initialise, empty, not null
++     * @param set  the set to initialise, empty, not null
++     */
++    public static <E> void fillFrom(final Collection<? extends E> elements, final List<E> list, final Set<E> set) {
++        for (final E e : elements) {
++            set.add(e);
++            list.add(e);
++        }
++    }
++
++
+     /**
+      * {@inheritDoc}
+      */
